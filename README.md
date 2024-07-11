@@ -320,7 +320,7 @@ class Todo {
         // Get parent of the Todo, which is Array<Todo>
         const parent = Retree.parent(this);
         if (!Array.isArray(parent)) return;
-        const index = parent.findIndex((c) => todo.id === c.id);
+        const index = parent.findIndex((c) => this.id === c.id);
         parent.splice(index, 1);
     };
 }
