@@ -28,7 +28,8 @@ import { v4 as uuid } from "uuid";
 
 class Todo {
     readonly id = uuid();
-    constructor(public text: string, public checked: boolean) {}
+    public text = "";
+    public checked = false;
     toggle() {
         this.checked = !this.checked;
     }
@@ -42,7 +43,7 @@ class Todo {
 }
 
 class TodoList {
-    constructor(public todos: Todo[]) {}
+    public todos: Todo[] = [];
     add() {
         this.todos.push(new Todo());
     }

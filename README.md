@@ -45,7 +45,8 @@ import { useNode } from "@retreejs/react";
 
 // Todo view model
 class Todo {
-    constructor(public text: string, public checked: boolean) {}
+    public text = "";
+    public checked = false;
     toggle() {
         this.checked = !this.checked;
     }
@@ -65,7 +66,7 @@ function _ViewTodo({ todo }) {
                 checked={_todo.checked}
                 onChange={_todo.toggle}
             />
-            <input value={_todo.text} onChange={_todo.toggle} />
+            <input value={_todo.text} onChange={_todo.onValueChange} />
         </div>
     );
 }
@@ -73,7 +74,7 @@ const ViewTodo = React.memo(_ViewTodo);
 
 // Todo list view model
 class TodoList {
-    constructor(public readonly todos: Todo[]) {}
+    public readonly todos: Todo[] = [];
     add() {
         this.todos.push(new Todo());
     }
@@ -310,7 +311,8 @@ import { v4 as uuid } from "uuid";
 
 class Todo {
     readonly id = uuid();
-    constructor(public text: string, public checked: boolean) {}
+    public text = "";
+    public checked = false;
     toggle() {
         this.checked = !this.checked;
     }
@@ -324,7 +326,7 @@ class Todo {
 }
 
 class TodoList {
-    constructor(public todos: Todo[]) {}
+    public todos: Todo[] = [];
     add() {
         this.todos.push(new Todo());
     }

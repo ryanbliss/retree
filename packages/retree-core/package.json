@@ -1,8 +1,9 @@
 {
     "name": "@retreejs/core",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "React to changes in your object trees.",
     "author": "Ryan Bliss",
+    "private": false,
     "license": "MIT",
     "main": "./bin/index.js",
     "types": "./bin/index.d.ts",
