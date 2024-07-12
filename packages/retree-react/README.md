@@ -279,9 +279,27 @@ While `useTree` is powerful and can make things a lot easier, it is important to
 
 **Tip:** Always use React Dev Tools' profile tab to measure render performance when using `useTree`.
 
+## Optimize for performance
+
+`Retree` offers useful utility APIs for further optimizing performance, including `Retree.runTransaction` and `Retree.runSilent`.
+
+### Transactions
+
+If you are making multiple changes to one or many nodes at once, you can use `Retree.runTransaction` function to only set to React state once per instance of `useNode` or `useTree`. Here is an example:
+
+```ts
+const _counter = Retree.use({ count: 0 });
+const counter = useNode(_counter);
+// Will only emit "valueChanged" once
+Retree.runTransaction(() => {
+    counter.count = counter.count + 1;
+    counter.count = counter.count * 2;
+});
+```
+
 ### Skip re-rendering changes
 
-If you want to skip re-rendering on a change, you can use the `Retree.runSilent` transaction. Here is an example:
+If you want to skip re-rendering on a change, you can use the `Retree.runSilent` function. Here is an example:
 
 ```ts
 const counter = Retree.use({ count: 0, multiplier: 1 });

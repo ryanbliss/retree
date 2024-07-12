@@ -34,6 +34,7 @@ const _ViewCard: FC<
             <div className="card-buttons">
                 <button onClick={card.iterate}>count is {card.count}</button>
                 <button onClick={card.iterateSilent}>silent iterate</button>
+                <button onClick={card.iterateTransaction}>5x iterate transaction</button>
                 <button onClick={card.addChild}>Add child</button>
                 <button onClick={card.addChildSilent}>Silent add child</button>
             </div>

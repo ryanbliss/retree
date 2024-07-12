@@ -19,7 +19,7 @@ function App() {
                     />
                 </label>
                 <label>
-                    Skip reproxy
+                    Skip reproxy when silent
                     <input
                         type="checkbox"
                         checked={state.silentSkipReproxy}

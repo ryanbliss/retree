@@ -12,7 +12,7 @@ import {
 import { TreeChangeEmitter } from "./internals/NodeChangeEmitter";
 import { proxiedParentKey } from "./internals/proxy-types";
 import { getReproxyNode, updateReproxyNode } from "./internals/reproxy";
-import { TransactionStates } from "./internals/transactions";
+import { Transactions } from "./internals/transactions";
 import {
     TRetreeEvents,
     TNodeChangedListener,
@@ -54,6 +54,11 @@ export class Retree {
      *
      * @param object a root TreeNode for your tree
      * @returns a Retree compatible object of type T
+     * 
+     * @example
+     const counter = Retree.use({ count: 0 });
+     Retree.on(counter, "valueChanged", () => console.log(counter.count));
+     counter.count = counter.count + 1;
      */
     static use<T extends TreeNode = TreeNode>(object: T): T {
         return buildProxy<T>(object, this.nodeChangeEmitter);
@@ -70,6 +75,21 @@ export class Retree {
      * @param listenerType the type of {@link TRetreeEvents} change events to listen to.
      * @param callback the callback function for your listener.
      * @returns an unsubscribe function to cleanup your listners.
+     * 
+     * @example
+     ```ts
+     // Create the root node
+     const counter = Retree.use({ count: 0 });
+     // Listen for changes to values of the node
+     const unsubscribe = Retree.on(counter, "valueChanged", (reproxy) => {
+        console.log(reproxy !== counter); // output: false
+        console.log(reproxy.count === counter.count); // output: true
+     });
+     // Make a change
+     counter.count = counter.count + 1;
+     // Stop listening for changes
+     unsubscribe();
+     ```
      */
     static on<
         T extends TreeNode = TreeNode,
@@ -110,6 +130,36 @@ export class Retree {
         );
     }
 
+    /**
+     * Get a parent node for a given child node, if it exists
+     * @param node a child node to get the parent of
+     * @returns the parent node if it exists, otherwise null
+     * 
+     * @example
+     ```js
+     const tree = Retree.use({
+        count: 0,
+        child: {
+            count: 0,
+            child: {
+                count: 0,
+            },
+        },
+     });
+     function recursiveLog(node) {
+        console.log(node.count);
+        // Get the parent of node, if it exists
+        const parent = Retree.parent(node);
+        if (!parent) return; // at top of tree
+        recursiveLog(parent);
+     }
+     Retree.on(tree.child.child, "nodeChanged", (child) => {
+        // Recursively log the count of this node and all its parents
+        recursiveLog(child);
+     });
+     tree.child.child.count = 1;
+     ```
+     */
     static parent(node: TreeNode): TreeNode | null {
         const response = this.getParentInternal(node);
         return response?.proxyNode ?? null;
@@ -123,13 +173,49 @@ export class Retree {
      * defaults to true.
      */
     static runSilent(transaction: () => void, skipReproxy = true) {
-        TransactionStates.skipEmit = true;
-        TransactionStates.skipReproxy = skipReproxy;
+        Transactions.skipEmit = true;
+        Transactions.skipReproxy = skipReproxy;
         transaction();
-        TransactionStates.skipEmit = false;
-        TransactionStates.skipReproxy = false;
+        Transactions.skipEmit = false;
+        Transactions.skipReproxy = false;
     }
 
+    /**
+     * Run a synchronous transaction that will not cause {@link Retree.on} listeners for changed nodes to emit multiple times.
+     * @remarks
+     * If multiple nodes changed during the transaction, {@link Retree.on} events will be emitted for each node that changed.
+     * If using React, this should still be flattened to a single render, but it is not guaranteed.
+     * It may be reasonable to combine this with `React.startTransition` if this is a concern.
+     *
+     * @param transaction transaction function to run
+     * 
+     * @example
+     ```ts
+     const counter = Retree.use({ count: 0 });
+     Retree.on(counter, "valueChanged", () => console.log(counter.count));
+     // Will only emit "valueChanged" once
+     Retree.runTransaction(() => {
+        counter.count = counter.count + 1;
+        counter.count = counter.count * 2;
+     });
+     ```
+     */
+    static runTransaction(transaction: () => void) {
+        Transactions.runningTransaction = true;
+        transaction();
+        // Node changes made during the transaction will emit up to one nodeChanged, treeChanged, and/or nodeRemoved listener.
+        Transactions.runPendingTransactions();
+        Transactions.runningTransaction = false;
+    }
+
+    /**
+     * Clear all listeners for a given node.
+     * @remarks
+     * Equivalent to calling each `unsubscribe` function returned by {@link Retree.on}.
+     *
+     * @param node node to clear all listeners for
+     * @param shallow when false, will unsubscribe to all child nodes as well.
+     */
     public static clearListeners(node: TreeNode, shallow: boolean = true) {
         const rawNode = getUnproxiedNode(node);
         if (!rawNode) {
@@ -205,11 +291,32 @@ export class Retree {
         if (!parent) {
             if (confirmedCallbacksToNotify.size === 0) return;
             // Skip emitting for proxyNodeThatChanged if in skipEmit transaction
-            if (!TransactionStates.skipEmit) {
+            if (!Transactions.skipEmit) {
                 // Handle callbacks for the node that originally changed
-                confirmedCallbacksToNotify
-                    .get(proxyNodeThatChanged)
-                    ?.forEach((c) => c(getReproxyNode(proxyNodeThatChanged)));
+                const handleEmitTreeChanged = () => {
+                    confirmedCallbacksToNotify
+                        .get(proxyNodeThatChanged)
+                        ?.forEach((c) =>
+                            c(getReproxyNode(proxyNodeThatChanged))
+                        );
+                };
+                // If running a transaction, schedule this to emit later.
+                // That way if this same node gets changed later, we can only emit once for that node.
+                if (Transactions.runningTransaction) {
+                    const unproxiedNode =
+                        getUnproxiedNode(proxyNodeThatChanged);
+                    if (!unproxiedNode) {
+                        throw new Error(
+                            "Retree.handleNotifyTreeChanged: Unexpected to not find unproxied node for proxyNodeThatChanged"
+                        );
+                    }
+                    Transactions.upsertPendingTransaction(unproxiedNode, {
+                        emitTreeChanged: handleEmitTreeChanged,
+                    });
+                } else {
+                    // Emit immediately
+                    handleEmitTreeChanged();
+                }
             }
             // If our "treeChanged" listener was for the node that changed, skip parents
             if (topProxyNodeListenedTo === proxyNodeThatChanged) return;
@@ -220,11 +327,30 @@ export class Retree {
                 pIndex++
             ) {
                 const pNode = checkedParentProxyNodes[pIndex];
-                const callbacks = confirmedCallbacksToNotify.get(pNode);
                 const pReproxyNode = updateReproxyNode(pNode);
                 // Skip emitting if in skipEmit transaction
-                if (!TransactionStates.skipEmit) {
-                    callbacks?.forEach((c) => c(pReproxyNode));
+                if (!Transactions.skipEmit) {
+                    const handlePNodeEmitTreeChanged = () => {
+                        confirmedCallbacksToNotify
+                            .get(pNode)
+                            ?.forEach((c) => c(pReproxyNode));
+                    };
+                    // If running a transaction, schedule this to emit later.
+                    // That way if this same node gets changed later, we can only emit once for that node.
+                    if (Transactions.runningTransaction) {
+                        const unproxiedPNode = getUnproxiedNode(pNode);
+                        if (!unproxiedPNode) {
+                            throw new Error(
+                                "Retree.handleNotifyTreeChanged: Unexpected to not find unproxied node for proxyNodeThatChanged"
+                            );
+                        }
+                        Transactions.upsertPendingTransaction(unproxiedPNode, {
+                            emitTreeChanged: handlePNodeEmitTreeChanged,
+                        });
+                    } else {
+                        // Emit immediately
+                        handlePNodeEmitTreeChanged();
+                    }
                 }
                 // If this checked pNode was the top-most node the app is listening to, skip reproxying rest of parents
                 if (pNode === topProxyNodeListenedTo) return;
@@ -250,12 +376,24 @@ export class Retree {
             reproxyNode: TreeNode
         ) => {
             // If in a skipEmit transaction state, skip emitting nodeChanged
-            if (!TransactionStates.skipEmit) {
-                const nodeChangedListnersToNotify =
-                    this.nodeChangedListeners.get(node);
-                nodeChangedListnersToNotify?.forEach((callback) => {
-                    callback(reproxyNode);
-                });
+            if (!Transactions.skipEmit) {
+                const emitNodeChangedListeners = () => {
+                    const nodeChangedListnersToNotify =
+                        this.nodeChangedListeners.get(node);
+                    nodeChangedListnersToNotify?.forEach((callback) => {
+                        callback(reproxyNode);
+                    });
+                };
+                // If running a transaction, schedule this to emit later.
+                // That way if this same node gets changed later, we can only emit once for that node.
+                if (Transactions.runningTransaction) {
+                    Transactions.upsertPendingTransaction(node, {
+                        emitNodeChanged: emitNodeChangedListeners,
+                    });
+                } else {
+                    // emit immediately
+                    emitNodeChangedListeners();
+                }
             }
             // Still handle here so we reproxy parents, despite skipping emit later in biz logic
             // Note that we should never have gotten this far if skipReproxy is true, so we skip checking again
@@ -268,12 +406,24 @@ export class Retree {
 
         this.nodeRemovedListener = (node: TreeNode) => {
             // If in a skipEmit transaction state, skip emitting
-            if (TransactionStates.skipEmit) return;
-            const listnersToNotify = this.nodeRemovedListeners.get(node);
-            listnersToNotify?.forEach((callback) => {
-                callback();
-            });
-            // TODO: notify all child nodes as well
+            if (Transactions.skipEmit) return;
+            const emitNodeRemovedListeners = () => {
+                const listnersToNotify = this.nodeRemovedListeners.get(node);
+                listnersToNotify?.forEach((callback) => {
+                    callback();
+                });
+            };
+            // If running a transaction, schedule this to emit later.
+            // That way if this same node gets changed later, we can only emit once for that node.
+            if (Transactions.runningTransaction) {
+                Transactions.upsertPendingTransaction(node, {
+                    emitNodeRemoved: emitNodeRemovedListeners,
+                });
+            } else {
+                // emit immediately
+                emitNodeRemovedListeners();
+            }
+            // TODO: notify all child nodes as well? or maybe add a treeRemoved listener?
         };
         this.nodeChangeEmitter.on(
             "nodeRemoved",

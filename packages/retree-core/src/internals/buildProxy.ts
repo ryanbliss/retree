@@ -14,8 +14,8 @@ import {
     proxiedParentKey,
     unproxiedBaseNodeKey,
 } from "./proxy-types";
-import { getReproxyNode, updateReproxyNode } from "./reproxy";
-import { TransactionStates } from "./transactions";
+import { updateReproxyNode } from "./reproxy";
+import { Transactions } from "./transactions";
 
 /**
  * @internal
@@ -92,7 +92,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     receiver
                 );
                 // If in a skip reproxy transaction, do not reproxy node
-                if (!TransactionStates.skipReproxy) {
+                if (!Transactions.skipReproxy) {
                     const reproxy = updateReproxyNode(baseProxy);
                     // Still emit here if in a `skipEmit` transaction so that parents get reproxied
                     emitter.emit(
@@ -102,7 +102,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         reproxy
                     );
                     // nodeRemoved events do not reproxy parents, so we skip
-                    if (nodeRemoved && !TransactionStates.skipEmit) {
+                    if (nodeRemoved && !Transactions.skipEmit) {
                         emitter.emit(
                             "nodeRemoved",
                             proxyHandler[unproxiedBaseNodeKey],

@@ -6,15 +6,20 @@ export class Card {
     public readonly id = uuid();
     public list: Array<Card> = [];
     private get multiplier() {
+        return this.getGrandparent()?.count ?? 1;
+    }
+    constructor(public count: number) {}
+
+    private getGrandparent(): Card | undefined {
         // Parent is either a Array<Card> or Tree
         const parent = Retree.parent(this);
-        if (!parent) return 1;
+        if (!parent) return undefined;
         // If parent is Array<Card>, we expect no grandparent to exist.
         // When we have a grandparent, use that Card.count value as our multipler.
         const grandparent = Retree.parent(parent);
-        return grandparent instanceof Card ? grandparent.count : 1;
+        if (grandparent instanceof Card) return grandparent;
+        return undefined;
     }
-    constructor(public count: number) {}
 
     iterate() {
         this.count += 1 * this.multiplier;
@@ -37,11 +42,25 @@ export class Card {
             this.addChild();
         }, globalState.silentSkipReproxy);
     }
+
+    iterateFiveTimes() {
+        // Queue up multiple changes to happen in a single change
+        let i = 0;
+        while (i < 5) {
+            this.iterate();
+            i++;
+        }
+        this.getGrandparent()?.iterateFiveTimes();
+    }
+
+    iterateTransaction() {
+        Retree.runTransaction(() => {
+            this.iterateFiveTimes();
+        });
+    }
 }
 
 export class Tree {
     constructor(public readonly title: string) {}
-    public card: Card = new Card(0);
+    public card: Card = new Card(1);
 }
-
-
