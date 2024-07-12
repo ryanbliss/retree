@@ -14,22 +14,8 @@ import {
     proxiedParentKey,
     unproxiedBaseNodeKey,
 } from "./proxy-types";
-import { updateReproxyNode } from "./reproxy";
-
-/**
- * Gets the proxy handler for a given TreeNode, assuming `isCustomProxyHandler` returns true.
- * @param proxy the proxied TreeNode to get the handler for.
- * @returns the handler if valid, otherwise undefined
- */
-export function getCustomProxyHandler<TNode extends TreeNode = TreeNode>(
-    proxy: TNode
-) {
-    const handler = (proxy as any)["[[Handler]]"];
-    if (isCustomProxyHandler<TNode>(handler)) {
-        return handler;
-    }
-    return undefined;
-}
+import { getReproxyNode, updateReproxyNode } from "./reproxy";
+import { TransactionStates } from "./transactions";
 
 /**
  * @internal
@@ -105,20 +91,26 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     valueToSet,
                     receiver
                 );
-                const reproxy = updateReproxyNode(baseProxy);
-                emitter.emit(
-                    "nodeChanged",
-                    proxyHandler[unproxiedBaseNodeKey],
-                    baseProxy,
-                    reproxy
-                );
-                if (nodeRemoved) {
+                // If in a skip reproxy transaction, do not reproxy node
+                if (!TransactionStates.skipReproxy) {
+                    const reproxy = updateReproxyNode(baseProxy);
+                    // Still emit here if in a `skipEmit` transaction so that parents get reproxied
                     emitter.emit(
-                        "nodeRemoved",
+                        "nodeChanged",
                         proxyHandler[unproxiedBaseNodeKey],
-                        nodeRemoved
+                        baseProxy,
+                        reproxy
                     );
+                    // nodeRemoved events do not reproxy parents, so we skip
+                    if (nodeRemoved && !TransactionStates.skipEmit) {
+                        emitter.emit(
+                            "nodeRemoved",
+                            proxyHandler[unproxiedBaseNodeKey],
+                            nodeRemoved
+                        );
+                    }
                 }
+
                 return returnValue;
             }
             return true;
@@ -137,6 +129,22 @@ export function buildProxy<T extends TreeNode = TreeNode>(
 
 /**
  * @internal
+ * Gets the proxy handler for a given TreeNode, assuming `isCustomProxyHandler` returns true.
+ * @param proxy the proxied TreeNode to get the handler for.
+ * @returns the handler if valid, otherwise undefined
+ */
+export function getCustomProxyHandler<TNode extends TreeNode = TreeNode>(
+    proxy: TNode
+) {
+    const handler = (proxy as any)["[[Handler]]"];
+    if (isCustomProxyHandler<TNode>(handler)) {
+        return handler;
+    }
+    return undefined;
+}
+
+/**
+ * @internal
  * Reset the parent reference.
  * @param proxy proxied being object reparented
  * @param parent parent proxy object to set a reference to the proxied child
@@ -146,6 +154,7 @@ function reparentProxy(proxy: ICustomProxy<any>, parent: ICustomProxy<any>) {
 }
 
 /**
+ * @internal
  * Gets the raw node for a given proxied tree node
  *
  * @param proxy the proxied TreeNode to get the raw node for

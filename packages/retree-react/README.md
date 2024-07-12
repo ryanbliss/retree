@@ -279,6 +279,27 @@ While `useTree` is powerful and can make things a lot easier, it is important to
 
 **Tip:** Always use React Dev Tools' profile tab to measure render performance when using `useTree`.
 
+### Skip re-rendering changes
+
+If you want to skip re-rendering on a change, you can use the `Retree.runSilent` transaction. Here is an example:
+
+```ts
+const counter = Retree.use({ count: 0, multiplier: 1 });
+const counterState = useNode(counter);
+// Skip re-render on setting the multiplier
+function onClickIncrementMultipler() {
+    Retree.runSilent(() => {
+        counterState.multiplier += 1;
+    });
+}
+// Re-render when user clicks button
+const onClickIncrementCount = () => {
+    counterState.count = counterState.count * counterState.multiplier;
+}
+```
+
+**Note:** if you want nodes to still be reproxied when they change for React's comparison checks but don't yet want to re-render, set the `skipReproxy` prop in `Retree.runSilent` to `false`.
+
 ## React samples
 
 See the [Cat Facts sample](./samples/02.react-example/) or [recursive tree](./samples/03.react-recursion/) for more examples of `@retreejs/react`.

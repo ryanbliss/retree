@@ -12,6 +12,7 @@ import {
 import { TreeChangeEmitter } from "./internals/NodeChangeEmitter";
 import { proxiedParentKey } from "./internals/proxy-types";
 import { getReproxyNode, updateReproxyNode } from "./internals/reproxy";
+import { TransactionStates } from "./internals/transactions";
 import {
     TRetreeEvents,
     TNodeChangedListener,
@@ -114,6 +115,21 @@ export class Retree {
         return response?.proxyNode ?? null;
     }
 
+    /**
+     * Run a synchronous transaction that will not cause `{@link Retree.on} listeners to emit.
+     *
+     * @param transaction transaction function to run
+     * @param skipReproxy skip reproxying nodes such that subsequent comparisons are equal.
+     * defaults to true.
+     */
+    static runSilent(transaction: () => void, skipReproxy = true) {
+        TransactionStates.skipEmit = true;
+        TransactionStates.skipReproxy = skipReproxy;
+        transaction();
+        TransactionStates.skipEmit = false;
+        TransactionStates.skipReproxy = false;
+    }
+
     public static clearListeners(node: TreeNode, shallow: boolean = true) {
         const rawNode = getUnproxiedNode(node);
         if (!rawNode) {
@@ -188,10 +204,13 @@ export class Retree {
         const parent = this.getParentInternal(proxyNode);
         if (!parent) {
             if (confirmedCallbacksToNotify.size === 0) return;
-            // Handle callbacks for the node that originally changed
-            confirmedCallbacksToNotify
-                .get(proxyNodeThatChanged)
-                ?.forEach((c) => c(getReproxyNode(proxyNodeThatChanged)));
+            // Skip emitting for proxyNodeThatChanged if in skipEmit transaction
+            if (!TransactionStates.skipEmit) {
+                // Handle callbacks for the node that originally changed
+                confirmedCallbacksToNotify
+                    .get(proxyNodeThatChanged)
+                    ?.forEach((c) => c(getReproxyNode(proxyNodeThatChanged)));
+            }
             // If our "treeChanged" listener was for the node that changed, skip parents
             if (topProxyNodeListenedTo === proxyNodeThatChanged) return;
             // Reproxy each parent
@@ -203,7 +222,10 @@ export class Retree {
                 const pNode = checkedParentProxyNodes[pIndex];
                 const callbacks = confirmedCallbacksToNotify.get(pNode);
                 const pReproxyNode = updateReproxyNode(pNode);
-                callbacks?.forEach((c) => c(pReproxyNode));
+                // Skip emitting if in skipEmit transaction
+                if (!TransactionStates.skipEmit) {
+                    callbacks?.forEach((c) => c(pReproxyNode));
+                }
                 // If this checked pNode was the top-most node the app is listening to, skip reproxying rest of parents
                 if (pNode === topProxyNodeListenedTo) return;
             }
@@ -227,11 +249,16 @@ export class Retree {
             proxyNode: TreeNode,
             reproxyNode: TreeNode
         ) => {
-            const nodeChangedListnersToNotify =
-                this.nodeChangedListeners.get(node);
-            nodeChangedListnersToNotify?.forEach((callback) => {
-                callback(reproxyNode);
-            });
+            // If in a skipEmit transaction state, skip emitting nodeChanged
+            if (!TransactionStates.skipEmit) {
+                const nodeChangedListnersToNotify =
+                    this.nodeChangedListeners.get(node);
+                nodeChangedListnersToNotify?.forEach((callback) => {
+                    callback(reproxyNode);
+                });
+            }
+            // Still handle here so we reproxy parents, despite skipping emit later in biz logic
+            // Note that we should never have gotten this far if skipReproxy is true, so we skip checking again
             this.handleNotifyTreeChanged(node, proxyNode, proxyNode);
         };
         this.nodeChangeEmitter.on(
@@ -240,6 +267,8 @@ export class Retree {
         );
 
         this.nodeRemovedListener = (node: TreeNode) => {
+            // If in a skipEmit transaction state, skip emitting
+            if (TransactionStates.skipEmit) return;
             const listnersToNotify = this.nodeRemovedListeners.get(node);
             listnersToNotify?.forEach((callback) => {
                 callback();

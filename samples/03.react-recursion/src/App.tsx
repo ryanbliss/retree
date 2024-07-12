@@ -1,30 +1,34 @@
-import { Retree } from "@retreejs/core";
 import "./App.css";
 import NodeExample from "./NodeExample";
 import TreeExample from "./TreeExample";
 import { useNode } from "@retreejs/react";
-
-class MemoState {
-    memoize = true;
-    toggle() {
-        this.memoize = !this.memoize;
-    }
-}
-const memoState = Retree.use(new MemoState());
+import { globalState } from "./global-state";
 
 function App() {
-    const state = useNode(memoState);
+    const state = useNode(globalState);
     return (
         <div>
             <h1>{"Recursion examples"}</h1>
-            <label>
-                Memoize components
-                <input
-                    type="checkbox"
-                    checked={state.memoize}
-                    onChange={(e) => state.memoize = e.target.checked}
-                />
-            </label>
+            <div>
+                <label>
+                    Memoize components
+                    <input
+                        type="checkbox"
+                        checked={state.memoize}
+                        onChange={(e) => (state.memoize = e.target.checked)}
+                    />
+                </label>
+                <label>
+                    Skip reproxy
+                    <input
+                        type="checkbox"
+                        checked={state.silentSkipReproxy}
+                        onChange={(e) =>
+                            (state.silentSkipReproxy = e.target.checked)
+                        }
+                    />
+                </label>
+            </div>
             <NodeExample memoize={state.memoize} />
             <TreeExample memoize={state.memoize} />
         </div>
