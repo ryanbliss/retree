@@ -5,14 +5,16 @@
 
 import { TreeNode } from "../types";
 import {
-    ICustomProxyHandler,
     getCustomProxyHandler,
-    proxiedChildrenKey,
-    rawTNodeKey,
-    proxiedParentKey,
     getBaseProxy,
-    getRawNode,
+    getUnproxiedNode,
 } from "./buildProxy";
+import {
+    ICustomProxyHandler,
+    proxiedChildrenKey,
+    unproxiedBaseNodeKey,
+    proxiedParentKey,
+} from "./proxy-types";
 
 const reproxyMap: WeakMap<TreeNode, TreeNode> = new WeakMap();
 
@@ -21,7 +23,7 @@ export function updateReproxyNode<T extends TreeNode = TreeNode>(node: T): T {
     if (!handler) {
         throw new Error("Cannot reproxy a root unproxied node");
     }
-    const rootNode = handler[rawTNodeKey];
+    const rootNode = handler[unproxiedBaseNodeKey];
     const reproxy = buildReproxy<T>(node);
     reproxyMap.set(rootNode, reproxy);
     return reproxy;
@@ -32,7 +34,7 @@ export function getReproxyNode<T extends TreeNode = TreeNode>(node: T): T {
     if (!handler) {
         throw new Error("Cannot reproxy a root unproxied node");
     }
-    const rootNode = handler[rawTNodeKey];
+    const rootNode = handler[unproxiedBaseNodeKey];
     // If we haven't reproxied, we return the original TreeNode
     return (reproxyMap.get(rootNode) ?? node) as T;
 }
@@ -46,7 +48,7 @@ function buildReproxy<T extends TreeNode = TreeNode>(object: T): T {
         Omit<ICustomProxyHandler<T>, typeof proxiedChildrenKey> = {
         // Add some extra stuff into the handler so we can store the original TreeNode and access it later
         // Without overriding the rest of the getters in the object.
-        [rawTNodeKey]: handler[rawTNodeKey] as T,
+        [unproxiedBaseNodeKey]: handler[unproxiedBaseNodeKey] as T,
         [proxiedParentKey]: handler[proxiedParentKey],
         get: (target, prop, receiver) => {
             if (prop === "[[Handler]]") {
@@ -66,8 +68,8 @@ function buildReproxy<T extends TreeNode = TreeNode>(object: T): T {
             }
             const baseProxy = getBaseProxy(receiver);
             const reproxy = getReproxyNode(baseProxy);
-            const rawNode = getRawNode(baseProxy);
-            const value = Reflect.get(rawNode, prop, receiver);
+            const rawNode = getUnproxiedNode(baseProxy);
+            const value = Reflect.get(rawNode ?? target, prop, receiver);
             return typeof value === "function" ? value.bind(reproxy) : value;
         },
         set(target, prop, newValue, receiver) {

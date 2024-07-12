@@ -5,48 +5,51 @@
 
 import { TreeNode } from "../types";
 import { TreeChangeEmitter } from "./NodeChangeEmitter";
+import {
+    ICustomProxy,
+    ICustomProxyHandler,
+    isCustomProxy,
+    isCustomProxyHandler,
+    proxiedChildrenKey,
+    proxiedParentKey,
+    unproxiedBaseNodeKey,
+} from "./proxy-types";
 import { updateReproxyNode } from "./reproxy";
-
-export const rawTNodeKey = "retree-base";
-export const staticProxyKey = "retree-static-proxy";
-export const proxiedParentKey = "retree-parent";
-export const proxiedChildrenKey = "retree-children";
-
-export interface ICustomProxyHandler<TNode extends TreeNode = TreeNode> {
-    [rawTNodeKey]: TNode;
-    [rawTNodeKey]: TNode;
-    [proxiedChildrenKey]: Record<string, any>;
-    [proxiedParentKey]: TreeNode | null;
-}
-
-export function isCustomProxyHandler<TNode extends TreeNode = TreeNode>(
-    value: any
-): value is ICustomProxyHandler<TNode> {
-    return value?.[rawTNodeKey] !== undefined;
-}
 
 /**
  * Gets the proxy handler for a given TreeNode, assuming `isCustomProxyHandler` returns true.
  * @param proxy the proxied TreeNode to get the handler for.
  * @returns the handler if valid, otherwise undefined
  */
-export function getCustomProxyHandler(proxy: TreeNode) {
+export function getCustomProxyHandler<TNode extends TreeNode = TreeNode>(
+    proxy: TNode
+) {
     const handler = (proxy as any)["[[Handler]]"];
-    if (isCustomProxyHandler(handler)) {
+    if (isCustomProxyHandler<TNode>(handler)) {
         return handler;
     }
     return undefined;
 }
 
+/**
+ * @internal
+ * Builds a proxied object that emits changes when any value changes.
+ * Also ensures `this` references are bound properly to functions, among other things.
+ *
+ * @param object base object to proxy
+ * @param emitter event emitter to emit changes through
+ * @param parent Optional. The parent of the object
+ * @returns the proxied version of the object provided.
+ */
 export function buildProxy<T extends TreeNode = TreeNode>(
     object: T,
     emitter: TreeChangeEmitter,
     parent?: TreeNode
-) {
+): T {
     const proxyHandler: ProxyHandler<T> & ICustomProxyHandler<T> = {
         // Add some extra stuff into the handler so we can store the original TreeNode and access it later
         // Without overriding the rest of the getters in the object.
-        [rawTNodeKey]: object,
+        [unproxiedBaseNodeKey]: object,
         [proxiedChildrenKey]: {},
         [proxiedParentKey]: parent ?? null,
         get: (target, prop, receiver) => {
@@ -105,14 +108,14 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 const reproxy = updateReproxyNode(baseProxy);
                 emitter.emit(
                     "nodeChanged",
-                    proxyHandler[rawTNodeKey],
+                    proxyHandler[unproxiedBaseNodeKey],
                     baseProxy,
                     reproxy
                 );
                 if (nodeRemoved) {
                     emitter.emit(
                         "nodeRemoved",
-                        proxyHandler[rawTNodeKey],
+                        proxyHandler[unproxiedBaseNodeKey],
                         nodeRemoved
                     );
                 }
@@ -132,30 +135,14 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     return proxy;
 }
 
-function reparentProxy(proxy: ICustomProxy, parent: ICustomProxy) {
+/**
+ * @internal
+ * Reset the parent reference.
+ * @param proxy proxied being object reparented
+ * @param parent parent proxy object to set a reference to the proxied child
+ */
+function reparentProxy(proxy: ICustomProxy<any>, parent: ICustomProxy<any>) {
     proxy["[[Handler]]"][proxiedParentKey] = parent;
-}
-
-export interface IProxy {
-    ["[[Handler]]"]: any;
-    ["[[Target]]"]: any;
-}
-
-export function isProxy(value: any): value is IProxy {
-    return value && value["[[Handler]]"] && value["[[Target]]"];
-}
-
-export interface ICustomProxy {
-    ["[[Handler]]"]: ICustomProxyHandler;
-    ["[[Target]]"]: any;
-}
-
-export function isCustomProxy(value: any): value is IProxy {
-    return (
-        value &&
-        isCustomProxyHandler(value["[[Handler]]"]) &&
-        value["[[Target]]"]
-    );
 }
 
 /**
@@ -164,8 +151,14 @@ export function isCustomProxy(value: any): value is IProxy {
  * @param proxy the proxied TreeNode to get the raw node for
  * @returns the raw node if valid, otherwise undefined
  */
-function getRawNodeFromProxy(proxy: TreeNode) {
-    return getCustomProxyHandler(proxy)?.[rawTNodeKey];
+function getUnproxiedNodeFromProxy<TNode extends TreeNode = TreeNode>(
+    proxy: TNode
+): TNode | undefined {
+    const proxyHandler = getCustomProxyHandler<TNode>(proxy);
+    if (proxyHandler) {
+        return proxyHandler[unproxiedBaseNodeKey];
+    }
+    return undefined;
 }
 
 /**
@@ -175,15 +168,24 @@ function getRawNodeFromProxy(proxy: TreeNode) {
  * @param node get the raw node from the proxy
  * @returns the raw unproxied object
  */
-export function getRawNode<TNode extends TreeNode | undefined = TreeNode>(
+export function getUnproxiedNode<TNode extends TreeNode = TreeNode>(
     node: TNode
-): TNode {
-    if (isProxy(node)) {
-        return getRawNodeFromProxy(node) as TNode;
+): TNode | undefined {
+    if (isCustomProxy(node)) {
+        return getUnproxiedNodeFromProxy<TNode>(node);
     }
     return node;
 }
 
+/**
+ * @internal
+ * Gets the base proxied object, aka meaning the non reproxied object.
+ * @remarks
+ * Recursively goes through each proxy until there are no more proxy references.
+ *
+ * @param node node to check
+ * @returns the base proxied object
+ */
 export function getBaseProxy(node: TreeNode) {
     if (isCustomProxy(node)) {
         const target = node["[[Target]]"];

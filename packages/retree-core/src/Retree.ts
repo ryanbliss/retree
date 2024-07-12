@@ -6,11 +6,11 @@
 import {
     buildProxy,
     getBaseProxy,
-    getRawNode,
-    isCustomProxyHandler,
-    proxiedParentKey,
+    getCustomProxyHandler,
+    getUnproxiedNode,
 } from "./internals";
 import { TreeChangeEmitter } from "./internals/NodeChangeEmitter";
+import { proxiedParentKey } from "./internals/proxy-types";
 import { getReproxyNode, updateReproxyNode } from "./internals/reproxy";
 import {
     TRetreeEvents,
@@ -26,6 +26,10 @@ type TInternalNodeChangedListener = (
     reproxiedNode: TreeNode
 ) => void;
 
+/**
+ * Main entry point for use with Retree package.
+ * Exposes utility functions for observing to changes to an object and its children.
+ */
 export class Retree {
     private static nodeChangeListener: TInternalNodeChangedListener | null =
         null;
@@ -85,7 +89,12 @@ export class Retree {
                 : listenerType === "treeChanged"
                 ? this.treeChangedListeners
                 : this.nodeRemovedListeners;
-        const rawNode = getRawNode(node);
+        const rawNode = getUnproxiedNode(node);
+        if (!rawNode) {
+            throw new Error(
+                "Retree.on: must use an object that is a proxied node. Pass object to Retree.use first, or get value from another child object."
+            );
+        }
         let listeners = relevantListenerMap.get(rawNode);
         if (!listeners) {
             listeners = [callback as TRetreeListeners];
@@ -106,7 +115,10 @@ export class Retree {
     }
 
     public static clearListeners(node: TreeNode, shallow: boolean = true) {
-        const rawNode = getRawNode(node);
+        const rawNode = getUnproxiedNode(node);
+        if (!rawNode) {
+            throw new Error("Cannot clear listeners for an unproxied `node`");
+        }
         this.nodeChangedListeners.delete(rawNode);
         this.nodeRemovedListeners.delete(rawNode);
         this.treeChangedListeners.delete(rawNode);
@@ -254,13 +266,19 @@ export class Retree {
     private static getParentInternal(
         node: TreeNode
     ): { rawNode: TreeNode; proxyNode: TreeNode } | null {
-        const oldHandler = (node as any)["[[Handler]]"];
-        if (isCustomProxyHandler(oldHandler)) {
+        const oldHandler = getCustomProxyHandler(node);
+        if (oldHandler) {
             const parent = oldHandler[proxiedParentKey];
             if (!parent) return null;
+            const rawNode = getUnproxiedNode(parent);
+            if (!rawNode) {
+                throw new Error(
+                    "Retree.getParentInternal: cannot get parent from an unproxied parent node"
+                );
+            }
             return {
                 proxyNode: getBaseProxy(parent),
-                rawNode: getRawNode(parent),
+                rawNode,
             };
         }
         throw new Error("Node must be a valid TreeNode");
