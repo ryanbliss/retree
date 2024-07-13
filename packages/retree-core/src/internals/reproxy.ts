@@ -4,11 +4,7 @@
  */
 
 import { TreeNode } from "../types";
-import {
-    getCustomProxyHandler,
-    getBaseProxy,
-    getUnproxiedNode,
-} from "./buildProxy";
+import { getCustomProxyHandler, getBaseProxy, getUnproxiedNode } from "./proxy";
 import {
     ICustomProxyHandler,
     proxiedChildrenKey,

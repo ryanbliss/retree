@@ -4,4 +4,4 @@
  */
 
 export * from "./TypedEventEmitter";
-export * from "./buildProxy";
+export * from "./proxy";
