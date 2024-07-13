@@ -39,12 +39,16 @@
   border: 1px solid #d3d3d3;
   border-radius: 8px;
   box-sizing: border-box;
+  min-width: 720px;
 }
 .card-buttons {
   margin-bottom: 8px;
 }
 .card-buttons:last-child {
   margin-bottom: 0px;
+}
+.card-stats {
+  margin-bottom: 4px;
 }
 
 .card-child {

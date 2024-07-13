@@ -6,12 +6,20 @@ export const proxiedChildrenKey = Symbol("retree-children");
 
 /**
  * @internal
+ */
+export interface IProxyParent<T extends TreeNode = TreeNode> {
+    proxyNode: ICustomProxy<T> | null;
+    propName: string | symbol | null;
+}
+
+/**
+ * @internal
  * We use the ["Handler"] to store references to helpful metadata.
  */
 export interface ICustomProxyHandler<TNode extends TreeNode = TreeNode> {
     [unproxiedBaseNodeKey]: TNode;
-    [proxiedChildrenKey]: Record<string, any>;
-    [proxiedParentKey]: TreeNode | null;
+    [proxiedChildrenKey]: Record<string | symbol, any>;
+    [proxiedParentKey]: IProxyParent | null;
 }
 
 /**
@@ -27,10 +35,15 @@ export function isCustomProxyHandler<TNode extends TreeNode = TreeNode>(
  * @internal
  * Custom proxy instance that is using {@link ICustomProxyHandler}.
  */
-export interface ICustomProxy<TNode extends TreeNode | TreeNode> {
+export interface ICustomProxy<TNode extends TreeNode = TreeNode> {
     ["[[Handler]]"]: ICustomProxyHandler<TNode>;
-    ["[[Target]]"]: any;
+    ["[[Target]]"]: TNode;
 }
+/**
+ * @internal
+ */
+export type TCustomProxy<TNode extends TreeNode = TreeNode> =
+    ICustomProxy<TNode> & TNode;
 
 /**
  * @internal
@@ -38,7 +51,7 @@ export interface ICustomProxy<TNode extends TreeNode | TreeNode> {
  */
 export function isCustomProxy<TNode extends TreeNode = TreeNode>(
     value: any
-): value is ICustomProxy<TNode> {
+): value is TCustomProxy<TNode> {
     return (
         value &&
         isCustomProxyHandler(value["[[Handler]]"]) &&

@@ -10,7 +10,7 @@ import {
     getUnproxiedNode,
 } from "./internals";
 import { TreeChangeEmitter } from "./internals/NodeChangeEmitter";
-import { proxiedParentKey } from "./internals/proxy-types";
+import { proxiedParentKey, TCustomProxy } from "./internals/proxy-types";
 import { getReproxyNode, updateReproxyNode } from "./internals/reproxy";
 import { Transactions } from "./internals/transactions";
 import {
@@ -23,7 +23,7 @@ import {
 
 type TInternalNodeChangedListener = (
     node: TreeNode,
-    proxyNode: TreeNode,
+    proxyNode: TCustomProxy<TreeNode>,
     reproxiedNode: TreeNode
 ) => void;
 
@@ -264,14 +264,14 @@ export class Retree {
 
     private static handleNotifyTreeChanged(
         node: TreeNode,
-        proxyNode: TreeNode,
-        proxyNodeThatChanged: TreeNode,
+        proxyNode: TCustomProxy<TreeNode>,
+        proxyNodeThatChanged: TCustomProxy<TreeNode>,
         topProxyNodeListenedTo: TreeNode | null = null,
         confirmedCallbacksToNotify: Map<
             TreeNode,
             TNodeChangedListener[]
         > = new Map(),
-        checkedParentProxyNodes: TreeNode[] = []
+        checkedParentProxyNodes: TCustomProxy<TreeNode>[] = []
     ) {
         const treeChangedListenersToNotify =
             this.treeChangedListeners.get(node);
@@ -372,7 +372,7 @@ export class Retree {
     private static startListening() {
         this.nodeChangeListener = (
             node: TreeNode,
-            proxyNode: TreeNode,
+            proxyNode: TCustomProxy<TreeNode>,
             reproxyNode: TreeNode
         ) => {
             // If in a skipEmit transaction state, skip emitting nodeChanged
@@ -444,19 +444,19 @@ export class Retree {
 
     private static getParentInternal(
         node: TreeNode
-    ): { rawNode: TreeNode; proxyNode: TreeNode } | null {
+    ): { rawNode: TreeNode; proxyNode: TCustomProxy<TreeNode> } | null {
         const oldHandler = getCustomProxyHandler(node);
         if (oldHandler) {
             const parent = oldHandler[proxiedParentKey];
-            if (!parent) return null;
-            const rawNode = getUnproxiedNode(parent);
+            if (!parent || !parent.proxyNode) return null;
+            const rawNode = getUnproxiedNode(parent.proxyNode);
             if (!rawNode) {
                 throw new Error(
                     "Retree.getParentInternal: cannot get parent from an unproxied parent node"
                 );
             }
             return {
-                proxyNode: getBaseProxy(parent),
+                proxyNode: getBaseProxy(parent.proxyNode),
                 rawNode,
             };
         }

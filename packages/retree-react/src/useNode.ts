@@ -3,8 +3,10 @@
  * Licensed under the MIT License.
  */
 
-import { Retree, TreeNode } from "@retreejs/core";
-import { useEffect, useState } from "react";
+import { TreeNode } from "@retreejs/core";
+import { useNodeInternal } from "./internals/useNodeInternal";
+
+const LISTENER_TYPE = "nodeChanged";
 
 /**
  * Stateful version of an object and its leafs.
@@ -77,15 +79,6 @@ function App() {
 }
 export default App;
  */
-export function useNode<T extends TreeNode = TreeNode>(node: T) {
-    const [nodeState, setNodeState] = useState(node);
-
-    useEffect(() => {
-        const unsubscribe = Retree.on(node, "nodeChanged", (proxy) => {
-            setNodeState(proxy);
-        });
-        return unsubscribe;
-    }, [node]);
-
-    return nodeState;
+export function useNode<T extends TreeNode = TreeNode>(node: T): T {
+    return useNodeInternal(node, LISTENER_TYPE);
 }

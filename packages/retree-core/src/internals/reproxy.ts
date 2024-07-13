@@ -14,32 +14,43 @@ import {
     proxiedChildrenKey,
     unproxiedBaseNodeKey,
     proxiedParentKey,
+    TCustomProxy,
 } from "./proxy-types";
 
-const reproxyMap: WeakMap<TreeNode, TreeNode> = new WeakMap();
+const reproxyMap: WeakMap<TreeNode, TCustomProxy<TreeNode>> = new WeakMap();
 
-export function updateReproxyNode<T extends TreeNode = TreeNode>(node: T): T {
+export function updateReproxyNode<T extends TreeNode = TreeNode>(
+    node: TCustomProxy<T>
+): TCustomProxy<T> {
     const handler = getCustomProxyHandler(node);
     if (!handler) {
         throw new Error("Cannot reproxy a root unproxied node");
     }
-    const rootNode = handler[unproxiedBaseNodeKey];
+    const unproxiedNode = handler[unproxiedBaseNodeKey];
     const reproxy = buildReproxy<T>(node);
-    reproxyMap.set(rootNode, reproxy);
+    reproxyMap.set(unproxiedNode, reproxy);
     return reproxy;
 }
 
 export function getReproxyNode<T extends TreeNode = TreeNode>(node: T): T {
-    const handler = getCustomProxyHandler(node);
+    const handler = getCustomProxyHandler<T>(node);
     if (!handler) {
-        throw new Error("Cannot reproxy a root unproxied node");
+        throw new Error("Cannot get a reproxy for a root unproxied node");
     }
-    const rootNode = handler[unproxiedBaseNodeKey];
+    const unproxiedNode = handler[unproxiedBaseNodeKey];
     // If we haven't reproxied, we return the original TreeNode
-    return (reproxyMap.get(rootNode) ?? node) as T;
+    return (getReproxyNodeForUnproxiedNode(unproxiedNode) ?? node) as T;
 }
 
-function buildReproxy<T extends TreeNode = TreeNode>(object: T): T {
+export function getReproxyNodeForUnproxiedNode<T extends TreeNode = TreeNode>(
+    unproxiedNode: T
+): TCustomProxy<T> | undefined {
+    return reproxyMap.get(unproxiedNode) as TCustomProxy<T> | undefined;
+}
+
+function buildReproxy<T extends TreeNode = TreeNode>(
+    object: T
+): TCustomProxy<T> {
     const handler = getCustomProxyHandler(object);
     if (!handler) {
         throw new Error("Cannot reproxy a root unproxied node");
@@ -48,7 +59,7 @@ function buildReproxy<T extends TreeNode = TreeNode>(object: T): T {
         Omit<ICustomProxyHandler<T>, typeof proxiedChildrenKey> = {
         // Add some extra stuff into the handler so we can store the original TreeNode and access it later
         // Without overriding the rest of the getters in the object.
-        [unproxiedBaseNodeKey]: handler[unproxiedBaseNodeKey] as T,
+        [unproxiedBaseNodeKey]: handler[unproxiedBaseNodeKey],
         [proxiedParentKey]: handler[proxiedParentKey],
         get: (target, prop, receiver) => {
             if (prop === "[[Handler]]") {
@@ -66,7 +77,7 @@ function buildReproxy<T extends TreeNode = TreeNode>(object: T): T {
                 const reproxy = getReproxyNode(childProxy);
                 return reproxy ?? childProxy;
             }
-            const baseProxy = getBaseProxy(receiver);
+            const baseProxy: TCustomProxy<T> = getBaseProxy(receiver);
             const reproxy = getReproxyNode(baseProxy);
             const rawNode = getUnproxiedNode(baseProxy);
             const value = Reflect.get(rawNode ?? target, prop, receiver);
@@ -77,5 +88,5 @@ function buildReproxy<T extends TreeNode = TreeNode>(object: T): T {
         },
     };
     const proxy = new Proxy(object, proxyHandler);
-    return proxy;
+    return proxy as TCustomProxy<T>;
 }

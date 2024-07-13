@@ -6,11 +6,11 @@ export class Card {
     public readonly id = uuid();
     public list: Array<Card> = [];
     private get multiplier() {
-        return this.getGrandparent()?.count ?? 1;
+        return this.grandparent?.count ?? 1;
     }
     constructor(public count: number) {}
 
-    private getGrandparent(): Card | undefined {
+    public get grandparent(): Card | undefined {
         // Parent is either a Array<Card> or Tree
         const parent = Retree.parent(this);
         if (!parent) return undefined;
@@ -34,7 +34,7 @@ export class Card {
     addChild() {
         // Start our counter at 1 or this.count * this.multipier, whichever is higher
         const startCount = Math.max(1, this.count * this.multiplier);
-        this.list.push(new Card(startCount));
+        this.list.unshift(new Card(startCount));
     }
 
     addChildSilent() {
@@ -50,12 +50,28 @@ export class Card {
             this.iterate();
             i++;
         }
-        this.getGrandparent()?.iterateFiveTimes();
+        this.grandparent?.iterateFiveTimes();
     }
 
     iterateTransaction() {
         Retree.runTransaction(() => {
             this.iterateFiveTimes();
+        });
+    }
+
+    reparentUp() {
+        // Cannot reparent object if it is the root
+        const grandparent = this.grandparent;
+        if (!grandparent) return;
+        // Cannot reparent object if it is already a child of the root
+        const greatGrandparent = grandparent.grandparent;
+        if (!greatGrandparent) return;
+        const index = grandparent.list.findIndex((v) => v.id === this.id);
+        if (index < 0) return;
+        Retree.runTransaction(() => {
+            grandparent.list.splice(index, 1);
+            greatGrandparent.list.unshift(this);
+            console.log(grandparent.list, greatGrandparent.list);
         });
     }
 }

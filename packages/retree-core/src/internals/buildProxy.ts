@@ -8,13 +8,15 @@ import { TreeChangeEmitter } from "./NodeChangeEmitter";
 import {
     ICustomProxy,
     ICustomProxyHandler,
+    IProxyParent,
     isCustomProxy,
     isCustomProxyHandler,
     proxiedChildrenKey,
     proxiedParentKey,
+    TCustomProxy,
     unproxiedBaseNodeKey,
 } from "./proxy-types";
-import { updateReproxyNode } from "./reproxy";
+import { getReproxyNodeForUnproxiedNode, updateReproxyNode } from "./reproxy";
 import { Transactions } from "./transactions";
 
 /**
@@ -30,7 +32,7 @@ import { Transactions } from "./transactions";
 export function buildProxy<T extends TreeNode = TreeNode>(
     object: T,
     emitter: TreeChangeEmitter,
-    parent?: TreeNode
+    parent?: IProxyParent<any>
 ): T {
     const proxyHandler: ProxyHandler<T> & ICustomProxyHandler<T> = {
         // Add some extra stuff into the handler so we can store the original TreeNode and access it later
@@ -58,32 +60,32 @@ export function buildProxy<T extends TreeNode = TreeNode>(
         set(target, prop, newValue, receiver) {
             const prev = (target as any)[prop];
             const hasChanged = prev !== newValue;
-            const baseProxy = getBaseProxy(receiver);
+            const baseProxy = getBaseProxy<T>(receiver);
             if (hasChanged) {
                 let valueToSet = newValue;
                 let nodeRemoved: object | undefined;
+                if (
+                    newValue === undefined ||
+                    newValue === null ||
+                    typeof newValue === "object"
+                ) {
+                    // If `receiver` has a value, we are replacing it with a new one
+                    nodeRemoved = handleNodeRemoved(receiver, prop);
+                }
                 if (typeof newValue === "object") {
                     if (prop === "constructor")
                         return Reflect.set(target, prop, newValue, receiver);
-                    nodeRemoved = (receiver as any)[prop];
-                    if (nodeRemoved) {
-                        const oldHandler = getCustomProxyHandler(nodeRemoved);
-                        if (oldHandler) {
-                            oldHandler[proxiedParentKey] = null;
-                        }
-                    }
-                    if (typeof prop === "string") {
-                        // If already a proxied object, we simply reparent
-                        valueToSet = isCustomProxy(newValue)
-                            ? reparentProxy(newValue, baseProxy)
-                            : buildProxy(newValue, emitter, receiver);
-                        proxyHandler[proxiedChildrenKey][prop] = valueToSet;
-                    } else {
-                        console.warn(
-                            "Retree buildProxy.ts: unexpected symbol",
-                            prop
-                        );
-                    }
+
+                    // If already a proxied object, we simply reparent
+                    // Otherwise, build a new proxy object
+                    const parentToSet: IProxyParent<any> = {
+                        proxyNode: baseProxy,
+                        propName: prop,
+                    };
+                    valueToSet = isCustomProxy(newValue)
+                        ? reparentProxy(newValue, parentToSet)
+                        : buildProxy(newValue, emitter, parentToSet);
+                    proxyHandler[proxiedChildrenKey][prop] = valueToSet;
                 }
                 const returnValue = Reflect.set(
                     target,
@@ -115,11 +117,50 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             }
             return true;
         },
+        deleteProperty(target, prop) {
+            // Good example of `deleteProperty` is when an item is removed / moved in a list.
+            // `deleteProperty` does not expose the receiver...get the latest reproxy instead.
+            // TODO: should revisit this at some point...
+            const baseProxy = isCustomProxy(target)
+                ? getBaseProxy(target)
+                : getReproxyNodeForUnproxiedNode(target);
+            const nodeRemoved = handleNodeRemoved(baseProxy, prop);
+            const returnValue = Reflect.deleteProperty(target, prop);
+            // If in a skip reproxy transaction, do not reproxy node
+            if (!Transactions.skipReproxy) {
+                if (baseProxy) {
+                    const reproxy = updateReproxyNode(baseProxy);
+                    // Still emit here if in a `skipEmit` transaction so that parents get reproxied
+                    emitter.emit(
+                        "nodeChanged",
+                        proxyHandler[unproxiedBaseNodeKey],
+                        baseProxy,
+                        reproxy
+                    );
+                } else {
+                    console.warn(
+                        `buildProxy.deleteProperty: cannot find baseProxy for target`
+                    );
+                }
+                // nodeRemoved events do not reproxy parents, so we skip
+                if (nodeRemoved && !Transactions.skipEmit) {
+                    emitter.emit(
+                        "nodeRemoved",
+                        proxyHandler[unproxiedBaseNodeKey],
+                        nodeRemoved
+                    );
+                }
+            }
+            return returnValue;
+        },
     };
-    const proxy = new Proxy(object, proxyHandler);
+    const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
     Object.entries(object).forEach(([prop, value]) => {
         if (typeof value === "object") {
-            const cProxy = buildProxy(value, emitter, proxy);
+            const cProxy = buildProxy(value, emitter, {
+                proxyNode: proxy,
+                propName: prop,
+            });
             proxyHandler[proxiedChildrenKey][prop] = getBaseProxy(cProxy);
         }
     });
@@ -149,8 +190,46 @@ export function getCustomProxyHandler<TNode extends TreeNode = TreeNode>(
  * @param proxy proxied being object reparented
  * @param parent parent proxy object to set a reference to the proxied child
  */
-function reparentProxy(proxy: ICustomProxy<any>, parent: ICustomProxy<any>) {
-    proxy["[[Handler]]"][proxiedParentKey] = parent;
+function reparentProxy<T extends TreeNode = TreeNode>(
+    proxy: ICustomProxy<T>,
+    parent: IProxyParent<any>
+) {
+    // Reproxy shares same reference to original IProxyParent object.
+    // Set deep values directly.
+    if (proxy["[[Handler]]"][proxiedParentKey]) {
+        proxy["[[Handler]]"][proxiedParentKey].propName = parent.propName;
+        proxy["[[Handler]]"][proxiedParentKey].proxyNode = parent.proxyNode;
+    }
+    return proxy;
+}
+
+/**
+ *
+ * @param node the node that has a value being removed
+ * @param prop the prop being removed
+ * @returns an node that was removed, if it exists
+ */
+function handleNodeRemoved(
+    node: object | undefined,
+    prop: string | symbol
+): object | undefined {
+    const nodeRemoved = (node as any)?.[prop];
+    if (typeof nodeRemoved === "object") {
+        // Remove parent reference
+        const oldHandler = getCustomProxyHandler(nodeRemoved);
+        if (oldHandler) {
+            // If the prop of the parent doesn't match, it was recently set to a new node.
+            // That means it is still part of the object tree, and thus we do not want to notify node removed.
+            if (oldHandler[proxiedParentKey]?.propName !== prop) {
+                return undefined;
+            }
+            // Reproxy shares same reference to original IProxyParent object.
+            // Set deep values directly.
+            oldHandler[proxiedParentKey].propName = null;
+            oldHandler[proxiedParentKey].proxyNode = null;
+        }
+    }
+    return nodeRemoved;
 }
 
 /**
@@ -195,11 +274,13 @@ export function getUnproxiedNode<TNode extends TreeNode = TreeNode>(
  * @param node node to check
  * @returns the base proxied object
  */
-export function getBaseProxy(node: TreeNode) {
-    if (isCustomProxy(node)) {
+export function getBaseProxy<T extends TreeNode = TreeNode>(
+    node: T
+): TCustomProxy<T> {
+    if (isCustomProxy<T>(node)) {
         const target = node["[[Target]]"];
-        if (isCustomProxy(target)) {
-            return getBaseProxy(target);
+        if (isCustomProxy<T>(target)) {
+            return getBaseProxy<T>(target as T);
         }
         return node;
     }

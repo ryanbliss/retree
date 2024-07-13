@@ -33,12 +33,25 @@ const _ViewCard: FC<
     const _card = useNode(card);
     return (
         <div className="card">
+            <div className="card-stats">{`counter: ${_card.count}`}</div>
             <div className="card-buttons">
-                <button onClick={_card.iterate}>count is {card.count}</button>
-                <button onClick={_card.iterateSilent}>silent iterate</button>
-                <button onClick={_card.iterateTransaction}>5x iterate transaction</button>
-                <button onClick={_card.addChild}>Add child</button>
-                <button onClick={_card.addChildSilent}>Silent add child</button>
+                <button onClick={_card.iterate}>{"+count"}</button>
+                <button onClick={_card.iterateSilent}>
+                    {"+count (silent)"}
+                </button>
+                <button onClick={_card.iterateTransaction}>
+                    {"bulk transaction"}
+                </button>
+                <button onClick={_card.addChild}>{"+child"}</button>
+                <button onClick={_card.addChildSilent}>
+                    {"+child (silent)"}
+                </button>
+                <button
+                    onClick={_card.reparentUp}
+                    disabled={!card.grandparent?.grandparent}
+                >
+                    {"escape parent"}
+                </button>
             </div>
             {memoize && <CardList list={_card.list} memoize={memoize} />}
             {!memoize && <_CardList list={_card.list} memoize={memoize} />}

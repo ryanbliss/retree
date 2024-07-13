@@ -4,7 +4,9 @@
  */
 
 import { Retree, TreeNode } from "@retreejs/core";
-import { useEffect, useState } from "react";
+import { useNodeInternal } from "./internals/useNodeInternal";
+
+const LISTENER_TYPE = "treeChanged";
 
 /**
  * Stateful version of an object and its child nodes.
@@ -87,15 +89,6 @@ function App() {
 export default App;
  * ```
  */
-export function useTree<T extends TreeNode = TreeNode>(node: T) {
-    const [nodeState, setNodeState] = useState(node);
-
-    useEffect(() => {
-        const unsubscribe = Retree.on(node, "treeChanged", (proxy) => {
-            setNodeState(proxy);
-        });
-        return unsubscribe;
-    }, [node]);
-
-    return nodeState;
+export function useTree<T extends TreeNode = TreeNode>(node: T): T {
+    return useNodeInternal(node, LISTENER_TYPE);
 }
