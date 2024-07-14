@@ -1,14 +1,23 @@
 import { v4 as uuid } from "uuid";
-import { Retree } from "@retreejs/core";
+import { Retree, ReactiveNode } from "@retreejs/core";
 import { globalState } from "./global-state";
 
-export class Card {
+export class Card extends ReactiveNode {
     public readonly id = uuid();
     public list: Array<Card> = [];
     private get multiplier() {
         return this.grandparent?.count ?? 1;
     }
-    constructor(public count: number) {}
+    constructor(public count: number) {
+        super();
+    }
+
+    get dependencies() {
+        return [
+            this.dependency(this.list, [this.canSwapChildList]),
+            this.dependency(globalState, [globalState.memoize]),
+        ];
+    }
 
     public get grandparent(): Card | undefined {
         // Parent is either a Array<Card> or Tree
@@ -75,8 +84,12 @@ export class Card {
         });
     }
 
+    get canSwapChildList() {
+        return this.list.length >= 2;
+    }
+
     swapChildList() {
-        if (this.list.length < 2) return;
+        if (!this.canSwapChildList) return;
         // Far from elegant, but it is possible to swap parents between two different nodes
         Retree.runTransaction(() => {
             const card1 = this.list[0];
@@ -91,7 +104,12 @@ export class Card {
     }
 }
 
-export class Tree {
-    constructor(public readonly title: string) {}
+export class Tree extends ReactiveNode {
     public card: Card = new Card(1);
+    constructor(public readonly title: string) {
+        super();
+    }
+    get dependencies() {
+        return [this.dependency(globalState, [globalState.memoize])];
+    }
 }

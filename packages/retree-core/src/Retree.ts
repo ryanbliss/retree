@@ -8,11 +8,26 @@ import {
     getBaseProxy,
     getCustomProxyHandler,
     getUnproxiedNode,
+    getUnproxiedNodeFromProxy,
 } from "./internals";
 import { TreeChangeEmitter } from "./internals/NodeChangeEmitter";
 import { proxiedParentKey, TCustomProxy } from "./internals/proxy-types";
-import { getReproxyNode, updateReproxyNode } from "./internals/reproxy";
+import {
+    deleteReactiveDependencies,
+    deleteReactiveDependent,
+    getReactiveDependencies,
+    getReactiveDependents,
+    IActiveReactiveDependency,
+    setReactiveDependencies,
+    setReactiveDependents,
+} from "./internals/reactive-node-utils";
+import {
+    getReproxyNode,
+    getReproxyNodeForUnproxiedNode,
+    updateReproxyNode,
+} from "./internals/reproxy";
 import { Transactions } from "./internals/transactions";
+import { ReactiveNode } from "./ReactiveNode";
 import {
     TRetreeEvents,
     TNodeChangedListener,
@@ -104,27 +119,36 @@ export class Retree {
         if (!this.nodeChangeListener) {
             this.startListening();
         }
+
+        const unproxiedNode = getUnproxiedNode(node);
+        if (!unproxiedNode) {
+            throw new Error(
+                "Retree.on: must use an object that is a proxied node. Pass object to Retree.use first, or get value from another child object."
+            );
+        }
         const relevantListenerMap =
             listenerType === "nodeChanged"
                 ? this.nodeChangedListeners
                 : listenerType === "treeChanged"
                 ? this.treeChangedListeners
                 : this.nodeRemovedListeners;
-        const rawNode = getUnproxiedNode(node);
-        if (!rawNode) {
-            throw new Error(
-                "Retree.on: must use an object that is a proxied node. Pass object to Retree.use first, or get value from another child object."
-            );
-        }
-        let listeners = relevantListenerMap.get(rawNode);
+
+        let listeners = relevantListenerMap.get(unproxiedNode);
         if (!listeners) {
             listeners = [callback as TRetreeListeners];
-            relevantListenerMap.set(rawNode, listeners);
+            relevantListenerMap.set(unproxiedNode, listeners);
         } else {
             listeners.push(callback as TRetreeListeners);
         }
+        if (
+            node instanceof ReactiveNode &&
+            (listenerType === "nodeChanged" || listenerType === "treeChanged")
+        ) {
+            this.handleReactiveNode(node, unproxiedNode);
+        }
         return this.buildUnsubscribeCallback(
-            rawNode,
+            unproxiedNode,
+            node,
             callback as TRetreeListeners,
             relevantListenerMap
         );
@@ -238,17 +262,35 @@ export class Retree {
     }
 
     private static buildUnsubscribeCallback(
-        rawNode: TreeNode,
+        unproxiedNode: TreeNode,
+        proxiedNode: TreeNode,
         callback: TRetreeListeners,
         relevantListenerMap: Map<TreeNode, TNodeChangedListener[]>
     ) {
         const unsubscribe = () => {
-            const _listeners = relevantListenerMap.get(rawNode);
+            const _listeners = relevantListenerMap.get(unproxiedNode);
             if (_listeners) {
                 const findIndex = _listeners.findIndex((l) => l === callback);
                 _listeners.splice(findIndex, 1);
                 if (_listeners.length === 0) {
-                    relevantListenerMap.delete(rawNode);
+                    relevantListenerMap.delete(unproxiedNode);
+                }
+            }
+            if (
+                proxiedNode instanceof ReactiveNode &&
+                (_listeners === undefined || _listeners.length === 0)
+            ) {
+                // Check if listening to this node from other reactive listener type.
+                const otherListeners =
+                    relevantListenerMap === this.nodeChangedListeners
+                        ? this.treeChangedListeners.get(unproxiedNode)
+                        : this.nodeChangedListeners.get(unproxiedNode);
+                if (
+                    otherListeners === undefined ||
+                    otherListeners.length === 0
+                ) {
+                    // Stop listening to reactive dependencies
+                    this.stopReactiveNode(proxiedNode, unproxiedNode);
                 }
             }
             if (
@@ -370,24 +412,31 @@ export class Retree {
     }
 
     private static startListening() {
-        this.nodeChangeListener = (
-            node: TreeNode,
+        const _nodeChangeListener = (
+            unproxiedNode: TreeNode,
             proxyNode: TCustomProxy<TreeNode>,
             reproxyNode: TreeNode
         ) => {
+            // If this is a reactive proxy node, update comparisons and listeners
+            if (proxyNode instanceof ReactiveNode) {
+                this.handleReactiveNode(proxyNode, unproxiedNode);
+            }
             // If in a skipEmit transaction state, skip emitting nodeChanged
             if (!Transactions.skipEmit) {
                 const emitNodeChangedListeners = () => {
                     const nodeChangedListnersToNotify =
-                        this.nodeChangedListeners.get(node);
-                    nodeChangedListnersToNotify?.forEach((callback) => {
-                        callback(reproxyNode);
-                    });
+                        this.nodeChangedListeners.get(unproxiedNode) ?? [];
+                    // We copy the list because it could get changed if the first callback triggers an unsubscribe
+                    [...nodeChangedListnersToNotify].forEach(
+                        (callback, index, array) => {
+                            callback(reproxyNode);
+                        }
+                    );
                 };
                 // If running a transaction, schedule this to emit later.
                 // That way if this same node gets changed later, we can only emit once for that node.
                 if (Transactions.runningTransaction) {
-                    Transactions.upsertPendingTransaction(node, {
+                    Transactions.upsertPendingTransaction(unproxiedNode, {
                         emitNodeChanged: emitNodeChangedListeners,
                     });
                 } else {
@@ -397,19 +446,17 @@ export class Retree {
             }
             // Still handle here so we reproxy parents, despite skipping emit later in biz logic
             // Note that we should never have gotten this far if skipReproxy is true, so we skip checking again
-            this.handleNotifyTreeChanged(node, proxyNode, proxyNode);
+            this.handleNotifyTreeChanged(unproxiedNode, proxyNode, proxyNode);
         };
-        this.nodeChangeEmitter.on(
-            "nodeChanged",
-            this.nodeChangeListener.bind(this)
-        );
+        this.nodeChangeListener = _nodeChangeListener.bind(this);
+        this.nodeChangeEmitter.on("nodeChanged", this.nodeChangeListener);
 
-        this.nodeRemovedListener = (node: TreeNode) => {
+        const _nodeRemovedListener = (node: TreeNode) => {
             // If in a skipEmit transaction state, skip emitting
             if (Transactions.skipEmit) return;
             const emitNodeRemovedListeners = () => {
                 const listnersToNotify = this.nodeRemovedListeners.get(node);
-                listnersToNotify?.forEach((callback) => {
+                listnersToNotify?.forEach((callback, index, array) => {
                     callback();
                 });
             };
@@ -425,10 +472,8 @@ export class Retree {
             }
             // TODO: notify all child nodes as well? or maybe add a treeRemoved listener?
         };
-        this.nodeChangeEmitter.on(
-            "nodeRemoved",
-            this.nodeRemovedListener.bind(this)
-        );
+        this.nodeRemovedListener = _nodeRemovedListener.bind(this);
+        this.nodeChangeEmitter.on("nodeRemoved", this.nodeRemovedListener);
     }
     private static stopListening() {
         if (this.nodeChangeListener) {
@@ -437,6 +482,8 @@ export class Retree {
         if (this.nodeRemovedListener) {
             this.nodeChangeEmitter.off("nodeRemoved", this.nodeRemovedListener);
         }
+        this.nodeChangeListener = null;
+        this.nodeRemovedListener = null;
         this.nodeRemovedListeners.clear();
         this.nodeChangedListeners.clear();
         this.treeChangedListeners.clear();
@@ -461,5 +508,170 @@ export class Retree {
             };
         }
         throw new Error("Node must be a valid TreeNode");
+    }
+
+    private static handleReactiveNode(
+        proxiedDependentNode: ReactiveNode,
+        unproxiedDependentNode: TreeNode
+    ) {
+        const current = proxiedDependentNode.dependencies;
+        const previous = getReactiveDependencies(unproxiedDependentNode);
+        if (previous && previous.length !== current.length) {
+            throw new Error(
+                "ReactiveNode length of dependencies does not equal previous value. Please ensure your dependencies list is consistent in its length and ordering."
+            );
+        }
+        const newActiveDependencies: IActiveReactiveDependency[] = [];
+        for (
+            let depIndex = 0;
+            depIndex < proxiedDependentNode.dependencies.length;
+            depIndex++
+        ) {
+            const depPrevious = previous?.[depIndex];
+            depPrevious?.unsubscribeListener?.();
+            const currentDependency =
+                proxiedDependentNode.dependencies[depIndex];
+            const prevDependencyNode = depPrevious?.node;
+            const newDependencyNode = currentDependency.node;
+            let unsubscribe: (() => void) | undefined;
+            if (prevDependencyNode && !newDependencyNode) {
+                const prevUnproxiedNode = getUnproxiedNode(prevDependencyNode);
+                if (!prevUnproxiedNode) {
+                    throw new Error(
+                        "Unexpected unproxied node for previous dependent reactive node"
+                    );
+                }
+                deleteReactiveDependent(
+                    prevUnproxiedNode,
+                    unproxiedDependentNode
+                );
+            } else if (newDependencyNode) {
+                const unproxiedDependencyNode =
+                    getUnproxiedNode(newDependencyNode);
+                if (!unproxiedDependencyNode) {
+                    throw new Error(
+                        "Unexpected unproxied node for current dependent reactive node"
+                    );
+                }
+                setReactiveDependents(unproxiedDependencyNode, {
+                    reactiveNode: proxiedDependentNode,
+                    comparisons: currentDependency.comparisons,
+                    index: depIndex,
+                });
+                unsubscribe = this.on(
+                    newDependencyNode,
+                    // TODO: figure out if I should support treeChanged for this...seems expensive
+                    "nodeChanged",
+                    this.handleReactiveDependentNodeChanged.bind(this)
+                );
+            }
+            newActiveDependencies.push({
+                node: currentDependency.node,
+                comparisons: currentDependency.comparisons,
+                unsubscribeListener: unsubscribe,
+            });
+        }
+        // Set reactive dependencies
+        setReactiveDependencies(unproxiedDependentNode, newActiveDependencies);
+    }
+
+    private static stopReactiveNode(
+        proxiedNode: ReactiveNode,
+        unproxiedNode: TreeNode
+    ) {
+        const current = proxiedNode.dependencies;
+        const previous = getReactiveDependencies(unproxiedNode);
+        if (previous && previous.length !== current.length) {
+            throw new Error(
+                "ReactiveNode length of dependencies does not equal previous value. Please ensure your dependencies list is consistent in its length and ordering."
+            );
+        }
+        for (
+            let depIndex = 0;
+            depIndex < proxiedNode.dependencies.length;
+            depIndex++
+        ) {
+            const depPrevious = previous?.[depIndex];
+            depPrevious?.unsubscribeListener?.();
+            const prevDependentNode = depPrevious?.node;
+            if (prevDependentNode) {
+                const prevUnproxiedDependentNode =
+                    getUnproxiedNode(prevDependentNode);
+                if (!prevUnproxiedDependentNode) {
+                    throw new Error(
+                        "Unexpected unproxied node for previous dependent reactive node"
+                    );
+                }
+                deleteReactiveDependent(
+                    prevUnproxiedDependentNode,
+                    unproxiedNode
+                );
+            }
+        }
+        // Delete reactive dependencies
+        deleteReactiveDependencies(unproxiedNode);
+    }
+
+    /**
+     * Handler for when a dependent node changed for a reactive node
+     * @param reproxy the reproxied node that changed
+     */
+    private static handleReactiveDependentNodeChanged(reproxy: TreeNode) {
+        // I could get unproxied node from scope...tradeoff between memory and runtime hit
+        // It's cheap to get unproxied node, so doing that for now
+        const _unproxy = getUnproxiedNode(reproxy);
+        if (!_unproxy) {
+            throw new Error(
+                "Unexpected unproxied node for current dependent reactive node on nodeChanged"
+            );
+        }
+        const dependents = getReactiveDependents(_unproxy);
+        if (!dependents) {
+            return;
+        }
+        dependents.forEach((dependent) => {
+            const previousComparisons = dependent.comparisons;
+            let shouldNotify = previousComparisons === undefined;
+            // If our comparisons exist, we check to see if any changed
+            if (!shouldNotify) {
+                // Need to get the latest dependency values for our comparison
+                const latest =
+                    dependent.reactiveNode.dependencies[dependent.index];
+                const latestComparisons = latest.comparisons;
+                if (
+                    latestComparisons === undefined ||
+                    !previousComparisons ||
+                    latestComparisons.length !== previousComparisons.length
+                ) {
+                    throw new Error(
+                        "Unexpected comparisons value for ReactiveNode. Ensure your comparisons have a consistent length and ordering for each ReactiveNode instance."
+                    );
+                }
+                for (let i = 0; i < latestComparisons.length; i++) {
+                    if (latestComparisons[i] !== previousComparisons[i]) {
+                        shouldNotify = true;
+                        continue;
+                    }
+                }
+            }
+            if (!shouldNotify) return;
+            // Reproxy node and emit listener
+            const dependentBaseProxy = getBaseProxy(dependent.reactiveNode);
+            const dependentUnproxied =
+                getUnproxiedNodeFromProxy(dependentBaseProxy);
+            const dependentReproxy = Transactions.skipReproxy
+                ? getReproxyNodeForUnproxiedNode(dependentUnproxied)
+                : updateReproxyNode(dependentBaseProxy);
+            if (!dependentReproxy) {
+                throw new Error(
+                    "Unexpectely found no existing reproxy value for dependent node."
+                );
+            }
+            this.nodeChangeListener?.(
+                dependentUnproxied,
+                dependentBaseProxy,
+                dependentReproxy
+            );
+        });
     }
 }

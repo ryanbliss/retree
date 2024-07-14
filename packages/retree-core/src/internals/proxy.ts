@@ -253,14 +253,10 @@ function handleNodeRemoved(
  * @param proxy the proxied TreeNode to get the raw node for
  * @returns the raw node if valid, otherwise undefined
  */
-function getUnproxiedNodeFromProxy<TNode extends TreeNode = TreeNode>(
-    proxy: TNode
-): TNode | undefined {
-    const proxyHandler = getCustomProxyHandler<TNode>(proxy);
-    if (proxyHandler) {
-        return proxyHandler[unproxiedBaseNodeKey];
-    }
-    return undefined;
+export function getUnproxiedNodeFromProxy<TNode extends TreeNode = TreeNode>(
+    proxy: TCustomProxy<TNode>
+): TNode {
+    return proxy["[[Handler]]"][unproxiedBaseNodeKey];
 }
 
 /**
@@ -273,7 +269,7 @@ function getUnproxiedNodeFromProxy<TNode extends TreeNode = TreeNode>(
 export function getUnproxiedNode<TNode extends TreeNode = TreeNode>(
     node: TNode
 ): TNode | undefined {
-    if (isCustomProxy(node)) {
+    if (isCustomProxy<TNode>(node)) {
         return getUnproxiedNodeFromProxy<TNode>(node);
     }
     return node;

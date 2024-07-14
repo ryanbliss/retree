@@ -281,7 +281,50 @@ While `useTree` is powerful and can make things a lot easier, it is important to
 
 ## Optimize for performance
 
-`Retree` offers useful utility APIs for further optimizing performance, including `Retree.runTransaction` and `Retree.runSilent`.
+`Retree` offers useful utility APIs for further optimizing performance, including `ReactiveNode`, `Retree.runTransaction`, and `Retree.runSilent`.
+
+### ReactiveNode
+
+The `ReactiveNode` class allows nodes in your tree to reactively update when their declared dependencies change. This offers a middleground between `useTree` and `useNode` that can be extremely powerful for minimizing re-renders in your application.
+
+```ts
+import { Retree, ReactiveNode } from "@retree/core";
+import { useNode } from "@retree/core";
+// Declare a class that extends `ReactiveNode`
+class Node extends ReactiveNode {
+    numbers: number[] = [];
+    constructor() {
+        super();
+    }
+    // Get count of even numbers in the list
+    get evenNumberCount(): number {
+        return this.numbers.filter((number) => number % 2 === 0).length;
+    }
+    // Implement abstract `dependencies` getter with list of dependencies
+    get dependencies() {
+        return [
+            // Similar to React, dependencies cannot change in length or order between updates.
+            this.dependency(
+                // The dependency node to listen to changes for.
+                this.numbers,
+                // Optional comparison dependencies so that only specific changes cause `Node` instances to updates.
+                // If not provided, all changes to `this.numbers` would cause `Node` instances to update.
+                [this.evenNumberCount]
+            ),
+        ];
+    }
+}
+// Create root `ReactiveNode` instance and listen for changes in `useNode`
+const node = Retree.use(new Node());
+const nodeState = useNode(node);
+
+// ✅ Will re-render
+node.list.push(2);
+node.list.push(100);
+// ❌ Will not re-render
+node.list.push(3);
+node.list.push(99);
+```
 
 ### Transactions
 
@@ -311,7 +354,7 @@ function onClickIncrementMultipler() {
     });
 }
 // Re-render when user clicks button
-const onClickIncrementCount = () => {
+function onClickIncrementCount() {
     counterState.count = counterState.count * counterState.multiplier;
 }
 ```

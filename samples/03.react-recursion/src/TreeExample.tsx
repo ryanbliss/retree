@@ -3,6 +3,7 @@ import { useTree } from "@retreejs/react";
 import { Retree } from "@retreejs/core";
 import { IMemoize } from "./interfaces";
 import { Card, Tree } from "./node-state";
+import { globalState } from "./global-state";
 
 const _CardList: FC<
     {
@@ -13,22 +14,20 @@ const _CardList: FC<
         <>
             {memoize &&
                 list.map((c) => {
-                    return <ViewCard key={c.id} card={c} memoize={memoize} />;
+                    return <ViewCard key={c.id} card={c} />;
                 })}
             {!memoize &&
                 list.map((c) => {
-                    return <_ViewCard key={c.id} card={c} memoize={memoize} />;
+                    return <_ViewCard key={c.id} card={c} />;
                 })}
         </>
     );
 };
 const CardList = memo(_CardList);
 
-const _ViewCard: FC<
-    {
-        card: Card;
-    } & IMemoize
-> = ({ card, memoize }) => {
+const _ViewCard: FC<{
+    card: Card;
+}> = ({ card }) => {
     return (
         <div className="card">
             <div className="card-stats">{`counter: ${card.count}`}</div>
@@ -50,12 +49,19 @@ const _ViewCard: FC<
                 >
                     {"escape parent"}
                 </button>
-                <button onClick={card.swapChildList}>
+                <button
+                    disabled={!card.canSwapChildList}
+                    onClick={card.swapChildList}
+                >
                     {"swap child lists"}
                 </button>
             </div>
-            {memoize && <CardList list={card.list} memoize={memoize} />}
-            {!memoize && <_CardList list={card.list} memoize={memoize} />}
+            {globalState.memoize && (
+                <CardList list={card.list} memoize={globalState.memoize} />
+            )}
+            {!globalState.memoize && (
+                <_CardList list={card.list} memoize={globalState.memoize} />
+            )}
         </div>
     );
 };
@@ -64,15 +70,16 @@ const ViewCard = memo(_ViewCard);
 // Setup Retree with our root node
 const appTree = Retree.use(new Tree("useTree (ease of use)"));
 
-const TreeExample: FC<IMemoize> = ({ memoize }) => {
+const _TreeExample: FC = () => {
     const root = useTree(appTree);
     return (
         <div>
             <h2>{root.title}</h2>
-            {memoize && <ViewCard card={root.card} memoize={memoize} />}
-            {!memoize && <_ViewCard card={root.card} memoize={memoize} />}
+            {globalState.memoize && <ViewCard card={root.card} />}
+            {!globalState.memoize && <_ViewCard card={root.card} />}
         </div>
     );
 };
+const TreeExample = memo(_TreeExample);
 
 export default TreeExample;

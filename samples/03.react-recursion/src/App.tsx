@@ -29,8 +29,8 @@ function App() {
                     />
                 </label>
             </div>
-            <NodeExample memoize={state.memoize} />
-            <TreeExample memoize={state.memoize} />
+            <NodeExample />
+            <TreeExample />
         </div>
     );
 }

@@ -5,6 +5,11 @@
 
 export type TreeNode<T extends object = object> = T;
 
+export type OptionalNode<T extends TreeNode = TreeNode> =
+    | (undefined | null | T)
+    | (undefined | T)
+    | (null | T);
+
 /**
  * Listener types for {@link Retree.on} that return a reproxied node.
  */
