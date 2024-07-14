@@ -50,6 +50,9 @@ const _ViewCard: FC<
                 >
                     {"escape parent"}
                 </button>
+                <button onClick={card.swapChildList}>
+                    {"swap child lists"}
+                </button>
             </div>
             {memoize && <CardList list={card.list} memoize={memoize} />}
             {!memoize && <_CardList list={card.list} memoize={memoize} />}

@@ -40,6 +40,7 @@
   border-radius: 8px;
   box-sizing: border-box;
   min-width: 720px;
+  margin-bottom: 4px;
 }
 .card-buttons {
   margin-bottom: 8px;

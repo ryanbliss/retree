@@ -70,7 +70,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     typeof newValue === "object"
                 ) {
                     // If `receiver` has a value, we are replacing it with a new one
-                    nodeRemoved = handleNodeRemoved(receiver, prop);
+                    nodeRemoved = handleNodeRemoved(baseProxy, prop);
                 }
                 if (typeof newValue === "object") {
                     if (prop === "constructor")
@@ -188,17 +188,30 @@ export function getCustomProxyHandler<TNode extends TreeNode = TreeNode>(
  * @internal
  * Reset the parent reference.
  * @param proxy proxied being object reparented
- * @param parent parent proxy object to set a reference to the proxied child
+ * @param newParent parent proxy object to set a reference to the proxied child
  */
 function reparentProxy<T extends TreeNode = TreeNode>(
     proxy: ICustomProxy<T>,
-    parent: IProxyParent<any>
+    newParent: IProxyParent<any>
 ) {
+    const currentParent = proxy["[[Handler]]"][proxiedParentKey];
     // Reproxy shares same reference to original IProxyParent object.
     // Set deep values directly.
-    if (proxy["[[Handler]]"][proxiedParentKey]) {
-        proxy["[[Handler]]"][proxiedParentKey].propName = parent.propName;
-        proxy["[[Handler]]"][proxiedParentKey].proxyNode = parent.proxyNode;
+    if (currentParent) {
+        if (
+            currentParent.proxyNode !== null &&
+            newParent.proxyNode !== null &&
+            // It's okay to reference a node twice in the same object.
+            // This is especially common when moving an item in a list from one index to another.
+            // Such a case is usually temporary, but it doesn't have to be.
+            currentParent.proxyNode !== newParent.proxyNode
+        ) {
+            throw new Error(
+                "A node can only have a single parent. To move the node to a new parent, first remove it from the previous parent and then set it to the new object."
+            );
+        }
+        currentParent.propName = newParent.propName;
+        currentParent.proxyNode = newParent.proxyNode;
     }
     return proxy;
 }
@@ -218,15 +231,16 @@ function handleNodeRemoved(
         // Remove parent reference
         const oldHandler = getCustomProxyHandler(nodeRemoved);
         if (oldHandler) {
+            const oldParent = oldHandler[proxiedParentKey];
             // If the prop of the parent doesn't match, it was recently set to a new node.
             // That means it is still part of the object tree, and thus we do not want to notify node removed.
-            if (oldHandler[proxiedParentKey]?.propName !== prop) {
+            if (!oldParent || oldParent?.propName !== prop) {
                 return undefined;
             }
             // Reproxy shares same reference to original IProxyParent object.
             // Set deep values directly.
-            oldHandler[proxiedParentKey].propName = null;
-            oldHandler[proxiedParentKey].proxyNode = null;
+            oldParent.propName = null;
+            oldParent.proxyNode = null;
         }
     }
     return nodeRemoved;

@@ -64,7 +64,7 @@ export class Transactions {
             ...transaction,
             ...upsertTransaction,
         };
-        this.pendingTransactions.set(node, upsertTransaction);
+        this.pendingTransactions.set(node, transaction);
     }
 
     /**

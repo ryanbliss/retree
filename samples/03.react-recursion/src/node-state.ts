@@ -74,6 +74,21 @@ export class Card {
             console.log(grandparent.list, greatGrandparent.list);
         });
     }
+
+    swapChildList() {
+        if (this.list.length < 2) return;
+        // Far from elegant, but it is possible to swap parents between two different nodes
+        Retree.runTransaction(() => {
+            const card1 = this.list[0];
+            const card1List = card1.list;
+            const card2 = this.list[1];
+            const card2List = card2.list;
+            card1.list = [];
+            card2.list = [];
+            card1.list = card2List;
+            card2.list = card1List;
+        });
+    }
 }
 
 export class Tree {

@@ -27,7 +27,9 @@ export function useNodeInternal<T extends TreeNode = TreeNode>(
             setNodeState({ node: proxy });
         });
         // Unsubscribe on unmount
-        return unsubscribe;
+        return () => {
+            unsubscribe();
+        };
     }, [baseProxy, listenerType]);
 
     // We want to reset our state when our prop changes to a new node without causing a re-render via `useEffect`.
