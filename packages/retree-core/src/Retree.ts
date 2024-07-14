@@ -427,11 +427,9 @@ export class Retree {
                     const nodeChangedListnersToNotify =
                         this.nodeChangedListeners.get(unproxiedNode) ?? [];
                     // We copy the list because it could get changed if the first callback triggers an unsubscribe
-                    [...nodeChangedListnersToNotify].forEach(
-                        (callback, index, array) => {
-                            callback(reproxyNode);
-                        }
-                    );
+                    [...nodeChangedListnersToNotify].forEach((callback) => {
+                        callback(reproxyNode);
+                    });
                 };
                 // If running a transaction, schedule this to emit later.
                 // That way if this same node gets changed later, we can only emit once for that node.
@@ -455,8 +453,10 @@ export class Retree {
             // If in a skipEmit transaction state, skip emitting
             if (Transactions.skipEmit) return;
             const emitNodeRemovedListeners = () => {
-                const listnersToNotify = this.nodeRemovedListeners.get(node);
-                listnersToNotify?.forEach((callback, index, array) => {
+                const listnersToNotify =
+                    this.nodeRemovedListeners.get(node) ?? [];
+                // We copy the list because it could get changed if the first callback triggers an unsubscribe
+                [...listnersToNotify].forEach((callback) => {
                     callback();
                 });
             };
