@@ -1,6 +1,6 @@
 # Retree packages
 
-Retree is a lightweight and simple state management library, specifically designed for frameworks like React. If you know how to work with objects in JavaScript or TypeScript, you pretty much already know how to use Retree.
+Retree is a lightweight and simple state management library, designed primarily for React. If you know how to work with objects in JavaScript or TypeScript, you pretty much already know how to use Retree.
 
 ## @retreejs/react
 
