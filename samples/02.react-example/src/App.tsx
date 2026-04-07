@@ -52,7 +52,7 @@ class AppTree {
 // Setup Retree root
 const appTree = Retree.use(new AppTree());
 
-function App() {
+const App : FC = () => {
     const root = useTree(appTree);
     return (
         <div>
