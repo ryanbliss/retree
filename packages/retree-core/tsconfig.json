@@ -9,11 +9,12 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    "rootDir": ".",
     "outDir": "./bin",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
   },
   "include": ["src/**/*.ts"],
   "exclude": ["**/*.spec.ts", "**/mock/*.ts"]

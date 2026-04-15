@@ -3,8 +3,9 @@ import NodeExample from "./NodeExample";
 import TreeExample from "./TreeExample";
 import { useNode } from "@retreejs/react";
 import { globalState } from "./global-state";
+import { FC } from "react";
 
-function App() {
+const App : FC = () => {
     const state = useNode(globalState);
     return (
         <div>
