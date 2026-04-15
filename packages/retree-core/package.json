@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/core",
-    "version": "0.1.7",
+    "version": "0.1.10",
     "description": "React to changes in your object trees.",
     "author": "Ryan Bliss",
     "private": false,
@@ -30,5 +30,15 @@
     "homepage": "https://studiobliss.io",
     "bugs": {
         "url": "https://github.com/ryanbliss/retree/issues"
+    },
+    "exports": {
+        ".": {
+            "types": "./bin/src/index.d.ts",
+            "default": "./bin/src/index.js"
+        },
+        "./internal": {
+            "types": "./bin/internal.d.ts",
+            "default": "./bin/internal.js"
+        }
     }
 }
