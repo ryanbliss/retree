@@ -2,6 +2,7 @@
  * Copyright (c) Ryan Bliss. All rights reserved.
  * Licensed under the MIT License.
  */
+"use no memo";
 
 import { Retree, TreeNode } from "@retreejs/core";
 import { useNodeInternal } from "./internals/useNodeInternal";
