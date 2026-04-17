@@ -154,6 +154,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             return returnValue;
         },
     };
+    if (object === null || object === undefined) return object;
     const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
     Object.entries(object).forEach(([prop, value]) => {
         if (typeof value === "object") {
