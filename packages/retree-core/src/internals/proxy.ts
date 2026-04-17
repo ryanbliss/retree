@@ -154,7 +154,6 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             return returnValue;
         },
     };
-    if (object === null || object === undefined) return object;
     const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
     Object.entries(object).forEach(([prop, value]) => {
         if (typeof value === "object") {
@@ -162,12 +161,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 proxyNode: proxy,
                 propName: prop,
             });
-            const baseValue = proxyHandler[proxiedChildrenKey][prop];
-            if (baseValue === null || baseValue === undefined) {
-                proxyHandler[proxiedChildrenKey][prop] = value;
-            } else {
-                proxyHandler[proxiedChildrenKey][prop] = getBaseProxy(cProxy);
-            }
+            proxyHandler[proxiedChildrenKey][prop] = getBaseProxy(cProxy);
         }
     });
     updateReproxyNode(proxy);
