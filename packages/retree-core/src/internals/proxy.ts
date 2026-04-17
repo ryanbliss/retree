@@ -19,6 +19,12 @@ import {
 import { getReproxyNodeForUnproxiedNode, updateReproxyNode } from "./reproxy";
 import { Transactions } from "./transactions";
 
+export const FUNCTION_NAMES_BIND_TO_RAW: (string | symbol)[] = [
+    "valueOf",
+    "toISOString",
+    "toJSON",
+];
+
 /**
  * @internal
  * Builds a proxied object that emits changes when any value changes.
@@ -58,7 +64,13 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             }
             const baseProxy = getBaseProxy(receiver);
             const value = Reflect.get(target, prop, receiver);
-            return typeof value === "function" ? value.bind(baseProxy) : value;
+            if (typeof value === "function") {
+                if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
+                    return value.bind(target);
+                }
+                return value.bind(baseProxy);
+            }
+            return value;
         },
         set(target, prop, newValue, receiver) {
             const prev = (target as any)[prop];

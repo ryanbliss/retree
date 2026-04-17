@@ -4,7 +4,7 @@
  */
 
 import { TreeNode } from "../types";
-import { getCustomProxyHandler, getBaseProxy, getUnproxiedNode } from "./proxy";
+import { getCustomProxyHandler, getBaseProxy, getUnproxiedNode, FUNCTION_NAMES_BIND_TO_RAW } from "./proxy";
 import {
     ICustomProxyHandler,
     proxiedChildrenKey,
@@ -79,7 +79,13 @@ function buildReproxy<T extends TreeNode = TreeNode>(
             const reproxy = getReproxyNode(baseProxy);
             const rawNode = getUnproxiedNode(baseProxy);
             const value = Reflect.get(rawNode ?? target, prop, receiver);
-            return typeof value === "function" ? value.bind(reproxy) : value;
+            if (typeof value === "function") {
+                if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
+                    return value.bind(rawNode);
+                }
+                return value.bind(reproxy);
+            }
+            return value;
         },
         set(target, prop, newValue, receiver) {
             return Reflect.set(target, prop, newValue, receiver);
