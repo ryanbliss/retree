@@ -162,6 +162,11 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 proxyNode: proxy,
                 propName: prop,
             });
+            const baseValue = proxyHandler[proxiedChildrenKey][prop];
+            if (baseValue === null || baseValue === undefined) {
+                proxyHandler[proxiedChildrenKey][prop] = value;
+                return;
+            }
             proxyHandler[proxiedChildrenKey][prop] = getBaseProxy(cProxy);
         }
     });
