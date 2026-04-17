@@ -51,7 +51,10 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 typeof prop === "string" &&
                 proxyHandler[proxiedChildrenKey][prop]
             ) {
-                return proxyHandler[proxiedChildrenKey][prop];
+                const value = proxyHandler[proxiedChildrenKey][prop];
+                if (typeof value !== "function") {
+                    return value;
+                }
             }
             const baseProxy = getBaseProxy(receiver);
             const value = Reflect.get(target, prop, receiver);
