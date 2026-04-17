@@ -72,7 +72,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     // If `receiver` has a value, we are replacing it with a new one
                     nodeRemoved = handleNodeRemoved(baseProxy, prop);
                 }
-                if (typeof newValue === "object") {
+                if (newValue !== null && typeof newValue === "object") {
                     if (prop === "constructor")
                         return Reflect.set(target, prop, newValue, receiver);
 
@@ -154,9 +154,10 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             return returnValue;
         },
     };
+    if (object === null) return object;
     const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
     Object.entries(object).forEach(([prop, value]) => {
-        if (typeof value === "object") {
+        if (value !== null && typeof value === "object") {
             const cProxy = buildProxy(value, emitter, {
                 proxyNode: proxy,
                 propName: prop,
@@ -227,7 +228,7 @@ function handleNodeRemoved(
     prop: string | symbol
 ): object | undefined {
     const nodeRemoved = (node as any)?.[prop];
-    if (typeof nodeRemoved === "object") {
+    if (nodeRemoved !== null && typeof nodeRemoved === "object") {
         // Remove parent reference
         const oldHandler = getCustomProxyHandler(nodeRemoved);
         if (oldHandler) {
