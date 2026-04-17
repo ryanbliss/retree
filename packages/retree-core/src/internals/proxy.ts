@@ -19,6 +19,12 @@ import {
 import { getReproxyNodeForUnproxiedNode, updateReproxyNode } from "./reproxy";
 import { Transactions } from "./transactions";
 
+export const FUNCTION_NAMES_BIND_TO_RAW: (string | symbol)[] = [
+    "valueOf",
+    "toISOString",
+    "toJSON",
+];
+
 /**
  * @internal
  * Builds a proxied object that emits changes when any value changes.
@@ -51,11 +57,20 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 typeof prop === "string" &&
                 proxyHandler[proxiedChildrenKey][prop]
             ) {
-                return proxyHandler[proxiedChildrenKey][prop];
+                const value = proxyHandler[proxiedChildrenKey][prop];
+                if (typeof value !== "function") {
+                    return value;
+                }
             }
             const baseProxy = getBaseProxy(receiver);
             const value = Reflect.get(target, prop, receiver);
-            return typeof value === "function" ? value.bind(baseProxy) : value;
+            if (typeof value === "function") {
+                if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
+                    return value.bind(target);
+                }
+                return value.bind(baseProxy);
+            }
+            return value;
         },
         set(target, prop, newValue, receiver) {
             const prev = (target as any)[prop];
@@ -72,7 +87,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     // If `receiver` has a value, we are replacing it with a new one
                     nodeRemoved = handleNodeRemoved(baseProxy, prop);
                 }
-                if (typeof newValue === "object") {
+                if (newValue !== null && typeof newValue === "object") {
                     if (prop === "constructor")
                         return Reflect.set(target, prop, newValue, receiver);
 
@@ -154,9 +169,12 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             return returnValue;
         },
     };
+    if (object === null) return object;
     const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
     Object.entries(object).forEach(([prop, value]) => {
-        if (typeof value === "object") {
+        if (value === null) {
+            proxyHandler[proxiedChildrenKey][prop] = value;
+        } else if (typeof value === "object") {
             const cProxy = buildProxy(value, emitter, {
                 proxyNode: proxy,
                 propName: prop,
@@ -227,7 +245,7 @@ function handleNodeRemoved(
     prop: string | symbol
 ): object | undefined {
     const nodeRemoved = (node as any)?.[prop];
-    if (typeof nodeRemoved === "object") {
+    if (nodeRemoved !== null && typeof nodeRemoved === "object") {
         // Remove parent reference
         const oldHandler = getCustomProxyHandler(nodeRemoved);
         if (oldHandler) {

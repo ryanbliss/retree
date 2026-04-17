@@ -6,12 +6,12 @@ import "./App.css";
 
 class CatFacts {
     public loading = false;
-    public error: string | undefined = undefined;
+    public error: string | null = null;
     public fact: string | undefined;
 
     public async randomize() {
         this.loading = true;
-        if (this.error) this.error = undefined;
+        if (this.error) this.error = null;
         try {
             const data = await fetch("https://meowfacts.herokuapp.com/");
             const json = await data.json();
