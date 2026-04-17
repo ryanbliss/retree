@@ -70,8 +70,10 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                 handler[proxiedChildrenKey][prop]
             ) {
                 const childProxy = handler[proxiedChildrenKey][prop];
-                const reproxy = getReproxyNode(childProxy);
-                return reproxy ?? childProxy;
+                if (typeof childProxy !== "function") {
+                    const reproxy = getReproxyNode(childProxy);
+                    return reproxy ?? childProxy;
+                }
             }
             const baseProxy: TCustomProxy<T> = getBaseProxy(receiver);
             const reproxy = getReproxyNode(baseProxy);
