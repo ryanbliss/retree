@@ -70,6 +70,9 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                 handler[proxiedChildrenKey][prop]
             ) {
                 const childProxy = handler[proxiedChildrenKey][prop];
+                if (childProxy === null || childProxy === undefined) {
+                    return childProxy;
+                }
                 const reproxy = getReproxyNode(childProxy);
                 return reproxy ?? childProxy;
             }
