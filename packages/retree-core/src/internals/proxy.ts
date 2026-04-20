@@ -101,6 +101,8 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         ? reparentProxy(newValue, parentToSet)
                         : buildProxy(newValue, emitter, parentToSet);
                     proxyHandler[proxiedChildrenKey][prop] = valueToSet;
+                } else if (!newValue && !!prev && typeof prev === "object") {
+                    proxyHandler[proxiedChildrenKey][prop] = newValue;
                 }
                 const returnValue = Reflect.set(
                     target,
