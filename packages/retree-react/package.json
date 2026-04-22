@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/react",
-    "version": "0.1.22",
+    "version": "0.1.23",
     "description": "Easily build stateful React applications using familiar JavaScript patterns.",
     "author": "Ryan Bliss",
     "license": "MIT",
@@ -14,14 +14,14 @@
     },
     "devDependencies": {
         "@babel/core": "^7.21.8",
-        "@retreejs/core": "0.1.22",
+        "@retreejs/core": "0.1.23",
         "@types/react": "^19.2.3",
         "@types/react-dom": "^19.2.3",
         "babel-loader": "^9.1.2",
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
-        "@retreejs/core": "0.1.22",
+        "@retreejs/core": "0.1.23",
         "react": "^16.8.0 || ^17 || ^18 || ^19",
         "react-dom": "^16.8.0 || ^17 || ^18 || ^19"
     },
