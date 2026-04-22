@@ -1,5 +1,5 @@
 import { v4 as uuid } from "uuid";
-import { Retree, ReactiveNode } from "@retreejs/core";
+import { Retree, ReactiveNode, retreeIgnore } from "@retreejs/core";
 import { globalState } from "./global-state";
 
 export class Card extends ReactiveNode {
@@ -104,10 +104,28 @@ export class Card extends ReactiveNode {
     }
 }
 
-export class Tree extends ReactiveNode {
-    public card: Card = new Card(1);
-    constructor(public readonly title: string) {
+export class IgnoreExample extends ReactiveNode {
+    public count: number;
+
+    constructor() {
         super();
+        this.count = 0;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+export class Tree extends ReactiveNode {
+    public readonly title: string
+    public card: Card = new Card(1);
+    @retreeIgnore
+    public ignore: IgnoreExample;
+    constructor(title: string) {
+        super();
+        this.title = title;
+        this.ignore = new IgnoreExample();
     }
     get dependencies() {
         return [this.dependency(globalState, [globalState.memoize])];

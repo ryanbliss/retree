@@ -22,6 +22,8 @@ export interface IReactiveDependency<TNode extends TreeNode = TreeNode> {
     comparisons?: any[];
 }
 
+export const COLLECTED_KEYS_SYMBOL = "RETREE_COLLECTED_KEYS_SYMBOL";
+
 /**
  * Declare dependencies for other nodes in the tree to conditionally emit changes for the node.
  * @remarks
@@ -80,4 +82,8 @@ export abstract class ReactiveNode {
             comparisons,
         };
     }
+    /**
+     * @hidden
+     */
+    public [COLLECTED_KEYS_SYMBOL]: Set<string | symbol> = new Set<string | symbol>();
 }

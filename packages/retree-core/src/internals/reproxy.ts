@@ -3,8 +3,14 @@
  * Licensed under the MIT License.
  */
 
+import { COLLECTED_KEYS_SYMBOL, ReactiveNode } from "../ReactiveNode";
 import { TreeNode } from "../types";
-import { getCustomProxyHandler, getBaseProxy, getUnproxiedNode, FUNCTION_NAMES_BIND_TO_RAW } from "./proxy";
+import {
+    getCustomProxyHandler,
+    getBaseProxy,
+    getUnproxiedNode,
+    FUNCTION_NAMES_BIND_TO_RAW,
+} from "./proxy";
 import {
     ICustomProxyHandler,
     proxiedChildrenKey,
@@ -63,6 +69,15 @@ function buildReproxy<T extends TreeNode = TreeNode>(
             }
             if (prop === "[[Target]]") {
                 return object;
+            }
+            if (target instanceof ReactiveNode) {
+                // Check for ignore keys
+                if (
+                    prop === COLLECTED_KEYS_SYMBOL ||
+                    target[COLLECTED_KEYS_SYMBOL].has(prop)
+                ) {
+                    return Reflect.get(target, prop, receiver);
+                }
             }
             if (
                 typeof prop === "string" &&
