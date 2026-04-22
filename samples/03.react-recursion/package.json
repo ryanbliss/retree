@@ -10,8 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@retreejs/core": "0.1.30",
-    "@retreejs/react": "0.1.30",
+    "@retreejs/core": "0.1.31",
+    "@retreejs/react": "0.1.31",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "uuid": "^9.0.0"
