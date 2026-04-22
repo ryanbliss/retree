@@ -7,6 +7,7 @@
 import { Retree, TreeNode } from "@retreejs/core";
 import { getReproxyNode, getBaseProxy } from "@retreejs/core/internal";
 import { useEffect, useMemo, useState } from "react";
+import { NodeFactory } from "../types";
 
 function getNode<T extends TreeNode = TreeNode>(node: T | (() => T)) {
     if (typeof node === "function") {
@@ -19,18 +20,18 @@ function getNode<T extends TreeNode = TreeNode>(node: T | (() => T)) {
  * Stateful version of an object and its leafs.
  */
 export function useNodeInternal<T extends TreeNode = TreeNode>(
-    node: T | (() => T),
+    node: T | NodeFactory<T>,
     listenerType: "nodeChanged" | "treeChanged"
 ): T {
-    const [nodeState, setNodeState] = useState<{ node: T }>(() => {
-        return {
-            node: getReproxyNode(getNode(node)),
-        };
-    });
-
     const memoNode = useMemo(() => {
         return getNode(node);
-    }, [node])
+    }, [node]);
+
+    const [nodeState, setNodeState] = useState<{ node: T }>(() => {
+        return {
+            node: getReproxyNode(memoNode),
+        };
+    });
 
     // We can listen to a reproxied or base proxy node, but base proxies change less frequently.
     // Listen to the baseProxy changes. This is cheap so it's okay to do it unmemoized.

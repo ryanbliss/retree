@@ -12,8 +12,8 @@
   "dependencies": {
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "@retreejs/core": "0.1.23",
-    "@retreejs/react": "0.1.23",
+    "@retreejs/core": "0.1.30",
+    "@retreejs/react": "0.1.30",
     "uuid": "^9.0.0"
   },
   "devDependencies": {

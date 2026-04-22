@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/core",
-    "version": "0.1.23",
+    "version": "0.1.30",
     "description": "React to changes in your object trees.",
     "author": "Ryan Bliss",
     "private": false,
@@ -33,12 +33,12 @@
     },
     "exports": {
         ".": {
-            "types": "./bin/src/index.d.ts",
-            "default": "./bin/src/index.js"
+            "types": "./bin/index.d.ts",
+            "default": "./bin/index.js"
         },
         "./internal": {
-            "types": "./bin/internal.d.ts",
-            "default": "./bin/internal.js"
+            "types": "./bin/internals/index.d.ts",
+            "default": "./bin/internals/index.js"
         }
     }
 }

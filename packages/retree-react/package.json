@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/react",
-    "version": "0.1.23",
+    "version": "0.1.30",
     "description": "Easily build stateful React applications using familiar JavaScript patterns.",
     "author": "Ryan Bliss",
     "license": "MIT",
@@ -14,14 +14,14 @@
     },
     "devDependencies": {
         "@babel/core": "^7.21.8",
-        "@retreejs/core": "0.1.23",
+        "@retreejs/core": "0.1.30",
         "@types/react": "^19.2.3",
         "@types/react-dom": "^19.2.3",
         "babel-loader": "^9.1.2",
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
-        "@retreejs/core": "0.1.23",
+        "@retreejs/core": "0.1.30",
         "react": "^16.8.0 || ^17 || ^18 || ^19",
         "react-dom": "^16.8.0 || ^17 || ^18 || ^19"
     },
@@ -33,5 +33,15 @@
     "homepage": "https://studiobliss.io",
     "bugs": {
         "url": "https://github.com/ryanbliss/retree/issues"
+    },
+    "exports": {
+        ".": {
+            "types": "./bin/index.d.ts",
+            "default": "./bin/index.js"
+        },
+        "./internal": {
+            "types": "./bin/internals/index.d.ts",
+            "default": "./bin/internals/index.js"
+        }
     }
 }
