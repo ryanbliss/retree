@@ -5,3 +5,5 @@
 
 export * from "./useNode";
 export * from "./useTree";
+export * from "./useRoot";
+export * from "./types";

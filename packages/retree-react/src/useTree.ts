@@ -6,6 +6,7 @@
 
 import { Retree, TreeNode } from "@retreejs/core";
 import { useNodeInternal } from "./internals/useNodeInternal";
+import { NodeFactory } from "./types";
 
 const LISTENER_TYPE = "treeChanged";
 
@@ -90,6 +91,6 @@ function App() {
 export default App;
  * ```
  */
-export function useTree<T extends TreeNode = TreeNode>(node: T | (() => T)): T {
+export function useTree<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>): T {
     return useNodeInternal(node, LISTENER_TYPE);
 }
