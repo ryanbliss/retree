@@ -3,6 +3,7 @@
  * Licensed under the MIT License.
  */
 
+import { COLLECTED_KEYS_SYMBOL, ReactiveNode } from "../ReactiveNode";
 import { TreeNode } from "../types";
 import { TreeChangeEmitter } from "./NodeChangeEmitter";
 import {
@@ -53,6 +54,16 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             if (prop === "[[Target]]") {
                 return object;
             }
+            if (target instanceof ReactiveNode) {
+                const propString = String(prop);
+                // Check for ignore keys
+                if (
+                    propString === COLLECTED_KEYS_SYMBOL ||
+                    target[COLLECTED_KEYS_SYMBOL].has(propString)
+                ) {
+                    return Reflect.get(target, prop, receiver);
+                }
+            }
             if (
                 typeof prop === "string" &&
                 proxyHandler[proxiedChildrenKey][prop]
@@ -73,6 +84,16 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             return value;
         },
         set(target, prop, newValue, receiver) {
+            if (target instanceof ReactiveNode) {
+                const propString = String(prop);
+                // Check for ignore keys
+                if (
+                    propString === COLLECTED_KEYS_SYMBOL ||
+                    target[COLLECTED_KEYS_SYMBOL].has(propString)
+                ) {
+                    return Reflect.set(target, prop, newValue, receiver);
+                }
+            }
             const prev = (target as any)[prop];
             const hasChanged = prev !== newValue;
             const baseProxy = getBaseProxy<T>(receiver);
@@ -135,12 +156,25 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             return true;
         },
         deleteProperty(target, prop) {
+            if (target instanceof ReactiveNode) {
+                const propString = String(prop);
+                // Check for ignore keys
+                if (
+                    propString === COLLECTED_KEYS_SYMBOL ||
+                    target[COLLECTED_KEYS_SYMBOL].has(propString)
+                ) {
+                    return Reflect.deleteProperty(target, prop);
+                }
+            }
             // Good example of `deleteProperty` is when an item is removed / moved in a list.
             // `deleteProperty` does not expose the receiver...get the latest reproxy instead.
             // TODO: should revisit this at some point...
-            const baseProxy = isCustomProxy(target)
-                ? getBaseProxy(target)
+            const currentProxy = isCustomProxy(target)
+                ? target
                 : getReproxyNodeForUnproxiedNode(target);
+            const baseProxy = currentProxy
+                ? getBaseProxy(currentProxy)
+                : currentProxy;
             const nodeRemoved = handleNodeRemoved(baseProxy, prop);
             const returnValue = Reflect.deleteProperty(target, prop);
             // If in a skip reproxy transaction, do not reproxy node
@@ -172,9 +206,16 @@ export function buildProxy<T extends TreeNode = TreeNode>(
         },
     };
     if (object === null) return object;
+    if (isCustomProxy(object)) return getBaseProxy(object);
     const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
     Object.entries(object).forEach(([prop, value]) => {
-        if (value === null) {
+        const propString = String(prop);
+        if (
+            value === null ||
+            (object instanceof ReactiveNode &&
+                (propString === COLLECTED_KEYS_SYMBOL ||
+                    object[COLLECTED_KEYS_SYMBOL].has(propString)))
+        ) {
             proxyHandler[proxiedChildrenKey][prop] = value;
         } else if (typeof value === "object") {
             const cProxy = buildProxy(value, emitter, {

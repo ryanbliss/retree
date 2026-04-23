@@ -6,3 +6,4 @@
 export * from "./Retree";
 export * from "./types";
 export * from "./ReactiveNode";
+export * from "./decorators";

@@ -10,13 +10,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@retreejs/core": "0.1.32",
+    "@retreejs/react": "0.1.32",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "@retreejs/core": "0.1.30",
-    "@retreejs/react": "0.1.30",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
+    "@babel/plugin-proposal-decorators": "^7.29.0",
+    "@rolldown/plugin-babel": "^0.2.3",
     "@types/react": "^19.2.3",
     "@types/react-dom": "^19.2.3",
     "@types/uuid": "9.0.1",
