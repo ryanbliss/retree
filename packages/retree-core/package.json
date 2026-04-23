@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/core",
-    "version": "0.1.32",
+    "version": "0.1.33",
     "description": "React to changes in your object trees.",
     "author": "Ryan Bliss",
     "private": false,
