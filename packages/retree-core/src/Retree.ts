@@ -369,7 +369,7 @@ export class Retree {
                 pIndex++
             ) {
                 const pNode = checkedParentProxyNodes[pIndex];
-                const pReproxyNode = updateReproxyNode(pNode);
+                const pReproxyNode = updateReproxyNode(getBaseProxy(pNode));
                 // Skip emitting if in skipEmit transaction
                 if (!Transactions.skipEmit) {
                     const handlePNodeEmitTreeChanged = () => {

@@ -169,9 +169,12 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             // Good example of `deleteProperty` is when an item is removed / moved in a list.
             // `deleteProperty` does not expose the receiver...get the latest reproxy instead.
             // TODO: should revisit this at some point...
-            const baseProxy = isCustomProxy(target)
-                ? getBaseProxy(target)
+            const currentProxy = isCustomProxy(target)
+                ? target
                 : getReproxyNodeForUnproxiedNode(target);
+            const baseProxy = currentProxy
+                ? getBaseProxy(currentProxy)
+                : currentProxy;
             const nodeRemoved = handleNodeRemoved(baseProxy, prop);
             const returnValue = Reflect.deleteProperty(target, prop);
             // If in a skip reproxy transaction, do not reproxy node
