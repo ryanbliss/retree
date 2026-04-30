@@ -328,6 +328,106 @@ node.list.push(3);
 node.list.push(99);
 ```
 
+#### Memoize computed getters
+
+`ReactiveNode` provides `memo` to cache the result of a getter, similar in spirit to React's `useMemo`. Use it to skip expensive recomputation when the values it depends on haven't changed.
+
+There are three ways to memoize: a keyless `this.memo(fn, deps?)` form (cleanest, when you want one cache per getter), an explicit-key `this.memo(key, fn, deps?)` form (for stacking multiple memos in one getter or memoizing inside a method), and a `@memo` decorator form.
+
+##### `this.memo(fn, deps?)` (keyless, inside a getter)
+
+The cache key is derived from the active getter's name automatically. Throws if called outside a getter, or more than once in the same getter without an explicit key.
+
+```ts
+import { Retree, ReactiveNode } from "@retreejs/core";
+
+interface Card {
+    text: string;
+}
+
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    get filteredList(): Card[] {
+        return this.memo(
+            () => this.list.filter((c) => c.text === this.searchText),
+            [this.list, this.searchText]
+        );
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
+##### `@memo` decorator (one memo per getter, no body wrapping)
+
+The cache key is the getter's property name. Pass a function that returns the comparisons array — it's invoked with the current instance on every read, so the values are always live.
+
+```ts
+import { Retree, ReactiveNode } from "@retreejs/core";
+import { memo } from "@retreejs/core";
+
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    @memo((self: ListFilter) => [self.list, self.searchText])
+    get filteredList(): Card[] {
+        return this.list.filter((c) => c.text === this.searchText);
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
+##### `this.memo(key, fn, deps?)` (explicit key)
+
+Use this when you need multiple memo cells in the same getter, or when caching a result inside a method.
+
+```ts
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    get pair(): { filtered: Card[]; count: number } {
+        const filtered = this.memo(
+            "filtered",
+            () => this.list.filter((c) => c.text === this.searchText),
+            [this.list, this.searchText]
+        );
+        const count = this.memo(
+            "count",
+            () => filtered.length,
+            [filtered]
+        );
+        return { filtered, count };
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
+##### Cache semantics
+
+The same `deps` rules apply to all three forms:
+
+| `deps` argument | Behavior                                                                                                                                              |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `undefined`     | Recompute whenever the `ReactiveNode` reproxies (a property was set on it or one of its dependencies changed). Useful as a "compute once per render." |
+| `[]`            | Compute once and cache forever for that instance.                                                                                                     |
+| `[a, b, ...]`   | Recompute when any cell shallow-changes (compared with `Object.is`).                                                                                  |
+
+**Tree-node cells in `deps` are compared by their latest reproxy identity, not by the stable buildProxy reference.** That's why `[this.list, this.searchText]` correctly invalidates when `list` mutates — without this, `this.list` would always look unchanged because Retree returns the same buildProxy for the lifetime of the tree.
+
+The cache is per-instance and stored in a `WeakMap` keyed by the unproxied `ReactiveNode`, so it follows the instance's lifetime and is naturally garbage-collected when the node is dropped.
+
 #### Transactions
 
 If you are making multiple changes to one or many nodes at once, you can use `Retree.runTransaction` function to only set to React state once per instance of `useNode` or `useTree`. Here is an example:

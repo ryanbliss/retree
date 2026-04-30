@@ -61,6 +61,62 @@ tree.todos[0].delete();
 unsubscribe();
 ```
 
+## Memoize computed getters
+
+`ReactiveNode` exposes a `memo` helper for caching the result of a computed getter, similar in spirit to React's `useMemo`. Three forms are supported:
+
+```ts
+import { Retree, ReactiveNode, memo } from "@retreejs/core";
+
+interface Card {
+    text: string;
+}
+
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    // 1) Keyless method form — cache key is the getter's name.
+    get filteredList(): Card[] {
+        return this.memo(
+            () => this.list.filter((c) => c.text === this.searchText),
+            [this.list, this.searchText]
+        );
+    }
+
+    // 2) Decorator form — same cache-key behavior; pass a function that
+    //    returns deps so they're read live on every access.
+    @memo((self: ListFilter) => [self.list, self.searchText])
+    get filteredListDecorated(): Card[] {
+        return this.list.filter((c) => c.text === this.searchText);
+    }
+
+    // 3) Explicit-key method form — required for multiple memos in one
+    //    getter, or memoizing inside a method.
+    get pair() {
+        const filtered = this.memo(
+            "filtered",
+            () => this.list.filter((c) => c.text === this.searchText),
+            [this.list, this.searchText]
+        );
+        const count = this.memo("count", () => filtered.length, [filtered]);
+        return { filtered, count };
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
+`deps` semantics (same for all three forms):
+
+- `undefined` → recompute whenever the `ReactiveNode` reproxies (any dependency changes or a property is set).
+- `[]` → compute once and cache forever for that instance.
+- `[a, b, ...]` → recompute when any cell shallow-changes (compared with `Object.is`). Tree-node cells are compared by their latest reproxy identity, so passing `this.list` correctly invalidates when `list` mutates.
+
+The cache is per-instance (a `WeakMap` keyed by the unproxied `ReactiveNode`) and is GC'd with the node.
+
 ## Core samples
 
 See the [useNode React hook](./packages/retree-react/src/useNode.ts) or [example 01 project](./samples/01.core-example/) for more example usages.
