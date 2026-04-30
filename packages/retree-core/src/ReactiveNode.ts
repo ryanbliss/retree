@@ -1,4 +1,4 @@
-import { runMemo } from "./internals/memo";
+import { consumeCurrentMemoGetter, runMemo } from "./internals/memo";
 import { OptionalNode, TreeNode } from "./types";
 
 /**
@@ -86,39 +86,63 @@ export abstract class ReactiveNode {
     /**
      * Memoize the result of `fn`, scoped to this {@link ReactiveNode} instance.
      * @remarks
-     * Use this from inside a getter (or any method) to cache an expensive computation
-     * across reads. Each {@link memo} call must use a unique `key` per instance — if you
-     * want a "one cache per getter" form, use the {@link memo | `@memo`} decorator instead,
-     * which derives the key from the property name automatically.
+     * Two forms:
+     * - **Keyless (inside a getter):** `this.memo(fn, deps?)` — derives the cache key
+     *   from the active getter's property name. Throws if called outside a getter or
+     *   more than once in the same getter.
+     * - **Explicit key:** `this.memo(key, fn, deps?)` — works anywhere; required when
+     *   stacking multiple memo cells in one getter, or memoizing inside a method.
      *
      * Cache semantics for `comparisons`:
      * - `undefined`: recompute whenever this {@link ReactiveNode} reproxies (a dependency
      *   changed or a property was set on it). Useful as a "compute once per render" cache.
      * - `[]`: compute once and cache forever for this instance.
      * - `[a, b, ...]`: recompute when any cell shallow-changes (compared with {@link Object.is}).
-     *
-     * @param key unique cache key within this ReactiveNode instance.
-     * @param fn computation to run on cache miss.
-     * @param comparisons optional comparisons array; see semantics above.
-     * @returns cached or freshly-computed value.
+     *   Tree-node cells are compared by their latest reproxy identity, so passing
+     *   `this.list` correctly invalidates when `list` mutates.
      *
      * @example
      ```ts
      class ListFilter extends ReactiveNode {
         list: Card[] = [];
         searchText = "";
+        // Keyless form
         get filteredList() {
             return this.memo(
-                "filteredList",
                 () => this.list.filter((c) => c.text === this.searchText),
                 [this.list, this.searchText]
             );
+        }
+        // Explicit-key form (e.g. when stacking two memos in one getter)
+        get pair() {
+            const a = this.memo("a", () => expensiveA(), [this.list]);
+            const b = this.memo("b", () => expensiveB(), [this.searchText]);
+            return { a, b };
         }
         get dependencies() { return [this.dependency(this.list)]; }
      }
      ```
      */
-    protected memo<T>(key: string, fn: () => T, comparisons?: unknown[]): T {
+    protected memo<T>(fn: () => T, comparisons?: unknown[]): T;
+    protected memo<T>(key: string, fn: () => T, comparisons?: unknown[]): T;
+    protected memo<T>(
+        ...args:
+            | [fn: () => T, comparisons?: unknown[]]
+            | [key: string, fn: () => T, comparisons?: unknown[]]
+    ): T {
+        let key: string | symbol;
+        let fn: () => T;
+        let comparisons: unknown[] | undefined;
+        if (typeof args[0] === "function") {
+            // Keyless: derive the key from the active getter on the stack.
+            key = consumeCurrentMemoGetter(this);
+            fn = args[0];
+            comparisons = args[1] as unknown[] | undefined;
+        } else {
+            key = args[0];
+            fn = args[1] as () => T;
+            comparisons = args[2];
+        }
         return runMemo(this, key, fn, comparisons);
     }
     /**

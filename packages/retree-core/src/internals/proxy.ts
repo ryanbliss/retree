@@ -17,6 +17,7 @@ import {
     TCustomProxy,
     unproxiedBaseNodeKey,
 } from "./proxy-types";
+import { getReactiveNodeGetter, popMemoGetter, pushMemoGetter } from "./memo";
 import { getReproxyNodeForUnproxiedNode, updateReproxyNode } from "./reproxy";
 import { Transactions } from "./transactions";
 
@@ -121,7 +122,23 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 }
                 return value;
             }
-            const value = Reflect.get(target, prop, receiver);
+            let value: any;
+            if (
+                target instanceof ReactiveNode &&
+                getReactiveNodeGetter(target, prop)
+            ) {
+                // For ReactiveNode getters, push the getter name onto the memo-getter
+                // stack so a keyless `this.memo(fn, deps)` inside the getter can derive
+                // its cache key from `prop`. Pop in `finally` so a throwing getter
+                pushMemoGetter(target, prop);
+                try {
+                    value = Reflect.get(target, prop, receiver);
+                } finally {
+                    popMemoGetter(target);
+                }
+            } else {
+                value = Reflect.get(target, prop, receiver);
+            }
             if (typeof value === "function") {
                 if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
                     return value.bind(target);

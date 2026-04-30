@@ -415,6 +415,48 @@ describe("@memo decorator", () => {
         expect(b.computeCount).toBe(1);
     });
 
+    it("can co-exist with a keyless this.memo() call in the same class", () => {
+        // Sanity check that the @memo decorator and a keyless this.memo() in a
+        // separate getter on the same class don't interfere with each other.
+        class Mixed extends ReactiveNode {
+            public x = 1;
+            public y = 1;
+            public xCount = 0;
+            public yCount = 0;
+
+            @memo((self: Mixed) => [self.x])
+            get viaDecorator(): number {
+                this.xCount += 1;
+                return this.x * 2;
+            }
+
+            get viaMethod(): number {
+                return this.memo(() => {
+                    this.yCount += 1;
+                    return this.y * 3;
+                }, [this.y]);
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new Mixed()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        root.viaDecorator;
+        root.viaMethod;
+        expect(root.xCount).toBe(1);
+        expect(root.yCount).toBe(1);
+
+        root.x = 2;
+        root.viaDecorator;
+        root.viaMethod;
+        expect(root.xCount).toBe(2);
+        expect(root.yCount).toBe(1);
+    });
+
     it("works with subclassing — derived getter @memo cell is independent of base", () => {
         class Base extends ReactiveNode {
             public x = 1;
@@ -451,5 +493,237 @@ describe("@memo decorator", () => {
         root.other;
         expect(root.baseCount).toBe(2);
         expect(root.derivedCount).toBe(1); // y didn't change
+    });
+});
+
+describe("memo (keyless method form)", () => {
+    it("derives the cache key from the active getter's name", () => {
+        class Keyless extends ReactiveNode {
+            public list: Card[] = [];
+            public searchText: string = "";
+            public computeCount = 0;
+
+            get filtered(): Card[] {
+                return this.memo(() => {
+                    this.computeCount += 1;
+                    return this.list.filter((c) => c.text === this.searchText);
+                }, [this.list, this.searchText]);
+            }
+
+            get dependencies() {
+                return [this.dependency(this.list)];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new Keyless()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.filtered).toEqual([]);
+        expect(root.computeCount).toBe(1);
+
+        // Repeated reads with no change reuse the cache.
+        root.filtered;
+        root.filtered;
+        expect(root.computeCount).toBe(1);
+
+        // Change a comparison, then mutate the list — both should invalidate.
+        root.searchText = "match";
+        root.filtered;
+        root.list.push({ text: "match" });
+        expect(root.filtered).toEqual([{ text: "match" }]);
+        expect(root.computeCount).toBe(3);
+    });
+
+    it("supports the undefined-deps form (recompute once per reproxy)", () => {
+        class Undef extends ReactiveNode {
+            public counter = 0;
+            public computeCount = 0;
+
+            get cached(): number {
+                return this.memo(() => {
+                    this.computeCount += 1;
+                    return this.counter;
+                });
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new Undef()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        root.cached;
+        root.cached;
+        root.cached;
+        expect(root.computeCount).toBe(1);
+
+        root.counter = 1;
+        expect(root.cached).toBe(1);
+        expect(root.computeCount).toBe(2);
+    });
+
+    it("supports the empty-deps form (cache forever)", () => {
+        class Once extends ReactiveNode {
+            public counter = 0;
+            public computeCount = 0;
+
+            get cached(): number {
+                return this.memo(() => {
+                    this.computeCount += 1;
+                    return this.counter;
+                }, []);
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new Once()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.cached).toBe(0);
+        root.counter = 99;
+        expect(root.cached).toBe(0);
+        expect(root.computeCount).toBe(1);
+    });
+
+    it("uses a separate cache cell for each getter (keyless cells don't collide across getters)", () => {
+        class TwoGetters extends ReactiveNode {
+            public a = 1;
+            public b = 1;
+            public aCount = 0;
+            public bCount = 0;
+
+            get fromA(): number {
+                return this.memo(() => {
+                    this.aCount += 1;
+                    return this.a * 10;
+                }, [this.a]);
+            }
+
+            get fromB(): number {
+                return this.memo(() => {
+                    this.bCount += 1;
+                    return this.b * 100;
+                }, [this.b]);
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new TwoGetters()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.fromA).toBe(10);
+        expect(root.fromB).toBe(100);
+        expect(root.aCount).toBe(1);
+        expect(root.bCount).toBe(1);
+
+        // Change a; b stays cached.
+        root.a = 2;
+        expect(root.fromA).toBe(20);
+        expect(root.fromB).toBe(100);
+        expect(root.aCount).toBe(2);
+        expect(root.bCount).toBe(1);
+    });
+
+    it("works for nested getters (each getter pushes its own frame)", () => {
+        class Nested extends ReactiveNode {
+            public x = 1;
+            public innerCount = 0;
+            public outerCount = 0;
+
+            get inner(): number {
+                return this.memo(() => {
+                    this.innerCount += 1;
+                    return this.x * 10;
+                }, [this.x]);
+            }
+
+            get outer(): number {
+                return this.memo(() => {
+                    this.outerCount += 1;
+                    // Outer reads inner; both should memoize independently.
+                    return this.inner + 1;
+                }, [this.x]);
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new Nested()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.outer).toBe(11);
+        expect(root.innerCount).toBe(1);
+        expect(root.outerCount).toBe(1);
+
+        // Repeat read: both stay cached.
+        root.outer;
+        expect(root.innerCount).toBe(1);
+        expect(root.outerCount).toBe(1);
+
+        root.x = 2;
+        expect(root.outer).toBe(21);
+        expect(root.innerCount).toBe(2);
+        expect(root.outerCount).toBe(2);
+    });
+
+    it("throws if called outside a getter (e.g. from a method)", () => {
+        class FromMethod extends ReactiveNode {
+            public callIt(): number {
+                return this.memo(() => 42);
+            }
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new FromMethod()));
+        expect(() => root.callIt()).toThrow(/without a key outside of/i);
+    });
+
+    it("throws if called twice in the same getter without explicit keys", () => {
+        class Double extends ReactiveNode {
+            get bad(): number {
+                this.memo(() => 1);
+                return this.memo(() => 2);
+            }
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new Double()));
+        expect(() => root.bad).toThrow(/more than once in getter 'bad'/i);
+    });
+
+    it("does not leave stale frames after a throwing getter", () => {
+        class Throws extends ReactiveNode {
+            public shouldThrow = true;
+            get bad(): number {
+                if (this.shouldThrow) throw new Error("boom");
+                return this.memo(() => 1);
+            }
+            get good(): number {
+                return this.memo(() => 99);
+            }
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new Throws()));
+        expect(() => root.bad).toThrow("boom");
+        // If push/pop weren't balanced, `good`'s memo would inherit `bad`'s frame
+        // and either collide or pick up an already-consumed frame.
+        expect(root.good).toBe(99);
     });
 });

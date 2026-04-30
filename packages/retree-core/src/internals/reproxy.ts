@@ -11,6 +11,7 @@ import {
     getUnproxiedNode,
     FUNCTION_NAMES_BIND_TO_RAW,
 } from "./proxy";
+import { getReactiveNodeGetter, popMemoGetter, pushMemoGetter } from "./memo";
 import {
     ICustomProxyHandler,
     proxiedChildrenKey,
@@ -98,7 +99,24 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                 return Reflect.get(baseProxy, prop, baseProxy);
             }
             const reproxy = getReproxyNode(baseProxy);
-            const value = Reflect.get(rawNode ?? target, prop, receiver);
+            const evalTarget = rawNode ?? target;
+
+            let value: any;
+            if (
+                evalTarget instanceof ReactiveNode &&
+                getReactiveNodeGetter(evalTarget, prop)
+            ) {
+                // Mirror proxy.ts: track the active getter for keyless `this.memo(...)`.
+                pushMemoGetter(evalTarget, prop);
+                try {
+                    value = Reflect.get(evalTarget, prop, receiver);
+                } finally {
+                    popMemoGetter(evalTarget);
+                }
+            } else {
+                value = Reflect.get(evalTarget, prop, receiver);
+            }
+
             if (typeof value === "function") {
                 if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
                     return value.bind(rawNode);

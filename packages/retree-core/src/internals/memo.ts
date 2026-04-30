@@ -136,3 +136,109 @@ function normalizeComparisons(comparisons: unknown[]): unknown[] {
     }
     return out;
 }
+
+/**
+ * @internal
+ * One frame of the "currently-evaluating getter" stack used by the keyless
+ * `this.memo(fn, deps)` form to derive the cache key from the active getter.
+ */
+interface IMemoGetterFrame {
+    getterName: string | symbol;
+    memoCalled: boolean;
+}
+
+const memoGetterStackMap = new WeakMap<ReactiveNode, IMemoGetterFrame[]>();
+
+function resolveStackOwner(target: object): ReactiveNode {
+    // The stack must always be keyed by the unproxied instance so that pushes from
+    // proxy.ts (which sees the raw target) and reads from `this.memo(...)` (which
+    // sees a proxy) end up at the same map entry.
+    const unproxied = getUnproxiedNode(target as TreeNode) as
+        | ReactiveNode
+        | undefined;
+    return unproxied ?? (target as ReactiveNode);
+}
+
+/**
+ * @internal
+ * Push a frame onto the memo-getter stack. Called by `proxy.ts` / `reproxy.ts`
+ * immediately before invoking a `ReactiveNode` getter via `Reflect.get`.
+ */
+export function pushMemoGetter(
+    target: ReactiveNode,
+    getterName: string | symbol
+): void {
+    const owner = resolveStackOwner(target);
+    let stack = memoGetterStackMap.get(owner);
+    if (!stack) {
+        stack = [];
+        memoGetterStackMap.set(owner, stack);
+    }
+    stack.push({ getterName, memoCalled: false });
+}
+
+/**
+ * @internal
+ * Pop the most recent frame; paired with {@link pushMemoGetter} in a try/finally.
+ */
+export function popMemoGetter(target: ReactiveNode): void {
+    const owner = resolveStackOwner(target);
+    const stack = memoGetterStackMap.get(owner);
+    if (stack) stack.pop();
+}
+
+/**
+ * @internal
+ * Read the active getter name for a keyless `this.memo(fn, deps)` call and mark
+ * the frame as having consumed its memo cell. Throws if invoked outside a getter,
+ * or more than once within the same getter invocation (which would silently
+ * collide on the same cache cell).
+ */
+export function consumeCurrentMemoGetter(
+    instance: ReactiveNode
+): string | symbol {
+    const owner = resolveStackOwner(instance);
+    const stack = memoGetterStackMap.get(owner);
+    const top = stack && stack.length > 0 ? stack[stack.length - 1] : undefined;
+    if (!top) {
+        throw new Error(
+            "memo() was called without a key outside of a ReactiveNode getter. " +
+                "Either call memo from a getter, or pass an explicit key as the first " +
+                "argument: `this.memo('myKey', fn, deps)`."
+        );
+    }
+    if (top.memoCalled) {
+        throw new Error(
+            `memo() was called more than once in getter '${String(
+                top.getterName
+            )}' without an explicit key. Pass a unique string key as the first ` +
+                "argument: `this.memo('myKey', fn, deps)`."
+        );
+    }
+    top.memoCalled = true;
+    return top.getterName;
+}
+
+/**
+ * @internal
+ * Walk the prototype chain looking for `prop`. Returns the getter function if the
+ * first descriptor found is an accessor with a `get`; returns `undefined`
+ * otherwise (data prop, method, or missing). Used to decide whether a `Reflect.get`
+ * call needs to be wrapped with push/pop for memo-getter tracking.
+ */
+export function getReactiveNodeGetter(
+    target: object,
+    prop: string | symbol
+): (() => unknown) | undefined {
+    let current: object | null = target;
+    while (current && current !== Object.prototype) {
+        const descriptor = Object.getOwnPropertyDescriptor(current, prop);
+        if (descriptor) {
+            // Own descriptors shadow prototype descriptors. If the first one we find
+            // isn't a getter (e.g. it's a data property), there's nothing to wrap.
+            return descriptor.get;
+        }
+        current = Object.getPrototypeOf(current);
+    }
+    return undefined;
+}
