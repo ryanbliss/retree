@@ -72,11 +72,15 @@ export class Transactions {
      * Run pending transactions and clear them once done.
      */
     static runPendingTransactions() {
-        this.pendingTransactions.forEach((transaction) => {
-            transaction.emitNodeChanged?.();
-            transaction.emitTreeChanged?.();
-            transaction.emitNodeRemoved?.();
-        });
-        this.pendingTransactions.clear();
+        try {
+            this.pendingTransactions.forEach((transaction) => {
+                transaction.emitNodeChanged?.();
+                transaction.emitTreeChanged?.();
+                transaction.emitNodeRemoved?.();
+            });
+        } finally {
+            // A listener failure should surface to the caller, but stale queued callbacks must not replay on later updates.
+            this.pendingTransactions.clear();
+        }
     }
 }
