@@ -26,7 +26,7 @@ It's extremely easy to get started with Retree. There are two React hooks: `useN
 
 If you adopt the `useNode` pattern, your apps will automatically inherit performant re-renders, since only the components that depend on each node in your object tree will re-render on changes. For this to work, you need to do the following:
 
-1. Pass some object into `Retree.use`, e.g., `const root = Retree.use({ foo: "bar", list: [] })`
+1. Pass some object into `Retree.root`, e.g., `const root = Retree.root({ foo: "bar", list: [] })`
 2. Make the response stateful using `useNode`, e.g., `const rootState = useNode(root)`
 3. Render values from the object in your component, e.g., `<h1>{fooState.foo}</h1>`
 4. Set values like you normally would in JS/TS, e.g., `fooState.foo = "moo"`
@@ -79,7 +79,7 @@ class TodoList {
 }
 
 // Create your root TreeNode instance with any object
-const root = Retree.use(new TodoList());
+const root = Retree.root(new TodoList());
 
 // Render app
 function App() {
@@ -104,7 +104,7 @@ import React from "react";
 import { Retree } from "@retreejs/core";
 import { useNode } from "@retreejs/react";
 
-const whiteboardRoot = Retree.use({
+const whiteboardRoot = Retree.root({
     selectedColor: "red",
     visible: false,
     canvasSize: { width: "0px", height: "0px" },
@@ -162,7 +162,7 @@ import React from "react";
 import { Retree } from "@retreejs/core";
 import { useNode, useTree } from "@retreejs/react";
 
-const table = Retree.use({
+const table = Retree.root({
     headers: [{ title: "label" }, { title: "count" }, { title: "actions" }],
     rows: [
         { label: "count 1", count: 0 },
@@ -230,7 +230,7 @@ export default App;
 `useTree` is very powerful and makes things incredibly simple. The following scenarios should help clarify the behavior of `useTree`:
 
 ```ts
-const root = Retree.use({
+const root = Retree.root({
     great_grandparent_1: {
         name: "Bob Sr",
         grandparent_1: {
@@ -315,7 +315,7 @@ class Node extends ReactiveNode {
     }
 }
 // Create root `ReactiveNode` instance and listen for changes in `useNode`
-const node = Retree.use(new Node());
+const node = Retree.root(new Node());
 const nodeState = useNode(node);
 
 // ✅ Will re-render
@@ -331,7 +331,7 @@ node.list.push(99);
 If you are making multiple changes to one or many nodes at once, you can use `Retree.runTransaction` function to only set to React state once per instance of `useNode` or `useTree`. Here is an example:
 
 ```ts
-const _counter = Retree.use({ count: 0 });
+const _counter = Retree.root({ count: 0 });
 const counter = useNode(_counter);
 // Will only emit "valueChanged" once
 Retree.runTransaction(() => {
@@ -345,7 +345,7 @@ Retree.runTransaction(() => {
 If you want to skip re-rendering on a change, you can use the `Retree.runSilent` function. Here is an example:
 
 ```ts
-const counter = Retree.use({ count: 0, multiplier: 1 });
+const counter = Retree.root({ count: 0, multiplier: 1 });
 const counterState = useNode(counter);
 // Skip re-render on setting the multiplier
 function onClickIncrementMultipler() {

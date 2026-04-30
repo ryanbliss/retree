@@ -50,7 +50,7 @@ class AppTree {
     public facts: CatFacts = new CatFacts();
 }
 // Setup Retree root
-const appTree = Retree.use(new AppTree());
+const appTree = Retree.root(new AppTree());
 
 const App: FC = () => {
     const root = useTree(appTree);

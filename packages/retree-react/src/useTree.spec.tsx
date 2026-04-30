@@ -31,7 +31,7 @@ function clearListenersRecursively(node: unknown, seen = new Set<object>()) {
 describe("useTree", () => {
     it("rerenders for deep descendant changes in the observed subtree", () => {
         const root = trackRoot(
-            Retree.use({ child: { value: 1 }, sibling: { value: 2 } })
+            Retree.root({ child: { value: 1 }, sibling: { value: 2 } })
         );
         let renderCount = 0;
 
@@ -53,7 +53,7 @@ describe("useTree", () => {
 
     it("does not rerender for changes outside the observed subtree", () => {
         const root = trackRoot(
-            Retree.use({ child: { value: 1 }, sibling: { value: 2 } })
+            Retree.root({ child: { value: 1 }, sibling: { value: 2 } })
         );
         let renderCount = 0;
 
@@ -74,7 +74,7 @@ describe("useTree", () => {
     });
 
     it("supports the node factory form", () => {
-        const root = trackRoot(Retree.use({ child: { value: 1 } }));
+        const root = trackRoot(Retree.root({ child: { value: 1 } }));
 
         function Probe() {
             const state = useTree(() => root.child);

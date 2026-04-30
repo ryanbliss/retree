@@ -30,7 +30,7 @@ function clearListenersRecursively(node: unknown, seen = new Set<object>()) {
 
 describe("useNode", () => {
     it("rerenders for direct primitive updates", () => {
-        const root = trackRoot(Retree.use({ count: 0 }));
+        const root = trackRoot(Retree.root({ count: 0 }));
         let renderCount = 0;
 
         function Probe() {
@@ -51,7 +51,7 @@ describe("useNode", () => {
     });
 
     it("does not rerender for deep descendant leaf updates", () => {
-        const root = trackRoot(Retree.use({ child: { value: 1 } }));
+        const root = trackRoot(Retree.root({ child: { value: 1 } }));
         let renderCount = 0;
 
         function Probe() {
@@ -73,7 +73,7 @@ describe("useNode", () => {
 
     it("supports the node factory form and switches immediately when the node prop changes", () => {
         const root = trackRoot(
-            Retree.use({ first: { value: 1 }, second: { value: 2 } })
+            Retree.root({ first: { value: 1 }, second: { value: 2 } })
         );
 
         function DirectProbe({ node }: { node: { value: number } }) {

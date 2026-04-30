@@ -35,7 +35,7 @@ function clearListenersRecursively(node: unknown, seen = new Set<object>()) {
 describe("Retree", () => {
     it("tracks parent relationships for nested objects and array items", () => {
         const root = trackRoot(
-            Retree.use({
+            Retree.root({
                 child: { grandchild: { value: 1 } },
                 list: [{ value: 2 }],
             })
@@ -50,7 +50,7 @@ describe("Retree", () => {
 
     it("distinguishes nodeChanged and treeChanged notifications", () => {
         const root = trackRoot(
-            Retree.use({ child: { value: 1 }, sibling: { value: 2 } })
+            Retree.root({ child: { value: 1 }, sibling: { value: 2 } })
         );
         const rootNodeChanged = vi.fn();
         const rootTreeChanged = vi.fn();
@@ -72,7 +72,7 @@ describe("Retree", () => {
     });
 
     it("emits nodeRemoved for replaced object nodes", () => {
-        const root = trackRoot(Retree.use({ child: { value: 1 } }));
+        const root = trackRoot(Retree.root({ child: { value: 1 } }));
         const childRemoved = vi.fn();
 
         Retree.on(root.child, "nodeRemoved", childRemoved);
@@ -82,9 +82,9 @@ describe("Retree", () => {
     });
 
     it("enforces the single-parent rule for proxied children", () => {
-        const root1 = trackRoot(Retree.use({ child: { value: 1 } }));
+        const root1 = trackRoot(Retree.root({ child: { value: 1 } }));
         const root2 = trackRoot(
-            Retree.use({ other: null as null | { value: number } })
+            Retree.root({ other: null as null | { value: number } })
         );
 
         expect(() => {
@@ -93,7 +93,7 @@ describe("Retree", () => {
     });
 
     it("batches transaction notifications per node", () => {
-        const root = trackRoot(Retree.use({ count: 0, child: { value: 1 } }));
+        const root = trackRoot(Retree.root({ count: 0, child: { value: 1 } }));
         const rootNodeChanged = vi.fn();
         const rootTreeChanged = vi.fn();
         const childNodeChanged = vi.fn();
@@ -115,7 +115,7 @@ describe("Retree", () => {
     });
 
     it("suppresses listener emission during silent updates and can preserve reproxy identity", () => {
-        const root = trackRoot(Retree.use({ count: 0 }));
+        const root = trackRoot(Retree.root({ count: 0 }));
         const nodeChanged = vi.fn();
         Retree.on(root, "nodeChanged", nodeChanged);
 
@@ -139,7 +139,7 @@ describe("Retree", () => {
     });
 
     it("restores transaction state when a transaction callback throws", () => {
-        const root = trackRoot(Retree.use({ count: 0 }));
+        const root = trackRoot(Retree.root({ count: 0 }));
         const nodeChanged = vi.fn();
         const error = new Error("boom");
         Retree.on(root, "nodeChanged", nodeChanged);
@@ -157,7 +157,7 @@ describe("Retree", () => {
 
     it("restores transaction state when a queued listener throws", () => {
         // Regression coverage: listener failures during the post-transaction flush should not poison global state.
-        const root = trackRoot(Retree.use({ count: 0 }));
+        const root = trackRoot(Retree.root({ count: 0 }));
         const nodeChanged = vi.fn(() => {
             throw new Error("listener failed");
         });
@@ -176,7 +176,7 @@ describe("Retree", () => {
     });
 
     it("restores silent flags when a silent callback throws", () => {
-        const root = trackRoot(Retree.use({ count: 0 }));
+        const root = trackRoot(Retree.root({ count: 0 }));
         const nodeChanged = vi.fn();
         const error = new Error("boom");
         Retree.on(root, "nodeChanged", nodeChanged);

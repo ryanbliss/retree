@@ -15,7 +15,7 @@ const LISTENER_TYPE = "treeChanged";
  *
  * @remarks
  * Only use in cases where re-rendering of a parent component will not cause expensive re-renders of child components.
- * The root of the node provided must have been first passed to {@link Retree.use}.
+ * The root of the node provided must have been first passed to {@link Retree.root}.
  *
  * @param node object to make stateful
  * @returns a stateful version of the node provided
@@ -26,7 +26,7 @@ import React from "react";
 import { Retree } from "@retreejs/core";
 import { useNode, useTree } from "@retreejs/react";
 
-const table = Retree.use({
+const table = Retree.root({
     headers: [{ title: "label" }, { title: "count" }, { title: "actions" }],
     rows: [
         { label: "count 1", count: 0 },

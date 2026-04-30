@@ -61,7 +61,15 @@ export class Retree {
     private static nodeChangeEmitter = new TreeChangeEmitter();
 
     /**
-     * Builds a Retree compatible node for the root object of your tree.
+     * @deprecated
+     * Use {@link root} instead.
+     */
+    static use<T extends TreeNode = TreeNode>(object: T): T {
+        return this.root(object);
+    }
+
+    /**
+     * Builds a Retree compatible root node for the root object of your tree.
      * @remarks
      * Use this function only for a root object.
      * This will make the object compatible with {@link Retree.on}, {@link Retree.parent}, etc.
@@ -71,11 +79,11 @@ export class Retree {
      * @returns a Retree compatible object of type T
      * 
      * @example
-     const counter = Retree.use({ count: 0 });
+     const counter = Retree.root({ count: 0 });
      Retree.on(counter, "valueChanged", () => console.log(counter.count));
      counter.count = counter.count + 1;
      */
-    static use<T extends TreeNode = TreeNode>(object: T): T {
+    static root<T extends TreeNode = TreeNode>(object: T): T {
         return buildProxy<T>(object, this.nodeChangeEmitter);
     }
 
@@ -94,7 +102,7 @@ export class Retree {
      * @example
      ```ts
      // Create the root node
-     const counter = Retree.use({ count: 0 });
+     const counter = Retree.root({ count: 0 });
      // Listen for changes to values of the node
      const unsubscribe = Retree.on(counter, "valueChanged", (reproxy) => {
         console.log(reproxy !== counter); // output: false
@@ -123,7 +131,7 @@ export class Retree {
         const unproxiedNode = getUnproxiedNode(node);
         if (!unproxiedNode) {
             throw new Error(
-                "Retree.on: must use an object that is a proxied node. Pass object to Retree.use first, or get value from another child object."
+                "Retree.on: must use an object that is a proxied node. Pass object to Retree.root first, or get value from another child object."
             );
         }
         const relevantListenerMap =
@@ -161,7 +169,7 @@ export class Retree {
      * 
      * @example
      ```js
-     const tree = Retree.use({
+     const tree = Retree.root({
         count: 0,
         child: {
             count: 0,
@@ -219,7 +227,7 @@ export class Retree {
      * 
      * @example
      ```ts
-     const counter = Retree.use({ count: 0 });
+     const counter = Retree.root({ count: 0 });
      Retree.on(counter, "valueChanged", () => console.log(counter.count));
      // Will only emit "valueChanged" once
      Retree.runTransaction(() => {

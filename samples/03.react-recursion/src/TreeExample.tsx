@@ -68,7 +68,7 @@ const _ViewCard: FC<{
 const ViewCard = memo(_ViewCard);
 
 // Setup Retree with our root node
-const appTree = Retree.use(new Tree("useTree (ease of use)"));
+const appTree = Retree.root(new Tree("useTree (ease of use)"));
 
 const _TreeExample: FC = () => {
     const root = useTree(appTree);

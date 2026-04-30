@@ -49,7 +49,7 @@ class TodoList {
     }
 }
 
-const tree = Retree.use(new TodoList());
+const tree = Retree.root(new TodoList());
 
 // Listen for changes to the todo list (e.g., todo created)
 const unsubscribe = Retree.on(tree.todos, "treeChanged", (todos) => {
