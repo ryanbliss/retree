@@ -83,7 +83,9 @@ describe("Retree", () => {
 
     it("enforces the single-parent rule for proxied children", () => {
         const root1 = trackRoot(Retree.use({ child: { value: 1 } }));
-        const root2 = trackRoot(Retree.use({ other: null as null | { value: number } }));
+        const root2 = trackRoot(
+            Retree.use({ other: null as null | { value: number } })
+        );
 
         expect(() => {
             root2.other = root1.child;

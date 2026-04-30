@@ -85,5 +85,7 @@ export abstract class ReactiveNode {
     /**
      * @hidden
      */
-    public [COLLECTED_KEYS_SYMBOL]: Set<string | symbol> = new Set<string | symbol>();
+    public [COLLECTED_KEYS_SYMBOL]: Set<string | symbol> = new Set<
+        string | symbol
+    >();
 }

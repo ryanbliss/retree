@@ -13,7 +13,7 @@ import { useRef } from "react";
  * double-invocation of `useState`/`useMemo` initializers.
  * Use this in place of `useState(() => Retree.use(new Foo()))`.
  * Then pass into `useNode` or `useTree`.
- * 
+ *
  * @remarks
  * Why: under Strict Mode, React invokes a `useState` lazy initializer twice
  * to detect impurity. `Retree.use(...)` mutates module-global state
@@ -25,15 +25,14 @@ import { useRef } from "react";
  * `useRef` is the only React init primitive that is *not* double-invoked
  * across the function body's StrictMode re-renders within a single mount,
  * so a `useRef + null check` guard ensures the factory runs exactly once.
- * 
+ *
  * @param factory function that returns a node wrapped in `Retree.use`.
  * @returns a root proxied node.
  */
 export function useRoot<T extends TreeNode>(factory: () => T): T {
-  const ref = useRef<T | null>(null);
-  if (ref.current === null) {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    ref.current = Retree.use(factory());
-  }
-  return ref.current;
+    const ref = useRef<T | null>(null);
+    if (ref.current === null) {
+        ref.current = Retree.use(factory());
+    }
+    return ref.current;
 }

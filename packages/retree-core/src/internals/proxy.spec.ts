@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Retree } from "../Retree";
-import {
-    getBaseProxy,
-    getCustomProxyHandler,
-    getUnproxiedNode,
-} from "./proxy";
+import { getBaseProxy, getCustomProxyHandler, getUnproxiedNode } from "./proxy";
 
 describe("proxy internals", () => {
     it("exposes proxy metadata for managed nodes", () => {

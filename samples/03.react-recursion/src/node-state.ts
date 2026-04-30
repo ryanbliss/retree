@@ -118,7 +118,7 @@ export class IgnoreExample extends ReactiveNode {
 }
 
 export class Tree extends ReactiveNode {
-    public readonly title: string
+    public readonly title: string;
     public card: Card = new Card(1);
     @retreeIgnore
     public ignore: IgnoreExample;

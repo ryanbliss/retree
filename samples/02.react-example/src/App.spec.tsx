@@ -1,5 +1,11 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+    cleanup,
+    fireEvent,
+    render,
+    screen,
+    waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 describe("02.react-example", () => {
@@ -17,7 +23,9 @@ describe("02.react-example", () => {
         vi.stubGlobal(
             "fetch",
             vi.fn(async () => ({
-                json: async () => ({ data: ["Cats sleep for most of the day."] }),
+                json: async () => ({
+                    data: ["Cats sleep for most of the day."],
+                }),
             }))
         );
 
