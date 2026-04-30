@@ -1,3 +1,4 @@
+import { runMemo } from "./internals/memo";
 import { OptionalNode, TreeNode } from "./types";
 
 /**
@@ -81,6 +82,44 @@ export abstract class ReactiveNode {
             node,
             comparisons,
         };
+    }
+    /**
+     * Memoize the result of `fn`, scoped to this {@link ReactiveNode} instance.
+     * @remarks
+     * Use this from inside a getter (or any method) to cache an expensive computation
+     * across reads. Each {@link memo} call must use a unique `key` per instance — if you
+     * want a "one cache per getter" form, use the {@link memo | `@memo`} decorator instead,
+     * which derives the key from the property name automatically.
+     *
+     * Cache semantics for `comparisons`:
+     * - `undefined`: recompute whenever this {@link ReactiveNode} reproxies (a dependency
+     *   changed or a property was set on it). Useful as a "compute once per render" cache.
+     * - `[]`: compute once and cache forever for this instance.
+     * - `[a, b, ...]`: recompute when any cell shallow-changes (compared with {@link Object.is}).
+     *
+     * @param key unique cache key within this ReactiveNode instance.
+     * @param fn computation to run on cache miss.
+     * @param comparisons optional comparisons array; see semantics above.
+     * @returns cached or freshly-computed value.
+     *
+     * @example
+     ```ts
+     class ListFilter extends ReactiveNode {
+        list: Card[] = [];
+        searchText = "";
+        get filteredList() {
+            return this.memo(
+                "filteredList",
+                () => this.list.filter((c) => c.text === this.searchText),
+                [this.list, this.searchText]
+            );
+        }
+        get dependencies() { return [this.dependency(this.list)]; }
+     }
+     ```
+     */
+    protected memo<T>(key: string, fn: () => T, comparisons?: unknown[]): T {
+        return runMemo(this, key, fn, comparisons);
     }
     /**
      * @hidden
