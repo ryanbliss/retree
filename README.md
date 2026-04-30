@@ -311,7 +311,7 @@ class Node extends ReactiveNode {
                 this.numbers,
                 // Optional comparison dependencies so that only specific changes cause `Node` instances to updates.
                 // If not provided, all changes to `this.numbers` would cause `Node` instances to update.
-                [this.evenNumberCount],
+                [this.evenNumberCount]
             ),
         ];
     }
