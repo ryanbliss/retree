@@ -424,6 +424,43 @@ The same `deps` rules apply to all three forms:
 
 The cache is per-instance and stored in a `WeakMap` keyed by the unproxied `ReactiveNode`, so it follows the instance's lifetime and is naturally garbage-collected when the node is dropped.
 
+#### Opt fields out of reactivity with `@ignore`
+
+`@ignore` is a class-field decorator that excludes a property of a `ReactiveNode` from Retree's reactivity system. Reads and writes to the field still work normally — what's skipped is **listener emission**:
+
+- Nested mutations like `this.cache.foo = 1` do **not** fire `nodeChanged` / `treeChanged` on the `ReactiveNode` or its ancestors.
+- Replacing the field at the top level (`this.cache = {...}`) likewise skips emission.
+- The proxy will not wrap the field's value or build child proxies underneath it.
+
+Use it for state that lives on a `ReactiveNode` but shouldn't participate in the tree — caches, scratch buffers, framework handles, references to objects already managed elsewhere, etc.
+
+```ts
+import { Retree, ReactiveNode, ignore } from "@retreejs/core";
+import { useNode } from "@retreejs/react";
+
+class Counter extends ReactiveNode {
+    public count = 0;
+    // Mutations under `cache` do not trigger Retree listeners or re-renders.
+    @ignore public cache: Record<string, unknown> = {};
+
+    get dependencies() {
+        return [];
+    }
+}
+
+const node = Retree.root(new Counter());
+const state = useNode(node);
+
+// ❌ no re-render
+node.cache.something = 1;
+// ❌ no re-render — replacing the field also skips emission
+node.cache = { other: 2 };
+// ✅ re-renders
+node.count += 1;
+```
+
+**Caveat:** because the proxy doesn't wrap an `@ignore`-d field's value, you also lose `Retree.parent(...)` for objects stored under it, and they won't appear in `treeChanged` notifications. Treat ignored fields as opaque from Retree's perspective.
+
 #### Transactions
 
 If you are making multiple changes to one or many nodes at once, you can use `Retree.runTransaction` function to only set to React state once per instance of `useNode` or `useTree`. Here is an example:

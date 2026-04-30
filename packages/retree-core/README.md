@@ -117,6 +117,32 @@ class ListFilter extends ReactiveNode {
 
 The cache is per-instance (a `WeakMap` keyed by the unproxied `ReactiveNode`) and is GC'd with the node.
 
+## Opt fields out of reactivity with `@ignore`
+
+`@ignore` is a class-field decorator that excludes a property of a `ReactiveNode` from Retree's reactivity system. Reads and writes still work normally — what's skipped is listener emission. Nested mutations (`this.cache.foo = 1`) and top-level replacement (`this.cache = {...}`) both bypass `nodeChanged` / `treeChanged`, and the proxy will not wrap the field's value or build child proxies underneath it.
+
+Use it for state that lives on a `ReactiveNode` but shouldn't participate in the tree — caches, scratch buffers, framework handles, references to objects already managed elsewhere, etc.
+
+```ts
+import { Retree, ReactiveNode, ignore } from "@retreejs/core";
+
+class Counter extends ReactiveNode {
+    public count = 0;
+    @ignore public cache: Record<string, unknown> = {};
+
+    get dependencies() {
+        return [];
+    }
+}
+
+const node = Retree.root(new Counter());
+Retree.on(node, "nodeChanged", () => console.log("changed"));
+node.cache.something = 1; // ❌ no log
+node.count = 1; //            ✅ logs "changed"
+```
+
+**Caveat:** because the field's value isn't wrapped, you also lose `Retree.parent(...)` for objects stored under it, and they won't appear in `treeChanged` notifications. Treat ignored fields as opaque from Retree's perspective.
+
 ## Core samples
 
 See the [useNode React hook](./packages/retree-react/src/useNode.ts) or [example 01 project](./samples/01.core-example/) for more example usages.

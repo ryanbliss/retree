@@ -1,7 +1,40 @@
 import { COLLECTED_KEYS_SYMBOL, ReactiveNode } from "./ReactiveNode";
 import { runMemo } from "./internals/memo";
 
-export function retreeIgnore(
+/**
+ * Field decorator that excludes a property of a {@link ReactiveNode} from Retree's
+ * reactivity system.
+ * @remarks
+ * Reads and writes to the ignored field still work normally, but:
+ * - The proxy will not wrap the field's value or build child proxies underneath it,
+ *   so nested mutations (e.g. `this.ignored.count = 1`) do **not** emit
+ *   `nodeChanged` / `treeChanged` listeners on the parent.
+ * - Replacing the field at the top level (e.g. `this.ignored = {...}`) likewise
+ *   skips listener emission.
+ *
+ * Use this for state that lives on a `ReactiveNode` but should not participate in
+ * the tree — caches, scratch buffers, framework handles, references to objects
+ * already managed elsewhere, etc.
+ *
+ * @example
+ ```ts
+ import { Retree, ReactiveNode, ignore } from "@retreejs/core";
+
+ class Counter extends ReactiveNode {
+    public count = 0;
+    // Mutations to `cache` do not trigger Retree listeners.
+    @ignore public cache: Record<string, unknown> = {};
+
+    get dependencies() { return []; }
+ }
+
+ const node = Retree.root(new Counter());
+ Retree.on(node, "nodeChanged", () => console.log("changed"));
+ node.cache.something = 1; // ❌ no log
+ node.count = 1;            // ✅ logs "changed"
+ ```
+ */
+export function ignore(
     _value: undefined,
     context: ClassFieldDecoratorContext
 ): void | ((this: ReactiveNode, value: any) => any) {

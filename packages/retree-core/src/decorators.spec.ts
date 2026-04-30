@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
-import { retreeIgnore } from "./decorators";
+import { ignore } from "./decorators";
 import { Transactions } from "./internals/transactions";
 
 class IgnoredNode extends ReactiveNode {
-    @retreeIgnore
+    @ignore
     public ignored = { count: 0 };
     public count = 0;
 
@@ -27,7 +27,7 @@ afterEach(() => {
     Transactions.runPendingTransactions();
 });
 
-describe("retreeIgnore", () => {
+describe("ignore", () => {
     it("skips Retree listener emission for ignored nested objects", () => {
         root = Retree.root(new IgnoredNode());
         const nodeChanged = vi.fn();
