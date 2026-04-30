@@ -111,9 +111,9 @@ class ListFilter extends ReactiveNode {
 
 `deps` semantics (same for all three forms):
 
-- `undefined` → recompute whenever the `ReactiveNode` reproxies (any dependency changes or a property is set).
-- `[]` → compute once and cache forever for that instance.
-- `[a, b, ...]` → recompute when any cell shallow-changes (compared with `Object.is`). Tree-node cells are compared by their latest reproxy identity, so passing `this.list` correctly invalidates when `list` mutates.
+-   `undefined` → recompute whenever the `ReactiveNode` reproxies (any dependency changes or a property is set).
+-   `[]` → compute once and cache forever for that instance.
+-   `[a, b, ...]` → recompute when any cell shallow-changes (compared with `Object.is`). Tree-node cells are compared by their latest reproxy identity, so passing `this.list` correctly invalidates when `list` mutates.
 
 The cache is per-instance (a `WeakMap` keyed by the unproxied `ReactiveNode`) and is GC'd with the node.
 

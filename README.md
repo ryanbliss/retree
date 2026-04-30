@@ -400,11 +400,7 @@ class ListFilter extends ReactiveNode {
             () => this.list.filter((c) => c.text === this.searchText),
             [this.list, this.searchText]
         );
-        const count = this.memo(
-            "count",
-            () => filtered.length,
-            [filtered]
-        );
+        const count = this.memo("count", () => filtered.length, [filtered]);
         return { filtered, count };
     }
 
