@@ -81,11 +81,11 @@ const _TreeExample: FC = () => {
                 {"This should be ignored"}
                 <button
                     onClick={() => {
-                        root.ignore.count++;
+                        root.ignoreEx.count++;
                         console.log(root);
                     }}
                 >
-                    {root.ignore.count}++
+                    {root.ignoreEx.count}++
                 </button>
             </div>
         </div>
