@@ -61,7 +61,15 @@ export class Retree {
     private static nodeChangeEmitter = new TreeChangeEmitter();
 
     /**
-     * Builds a Retree compatible node for the root object of your tree.
+     * @deprecated
+     * Use {@link root} instead.
+     */
+    static use<T extends TreeNode = TreeNode>(object: T): T {
+        return this.root(object);
+    }
+
+    /**
+     * Builds a Retree compatible root node for the root object of your tree.
      * @remarks
      * Use this function only for a root object.
      * This will make the object compatible with {@link Retree.on}, {@link Retree.parent}, etc.
@@ -71,11 +79,11 @@ export class Retree {
      * @returns a Retree compatible object of type T
      * 
      * @example
-     const counter = Retree.use({ count: 0 });
+     const counter = Retree.root({ count: 0 });
      Retree.on(counter, "valueChanged", () => console.log(counter.count));
      counter.count = counter.count + 1;
      */
-    static use<T extends TreeNode = TreeNode>(object: T): T {
+    static root<T extends TreeNode = TreeNode>(object: T): T {
         return buildProxy<T>(object, this.nodeChangeEmitter);
     }
 
