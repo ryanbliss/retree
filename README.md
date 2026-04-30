@@ -428,9 +428,9 @@ The cache is per-instance and stored in a `WeakMap` keyed by the unproxied `Reac
 
 `@ignore` is a class-field decorator that excludes a property of a `ReactiveNode` from Retree's reactivity system. Reads and writes to the field still work normally — what's skipped is **listener emission**:
 
-- Nested mutations like `this.cache.foo = 1` do **not** fire `nodeChanged` / `treeChanged` on the `ReactiveNode` or its ancestors.
-- Replacing the field at the top level (`this.cache = {...}`) likewise skips emission.
-- The proxy will not wrap the field's value or build child proxies underneath it.
+-   Nested mutations like `this.cache.foo = 1` do **not** fire `nodeChanged` / `treeChanged` on the `ReactiveNode` or its ancestors.
+-   Replacing the field at the top level (`this.cache = {...}`) likewise skips emission.
+-   The proxy will not wrap the field's value or build child proxies underneath it.
 
 Use it for state that lives on a `ReactiveNode` but shouldn't participate in the tree — caches, scratch buffers, framework handles, references to objects already managed elsewhere, etc.
 
