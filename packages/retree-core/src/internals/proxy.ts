@@ -26,6 +26,20 @@ export const FUNCTION_NAMES_BIND_TO_RAW: (string | symbol)[] = [
     "toJSON",
 ];
 
+const MAP_MUTATING_METHODS = new Set(["set", "delete", "clear"]);
+const SET_MUTATING_METHODS = new Set(["add", "delete", "clear"]);
+
+/**
+ * Built-ins like {@link Map} and {@link Set} rely on internal slots, so calling their methods
+ * with a Proxy as the `this` value throws "incompatible receiver". For those instances we bind
+ * methods to the raw target and wrap mutating methods so they still emit change events.
+ */
+function isInternalSlotInstance(
+    target: any
+): target is Map<any, any> | Set<any> {
+    return target instanceof Map || target instanceof Set;
+}
+
 /**
  * @internal
  * Builds a proxied object that emits changes when any value changes.
@@ -74,6 +88,39 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 }
             }
             const baseProxy = getBaseProxy(receiver);
+            if (isInternalSlotInstance(target)) {
+                // Methods on Map/Set must run with the raw target as `this` because they read
+                // internal slots that the proxy does not expose.
+                const value = Reflect.get(target, prop, target);
+                if (typeof value === "function") {
+                    if (
+                        target instanceof Map &&
+                        typeof prop === "string" &&
+                        MAP_MUTATING_METHODS.has(prop)
+                    ) {
+                        return wrapMapMutation(
+                            prop,
+                            target,
+                            baseProxy,
+                            emitter
+                        );
+                    }
+                    if (
+                        target instanceof Set &&
+                        typeof prop === "string" &&
+                        SET_MUTATING_METHODS.has(prop)
+                    ) {
+                        return wrapSetMutation(
+                            prop,
+                            target,
+                            baseProxy,
+                            emitter
+                        );
+                    }
+                    return value.bind(target);
+                }
+                return value;
+            }
             const value = Reflect.get(target, prop, receiver);
             if (typeof value === "function") {
                 if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
@@ -210,25 +257,185 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     if (object === null) return object;
     if (isCustomProxy(object)) return getBaseProxy(object);
     const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
-    Object.entries(object).forEach(([prop, value]) => {
-        const propString = String(prop);
-        if (
-            value === null ||
-            (object instanceof ReactiveNode &&
-                (propString === COLLECTED_KEYS_SYMBOL ||
-                    object[COLLECTED_KEYS_SYMBOL].has(propString)))
-        ) {
-            proxyHandler[proxiedChildrenKey][prop] = value;
-        } else if (typeof value === "object") {
-            const cProxy = buildProxy(value, emitter, {
-                proxyNode: proxy,
-                propName: prop,
-            });
-            proxyHandler[proxiedChildrenKey][prop] = getBaseProxy(cProxy);
+    if (object instanceof Map) {
+        // Replace each existing object value with a proxied/parented version so reads
+        // through the proxy yield reactive children with correct parent links.
+        const entries = Array.from(object.entries());
+        for (const [key, value] of entries) {
+            if (value !== null && typeof value === "object") {
+                const parentToSet: IProxyParent<any> = {
+                    proxyNode: proxy,
+                    propName: mapKeyAsPropName(key),
+                };
+                const childProxy = isCustomProxy(value)
+                    ? reparentProxy(value, parentToSet)
+                    : buildProxy(value, emitter, parentToSet);
+                Map.prototype.set.call(object, key, childProxy);
+            }
         }
-    });
+    } else {
+        Object.entries(object).forEach(([prop, value]) => {
+            const propString = String(prop);
+            if (
+                value === null ||
+                (object instanceof ReactiveNode &&
+                    (propString === COLLECTED_KEYS_SYMBOL ||
+                        object[COLLECTED_KEYS_SYMBOL].has(propString)))
+            ) {
+                proxyHandler[proxiedChildrenKey][prop] = value;
+            } else if (typeof value === "object") {
+                const cProxy = buildProxy(value, emitter, {
+                    proxyNode: proxy,
+                    propName: prop,
+                });
+                proxyHandler[proxiedChildrenKey][prop] = getBaseProxy(cProxy);
+            }
+        });
+    }
     updateReproxyNode(proxy);
     return proxy;
+}
+
+function mapKeyAsPropName(key: unknown): string | symbol | null {
+    if (typeof key === "string" || typeof key === "symbol") return key;
+    return null;
+}
+
+function wrapMapMutation(
+    prop: string,
+    target: Map<any, any>,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter
+) {
+    if (prop === "set") {
+        return function setWrapper(key: any, value: any) {
+            const previous = target.get(key);
+            const removedNodes: object[] = [];
+            // If we are replacing an existing object child of this map, detach it.
+            if (
+                previous !== value &&
+                previous !== null &&
+                typeof previous === "object"
+            ) {
+                const removed = detachCollectionChild(previous, baseProxy);
+                if (removed) removedNodes.push(removed);
+            }
+            let valueToStore: any = value;
+            if (value !== null && typeof value === "object") {
+                const parentToSet: IProxyParent<any> = {
+                    proxyNode: baseProxy,
+                    propName: mapKeyAsPropName(key),
+                };
+                valueToStore = isCustomProxy(value)
+                    ? reparentProxy(value, parentToSet)
+                    : buildProxy(value, emitter, parentToSet);
+            }
+            Map.prototype.set.call(target, key, valueToStore);
+            emitCollectionChange(target, baseProxy, emitter, removedNodes);
+            // Map.prototype.set returns the map itself; return the proxy so chaining stays reactive.
+            return baseProxy;
+        };
+    }
+    if (prop === "delete") {
+        return function deleteWrapper(key: any) {
+            const previous = target.get(key);
+            const removedNodes: object[] = [];
+            if (
+                previous !== null &&
+                previous !== undefined &&
+                typeof previous === "object"
+            ) {
+                const removed = detachCollectionChild(previous, baseProxy);
+                if (removed) removedNodes.push(removed);
+            }
+            const result = Map.prototype.delete.call(target, key);
+            if (result) {
+                emitCollectionChange(target, baseProxy, emitter, removedNodes);
+            }
+            return result;
+        };
+    }
+    if (prop === "clear") {
+        return function clearWrapper() {
+            if (target.size === 0) return;
+            const removedNodes: object[] = [];
+            target.forEach((value) => {
+                if (value !== null && typeof value === "object") {
+                    const removed = detachCollectionChild(value, baseProxy);
+                    if (removed) removedNodes.push(removed);
+                }
+            });
+            Map.prototype.clear.call(target);
+            emitCollectionChange(target, baseProxy, emitter, removedNodes);
+        };
+    }
+    throw new Error(`Unsupported Map mutation: ${prop}`);
+}
+
+function wrapSetMutation(
+    prop: string,
+    target: Set<any>,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter
+) {
+    if (prop === "add") {
+        return function addWrapper(value: any) {
+            const hadValue = target.has(value);
+            Set.prototype.add.call(target, value);
+            if (!hadValue) {
+                emitCollectionChange(target, baseProxy, emitter, []);
+            }
+            return baseProxy;
+        };
+    }
+    if (prop === "delete") {
+        return function deleteWrapper(value: any) {
+            const result = Set.prototype.delete.call(target, value);
+            if (result) {
+                emitCollectionChange(target, baseProxy, emitter, []);
+            }
+            return result;
+        };
+    }
+    if (prop === "clear") {
+        return function clearWrapper() {
+            if (target.size === 0) return;
+            Set.prototype.clear.call(target);
+            emitCollectionChange(target, baseProxy, emitter, []);
+        };
+    }
+    throw new Error(`Unsupported Set mutation: ${prop}`);
+}
+
+function detachCollectionChild(
+    child: object,
+    parentBaseProxy: TCustomProxy<any>
+): object | undefined {
+    const handler = getCustomProxyHandler(child);
+    if (!handler) return undefined;
+    const oldParent = handler[proxiedParentKey];
+    if (!oldParent || oldParent.proxyNode !== parentBaseProxy) {
+        return undefined;
+    }
+    oldParent.propName = null;
+    oldParent.proxyNode = null;
+    return child;
+}
+
+function emitCollectionChange(
+    target: object,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter,
+    removedNodes: object[]
+) {
+    if (Transactions.skipReproxy) return;
+    const reproxy = updateReproxyNode(baseProxy);
+    emitter.emit("nodeChanged", target, baseProxy, reproxy);
+    if (removedNodes.length === 0 || Transactions.skipEmit) return;
+    for (const removed of removedNodes) {
+        const removedUnproxied = getUnproxiedNode(removed);
+        emitter.emit("nodeRemoved", removedUnproxied ?? removed, removed);
+    }
 }
 
 /**

@@ -91,8 +91,13 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                 }
             }
             const baseProxy: TCustomProxy<T> = getBaseProxy(receiver);
-            const reproxy = getReproxyNode(baseProxy);
             const rawNode = getUnproxiedNode(baseProxy);
+            // Map/Set methods need internal slots on `this`. Delegate property access to the
+            // base proxy so the bind/wrap logic in buildProxy is reused (and mutations emit).
+            if (rawNode instanceof Map || rawNode instanceof Set) {
+                return Reflect.get(baseProxy, prop, baseProxy);
+            }
+            const reproxy = getReproxyNode(baseProxy);
             const value = Reflect.get(rawNode ?? target, prop, receiver);
             if (typeof value === "function") {
                 if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
