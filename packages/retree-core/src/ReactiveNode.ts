@@ -49,7 +49,7 @@ export const COLLECTED_KEYS_SYMBOL = "RETREE_COLLECTED_KEYS_SYMBOL";
     }
  }
  // Create root ReactiveNode instance and listen for changes
- const node = Retree.use(new Node());
+ const node = Retree.root(new Node());
  Retree.on(node, "nodeChanged", () => {
     console.log(node.evenNumberCount);
  });

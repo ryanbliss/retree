@@ -29,7 +29,7 @@ afterEach(() => {
 
 describe("retreeIgnore", () => {
     it("skips Retree listener emission for ignored nested objects", () => {
-        root = Retree.use(new IgnoredNode());
+        root = Retree.root(new IgnoredNode());
         const nodeChanged = vi.fn();
         Retree.on(root, "nodeChanged", nodeChanged);
 

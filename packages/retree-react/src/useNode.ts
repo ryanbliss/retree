@@ -64,7 +64,7 @@ class TodoList {
 }
 
 // Create your root TreeNode instance with any object
-const root = Retree.use(new TodoList());
+const root = Retree.root(new TodoList());
 
 // Render app
 function App() {

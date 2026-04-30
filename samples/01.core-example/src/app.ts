@@ -32,7 +32,7 @@ async function start() {
 
     const schema = new Schema(0, "", new Node("initial"), []);
 
-    const root = Retree.use(schema);
+    const root = Retree.root(schema);
     const unsubscribe = Retree.on(root, "nodeChanged", (reproxy) => {
         console.log("nodeChanged root:", root, reproxy === root);
         if (reproxy.count === 1) {

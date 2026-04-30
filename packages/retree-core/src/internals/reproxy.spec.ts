@@ -5,7 +5,7 @@ import { getReproxyNode, updateReproxyNode } from "./reproxy";
 
 describe("reproxy internals", () => {
     it("creates a fresh snapshot and preserves access to the base proxy", () => {
-        const root = Retree.use({ child: { value: 1 } });
+        const root = Retree.root({ child: { value: 1 } });
         const original = getReproxyNode(root.child);
 
         root.child.value = 2;

@@ -4,7 +4,7 @@ import { getBaseProxy, getCustomProxyHandler, getUnproxiedNode } from "./proxy";
 
 describe("proxy internals", () => {
     it("exposes proxy metadata for managed nodes", () => {
-        const root = Retree.use({ child: { value: 1 } });
+        const root = Retree.root({ child: { value: 1 } });
         const handler = getCustomProxyHandler(root.child);
 
         expect(handler).toBeDefined();

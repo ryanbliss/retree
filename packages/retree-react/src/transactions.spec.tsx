@@ -31,7 +31,7 @@ function clearListenersRecursively(node: unknown, seen = new Set<object>()) {
 
 describe("React transaction behavior", () => {
     it("collapses multiple useNode updates inside a transaction to one rerender", () => {
-        const root = trackRoot(Retree.use({ count: 0 }));
+        const root = trackRoot(Retree.root({ count: 0 }));
         let renderCount = 0;
 
         function Probe() {
@@ -54,7 +54,7 @@ describe("React transaction behavior", () => {
     });
 
     it("suppresses useNode rerenders during silent updates until a visible change occurs", () => {
-        const root = trackRoot(Retree.use({ count: 1, multiplier: 1 }));
+        const root = trackRoot(Retree.root({ count: 1, multiplier: 1 }));
         let renderCount = 0;
 
         function Probe() {
@@ -89,7 +89,7 @@ describe("React transaction behavior", () => {
     });
 
     it("collapses descendant useTree updates inside a transaction to one rerender", () => {
-        const root = trackRoot(Retree.use({ child: { value: 0 } }));
+        const root = trackRoot(Retree.root({ child: { value: 0 } }));
         let renderCount = 0;
 
         function Probe() {

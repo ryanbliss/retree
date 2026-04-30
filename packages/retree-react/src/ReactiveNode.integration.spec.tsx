@@ -42,7 +42,7 @@ class EvenNumberNode extends ReactiveNode {
 
 describe("ReactiveNode integration", () => {
     it("rerenders only when reactive comparison values change", () => {
-        const root = trackRoot(Retree.use(new EvenNumberNode()));
+        const root = trackRoot(Retree.root(new EvenNumberNode()));
         let renderCount = 0;
 
         function Probe() {

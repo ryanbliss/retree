@@ -55,7 +55,7 @@ class DynamicComparisonNode extends ReactiveNode {
 
 describe("ReactiveNode", () => {
     it("emits only when comparison values change", () => {
-        const root = trackRoot(Retree.use(new EvenNumberNode()));
+        const root = trackRoot(Retree.root(new EvenNumberNode()));
         const nodeChanged = vi.fn();
 
         Retree.on(root, "nodeChanged", nodeChanged);
@@ -68,7 +68,7 @@ describe("ReactiveNode", () => {
     });
 
     it("throws when dependency list length changes while subscribed", () => {
-        const root = trackRoot(Retree.use(new DynamicDependencyNode()));
+        const root = trackRoot(Retree.root(new DynamicDependencyNode()));
         Retree.on(root, "nodeChanged", vi.fn());
 
         expect(() => {
@@ -77,7 +77,7 @@ describe("ReactiveNode", () => {
     });
 
     it("throws when comparison list length changes for a dependency", () => {
-        const root = trackRoot(Retree.use(new DynamicComparisonNode()));
+        const root = trackRoot(Retree.root(new DynamicComparisonNode()));
         Retree.on(root, "nodeChanged", vi.fn());
 
         expect(() => {

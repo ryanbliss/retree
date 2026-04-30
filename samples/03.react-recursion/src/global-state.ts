@@ -4,4 +4,4 @@ export class GlobalState {
     memoize = true;
     silentSkipReproxy = true;
 }
-export const globalState = Retree.use(new GlobalState());
+export const globalState = Retree.root(new GlobalState());
