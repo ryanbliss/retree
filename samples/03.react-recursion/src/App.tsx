@@ -5,7 +5,7 @@ import { useNode } from "@retreejs/react";
 import { globalState } from "./global-state";
 import { FC } from "react";
 
-const App : FC = () => {
+const App: FC = () => {
     const state = useNode(globalState);
     return (
         <div>
@@ -34,6 +34,6 @@ const App : FC = () => {
             <TreeExample />
         </div>
     );
-}
+};
 
 export default App;

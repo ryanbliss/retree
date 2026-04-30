@@ -143,9 +143,10 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     );
                     // nodeRemoved events do not reproxy parents, so we skip
                     if (nodeRemoved && !Transactions.skipEmit) {
+                        const removedUnproxied = getUnproxiedNode(nodeRemoved);
                         emitter.emit(
                             "nodeRemoved",
-                            proxyHandler[unproxiedBaseNodeKey],
+                            removedUnproxied ?? nodeRemoved,
                             nodeRemoved
                         );
                     }
@@ -195,9 +196,10 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 }
                 // nodeRemoved events do not reproxy parents, so we skip
                 if (nodeRemoved && !Transactions.skipEmit) {
+                    const removedUnproxied = getUnproxiedNode(nodeRemoved);
                     emitter.emit(
                         "nodeRemoved",
-                        proxyHandler[unproxiedBaseNodeKey],
+                        removedUnproxied ?? nodeRemoved,
                         nodeRemoved
                     );
                 }

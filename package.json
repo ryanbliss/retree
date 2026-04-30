@@ -11,20 +11,29 @@
         "samples/03.react-recursion"
     ],
     "scripts": {
-        "doctor": "eslint **/src/**/*.{j,t}s{,x} --fix --no-error-on-unmatched-pattern"
+        "doctor": "prettier --write . && eslint **/src/**/*.{j,t}s{,x} --fix --no-error-on-unmatched-pattern",
+        "test": "vitest run",
+        "test:watch": "vitest"
     },
     "author": "",
     "license": "MIT",
     "devDependencies": {
+        "@babel/plugin-proposal-decorators": "^7.29.0",
+        "@rolldown/plugin-babel": "^0.2.3",
+        "@testing-library/react": "^16.3.0",
         "@typescript-eslint/eslint-plugin": "^8.0.0",
         "@typescript-eslint/parser": "^8.0.0",
+        "@vitejs/plugin-react": "^6.0.1",
         "eslint": "^9.0.0",
         "eslint-config-prettier": "^8.8.0",
         "eslint-plugin-prettier": "^4.2.1",
         "eslint-plugin-react-hooks": "^7.0.1",
         "eslint-plugin-react-refresh": "^0.5.2",
+        "jsdom": "^26.1.0",
         "prettier": "^2.8.8",
         "typedoc": "^0.28.18",
-        "typescript": "^6.0.2"
+        "typescript": "^6.0.2",
+        "vite": "^8.0.0",
+        "vitest": "^3.2.4"
     }
 }

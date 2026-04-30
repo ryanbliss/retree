@@ -10,7 +10,7 @@
         "build": "vite build",
         "clean": "npx shx rm -rf dist",
         "start": "vite",
-        "doctor": "eslint src/**/*.{j,t}s{,x} --fix --no-error-on-unmatched-pattern"
+        "doctor": "node ../../node_modules/eslint/bin/eslint.js src/**/*.{j,t}s{,x} --fix --no-error-on-unmatched-pattern"
     },
     "dependencies": {
         "@retreejs/core": "0.1.33"

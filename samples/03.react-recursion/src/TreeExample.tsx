@@ -79,10 +79,12 @@ const _TreeExample: FC = () => {
             {!globalState.memoize && <_ViewCard card={root.card} />}
             <div>
                 {"This should be ignored"}
-                <button onClick={() => {
-                    root.ignore.count++;
-                    console.log(root);
-                }}>
+                <button
+                    onClick={() => {
+                        root.ignore.count++;
+                        console.log(root);
+                    }}
+                >
                     {root.ignore.count}++
                 </button>
             </div>

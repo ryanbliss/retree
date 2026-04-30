@@ -199,9 +199,13 @@ export class Retree {
     static runSilent(transaction: () => void, skipReproxy = true) {
         Transactions.skipEmit = true;
         Transactions.skipReproxy = skipReproxy;
-        transaction();
-        Transactions.skipEmit = false;
-        Transactions.skipReproxy = false;
+        try {
+            transaction();
+        } finally {
+            // Silent mode uses global flags, so always restore them even when the caller's work fails.
+            Transactions.skipEmit = false;
+            Transactions.skipReproxy = false;
+        }
     }
 
     /**
@@ -226,10 +230,17 @@ export class Retree {
      */
     static runTransaction(transaction: () => void) {
         Transactions.runningTransaction = true;
-        transaction();
-        // Node changes made during the transaction will emit up to one nodeChanged, treeChanged, and/or nodeRemoved listener.
-        Transactions.runPendingTransactions();
-        Transactions.runningTransaction = false;
+        try {
+            transaction();
+        } finally {
+            try {
+                // Node changes made during the transaction will emit up to one nodeChanged, treeChanged, and/or nodeRemoved listener.
+                Transactions.runPendingTransactions();
+            } finally {
+                // Listener callbacks run during the flush can throw; never leave future updates stuck in transaction mode.
+                Transactions.runningTransaction = false;
+            }
+        }
     }
 
     /**

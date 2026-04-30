@@ -1,21 +1,21 @@
 {
-  "compilerOptions": {
-    /* Visit https://aka.ms/tsconfig.json to read more about this file */
-    "target": "es6",
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "lib": ["es2020","DOM"],
-    "allowJs": false,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "rootDir": "./src",
-    "outDir": "./bin",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-  },
-  "include": ["src/**/*.ts"],
-  "exclude": ["**/*.spec.ts", "**/mock/*.ts"]
+    "compilerOptions": {
+        /* Visit https://aka.ms/tsconfig.json to read more about this file */
+        "target": "es6",
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "lib": ["es2020", "DOM"],
+        "allowJs": false,
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true,
+        "rootDir": "./src",
+        "outDir": "./bin",
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true
+    },
+    "include": ["src/**/*.ts"],
+    "exclude": ["**/*.spec.ts", "**/mock/*.ts"]
 }

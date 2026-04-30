@@ -81,6 +81,8 @@ function App() {
 }
 export default App;
  */
-export function useNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>): T {
+export function useNode<T extends TreeNode = TreeNode>(
+    node: T | NodeFactory<T>
+): T {
     return useNodeInternal(node, LISTENER_TYPE);
 }

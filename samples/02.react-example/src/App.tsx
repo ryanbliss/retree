@@ -46,13 +46,13 @@ const _ViewCatFacts: FC<{ node: CatFacts }> = ({ node: catFacts }) => {
 const ViewCatFacts = memo(_ViewCatFacts);
 
 class AppTree {
-  public readonly appTitle = "Retree cat facts example";
-  public facts: CatFacts = new CatFacts();
+    public readonly appTitle = "Retree cat facts example";
+    public facts: CatFacts = new CatFacts();
 }
 // Setup Retree root
 const appTree = Retree.use(new AppTree());
 
-const App : FC = () => {
+const App: FC = () => {
     const root = useTree(appTree);
     return (
         <div>
@@ -60,6 +60,6 @@ const App : FC = () => {
             <ViewCatFacts node={root.facts} />
         </div>
     );
-}
+};
 
 export default App;
