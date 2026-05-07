@@ -12,8 +12,9 @@
     ],
     "scripts": {
         "doctor": "prettier --write . && eslint **/src/**/*.{j,t}s{,x} --fix --no-error-on-unmatched-pattern",
-        "docs": "typedoc --options typedoc.json",
         "predocs": "npm run build --workspace @retreejs/core",
+        "docs": "typedoc --options typedoc.json",
+        "postdocs": "node -e \"require('node:fs').copyFileSync('llms.txt', 'docs/llms.txt')\"",
         "test": "vitest run",
         "test:watch": "vitest"
     },

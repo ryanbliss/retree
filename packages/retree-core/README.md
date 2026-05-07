@@ -147,6 +147,10 @@ node.count = 1; //            ✅ logs "changed"
 
 See the [useNode React hook](https://github.com/ryanbliss/retree/blob/main/packages/retree-react/src/useNode.ts) or [example 01 project](https://github.com/ryanbliss/retree/tree/main/samples/01.core-example) for more example usages.
 
+## Docs
+
+Docs are hosted at https://ryanbliss.github.io/retree/.
+
 # Licensing & Copyright
 
 Copyright (c) Ryan Bliss. All rights reserved.
