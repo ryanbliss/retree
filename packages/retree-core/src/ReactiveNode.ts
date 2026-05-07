@@ -4,7 +4,7 @@ import { OptionalNode, TreeNode } from "./types";
 /**
  * A dependency for {@link ReactiveNode}.
  * @remarks
- * If no {@link IReactiveDependency.comparisons} are provided, any change to {@link node} will emit an update to the {@link ReactiveNode}.
+ * If no {@link IReactiveDependency.comparisons} are provided, any change to `node` will emit an update to the {@link ReactiveNode}.
  * Otherwise, a change will emit when any new value in {@link IReactiveDependency.comparisons} does not equal the previous checked value.
  * The order and length of {@link IReactiveDependency.comparisons} must remain unchanged between updates.
  */
@@ -14,9 +14,9 @@ export interface IReactiveDependency<TNode extends TreeNode = TreeNode> {
      */
     node: OptionalNode<TNode>;
     /**
-     * Optional. Values to compare between updates to {@link node}.
+     * Optional. Values to compare between updates to `node`.
      * @remarks
-     * When undefined, any change to {@link node} will emit an update to the {@link ReactiveNode}.
+     * When undefined, any change to `node` will emit an update to the {@link ReactiveNode}.
      * Otherwise, a change will emit when any new value the list does not equal the previous checked value.
      * The order and length of {@link IReactiveDependency.comparisons} must remain unchanged between updates.
      */
@@ -71,7 +71,7 @@ export abstract class ReactiveNode {
      * Creates a new {@link IReactiveDependency} instance.
      *
      * @param node the node to listen to "nodeChanged" events for.
-     * @param comparisons Optional. Values to compare between updates to {@link node}.
+     * @param comparisons Optional. Values to compare between updates to `node`.
      * @returns dependency object.
      */
     protected dependency<TNode extends TreeNode = TreeNode>(
@@ -97,7 +97,7 @@ export abstract class ReactiveNode {
      * - `undefined`: recompute whenever this {@link ReactiveNode} reproxies (a dependency
      *   changed or a property was set on it). Useful as a "compute once per render" cache.
      * - `[]`: compute once and cache forever for this instance.
-     * - `[a, b, ...]`: recompute when any cell shallow-changes (compared with {@link Object.is}).
+     * - `[a, b, ...]`: recompute when any cell shallow-changes using `Object.is`.
      *   Tree-node cells are compared by their latest reproxy identity, so passing
      *   `this.list` correctly invalidates when `list` mutates.
      *

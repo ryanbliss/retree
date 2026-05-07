@@ -145,7 +145,7 @@ node.count = 1; //            ✅ logs "changed"
 
 ## Core samples
 
-See the [useNode React hook](./packages/retree-react/src/useNode.ts) or [example 01 project](./samples/01.core-example/) for more example usages.
+See the [useNode React hook](https://github.com/ryanbliss/retree/blob/main/packages/retree-react/src/useNode.ts) or [example 01 project](https://github.com/ryanbliss/retree/tree/main/samples/01.core-example) for more example usages.
 
 # Licensing & Copyright
 

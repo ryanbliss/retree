@@ -1,0 +1,30 @@
+{
+    "$schema": "https://typedoc.org/schema.json",
+    "name": "Retree",
+    "entryPointStrategy": "packages",
+    "entryPoints": ["packages/retree-core", "packages/retree-react"],
+    "out": "docs",
+    "readme": "README.md",
+    "cleanOutputDir": true,
+    "githubPages": true,
+    "highlightLanguages": ["bash", "js", "jsx", "ts", "tsx"],
+    "includeVersion": true,
+    "navigationLinks": {
+        "GitHub": "https://github.com/ryanbliss/retree",
+        "npm: @retreejs/core": "https://www.npmjs.com/package/@retreejs/core",
+        "npm: @retreejs/react": "https://www.npmjs.com/package/@retreejs/react"
+    },
+    "packageOptions": {
+        "entryPoints": ["src/index.ts"],
+        "excludeInternal": true,
+        "excludePrivate": true,
+        "readme": "README.md"
+    },
+    "searchInComments": true,
+    "validation": {
+        "invalidLink": true,
+        "invalidPath": true,
+        "notExported": true,
+        "rewrittenLink": true
+    }
+}
