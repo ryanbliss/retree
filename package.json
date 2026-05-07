@@ -12,6 +12,7 @@
     ],
     "scripts": {
         "doctor": "prettier --write . && eslint **/src/**/*.{j,t}s{,x} --fix --no-error-on-unmatched-pattern",
+        "docs": "typedoc --options typedoc.json",
         "test": "vitest run",
         "test:watch": "vitest"
     },

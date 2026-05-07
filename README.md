@@ -2,6 +2,16 @@
 
 Retree is a lightweight and simple state management library, designed primarily for React. If you know how to work with objects in JavaScript or TypeScript, you pretty much already know how to use Retree.
 
+## API docs
+
+Generate the TypeDoc site locally with:
+
+```bash
+npm run docs
+```
+
+The generated static site is written to `docs/` and ignored by Git. GitHub Pages can host it from the included docs workflow after the repository's Pages source is set to **GitHub Actions**.
+
 ## @retreejs/react
 
 Retree React enables a performant, intuitive interface for managing app state of any complexity. It is designed to seamlessly mix-and-match class-based data layers with React hooks with minimal boilerplate.
@@ -498,7 +508,7 @@ function onClickIncrementCount() {
 
 ### React samples
 
-See the [Cat Facts sample](./samples/02.react-example/) or [recursive tree](./samples/03.react-recursion/) for more examples of `@retreejs/react`.
+See the [Cat Facts sample](https://github.com/ryanbliss/retree/tree/main/samples/02.react-example) or [recursive tree](https://github.com/ryanbliss/retree/tree/main/samples/03.react-recursion) for more examples of `@retreejs/react`.
 
 ## @retreejs/core
 
@@ -561,7 +571,7 @@ unsubscribe();
 
 ### Core samples
 
-See the [useNode React hook](./packages/retree-react/src/useNode.ts) or [example 01 project](./samples/01.core-example/) for more example usages.
+See the [useNode React hook](https://github.com/ryanbliss/retree/blob/main/packages/retree-react/src/useNode.ts) or [example 01 project](https://github.com/ryanbliss/retree/tree/main/samples/01.core-example) for more example usages.
 
 # Licensing & Copyright
 

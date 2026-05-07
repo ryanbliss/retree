@@ -363,7 +363,7 @@ function onClickIncrementCount() {
 
 ## React samples
 
-See the [Cat Facts sample](./samples/02.react-example/) or [recursive tree](./samples/03.react-recursion/) for more examples of `@retreejs/react`.
+See the [Cat Facts sample](https://github.com/ryanbliss/retree/tree/main/samples/02.react-example) or [recursive tree](https://github.com/ryanbliss/retree/tree/main/samples/03.react-recursion) for more examples of `@retreejs/react`.
 
 # Licensing & Copyright
 
