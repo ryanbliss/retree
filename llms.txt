@@ -1,0 +1,38 @@
+# Retree
+
+> Retree is a lightweight TypeScript state management library for object trees, with core reactivity APIs and React hooks for fine-grained rendering.
+
+Retree is published as `@retreejs/core` and `@retreejs/react`. Use the links below for installation, API reference, reactivity behavior, React hook behavior, and runnable sample apps.
+
+## Documentation
+
+- [Retree Docs Home](https://ryanbliss.github.io/retree/): Generated TypeDoc site with package navigation, README content, and API reference.
+- [Repository README](https://github.com/ryanbliss/retree#readme): Installation, quick-start examples, React usage, core usage, and sample links.
+- [@retreejs/core README](https://github.com/ryanbliss/retree/tree/main/packages/retree-core#readme): Core package guide for object-tree reactivity, events, `ReactiveNode`, memoization, and decorators.
+- [@retreejs/react README](https://github.com/ryanbliss/retree/tree/main/packages/retree-react#readme): React package guide for `useNode`, `useTree`, `useRoot`, and rendering behavior.
+
+## API Reference
+
+- [@retreejs/core API](https://ryanbliss.github.io/retree/modules/_retreejs_core.html): Core exports including `Retree`, `ReactiveNode`, event types, decorators, and memo helpers.
+- [Retree class](https://ryanbliss.github.io/retree/classes/_retreejs_core.Retree.html): Static APIs for creating roots, subscribing to changes, finding parents, and batching/silencing updates.
+- [ReactiveNode class](https://ryanbliss.github.io/retree/classes/_retreejs_core.ReactiveNode.html): Base class for derived dependencies, dependency comparison, and memoized computed values.
+- [@retreejs/react API](https://ryanbliss.github.io/retree/modules/_retreejs_react.html): React exports for stateful Retree nodes and trees.
+- [useNode](https://ryanbliss.github.io/retree/functions/_retreejs_react.useNode.html): React hook for subscribing to direct node changes with fine-grained re-rendering.
+- [useTree](https://ryanbliss.github.io/retree/functions/_retreejs_react.useTree.html): React hook for subscribing to node and descendant-tree changes.
+- [useRoot](https://ryanbliss.github.io/retree/functions/_retreejs_react.useRoot.html): React hook for creating and retaining a Retree root in a component.
+
+## Samples
+
+- [Core example](https://github.com/ryanbliss/retree/tree/main/samples/01.core-example): Minimal non-React Retree sample.
+- [React example](https://github.com/ryanbliss/retree/tree/main/samples/02.react-example): React sample app using Retree state.
+- [React recursion example](https://github.com/ryanbliss/retree/tree/main/samples/03.react-recursion): Recursive React tree sample using Retree.
+
+## Packages
+
+- [@retreejs/core on npm](https://www.npmjs.com/package/@retreejs/core): Core state-management package.
+- [@retreejs/react on npm](https://www.npmjs.com/package/@retreejs/react): React hooks package.
+
+## Optional
+
+- [GitHub repository](https://github.com/ryanbliss/retree): Source code, issues, package workspace, and samples.
+- [Fluid Framework SharedTree](https://fluidframework.com/docs/data-structures/tree/): Related inspiration mentioned in the Retree docs.

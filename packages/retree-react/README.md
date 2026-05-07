@@ -365,6 +365,10 @@ function onClickIncrementCount() {
 
 See the [Cat Facts sample](https://github.com/ryanbliss/retree/tree/main/samples/02.react-example) or [recursive tree](https://github.com/ryanbliss/retree/tree/main/samples/03.react-recursion) for more examples of `@retreejs/react`.
 
+## Docs
+
+Docs are hosted at https://ryanbliss.github.io/retree/.
+
 # Licensing & Copyright
 
 Copyright (c) Ryan Bliss. All rights reserved.

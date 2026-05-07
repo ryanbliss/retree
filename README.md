@@ -10,7 +10,7 @@ Generate the TypeDoc site locally with:
 npm run docs
 ```
 
-The generated static site is written to `docs/` and ignored by Git. GitHub Pages can host it from the included docs workflow after the repository's Pages source is set to **GitHub Actions**.
+The generated static site is written to `docs/` and ignored by Git. The docs build also copies `llms.txt` into the generated site so agents can discover the curated docs manifest at the Pages root. GitHub Pages can host it from the included docs workflow after the repository's Pages source is set to **GitHub Actions**.
 
 ## @retreejs/react
 
@@ -572,6 +572,10 @@ unsubscribe();
 ### Core samples
 
 See the [useNode React hook](https://github.com/ryanbliss/retree/blob/main/packages/retree-react/src/useNode.ts) or [example 01 project](https://github.com/ryanbliss/retree/tree/main/samples/01.core-example) for more example usages.
+
+## Docs
+
+Docs are hosted at https://ryanbliss.github.io/retree/.
 
 # Licensing & Copyright
 
