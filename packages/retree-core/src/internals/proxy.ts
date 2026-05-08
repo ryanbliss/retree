@@ -56,6 +56,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     emitter: TreeChangeEmitter,
     parent?: IProxyParent<any>
 ): T {
+    let isApplyingSet = false;
     const proxyHandler: ProxyHandler<T> & ICustomProxyHandler<T> = {
         // Add some extra stuff into the handler so we can store the original TreeNode and access it later
         // Without overriding the rest of the getters in the object.
@@ -163,15 +164,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             const baseProxy = getBaseProxy<T>(receiver);
             if (hasChanged) {
                 let valueToSet = newValue;
-                let nodeRemoved: object | undefined;
-                if (
-                    newValue === undefined ||
-                    newValue === null ||
-                    typeof newValue === "object"
-                ) {
-                    // If `receiver` has a value, we are replacing it with a new one
-                    nodeRemoved = handleNodeRemoved(baseProxy, prop);
-                }
+                const nodeRemoved = handleNodeRemoved(baseProxy, prop);
                 if (newValue !== null && typeof newValue === "object") {
                     if (prop === "constructor")
                         return Reflect.set(target, prop, newValue, receiver);
@@ -186,15 +179,21 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         ? reparentProxy(newValue, parentToSet)
                         : buildProxy(newValue, emitter, parentToSet);
                     proxyHandler[proxiedChildrenKey][prop] = valueToSet;
-                } else if (!newValue && !!prev && typeof prev === "object") {
-                    proxyHandler[proxiedChildrenKey][prop] = newValue;
+                } else {
+                    delete proxyHandler[proxiedChildrenKey][prop];
                 }
-                const returnValue = Reflect.set(
-                    target,
-                    prop,
-                    valueToSet,
-                    receiver
-                );
+                let returnValue: boolean;
+                isApplyingSet = true;
+                try {
+                    returnValue = Reflect.set(
+                        target,
+                        prop,
+                        valueToSet,
+                        receiver
+                    );
+                } finally {
+                    isApplyingSet = false;
+                }
                 // If in a skip reproxy transaction, do not reproxy node
                 if (!Transactions.skipReproxy) {
                     const reproxy = updateReproxyNode(baseProxy);
@@ -220,6 +219,106 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             }
             return true;
         },
+        defineProperty(target, prop, descriptor) {
+            if (target instanceof ReactiveNode) {
+                const propString = String(prop);
+                // Check for ignore keys
+                if (
+                    propString === COLLECTED_KEYS_SYMBOL ||
+                    target[COLLECTED_KEYS_SYMBOL].has(propString)
+                ) {
+                    return Reflect.defineProperty(target, prop, descriptor);
+                }
+            }
+            if (isApplyingSet) {
+                return Reflect.defineProperty(target, prop, descriptor);
+            }
+            const currentProxy = isCustomProxy(target)
+                ? target
+                : getReproxyNodeForUnproxiedNode(target);
+            const baseProxy = currentProxy
+                ? getBaseProxy(currentProxy)
+                : currentProxy;
+            const descriptorToDefine: PropertyDescriptor = { ...descriptor };
+            const currentDescriptor = Reflect.getOwnPropertyDescriptor(
+                target,
+                prop
+            );
+            let nodeRemoved: object | undefined;
+
+            if (descriptorHasValue(descriptorToDefine)) {
+                const shouldKeepRawValue =
+                    isProxyableObject(descriptorToDefine.value) &&
+                    !isCustomProxy(descriptorToDefine.value) &&
+                    descriptorRequiresExactDefinedValue(
+                        currentDescriptor,
+                        descriptorToDefine
+                    );
+                if (
+                    baseProxy &&
+                    Reflect.get(baseProxy, prop) !== descriptorToDefine.value
+                ) {
+                    nodeRemoved = handleNodeRemoved(baseProxy, prop);
+                }
+                if (shouldKeepRawValue) {
+                    delete proxyHandler[proxiedChildrenKey][prop];
+                } else {
+                    descriptorToDefine.value = preparePropertyValue(
+                        descriptorToDefine.value,
+                        prop,
+                        baseProxy,
+                        emitter,
+                        proxyHandler
+                    );
+                }
+            } else if (descriptorHasAccessor(descriptorToDefine)) {
+                if (baseProxy) {
+                    nodeRemoved = handleNodeRemoved(baseProxy, prop);
+                }
+                delete proxyHandler[proxiedChildrenKey][prop];
+            } else {
+                const cachedChild = proxyHandler[proxiedChildrenKey][prop];
+                if (
+                    cachedChild &&
+                    currentDescriptorHasValue(currentDescriptor)
+                ) {
+                    descriptorToDefine.value = cachedChild;
+                }
+            }
+
+            const returnValue = Reflect.defineProperty(
+                target,
+                prop,
+                descriptorToDefine
+            );
+            // If in a skip reproxy transaction, do not reproxy node
+            if (returnValue && !Transactions.skipReproxy) {
+                if (baseProxy) {
+                    const reproxy = updateReproxyNode(baseProxy);
+                    // Still emit here if in a `skipEmit` transaction so that parents get reproxied
+                    emitter.emit(
+                        "nodeChanged",
+                        proxyHandler[unproxiedBaseNodeKey],
+                        baseProxy,
+                        reproxy
+                    );
+                } else {
+                    console.warn(
+                        `buildProxy.defineProperty: cannot find baseProxy for target`
+                    );
+                }
+                // nodeRemoved events do not reproxy parents, so we skip
+                if (nodeRemoved && !Transactions.skipEmit) {
+                    const removedUnproxied = getUnproxiedNode(nodeRemoved);
+                    emitter.emit(
+                        "nodeRemoved",
+                        removedUnproxied ?? nodeRemoved,
+                        nodeRemoved
+                    );
+                }
+            }
+            return returnValue;
+        },
         deleteProperty(target, prop) {
             if (target instanceof ReactiveNode) {
                 const propString = String(prop);
@@ -242,6 +341,9 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 : currentProxy;
             const nodeRemoved = handleNodeRemoved(baseProxy, prop);
             const returnValue = Reflect.deleteProperty(target, prop);
+            if (returnValue) {
+                delete proxyHandler[proxiedChildrenKey][prop];
+            }
             // If in a skip reproxy transaction, do not reproxy node
             if (!Transactions.skipReproxy) {
                 if (baseProxy) {
@@ -301,6 +403,14 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             ) {
                 proxyHandler[proxiedChildrenKey][prop] = value;
             } else if (typeof value === "object") {
+                const descriptor = Reflect.getOwnPropertyDescriptor(
+                    object,
+                    prop
+                );
+                if (shouldKeepRawPropertyValue(descriptor, value)) {
+                    delete proxyHandler[proxiedChildrenKey][prop];
+                    return;
+                }
                 const cProxy = buildProxy(value, emitter, {
                     proxyNode: proxy,
                     propName: prop,
@@ -316,6 +426,117 @@ export function buildProxy<T extends TreeNode = TreeNode>(
 function mapKeyAsPropName(key: unknown): string | symbol | null {
     if (typeof key === "string" || typeof key === "symbol") return key;
     return null;
+}
+
+function descriptorHasValue(
+    descriptor: PropertyDescriptor
+): descriptor is PropertyDescriptor & { value: unknown } {
+    return Object.prototype.hasOwnProperty.call(descriptor, "value");
+}
+
+function currentDescriptorHasValue(
+    descriptor: PropertyDescriptor | undefined
+): descriptor is PropertyDescriptor & { value: unknown } {
+    if (!descriptor) return false;
+    return descriptorHasValue(descriptor);
+}
+
+function descriptorHasAccessor(descriptor: PropertyDescriptor): boolean {
+    if (Object.prototype.hasOwnProperty.call(descriptor, "get")) {
+        return true;
+    }
+    return Object.prototype.hasOwnProperty.call(descriptor, "set");
+}
+
+function descriptorRequiresExactDefinedValue(
+    currentDescriptor: PropertyDescriptor | undefined,
+    descriptor: PropertyDescriptor
+): boolean {
+    if (descriptor.configurable === true) {
+        return false;
+    }
+    if (descriptor.writable === true) {
+        return false;
+    }
+    if (!currentDescriptor) {
+        return true;
+    }
+    if (descriptor.configurable === false) {
+        if (descriptor.writable === false) {
+            return true;
+        }
+        if (
+            currentDescriptorHasValue(currentDescriptor) &&
+            currentDescriptor.writable === false
+        ) {
+            return true;
+        }
+    }
+    if (currentDescriptor.configurable !== false) {
+        return false;
+    }
+    if (!currentDescriptorHasValue(currentDescriptor)) {
+        return false;
+    }
+    if (descriptor.writable === false) {
+        return true;
+    }
+    return currentDescriptor.writable === false;
+}
+
+function shouldKeepRawPropertyValue(
+    descriptor: PropertyDescriptor | undefined,
+    value: unknown
+): boolean {
+    if (!isProxyableObject(value)) {
+        return false;
+    }
+    if (isCustomProxy(value)) {
+        return false;
+    }
+    if (!descriptor) {
+        return false;
+    }
+    return descriptorRequiresExactDefinedValue(descriptor, descriptor);
+}
+
+function isProxyableObject(value: unknown): value is object {
+    if (value === null) {
+        return false;
+    }
+    return typeof value === "object";
+}
+
+function preparePropertyValue(
+    value: unknown,
+    prop: string | symbol,
+    baseProxy: TCustomProxy<any> | undefined,
+    emitter: TreeChangeEmitter,
+    proxyHandler: ICustomProxyHandler<any>
+): unknown {
+    if (value === null) {
+        delete proxyHandler[proxiedChildrenKey][prop];
+        return value;
+    }
+    if (typeof value !== "object") {
+        delete proxyHandler[proxiedChildrenKey][prop];
+        return value;
+    }
+    if (prop === "constructor") {
+        delete proxyHandler[proxiedChildrenKey][prop];
+        return value;
+    }
+    if (!baseProxy) return value;
+
+    const parentToSet: IProxyParent<any> = {
+        proxyNode: baseProxy,
+        propName: prop,
+    };
+    const valueToSet = isCustomProxy(value)
+        ? reparentProxy(value, parentToSet)
+        : buildProxy(value, emitter, parentToSet);
+    proxyHandler[proxiedChildrenKey][prop] = valueToSet;
+    return valueToSet;
 }
 
 function wrapMapMutation(
@@ -514,21 +735,25 @@ function handleNodeRemoved(
     prop: string | symbol
 ): object | undefined {
     const nodeRemoved = (node as any)?.[prop];
-    if (nodeRemoved !== null && typeof nodeRemoved === "object") {
-        // Remove parent reference
-        const oldHandler = getCustomProxyHandler(nodeRemoved);
-        if (oldHandler) {
-            const oldParent = oldHandler[proxiedParentKey];
-            // If the prop of the parent doesn't match, it was recently set to a new node.
-            // That means it is still part of the object tree, and thus we do not want to notify node removed.
-            if (!oldParent || oldParent?.propName !== prop) {
-                return undefined;
-            }
-            // Reproxy shares same reference to original IProxyParent object.
-            // Set deep values directly.
-            oldParent.propName = null;
-            oldParent.proxyNode = null;
+    if (nodeRemoved === null) {
+        return undefined;
+    }
+    if (typeof nodeRemoved !== "object") {
+        return undefined;
+    }
+    // Remove parent reference
+    const oldHandler = getCustomProxyHandler(nodeRemoved);
+    if (oldHandler) {
+        const oldParent = oldHandler[proxiedParentKey];
+        // If the prop of the parent doesn't match, it was recently set to a new node.
+        // That means it is still part of the object tree, and thus we do not want to notify node removed.
+        if (!oldParent || oldParent?.propName !== prop) {
+            return undefined;
         }
+        // Reproxy shares same reference to original IProxyParent object.
+        // Set deep values directly.
+        oldParent.propName = null;
+        oldParent.proxyNode = null;
     }
     return nodeRemoved;
 }

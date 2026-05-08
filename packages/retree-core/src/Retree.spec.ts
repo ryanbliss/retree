@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Retree } from "./Retree";
 import { Transactions } from "./internals/transactions";
 import { getReproxyNode } from "./internals/reproxy";
-import { getBaseProxy } from "./internals/proxy";
+import { getBaseProxy, getCustomProxyHandler } from "./internals/proxy";
 
 const rootsToCleanup: object[] = [];
 
@@ -26,7 +26,9 @@ function clearListenersRecursively(node: unknown, seen = new Set<object>()) {
         return;
     }
     seen.add(node);
-    Retree.clearListeners(node as never);
+    if (getCustomProxyHandler(node)) {
+        Retree.clearListeners(node as never);
+    }
     for (const child of Object.values(node)) {
         clearListenersRecursively(child, seen);
     }
@@ -69,6 +71,284 @@ describe("Retree", () => {
         expect(getBaseProxy(rootTreeChanged.mock.calls[0]?.[0].sibling)).toBe(
             root.sibling
         );
+    });
+
+    it("emits nodeChanged with a fresh reproxy when the delete keyword removes a leaf property", () => {
+        const root = trackRoot(
+            Retree.root<{ count?: number; label: string }>({
+                count: 1,
+                label: "current",
+            })
+        );
+        const beforeDelete = getReproxyNode(root);
+        let latestReproxy: typeof root | undefined;
+        const nodeChanged = vi.fn((reproxy: typeof root) => {
+            latestReproxy = reproxy;
+        });
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        const didDelete = delete root.count;
+
+        expect(didDelete).toBe(true);
+        expect(root.count).toBeUndefined();
+        expect("count" in root).toBe(false);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        if (!latestReproxy) {
+            throw new Error(
+                "Expected delete keyword nodeChanged listener to receive a reproxy"
+            );
+        }
+        expect(latestReproxy).not.toBe(beforeDelete);
+        expect(latestReproxy.count).toBeUndefined();
+        expect("count" in latestReproxy).toBe(false);
+        expect(latestReproxy.label).toBe("current");
+    });
+
+    it("emits child nodeChanged and ancestor treeChanged when the delete keyword removes a nested leaf property", () => {
+        const root = trackRoot(
+            Retree.root<{ child: { value?: number; label: string } }>({
+                child: { value: 1, label: "nested" },
+            })
+        );
+        let latestChildReproxy: typeof root.child | undefined;
+        let latestRootReproxy: typeof root | undefined;
+        const childNodeChanged = vi.fn((reproxy: typeof root.child) => {
+            latestChildReproxy = reproxy;
+        });
+        const rootTreeChanged = vi.fn((reproxy: typeof root) => {
+            latestRootReproxy = reproxy;
+        });
+        Retree.on(root.child, "nodeChanged", childNodeChanged);
+        Retree.on(root, "treeChanged", rootTreeChanged);
+
+        const didDelete = delete root.child.value;
+
+        expect(didDelete).toBe(true);
+        expect(childNodeChanged).toHaveBeenCalledTimes(1);
+        expect(rootTreeChanged).toHaveBeenCalledTimes(1);
+        if (!latestChildReproxy) {
+            throw new Error(
+                "Expected nested delete keyword nodeChanged listener to receive a child reproxy"
+            );
+        }
+        if (!latestRootReproxy) {
+            throw new Error(
+                "Expected nested delete keyword treeChanged listener to receive a root reproxy"
+            );
+        }
+        expect(latestChildReproxy.value).toBeUndefined();
+        expect("value" in latestChildReproxy).toBe(false);
+        expect(latestChildReproxy.label).toBe("nested");
+        expect(latestRootReproxy.child.value).toBeUndefined();
+        expect("value" in latestRootReproxy.child).toBe(false);
+        expect(latestRootReproxy.child.label).toBe("nested");
+    });
+
+    it("emits nodeChanged and nodeRemoved when the delete keyword removes an object child", () => {
+        const root = trackRoot(
+            Retree.root<{ child?: { value: number }; label: string }>({
+                child: { value: 1 },
+                label: "root",
+            })
+        );
+        const child = root.child;
+        if (!child) {
+            throw new Error(
+                "Expected root.child to exist before testing object child deletion"
+            );
+        }
+        let latestReproxy: typeof root | undefined;
+        const nodeChanged = vi.fn((reproxy: typeof root) => {
+            latestReproxy = reproxy;
+        });
+        const childRemoved = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+        Retree.on(child, "nodeRemoved", childRemoved);
+
+        const didDelete = delete root.child;
+
+        expect(didDelete).toBe(true);
+        expect(root.child).toBeUndefined();
+        expect("child" in root).toBe(false);
+        expect(Retree.parent(child)).toBeNull();
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(childRemoved).toHaveBeenCalledTimes(1);
+        if (!latestReproxy) {
+            throw new Error(
+                "Expected object child delete keyword nodeChanged listener to receive a reproxy"
+            );
+        }
+        expect(latestReproxy.child).toBeUndefined();
+        expect("child" in latestReproxy).toBe(false);
+        expect(latestReproxy.label).toBe("root");
+    });
+
+    it("emits nodeChanged with a fresh reproxy when Object.defineProperty defines a leaf property", () => {
+        const root = trackRoot(
+            Retree.root<{ count?: number; label: string }>({
+                label: "current",
+            })
+        );
+        const beforeDefine = getReproxyNode(root);
+        let latestReproxy: typeof root | undefined;
+        const nodeChanged = vi.fn((reproxy: typeof root) => {
+            latestReproxy = reproxy;
+        });
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        Object.defineProperty(root, "count", {
+            value: 1,
+            writable: true,
+            enumerable: true,
+            configurable: true,
+        });
+
+        expect(root.count).toBe(1);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        if (!latestReproxy) {
+            throw new Error(
+                "Expected Object.defineProperty nodeChanged listener to receive a reproxy"
+            );
+        }
+        expect(latestReproxy).not.toBe(beforeDefine);
+        expect(latestReproxy.count).toBe(1);
+        expect(latestReproxy.label).toBe("current");
+    });
+
+    it("proxies object children defined with Object.defineProperty", () => {
+        const root = trackRoot(
+            Retree.root<{ child?: { value: number }; label: string }>({
+                label: "root",
+            })
+        );
+        let latestReproxy: typeof root | undefined;
+        const nodeChanged = vi.fn((reproxy: typeof root) => {
+            latestReproxy = reproxy;
+        });
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        Object.defineProperty(root, "child", {
+            value: { value: 1 },
+            writable: false,
+            enumerable: true,
+            configurable: true,
+        });
+
+        const child = root.child;
+        if (!child) {
+            throw new Error(
+                "Expected Object.defineProperty to define a child node"
+            );
+        }
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(Retree.parent(child)).toBe(root);
+        if (!latestReproxy) {
+            throw new Error(
+                "Expected Object.defineProperty object child listener to receive a reproxy"
+            );
+        }
+        expect(latestReproxy.child?.value).toBe(1);
+
+        const treeChanged = vi.fn();
+        Retree.on(root, "treeChanged", treeChanged);
+        child.value = 2;
+        expect(treeChanged).toHaveBeenCalledTimes(1);
+        expect(root.child?.value).toBe(2);
+    });
+
+    it("keeps immutable raw object children unproxied when they are defined with Object.defineProperty", () => {
+        const root = trackRoot(
+            Retree.root<{ child?: { value: number }; label: string }>({
+                label: "root",
+            })
+        );
+        const child = { value: 1 };
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        Object.defineProperty(root, "child", {
+            value: child,
+        });
+
+        expect(root.child).toBe(child);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+
+        const treeChanged = vi.fn();
+        Retree.on(root, "treeChanged", treeChanged);
+        child.value = 2;
+        expect(treeChanged).not.toHaveBeenCalled();
+        expect(root.child?.value).toBe(2);
+    });
+
+    it("keeps immutable raw object children unproxied when an object is rooted", () => {
+        const child = { value: 1 };
+        const source: { child?: { value: number }; label: string } = {
+            label: "root",
+        };
+        Object.defineProperty(source, "child", {
+            value: child,
+            enumerable: true,
+        });
+        const root = trackRoot(Retree.root(source));
+        const treeChanged = vi.fn();
+        Retree.on(root, "treeChanged", treeChanged);
+
+        expect(root.child).toBe(child);
+
+        child.value = 2;
+        expect(treeChanged).not.toHaveBeenCalled();
+        expect(root.child?.value).toBe(2);
+    });
+
+    it("emits nodeRemoved when Object.defineProperty replaces an object child", () => {
+        const root = trackRoot(
+            Retree.root<{ child: { value: number } | string; label: string }>({
+                child: { value: 1 },
+                label: "root",
+            })
+        );
+        const child = root.child;
+        if (typeof child !== "object") {
+            throw new Error(
+                "Expected root.child to be an object before testing Object.defineProperty replacement"
+            );
+        }
+        let latestReproxy: typeof root | undefined;
+        const nodeChanged = vi.fn((reproxy: typeof root) => {
+            latestReproxy = reproxy;
+        });
+        const childRemoved = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+        Retree.on(child, "nodeRemoved", childRemoved);
+
+        Object.defineProperty(root, "child", {
+            value: "removed",
+            writable: true,
+            enumerable: true,
+            configurable: true,
+        });
+
+        expect(root.child).toBe("removed");
+        expect(Retree.parent(child)).toBeNull();
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(childRemoved).toHaveBeenCalledTimes(1);
+        if (!latestReproxy) {
+            throw new Error(
+                "Expected Object.defineProperty replacement listener to receive a reproxy"
+            );
+        }
+        expect(latestReproxy.child).toBe("removed");
+    });
+
+    it("does not emit twice when normal assignment creates a property", () => {
+        const root = trackRoot(Retree.root<{ count?: number }>({}));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        root.count = 1;
+
+        expect(root.count).toBe(1);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
     });
 
     it("emits nodeRemoved for replaced object nodes", () => {
