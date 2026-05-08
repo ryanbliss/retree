@@ -180,7 +180,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         : buildProxy(newValue, emitter, parentToSet);
                     proxyHandler[proxiedChildrenKey][prop] = valueToSet;
                 } else {
-                    delete proxyHandler[proxiedChildrenKey][prop];
+                    deleteProxiedChild(proxyHandler, prop);
                 }
                 let returnValue: boolean;
                 isApplyingSet = true;
@@ -261,7 +261,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     nodeRemoved = handleNodeRemoved(baseProxy, prop);
                 }
                 if (shouldKeepRawValue) {
-                    delete proxyHandler[proxiedChildrenKey][prop];
+                    deleteProxiedChild(proxyHandler, prop);
                 } else {
                     descriptorToDefine.value = preparePropertyValue(
                         descriptorToDefine.value,
@@ -275,7 +275,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 if (baseProxy) {
                     nodeRemoved = handleNodeRemoved(baseProxy, prop);
                 }
-                delete proxyHandler[proxiedChildrenKey][prop];
+                deleteProxiedChild(proxyHandler, prop);
             } else {
                 const cachedChild = proxyHandler[proxiedChildrenKey][prop];
                 if (
@@ -342,7 +342,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             const nodeRemoved = handleNodeRemoved(baseProxy, prop);
             const returnValue = Reflect.deleteProperty(target, prop);
             if (returnValue) {
-                delete proxyHandler[proxiedChildrenKey][prop];
+                deleteProxiedChild(proxyHandler, prop);
             }
             // If in a skip reproxy transaction, do not reproxy node
             if (!Transactions.skipReproxy) {
@@ -408,7 +408,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     prop
                 );
                 if (shouldKeepRawPropertyValue(descriptor, value)) {
-                    delete proxyHandler[proxiedChildrenKey][prop];
+                    deleteProxiedChild(proxyHandler, prop);
                     return;
                 }
                 const cProxy = buildProxy(value, emitter, {
@@ -426,6 +426,13 @@ export function buildProxy<T extends TreeNode = TreeNode>(
 function mapKeyAsPropName(key: unknown): string | symbol | null {
     if (typeof key === "string" || typeof key === "symbol") return key;
     return null;
+}
+
+function deleteProxiedChild(
+    proxyHandler: ICustomProxyHandler<any>,
+    prop: string | symbol
+) {
+    Reflect.deleteProperty(proxyHandler[proxiedChildrenKey], prop);
 }
 
 function descriptorHasValue(
@@ -515,15 +522,15 @@ function preparePropertyValue(
     proxyHandler: ICustomProxyHandler<any>
 ): unknown {
     if (value === null) {
-        delete proxyHandler[proxiedChildrenKey][prop];
+        deleteProxiedChild(proxyHandler, prop);
         return value;
     }
     if (typeof value !== "object") {
-        delete proxyHandler[proxiedChildrenKey][prop];
+        deleteProxiedChild(proxyHandler, prop);
         return value;
     }
     if (prop === "constructor") {
-        delete proxyHandler[proxiedChildrenKey][prop];
+        deleteProxiedChild(proxyHandler, prop);
         return value;
     }
     if (!baseProxy) return value;
