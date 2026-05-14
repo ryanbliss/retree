@@ -450,7 +450,7 @@ describe("Retree", () => {
         }).toThrow("listener failed");
 
         expect(Transactions.runningTransaction).toBe(false);
-        nodeChanged.mockImplementation(() => undefined);
+        nodeChanged.mockImplementation(() => undefined as never);
         root.count = 2;
         expect(nodeChanged).toHaveBeenCalledTimes(2);
     });
