@@ -1,5 +1,5 @@
 import { COLLECTED_KEYS_SYMBOL, ReactiveNode } from "./ReactiveNode";
-import { runMemo } from "./internals/memo";
+import { runFnMemo, runMemo } from "./internals/memo";
 
 /**
  * Field decorator that excludes a property of a {@link ReactiveNode} from Retree's
@@ -93,6 +93,92 @@ export function memo<This extends ReactiveNode, Value>(
                 this,
                 cacheKey,
                 () => target.call(this),
+                comparisons
+            );
+        };
+    };
+}
+
+type FnMemoMethod<This, Args extends unknown[], Value> = (
+    this: This,
+    ...args: Args
+) => Value;
+
+type FnMemoComparisonArgs<Args extends unknown[]> = Args extends []
+    ? unknown[]
+    : Args;
+
+/**
+ * Decorator that memoizes a method return value on a {@link ReactiveNode}.
+ * @remarks
+ * Pass a function that returns the comparisons array — the function receives the
+ * current instance and method arguments, so the values are read fresh each time
+ * the method is called. The method arguments are always shallow-compared in
+ * addition to the dependency comparisons.
+ *
+ * Cache semantics:
+ * - No argument or returns `undefined`: recompute when the arguments change, or on
+ *   every reproxy of the ReactiveNode.
+ * - Returns `[]`: recompute only when the arguments change.
+ * - Returns `[a, b, ...]`: recompute when the arguments or comparisons shallow-change.
+ *
+ * Each decorated method stores one cache cell per instance, containing the last
+ * argument list and return value.
+ *
+ * @example
+ ```ts
+ class ListFilter extends ReactiveNode {
+    list: Card[] = [];
+    searchText = "";
+
+    @fnMemo((self: ListFilter) => [self.searchText])
+    filterBy(limit: number) {
+        return this.list
+            .filter((c) => c.text === this.searchText)
+            .slice(0, limit);
+    }
+
+    get dependencies() { return [this.dependency(this.list)]; }
+ }
+ ```
+ */
+export function fnMemo<
+    This extends ReactiveNode,
+    ComparisonArgs extends unknown[] = []
+>(
+    getComparisons?: (
+        self: This,
+        ...args: FnMemoComparisonArgs<ComparisonArgs>
+    ) => unknown[] | undefined
+) {
+    return function <
+        MethodArgs extends FnMemoComparisonArgs<ComparisonArgs>,
+        Value
+    >(
+        target: FnMemoMethod<This, MethodArgs, Value>,
+        context: ClassMethodDecoratorContext<
+            This,
+            FnMemoMethod<This, MethodArgs, Value>
+        >
+    ): FnMemoMethod<This, MethodArgs, Value> {
+        if (context.kind !== "method") {
+            throw new Error(
+                "@fnMemo can only be applied to a method on a ReactiveNode subclass."
+            );
+        }
+        if (context.static) {
+            throw new Error(
+                "@fnMemo cannot be applied to a static method. It memoizes return values per ReactiveNode instance."
+            );
+        }
+        const cacheKey = Symbol(`fnMemo:${String(context.name)}`);
+        return function memoizedMethod(this: This, ...args: MethodArgs): Value {
+            const comparisons = getComparisons?.(this, ...args);
+            return runFnMemo(
+                this,
+                cacheKey,
+                () => target.call(this, ...args),
+                args,
                 comparisons
             );
         };

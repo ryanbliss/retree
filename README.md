@@ -342,7 +342,7 @@ node.list.push(99);
 
 `ReactiveNode` provides `memo` to cache the result of a getter, similar in spirit to React's `useMemo`. Use it to skip expensive recomputation when the values it depends on haven't changed.
 
-There are three ways to memoize: a keyless `this.memo(fn, deps?)` form (cleanest, when you want one cache per getter), an explicit-key `this.memo(key, fn, deps?)` form (for stacking multiple memos in one getter or memoizing inside a method), and a `@memo` decorator form.
+There are four ways to memoize: a keyless `this.memo(fn, deps?)` form (cleanest, when you want one cache per getter), an explicit-key `this.memo(key, fn, deps?)` form (for stacking multiple memos in one getter or memoizing inside a method), a `@memo` getter decorator form, and a `@fnMemo` method decorator form.
 
 ##### `this.memo(fn, deps?)` (keyless, inside a getter)
 
@@ -395,6 +395,30 @@ class ListFilter extends ReactiveNode {
 }
 ```
 
+##### `@fnMemo` decorator (one memo per method return value)
+
+Use this when a method is deterministic for a given argument list plus optional dependencies. Method arguments are always shallow-compared, in addition to the `deps` function result. The `deps` function receives the current instance followed by the method arguments.
+
+```ts
+import { Retree, ReactiveNode, fnMemo } from "@retreejs/core";
+
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    @fnMemo((self: ListFilter) => [self.list, self.searchText])
+    public filteredList(limit: number): Card[] {
+        return this.list
+            .filter((c) => c.text === this.searchText)
+            .slice(0, limit);
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
 ##### `this.memo(key, fn, deps?)` (explicit key)
 
 Use this when you need multiple memo cells in the same getter, or when caching a result inside a method.
@@ -422,7 +446,7 @@ class ListFilter extends ReactiveNode {
 
 ##### Cache semantics
 
-The same `deps` rules apply to all three forms:
+The same `deps` rules apply to all forms. For `@fnMemo`, the method arguments are also compared every call:
 
 | `deps` argument | Behavior                                                                                                                                              |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
