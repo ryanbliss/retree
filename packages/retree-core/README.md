@@ -63,10 +63,10 @@ unsubscribe();
 
 ## Memoize computed getters
 
-`ReactiveNode` exposes a `memo` helper for caching the result of a computed getter, similar in spirit to React's `useMemo`. Three forms are supported:
+`ReactiveNode` exposes a `memo` helper for caching the result of a computed getter, similar in spirit to React's `useMemo`. It also exposes `@fnMemo` for caching deterministic method return values. Four forms are supported:
 
 ```ts
-import { Retree, ReactiveNode, memo } from "@retreejs/core";
+import { Retree, ReactiveNode, fnMemo, memo } from "@retreejs/core";
 
 interface Card {
     text: string;
@@ -103,13 +103,21 @@ class ListFilter extends ReactiveNode {
         return { filtered, count };
     }
 
+    // 4) Function decorator form — compares method arguments plus deps.
+    @fnMemo((self: ListFilter) => [self.list, self.searchText])
+    filteredListLimited(limit: number): Card[] {
+        return this.list
+            .filter((c) => c.text === this.searchText)
+            .slice(0, limit);
+    }
+
     get dependencies() {
         return [this.dependency(this.list)];
     }
 }
 ```
 
-`deps` semantics (same for all three forms):
+`deps` semantics (same for all forms; `@fnMemo` also compares method arguments and passes them to the `deps` function):
 
 -   `undefined` → recompute whenever the `ReactiveNode` reproxies (any dependency changes or a property is set).
 -   `[]` → compute once and cache forever for that instance.

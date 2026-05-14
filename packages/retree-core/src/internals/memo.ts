@@ -25,6 +25,11 @@ interface IMemoCacheEntry {
      * has reproxied since this entry was made" for the `undefined` comparisons case.
      */
     reproxy: TreeNode | undefined;
+    /**
+     * Arguments captured the last time a function memo computed.
+     * `undefined` means this entry belongs to regular getter memoization.
+     */
+    args: unknown[] | undefined;
 }
 
 const memoCacheMap = new WeakMap<
@@ -109,6 +114,61 @@ export function runMemo<T>(
         value,
         comparisons: normalized,
         reproxy: getReproxyNodeForUnproxiedNode(unproxied) ?? currentReproxy,
+        args: undefined,
+    });
+    return value;
+}
+
+/**
+ * @internal
+ * Shared memo runner used by the `@fnMemo` decorator. It follows the same
+ * dependency semantics as {@link runMemo}, but also shallow-compares the
+ * arguments passed to the function every time.
+ */
+export function runFnMemo<T>(
+    instance: ReactiveNode,
+    key: string | symbol,
+    fn: () => T,
+    args: unknown[],
+    comparisons: unknown[] | undefined
+): T {
+    const unproxied = getUnproxiedNode(instance) as ReactiveNode | undefined;
+    if (!unproxied) {
+        return fn();
+    }
+    const cache = getOrCreateMemoCache(unproxied);
+    const currentReproxy = getReproxyNodeForUnproxiedNode(unproxied);
+    const normalizedArgs = normalizeComparisons(args);
+    const normalizedComparisons =
+        comparisons === undefined
+            ? undefined
+            : normalizeComparisons(comparisons);
+    const prev = cache.get(key);
+    if (prev && prev.args !== undefined) {
+        const argsMatch = shallowEqualArrays(prev.args, normalizedArgs);
+        if (argsMatch && normalizedComparisons === undefined) {
+            if (
+                prev.comparisons === undefined &&
+                prev.reproxy === currentReproxy
+            ) {
+                return prev.value as T;
+            }
+        }
+        if (
+            argsMatch &&
+            normalizedComparisons !== undefined &&
+            prev.comparisons !== undefined &&
+            shallowEqualArrays(prev.comparisons, normalizedComparisons)
+        ) {
+            return prev.value as T;
+        }
+    }
+    const value = fn();
+    cache.set(key, {
+        value,
+        comparisons: normalizedComparisons,
+        reproxy: getReproxyNodeForUnproxiedNode(unproxied) ?? currentReproxy,
+        args: normalizedArgs,
     });
     return value;
 }

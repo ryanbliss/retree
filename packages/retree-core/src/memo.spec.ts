@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
-import { memo } from "./decorators";
+import { fnMemo, memo } from "./decorators";
 import { Transactions } from "./internals/transactions";
 
 const rootsToCleanup: object[] = [];
@@ -493,6 +493,161 @@ describe("@memo decorator", () => {
         root.other;
         expect(root.baseCount).toBe(2);
         expect(root.derivedCount).toBe(1); // y didn't change
+    });
+});
+
+describe("@fnMemo decorator", () => {
+    it("recomputes when arguments or dependency comparisons change", () => {
+        class Scaler extends ReactiveNode {
+            public factor = 2;
+            public computeCount = 0;
+
+            @fnMemo((self: Scaler) => [self.factor])
+            public scale(value: number): number {
+                this.computeCount += 1;
+                return value * this.factor;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new Scaler()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.scale(3)).toBe(6);
+        expect(root.scale(3)).toBe(6);
+        expect(root.computeCount).toBe(1);
+
+        expect(root.scale(4)).toBe(8);
+        expect(root.computeCount).toBe(2);
+
+        root.factor = 3;
+        expect(root.scale(4)).toBe(12);
+        expect(root.computeCount).toBe(3);
+        expect(root.scale(4)).toBe(12);
+        expect(root.computeCount).toBe(3);
+    });
+
+    it("with undefined comparisons, reuses same-argument calls until the node reproxies", () => {
+        class Formatter extends ReactiveNode {
+            public suffix = "a";
+            public computeCount = 0;
+
+            @fnMemo()
+            public format(value: number): string {
+                this.computeCount += 1;
+                return `${value}:${this.suffix}`;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new Formatter()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.format(1)).toBe("1:a");
+        expect(root.format(1)).toBe("1:a");
+        expect(root.computeCount).toBe(1);
+
+        expect(root.format(2)).toBe("2:a");
+        expect(root.computeCount).toBe(2);
+        expect(root.format(2)).toBe("2:a");
+        expect(root.computeCount).toBe(2);
+
+        root.suffix = "b";
+        expect(root.format(2)).toBe("2:b");
+        expect(root.computeCount).toBe(3);
+    });
+
+    it("with empty comparisons, recomputes only when arguments change", () => {
+        class OncePerArgs extends ReactiveNode {
+            public offset = 1;
+            public computeCount = 0;
+
+            @fnMemo(() => [])
+            public addOffset(value: number): number {
+                this.computeCount += 1;
+                return value + this.offset;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new OncePerArgs()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.addOffset(4)).toBe(5);
+        root.offset = 10;
+        expect(root.addOffset(4)).toBe(5);
+        expect(root.computeCount).toBe(1);
+
+        expect(root.addOffset(5)).toBe(15);
+        expect(root.computeCount).toBe(2);
+    });
+
+    it("allows dependency comparisons to read method arguments", () => {
+        class ThresholdCounter extends ReactiveNode {
+            public values = [1, 2, 3];
+            public computeCount = 0;
+
+            @fnMemo((self: ThresholdCounter, minimum: number) => [
+                self.values,
+                minimum,
+            ])
+            public countAtLeast(minimum: number): number {
+                this.computeCount += 1;
+                return this.values.filter((value) => value >= minimum).length;
+            }
+
+            get dependencies() {
+                return [this.dependency(this.values)];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new ThresholdCounter()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.countAtLeast(2)).toBe(2);
+        expect(root.countAtLeast(2)).toBe(2);
+        expect(root.computeCount).toBe(1);
+
+        root.values.push(4);
+        expect(root.countAtLeast(2)).toBe(3);
+        expect(root.computeCount).toBe(2);
+    });
+
+    it("compares tree-node arguments by reproxy identity", () => {
+        class ListCounter extends ReactiveNode {
+            public list: Card[] = [];
+            public computeCount = 0;
+
+            @fnMemo(() => [])
+            public countMatching(list: Card[], text: string): number {
+                this.computeCount += 1;
+                return list.filter((card) => card.text === text).length;
+            }
+
+            get dependencies() {
+                return [this.dependency(this.list)];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new ListCounter()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.countMatching(root.list, "match")).toBe(0);
+        expect(root.countMatching(root.list, "match")).toBe(0);
+        expect(root.computeCount).toBe(1);
+
+        root.list.push({ text: "match" });
+        expect(root.countMatching(root.list, "match")).toBe(1);
+        expect(root.computeCount).toBe(2);
     });
 });
 
