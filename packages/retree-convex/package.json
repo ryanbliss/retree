@@ -9,11 +9,13 @@
     "types": "./bin/index.d.ts",
     "scripts": {
         "clean": "npx shx rm -rf bin",
-        "build": "tsc -p tsconfig.json"
+        "build": "tsc -p tsconfig.json",
+        "publish:package": "dotenv -e .env -- npm publish --access public"
     },
     "devDependencies": {
         "@retreejs/core": "0.2.4",
         "convex": "^1.39.1",
+        "dotenv-cli": "^11.0.0",
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
