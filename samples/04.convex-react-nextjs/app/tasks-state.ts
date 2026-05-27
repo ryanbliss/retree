@@ -31,7 +31,8 @@ export class TasksState extends ConvexNode {
             { taskId },
             {
                 withOptimisticUpdate: (ctx) => {
-                    this.tasks.optimisticUpdate(ctx, {
+                    this.tasks.optimisticUpdate({
+                        ctx,
                         apply(tasks) {
                             const task = tasks.find(
                                 (candidateTask) => candidateTask._id === taskId
