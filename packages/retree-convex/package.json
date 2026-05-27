@@ -23,7 +23,7 @@
     "repository": {
         "directory": "packages/retree-convex",
         "type": "git",
-        "url": "https://github.com/ryanbliss/retree"
+        "url": "git+https://github.com/ryanbliss/retree.git"
     },
     "homepage": "https://studiobliss.io",
     "bugs": {
