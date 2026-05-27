@@ -4,10 +4,14 @@
  */
 
 import { ConvexQueryNode } from "./ConvexQueryNode";
-import { BaseConvexNode } from "./internals/BaseConvexNode";
+import { ConvexConnectionStateNode } from "./ConvexConnectionStateNode";
+import { ConvexPaginatedQueryNode } from "./ConvexPaginatedQueryNode";
+import { BaseConvexNode } from "./BaseConvexNode";
 import {
+    ConvexPaginatedQueryNodeOptionsArgs,
     ConvexQueryNodeOptionsArgs,
     IConvexClient,
+    PaginatedQueryReference,
     QueryReference,
 } from "./types";
 
@@ -36,5 +40,28 @@ export abstract class ConvexNode extends BaseConvexNode {
         ...options: ConvexQueryNodeOptionsArgs<Query>
     ): ConvexQueryNode<Query> {
         return new ConvexQueryNode(this.client, query, ...options);
+    }
+
+    /**
+     * Create a typed paginated query node bound to this node's Convex client.
+     *
+     * @param query Convex paginated query function reference.
+     * @param options Query arguments, initial page size, and optional initial state.
+     * @returns A {@link ConvexPaginatedQueryNode} subscribed with this node's Convex client.
+     */
+    protected paginatedQuery<Query extends PaginatedQueryReference>(
+        query: Query,
+        ...options: ConvexPaginatedQueryNodeOptionsArgs<Query>
+    ): ConvexPaginatedQueryNode<Query> {
+        return new ConvexPaginatedQueryNode(this.client, query, ...options);
+    }
+
+    /**
+     * Create a node that tracks this Convex client's connection state.
+     *
+     * @returns A {@link ConvexConnectionStateNode} subscribed with this node's Convex client.
+     */
+    protected connectionState(): ConvexConnectionStateNode {
+        return new ConvexConnectionStateNode(this.client);
     }
 }

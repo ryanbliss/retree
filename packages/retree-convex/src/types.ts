@@ -7,7 +7,10 @@ import type {
     FunctionArgs,
     FunctionReference,
     FunctionReturnType,
+    PaginationOptions,
+    PaginationResult,
 } from "convex/server";
+import type { ConnectionState, PaginationStatus } from "convex/browser";
 
 /**
  * Convex query function reference accepted by Retree Convex query helpers.
@@ -15,9 +18,64 @@ import type {
 export type QueryReference = FunctionReference<"query">;
 
 /**
+ * Convex action function reference accepted by Retree Convex action helpers.
+ */
+export type ActionReference = FunctionReference<"action">;
+
+/**
  * Convex mutation function reference accepted by Retree Convex mutation helpers.
  */
 export type MutationReference = FunctionReference<"mutation">;
+
+/**
+ * Convex paginated query reference accepted by Retree Convex pagination helpers.
+ */
+export type PaginatedQueryReference = FunctionReference<
+    "query",
+    "public",
+    {
+        paginationOpts: PaginationOptions;
+    },
+    PaginationResult<unknown>
+>;
+
+/**
+ * Arguments for a paginated Convex query, excluding Convex's injected
+ * `paginationOpts` argument.
+ */
+export type PaginatedQueryArgs<Query extends PaginatedQueryReference> = Omit<
+    FunctionArgs<Query>,
+    "paginationOpts"
+>;
+
+/**
+ * Item returned by a paginated Convex query page.
+ */
+export type PaginatedQueryItem<Query extends PaginatedQueryReference> =
+    FunctionReturnType<Query>["page"][number];
+
+/**
+ * Client-side aggregate result for a Convex paginated query.
+ */
+export interface RetreePaginatedQueryResult<TItem> {
+    /**
+     * Items loaded across all currently loaded pages.
+     */
+    results: TItem[];
+    /**
+     * Current pagination status.
+     */
+    status: PaginationStatus;
+    /**
+     * Request additional items.
+     */
+    loadMore(numItems: number): boolean;
+}
+
+/**
+ * String used by Convex React to disable a query subscription.
+ */
+export type ConvexQuerySkip = "skip";
 
 /**
  * Subscription handle returned by a Convex query client.
@@ -53,6 +111,28 @@ export interface IConvexQueryClient {
         callback: (result: FunctionReturnType<Query>) => unknown,
         onError?: (error: Error) => unknown
     ): IConvexQuerySubscription<FunctionReturnType<Query>>;
+
+    /**
+     * Subscribe to a paginated Convex query and receive emitted values.
+     *
+     * @param query Convex paginated query function reference.
+     * @param args Query arguments excluding `paginationOpts`.
+     * @param options Paginated query options.
+     * @param callback Called when Convex emits a new paginated query result.
+     * @param onError Optional callback for subscription errors.
+     * @returns Subscription handle used by {@link ConvexPaginatedQueryNode.dispose}.
+     */
+    onPaginatedUpdate_experimental<Query extends PaginatedQueryReference>(
+        query: Query,
+        args: PaginatedQueryArgs<Query>,
+        options: { initialNumItems: number },
+        callback: (
+            result: PaginationResult<FunctionReturnType<Query>>
+        ) => unknown,
+        onError?: (error: Error) => unknown
+    ): IConvexQuerySubscription<
+        RetreePaginatedQueryResult<FunctionReturnType<Query>[]>
+    >;
 }
 
 /**
@@ -73,11 +153,65 @@ export interface IConvexMutationClient {
 }
 
 /**
+ * Minimal Convex client action surface needed by Retree Convex action helpers.
+ */
+export interface IConvexActionClient {
+    /**
+     * Run a Convex action.
+     *
+     * @param action Convex action function reference.
+     * @param args Action arguments.
+     * @returns Promise for the Convex action result.
+     */
+    action<Action extends ActionReference>(
+        action: Action,
+        args: FunctionArgs<Action>
+    ): Promise<Awaited<FunctionReturnType<Action>>>;
+}
+
+/**
+ * Minimal Convex client one-off query surface needed by {@link ConvexNode}.
+ */
+export interface IConvexQueryOnceClient {
+    /**
+     * Run a Convex query once without subscribing.
+     *
+     * @param query Convex query function reference.
+     * @param args Query arguments.
+     * @returns Promise for the Convex query result.
+     */
+    query<Query extends QueryReference>(
+        query: Query,
+        args: FunctionArgs<Query>
+    ): Promise<Awaited<FunctionReturnType<Query>>>;
+}
+
+/**
+ * Minimal Convex client connection-state surface needed by
+ * {@link ConvexConnectionStateNode}.
+ */
+export interface IConvexConnectionClient {
+    /**
+     * Get the current connection state.
+     */
+    connectionState(): ConnectionState;
+    /**
+     * Subscribe to connection state changes.
+     */
+    subscribeToConnectionState(
+        callback: (connectionState: ConnectionState) => void
+    ): () => void;
+}
+
+/**
  * Minimal Convex client surface accepted by {@link ConvexNode}.
  */
 export interface IConvexClient
     extends IConvexQueryClient,
-        IConvexMutationClient {
+        IConvexMutationClient,
+        IConvexActionClient,
+        IConvexQueryOnceClient,
+        IConvexConnectionClient {
     /**
      * Close the underlying Convex client.
      */
@@ -133,6 +267,32 @@ export interface RetreeConvexMutation<
 }
 
 /**
+ * Typed function wrapper around a Convex action.
+ */
+export interface RetreeConvexAction<
+    Action extends ActionReference = ActionReference
+> {
+    /**
+     * Run the Convex action.
+     *
+     * @param args Action arguments.
+     * @returns Promise for the Convex action result.
+     */
+    (...args: OptionalConvexArgs<Action>): Promise<
+        Awaited<FunctionReturnType<Action>>
+    >;
+}
+
+/**
+ * Optional argument tuple for no-args Convex functions.
+ */
+export type OptionalConvexArgs<
+    FuncRef extends FunctionReference<"query" | "action">
+> = FunctionArgs<FuncRef> extends Record<string, never>
+    ? [args?: FunctionArgs<FuncRef>]
+    : [args: FunctionArgs<FuncRef>];
+
+/**
  * Imperative optimistic state transform for a {@link ConvexQueryNode}.
  */
 export interface IOptimisticTransform<TState> {
@@ -160,6 +320,15 @@ export interface IStateReconciler<TState> {
      */
     reconcile(current: TState | undefined, next: TState): TState;
 }
+
+/**
+ * Result metadata for a {@link ConvexQueryNode}.
+ */
+export type ConvexQueryNodeResult<Query extends QueryReference> =
+    | { status: "pending" }
+    | { status: "skipped" }
+    | { status: "success"; data: FunctionReturnType<Query> }
+    | { status: "error"; error: Error };
 
 /**
  * Constructor options for {@link ConvexQueryNode}.
@@ -198,12 +367,19 @@ export type IConvexQueryNodeOptions<Query extends QueryReference> =
           };
 
 /**
+ * Arguments accepted by {@link ConvexQueryNode.updateArgs}.
+ */
+export type ConvexQueryArgs<Query extends QueryReference> =
+    | FunctionArgs<Query>
+    | ConvexQuerySkip;
+
+/**
  * Constructor options tuple for {@link ConvexQueryNode}.
  */
 export type ConvexQueryNodeOptionsArgs<Query extends QueryReference> =
     FunctionArgs<Query> extends Record<string, never>
-        ? [options?: IConvexQueryNodeOptions<Query>]
-        : [options: IConvexQueryNodeOptions<Query>];
+        ? [options?: IConvexQueryNodeOptions<Query> | ConvexQuerySkip]
+        : [options: IConvexQueryNodeOptions<Query> | ConvexQuerySkip];
 
 /**
  * Public state field type for {@link ConvexQueryNode}.
@@ -211,3 +387,75 @@ export type ConvexQueryNodeOptionsArgs<Query extends QueryReference> =
 export type ConvexQueryNodeState<Query extends QueryReference> =
     | FunctionReturnType<Query>
     | undefined;
+
+/**
+ * Result metadata for a {@link ConvexPaginatedQueryNode}.
+ */
+export type ConvexPaginatedQueryNodeResult<
+    Query extends PaginatedQueryReference
+> =
+    | { status: "pending" }
+    | { status: "skipped" }
+    | {
+          status: "success";
+          data: RetreePaginatedQueryResult<PaginatedQueryItem<Query>>;
+      }
+    | { status: "error"; error: Error };
+
+/**
+ * Constructor options for {@link ConvexPaginatedQueryNode}.
+ */
+export type IConvexPaginatedQueryNodeOptions<
+    Query extends PaginatedQueryReference
+> = PaginatedQueryArgs<Query> extends Record<string, never>
+    ? {
+          /**
+           * Initial arguments for the Convex query, excluding `paginationOpts`.
+           */
+          args?: PaginatedQueryArgs<Query>;
+          /**
+           * Number of items to request for the first page.
+           */
+          initialNumItems: number;
+          /**
+           * Optional state to expose before Convex emits a value.
+           */
+          initialState?: RetreePaginatedQueryResult<PaginatedQueryItem<Query>>;
+      }
+    : {
+          /**
+           * Initial arguments for the Convex query, excluding `paginationOpts`.
+           */
+          args: PaginatedQueryArgs<Query>;
+          /**
+           * Number of items to request for the first page.
+           */
+          initialNumItems: number;
+          /**
+           * Optional state to expose before Convex emits a value.
+           */
+          initialState?: RetreePaginatedQueryResult<PaginatedQueryItem<Query>>;
+      };
+
+/**
+ * Constructor options tuple for {@link ConvexPaginatedQueryNode}.
+ */
+export type ConvexPaginatedQueryNodeOptionsArgs<
+    Query extends PaginatedQueryReference
+> = PaginatedQueryArgs<Query> extends Record<string, never>
+    ? [options: IConvexPaginatedQueryNodeOptions<Query> | ConvexQuerySkip]
+    : [options: IConvexPaginatedQueryNodeOptions<Query> | ConvexQuerySkip];
+
+/**
+ * Arguments accepted by {@link ConvexPaginatedQueryNode.updateArgs}.
+ */
+export type ConvexPaginatedQueryArgs<Query extends PaginatedQueryReference> =
+    | PaginatedQueryArgs<Query>
+    | ConvexQuerySkip;
+
+/**
+ * Public state field type for {@link ConvexPaginatedQueryNode}.
+ */
+export type ConvexPaginatedQueryNodeState<
+    Query extends PaginatedQueryReference
+> = RetreePaginatedQueryResult<PaginatedQueryItem<Query>> | undefined;

@@ -16,11 +16,11 @@ The generated static site is written to `docs/` and ignored by Git. The docs bui
 
 -   `@retreejs/core` provides Retree's proxy, event, memo, and `ReactiveNode` primitives.
 -   `@retreejs/react` provides React hooks for rendering Retree nodes.
--   `@retreejs/convex` connects Convex query subscriptions and mutations to Retree nodes.
+-   `@retreejs/convex` connects Convex queries, paginated queries, actions, mutations, and connection state to Retree nodes.
 
 ## @retreejs/convex
 
-Retree Convex lets a `ReactiveNode` own a Convex client, create typed query nodes with `this.query(...)`, and run typed mutations with `this.mutation(...)`. Query results are written into Retree state, Convex document arrays are reconciled by `_id` by default, and optimistic updates can be applied narrowly to existing query state.
+Retree Convex lets a `ReactiveNode` own a Convex client, create typed query nodes with `this.query(...)`, run one-off queries with `this.queryOnce(...)`, call actions and mutations, subscribe to paginated queries, and track connection state. Query results are written into Retree state, Convex document arrays are reconciled by `_id` by default, and optimistic updates can be applied narrowly to existing query state.
 
 ### How to install
 

@@ -3,12 +3,14 @@
  * Licensed under the MIT License.
  */
 
-import { ignore } from "@retreejs/core";
-import type { FunctionArgs, FunctionReturnType } from "convex/server";
-import { BaseConvexNode } from "./internals/BaseConvexNode";
+import { ignore, Retree } from "@retreejs/core";
+import type { FunctionReturnType } from "convex/server";
+import { BaseConvexNode } from "./BaseConvexNode";
 import { tryReconcileConvexDocuments } from "./internals/reconcile";
 import {
     ConvexQueryNodeOptionsArgs,
+    ConvexQueryArgs,
+    ConvexQueryNodeResult,
     ConvexQueryNodeState,
     IConvexClient,
     IConvexQueryNodeOptions,
@@ -30,7 +32,7 @@ export class ConvexQueryNode<
     @ignore
     private queryReference: Query;
     @ignore
-    private args: FunctionArgs<Query>;
+    private args: ConvexQueryArgs<Query>;
     @ignore
     private unsubscribe: IConvexQuerySubscription<
         FunctionReturnType<Query>
@@ -43,6 +45,10 @@ export class ConvexQueryNode<
      * emits.
      */
     public state: ConvexQueryNodeState<Query>;
+    /**
+     * Latest structured query result.
+     */
+    public result: ConvexQueryNodeResult<Query>;
     /**
      * Latest subscription or mutation rollback error.
      */
@@ -62,11 +68,13 @@ export class ConvexQueryNode<
         ...options: ConvexQueryNodeOptionsArgs<Query>
     ) {
         super(client);
-        const queryOptions = options[0];
+        const rawOptions = options[0];
+        const queryOptions = getQueryOptions(rawOptions);
         this.queryReference = query;
-        this.args = getQueryArgs(queryOptions);
+        this.args = getQueryArgs(rawOptions, queryOptions);
         this.reconciler = queryOptions?.reconcile;
         this.state = queryOptions?.initialState;
+        this.result = getInitialResult(rawOptions, this.state);
         this.lastEmittedState = this.cloneState(queryOptions?.initialState);
     }
 
@@ -74,7 +82,7 @@ export class ConvexQueryNode<
         // Retree calls this getter when the node is observed. Starting the
         // subscription here makes Convex callbacks write through the proxied node
         // instead of the raw constructor instance, so `state` updates emit.
-        this.updateArgs(this.args);
+        this.syncArgs(this.args, false);
         return [];
     }
 
@@ -82,34 +90,73 @@ export class ConvexQueryNode<
      * Update the query arguments and resubscribe when the shallow argument
      * comparison changes.
      *
-     * @param args Next query arguments.
+     * @param args Next query arguments, or `"skip"` to disable the subscription.
      */
-    public updateArgs(args: FunctionArgs<Query>): void {
+    public updateArgs(args: ConvexQueryArgs<Query>): void {
         this.args = args;
+        this.syncArgs(args, true);
+    }
+
+    private syncArgs(
+        args: ConvexQueryArgs<Query>,
+        resetBeforeSubscribe: boolean
+    ): void {
+        let didSubscribe = false;
+        let receivedValue = false;
         this.memo(
             "updateArgs",
             () => {
+                didSubscribe = true;
                 this.dispose();
+                if (args === "skip") {
+                    return;
+                }
+
                 const subscription = this.client.onUpdate(
                     this.queryReference,
                     args,
                     (result) => {
-                        this.setEmittedState(result);
-                        this.error = null;
+                        receivedValue = true;
+                        Retree.runTransaction(() => {
+                            this.setEmittedState(result);
+                            this.error = null;
+                        });
                     },
                     (error) => {
-                        this.error = error;
+                        this.setError(error);
                     }
                 );
                 this.unsubscribe = subscription;
                 const currentValue = subscription.getCurrentValue();
                 if (currentValue !== undefined) {
-                    this.setEmittedState(currentValue);
-                    this.error = null;
+                    receivedValue = true;
+                    Retree.runTransaction(() => {
+                        this.setEmittedState(currentValue);
+                        this.error = null;
+                    });
                 }
             },
             this.getArgComparisons(args)
         );
+
+        if (!resetBeforeSubscribe) {
+            return;
+        }
+
+        if (!didSubscribe) {
+            return;
+        }
+
+        if (args === "skip") {
+            this.setSkipped();
+            return;
+        }
+
+        if (receivedValue) {
+            return;
+        }
+
+        this.setPending();
     }
 
     /**
@@ -130,29 +177,54 @@ export class ConvexQueryNode<
         }
 
         ctx.promise.catch((error: unknown) => {
-            if (
-                this.state !== undefined &&
-                snapshot !== undefined &&
-                transform?.revert !== undefined
-            ) {
-                transform.revert(this.state, snapshot);
-            } else {
-                this.restoreState(snapshot ?? this.lastEmittedState);
-            }
-            this.error =
-                error instanceof Error
-                    ? error
-                    : new Error(
-                          `ConvexQueryNode.optimisticUpdate: mutation failed with a non-Error rejection: ${String(
-                              error
-                          )}`
-                      );
+            Retree.runTransaction(() => {
+                if (
+                    this.state !== undefined &&
+                    snapshot !== undefined &&
+                    transform?.revert !== undefined
+                ) {
+                    transform.revert(this.state, snapshot);
+                } else {
+                    this.restoreState(snapshot ?? this.lastEmittedState);
+                }
+                this.error = getError(error);
+            });
+        });
+    }
+
+    private setPending(): void {
+        Retree.runTransaction(() => {
+            this.state = undefined;
+            this.error = null;
+            this.result = { status: "pending" };
+        });
+    }
+
+    private setSkipped(): void {
+        Retree.runTransaction(() => {
+            this.state = undefined;
+            this.lastEmittedState = undefined;
+            this.error = null;
+            this.result = { status: "skipped" };
+        });
+    }
+
+    private setError(error: Error): void {
+        Retree.runTransaction(() => {
+            this.error = error;
+            this.result = { status: "error", error };
         });
     }
 
     private setEmittedState(next: FunctionReturnType<Query>): void {
         this.restoreState(next);
         this.lastEmittedState = this.cloneState(this.state);
+        if (this.state !== undefined) {
+            this.result = { status: "success", data: this.state };
+            return;
+        }
+
+        this.result = { status: "success", data: next };
     }
 
     private restoreState(next: ConvexQueryNodeState<Query>): void {
@@ -191,7 +263,11 @@ export class ConvexQueryNode<
         this.unsubscribe = null;
     }
 
-    private getArgComparisons(args: FunctionArgs<Query>): unknown[] {
+    private getArgComparisons(args: ConvexQueryArgs<Query>): unknown[] {
+        if (args === "skip") {
+            return ["skip"];
+        }
+
         return Object.keys(args)
             .sort()
             .flatMap((key) => [key, args[key]]);
@@ -213,12 +289,54 @@ export class ConvexQueryNode<
     }
 }
 
+function getError(error: unknown): Error {
+    if (error instanceof Error) {
+        return error;
+    }
+
+    return new Error(
+        `ConvexQueryNode.optimisticUpdate: mutation failed with a non-Error rejection: ${String(
+            error
+        )}`
+    );
+}
+
+function getInitialResult<Query extends QueryReference>(
+    rawOptions: IConvexQueryNodeOptions<Query> | "skip" | undefined,
+    state: ConvexQueryNodeState<Query>
+): ConvexQueryNodeResult<Query> {
+    if (rawOptions === "skip") {
+        return { status: "skipped" };
+    }
+
+    if (state === undefined) {
+        return { status: "pending" };
+    }
+
+    return { status: "success", data: state };
+}
+
+function getQueryOptions<Query extends QueryReference>(
+    options: IConvexQueryNodeOptions<Query> | "skip" | undefined
+): IConvexQueryNodeOptions<Query> | undefined {
+    if (options === "skip") {
+        return undefined;
+    }
+
+    return options;
+}
+
 function getQueryArgs<Query extends QueryReference>(
+    rawOptions: IConvexQueryNodeOptions<Query> | "skip" | undefined,
     options: IConvexQueryNodeOptions<Query> | undefined
-): FunctionArgs<Query> {
+): ConvexQueryArgs<Query> {
+    if (rawOptions === "skip") {
+        return "skip";
+    }
+
     if (options?.args !== undefined) {
         return options.args;
     }
 
-    return {} as FunctionArgs<Query>;
+    return {};
 }

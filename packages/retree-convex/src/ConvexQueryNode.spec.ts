@@ -4,10 +4,17 @@ import type {
     FunctionArgs,
     FunctionReference,
     FunctionReturnType,
+    PaginationOptions,
+    PaginationResult,
 } from "convex/server";
+import type { ConnectionState } from "convex/browser";
 import {
+    ActionReference,
+    ConvexConnectionStateNode,
     ConvexNode,
+    ConvexPaginatedQueryNode,
     ConvexQueryNode,
+    createRetreeConvexAction,
     createRetreeConvexMutation,
     IConvexClient,
     OptimisticUpdateContext,
@@ -38,6 +45,18 @@ type ToggleTaskMutation = FunctionReference<
     { taskId: string },
     null
 >;
+type GenerateTasksAction = FunctionReference<
+    "action",
+    "public",
+    { count: number },
+    string[]
+>;
+type PaginatedTasksQuery = FunctionReference<
+    "query",
+    "public",
+    { listId: string; paginationOpts: PaginationOptions },
+    PaginationResult<{ id: string; text: string }>
+>;
 
 const tasksQuery: TasksQuery = {
     _type: "query",
@@ -67,6 +86,38 @@ const toggleTaskMutation: ToggleTaskMutation = {
     _returnType: null,
     _componentPath: undefined,
 };
+const generateTasksAction: GenerateTasksAction = {
+    _type: "action",
+    _visibility: "public",
+    _args: { count: 0 },
+    _returnType: [],
+    _componentPath: undefined,
+};
+const paginatedTasksQuery: PaginatedTasksQuery = {
+    _type: "query",
+    _visibility: "public",
+    _args: {
+        listId: "",
+        paginationOpts: {} as PaginationOptions,
+    },
+    _returnType: {
+        page: [],
+        isDone: false,
+        continueCursor: "",
+    },
+    _componentPath: undefined,
+};
+
+const connectedState: ConnectionState = {
+    hasInflightRequests: false,
+    isWebSocketConnected: true,
+    timeOfOldestInflightRequest: null,
+    hasEverConnected: true,
+    connectionCount: 1,
+    connectionRetries: 0,
+    inflightMutations: 0,
+    inflightActions: 0,
+};
 
 class FakeConvexClient implements IConvexClient {
     public subscriptions: {
@@ -75,12 +126,33 @@ class FakeConvexClient implements IConvexClient {
         onError: ((error: Error) => unknown) | undefined;
         unsubscribe: ReturnType<typeof vi.fn>;
     }[] = [];
+    public paginatedSubscriptions: {
+        args: unknown;
+        callback: (result: unknown) => unknown;
+        onError: ((error: Error) => unknown) | undefined;
+        unsubscribe: ReturnType<typeof vi.fn>;
+        loadMore: ReturnType<typeof vi.fn>;
+    }[] = [];
     public readonly mutationCalls: {
         mutation: unknown;
         args: unknown;
     }[] = [];
+    public readonly actionCalls: {
+        action: unknown;
+        args: unknown;
+    }[] = [];
+    public readonly queryCalls: {
+        query: unknown;
+        args: unknown;
+    }[] = [];
     public readonly close = vi.fn<() => Promise<void>>(() => Promise.resolve());
+    public readonly connectionStateListeners: ((
+        connectionState: ConnectionState
+    ) => void)[] = [];
     public nextMutationPromise: Promise<null> = Promise.resolve(null);
+    public nextActionPromise: Promise<string[]> = Promise.resolve(["created"]);
+    public nextQueryPromise: Promise<string> = Promise.resolve("once");
+    public currentConnectionState = connectedState;
 
     onUpdate<Query extends FunctionReference<"query">>(
         query: Query,
@@ -91,7 +163,8 @@ class FakeConvexClient implements IConvexClient {
         if (
             query !== tasksQuery &&
             query !== convexTasksQuery &&
-            query !== noArgsQuery
+            query !== noArgsQuery &&
+            query !== paginatedTasksQuery
         ) {
             throw new Error("FakeConvexClient received an unexpected query.");
         }
@@ -112,6 +185,71 @@ class FakeConvexClient implements IConvexClient {
         return this.nextMutationPromise as Promise<
             Awaited<FunctionReturnType<Mutation>>
         >;
+    }
+
+    public action<Action extends ActionReference>(
+        action: Action,
+        args: FunctionArgs<Action>
+    ): Promise<Awaited<FunctionReturnType<Action>>> {
+        this.actionCalls.push({ action, args });
+        return this.nextActionPromise as Promise<
+            Awaited<FunctionReturnType<Action>>
+        >;
+    }
+
+    public query<Query extends FunctionReference<"query">>(
+        query: Query,
+        args: FunctionArgs<Query>
+    ): Promise<Awaited<FunctionReturnType<Query>>> {
+        this.queryCalls.push({ query, args });
+        return this.nextQueryPromise as Promise<
+            Awaited<FunctionReturnType<Query>>
+        >;
+    }
+
+    public connectionState(): ConnectionState {
+        return this.currentConnectionState;
+    }
+
+    public subscribeToConnectionState(
+        callback: (connectionState: ConnectionState) => void
+    ): () => void {
+        this.connectionStateListeners.push(callback);
+        return vi.fn();
+    }
+
+    public onPaginatedUpdate_experimental<Query extends PaginatedTasksQuery>(
+        query: Query,
+        args: Omit<FunctionArgs<Query>, "paginationOpts">,
+        options: { initialNumItems: number },
+        callback: (result: unknown) => unknown,
+        onError?: (error: Error) => unknown
+    ) {
+        if (query !== paginatedTasksQuery) {
+            throw new Error(
+                "FakeConvexClient received an unexpected paginated query."
+            );
+        }
+
+        if (options.initialNumItems <= 0) {
+            throw new Error(
+                "FakeConvexClient expected a positive initialNumItems value."
+            );
+        }
+
+        const unsubscribe = vi.fn();
+        const loadMore = vi.fn(() => true);
+        this.paginatedSubscriptions.push({
+            args,
+            callback,
+            onError,
+            unsubscribe,
+            loadMore,
+        });
+        return Object.assign(unsubscribe, {
+            unsubscribe,
+            getCurrentValue: () => undefined,
+        });
     }
 }
 
@@ -138,6 +276,30 @@ class TestConvexNode extends ConvexNode {
 
     public noArgsQuery() {
         return this.query(noArgsQuery);
+    }
+
+    public skippedTasksQuery() {
+        return this.query(tasksQuery, "skip");
+    }
+
+    public paginatedTasksQuery() {
+        return this.paginatedQuery(paginatedTasksQuery, {
+            args: { listId: "today" },
+            initialNumItems: 10,
+        });
+    }
+
+    public connection() {
+        return this.connectionState();
+    }
+
+    public generateTasks(args: FunctionArgs<GenerateTasksAction>) {
+        const generateTasks = this.action(generateTasksAction);
+        return generateTasks(args);
+    }
+
+    public getStatusOnce() {
+        return this.queryOnce(noArgsQuery);
     }
 }
 
@@ -239,6 +401,68 @@ describe("ConvexQueryNode", () => {
         expect(node.state).toBe("ready");
     });
 
+    it("tracks structured query status for pending, success, and errors", () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(
+            new ConvexQueryNode(client, tasksQuery, {
+                args: { listId: "today" },
+            })
+        );
+
+        Retree.on(node, "nodeChanged", () => undefined);
+        expect(node.result).toEqual({ status: "pending" });
+
+        client.subscriptions[0].callback([
+            { id: "task-1", text: "Buy groceries", isCompleted: false },
+        ]);
+        expect(node.result).toEqual({
+            status: "success",
+            data: [{ id: "task-1", text: "Buy groceries", isCompleted: false }],
+        });
+
+        client.subscriptions[0].onError?.(new Error("Query failed"));
+        expect(node.result.status).toBe("error");
+        if (node.result.status !== "error") {
+            throw new Error(
+                "ConvexQueryNode test expected an error query result."
+            );
+        }
+        expect(node.result.error.message).toBe("Query failed");
+    });
+
+    it("skips query subscriptions from the constructor and updateArgs", () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(
+            new ConvexQueryNode(client, tasksQuery, "skip")
+        );
+
+        Retree.on(node, "nodeChanged", () => undefined);
+
+        expect(client.subscriptions).toHaveLength(0);
+        expect(node.state).toBeUndefined();
+        expect(node.result).toEqual({ status: "skipped" });
+
+        node.updateArgs({ listId: "today" });
+        expect(client.subscriptions).toHaveLength(1);
+        expect(node.result).toEqual({ status: "pending" });
+
+        node.updateArgs("skip");
+        expect(client.subscriptions[0].unsubscribe).toHaveBeenCalledOnce();
+        expect(node.state).toBeUndefined();
+        expect(node.result).toEqual({ status: "skipped" });
+    });
+
+    it("creates skipped typed query nodes from a ConvexNode client", () => {
+        const client = new FakeConvexClient();
+        const state = new TestConvexNode(client);
+        const node = Retree.root(state.skippedTasksQuery());
+
+        Retree.on(node, "nodeChanged", () => undefined);
+
+        expect(client.subscriptions).toHaveLength(0);
+        expect(node.result).toEqual({ status: "skipped" });
+    });
+
     it("creates typed mutations with optimistic hooks", async () => {
         const client = new FakeConvexClient();
         const toggleTask = createRetreeConvexMutation(
@@ -288,6 +512,126 @@ describe("ConvexQueryNode", () => {
         expect(withOptimisticUpdate.mock.calls[0][0].args).toEqual({
             taskId: "task-1",
         });
+    });
+
+    it("creates typed actions from a ConvexNode client", async () => {
+        const client = new FakeConvexClient();
+        const node = new TestConvexNode(client);
+
+        const result = await node.generateTasks({ count: 2 });
+
+        expect(result).toEqual(["created"]);
+        expect(client.actionCalls).toEqual([
+            {
+                action: generateTasksAction,
+                args: { count: 2 },
+            },
+        ]);
+    });
+
+    it("keeps createRetreeConvexAction exported for direct action helpers", async () => {
+        const client = new FakeConvexClient();
+        const generateTasks = createRetreeConvexAction(
+            client,
+            generateTasksAction
+        );
+
+        const result = await generateTasks({ count: 1 });
+
+        expect(result).toEqual(["created"]);
+        expect(client.actionCalls).toEqual([
+            {
+                action: generateTasksAction,
+                args: { count: 1 },
+            },
+        ]);
+    });
+
+    it("runs one-off queries from a ConvexNode client", async () => {
+        const client = new FakeConvexClient();
+        const node = new TestConvexNode(client);
+
+        const result = await node.getStatusOnce();
+
+        expect(result).toBe("once");
+        expect(client.queryCalls).toEqual([
+            {
+                query: noArgsQuery,
+                args: {},
+            },
+        ]);
+    });
+
+    it("tracks connection state changes", () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(new ConvexConnectionStateNode(client));
+        const nextState: ConnectionState = {
+            ...connectedState,
+            isWebSocketConnected: false,
+            connectionRetries: 1,
+        };
+
+        Retree.on(node, "nodeChanged", () => undefined);
+        client.connectionStateListeners[0](nextState);
+
+        expect(node.state).toEqual(nextState);
+    });
+
+    it("creates connection state nodes from a ConvexNode client", () => {
+        const client = new FakeConvexClient();
+        const state = new TestConvexNode(client);
+        const node = Retree.root(state.connection());
+
+        Retree.on(node, "nodeChanged", () => undefined);
+
+        expect(node.state).toEqual(connectedState);
+        expect(client.connectionStateListeners).toHaveLength(1);
+    });
+
+    it("subscribes to paginated queries and loads more items", () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(
+            new ConvexPaginatedQueryNode(client, paginatedTasksQuery, {
+                args: { listId: "today" },
+                initialNumItems: 10,
+            })
+        );
+
+        Retree.on(node, "nodeChanged", () => undefined);
+        client.paginatedSubscriptions[0].callback({
+            results: [{ id: "task-1", text: "Buy groceries" }],
+            status: "CanLoadMore",
+            loadMore: client.paginatedSubscriptions[0].loadMore,
+        });
+
+        expect(node.state?.results).toEqual([
+            { id: "task-1", text: "Buy groceries" },
+        ]);
+        expect(node.result.status).toBe("success");
+        if (node.result.status !== "success") {
+            throw new Error(
+                "ConvexQueryNode test expected a success paginated query result."
+            );
+        }
+        expect(node.result.data.results).toEqual(node.state?.results);
+        expect(node.result.data.status).toBe(node.state?.status);
+        expect(node.loadMore(5)).toBe(true);
+        expect(client.paginatedSubscriptions[0].loadMore).toHaveBeenCalledWith(
+            5
+        );
+    });
+
+    it("creates paginated query nodes from a ConvexNode client", () => {
+        const client = new FakeConvexClient();
+        const state = new TestConvexNode(client);
+        const node = Retree.root(state.paginatedTasksQuery());
+
+        Retree.on(node, "nodeChanged", () => undefined);
+
+        expect(client.paginatedSubscriptions[0].args).toEqual({
+            listId: "today",
+        });
+        expect(node.result).toEqual({ status: "pending" });
     });
 
     it("keeps optimistic state when the mutation succeeds", async () => {
