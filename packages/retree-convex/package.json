@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/convex",
-    "version": "0.2.3",
+    "version": "0.2.4",
     "description": "Sync Convex queries into Retree reactive nodes.",
     "author": "Ryan Bliss",
     "private": false,
@@ -12,12 +12,12 @@
         "build": "tsc -p tsconfig.json"
     },
     "devDependencies": {
-        "@retreejs/core": "0.2.3",
+        "@retreejs/core": "0.2.4",
         "convex": "^1.39.1",
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
-        "@retreejs/core": "0.2.3",
+        "@retreejs/core": "0.2.4",
         "convex": "^1.39.1"
     },
     "repository": {
