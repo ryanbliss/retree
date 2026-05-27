@@ -12,6 +12,74 @@ npm run docs
 
 The generated static site is written to `docs/` and ignored by Git. The docs build also copies `llms.txt` into the generated site so agents can discover the curated docs manifest at the Pages root. GitHub Pages can host it from the included docs workflow after the repository's Pages source is set to **GitHub Actions**.
 
+## Packages
+
+-   `@retreejs/core` provides Retree's proxy, event, memo, and `ReactiveNode` primitives.
+-   `@retreejs/react` provides React hooks for rendering Retree nodes.
+-   `@retreejs/convex` connects Convex queries, paginated queries, actions, mutations, and connection state to Retree nodes.
+
+## @retreejs/convex
+
+Retree Convex lets a `ReactiveNode` own a Convex client, create typed query nodes with `this.query(...)`, run one-off queries with `this.queryOnce(...)`, call actions and mutations, subscribe to paginated queries, and track connection state. Query results are written into Retree state, Convex document arrays are reconciled by `_id` by default, and optimistic updates can be applied narrowly to existing query state.
+
+### How to install
+
+Install with `npm`:
+
+```bash
+npm i @retreejs/core @retreejs/convex convex
+```
+
+Install with `yarn`:
+
+```bash
+yarn add @retreejs/core @retreejs/convex convex
+```
+
+### How to use
+
+```ts
+import { ConvexNode, ConvexQueryNode } from "@retreejs/convex";
+import { ConvexClient } from "convex/browser";
+import { api } from "../convex/_generated/api";
+import { Id } from "../convex/_generated/dataModel";
+
+class TasksState extends ConvexNode {
+    public readonly tasks: ConvexQueryNode<typeof api.tasks.get>;
+
+    constructor(convexUrl: string) {
+        const client = new ConvexClient(convexUrl);
+        super(client);
+        this.tasks = this.query(api.tasks.get);
+    }
+
+    get dependencies() {
+        return [];
+    }
+
+    public toggleCompleted(taskId: Id<"tasks">): Promise<null> {
+        const toggleCompleted = this.mutation(api.tasks.toggleCompleted);
+        return toggleCompleted(
+            { taskId },
+            {
+                withOptimisticUpdate: (ctx) => {
+                    this.tasks.optimisticUpdate(ctx, {
+                        apply(tasks) {
+                            const task = tasks.find((candidateTask) => {
+                                return candidateTask._id === taskId;
+                            });
+                            if (!task) return;
+
+                            task.isCompleted = !task.isCompleted;
+                        },
+                    });
+                },
+            }
+        );
+    }
+}
+```
+
 ## @retreejs/react
 
 Retree React enables a performant, intuitive interface for managing app state of any complexity. It is designed to seamlessly mix-and-match class-based data layers with React hooks with minimal boilerplate.

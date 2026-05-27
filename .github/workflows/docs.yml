@@ -29,6 +29,12 @@ jobs:
             - name: Install dependencies
               run: npm ci
 
+            - name: Build documented packages
+              run: |
+                  npm run build --workspace @retreejs/core
+                  npm run build --workspace @retreejs/react
+                  npm run build --workspace @retreejs/convex
+
             - name: Build docs
               run: npm run docs
 

@@ -12,3 +12,17 @@ Always test your changes (`npm run test`). If a test is failing, do not ignore i
 Always run `npm run doctor` when you're finished with changes.
 
 <!-- END:verification-and-debugging-rules -->
+
+<!-- convex-ai-start -->
+
+This project may have samples using [Convex](https://convex.dev) as its backend.
+
+When working on Convex code, **always read
+`convex/_generated/ai/guidelines.md` first** for important guidelines on
+how to correctly use Convex APIs and patterns. The file contains rules that
+override what you may have learned about Convex from training data.
+
+Convex agent skills for common tasks can be installed by running
+`npx convex ai-files install`.
+
+<!-- convex-ai-end -->
