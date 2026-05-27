@@ -406,6 +406,66 @@ node.list.push(3);
 node.list.push(99);
 ```
 
+##### ReactiveNode lifecycle hooks
+
+`ReactiveNode` also exposes lifecycle hooks for setup, cleanup, and post-change synchronization:
+
+-   `onObserved()` runs when the node gets its first active `nodeChanged` or `treeChanged` observer.
+-   `onUnobserved()` runs when the node loses its last active `nodeChanged` or `treeChanged` observer.
+-   `onChanged()` runs after the node receives a fresh reproxy because one of its own properties changed or one of its declared dependencies changed.
+
+Use `onObserved()` and `onUnobserved()` for external resources that should only exist while something is observing the node. This keeps `dependencies` purely declarative instead of using it as a setup side effect.
+
+```ts
+import { ReactiveNode, ignore } from "@retreejs/core";
+
+declare function subscribeToValue(
+    callback: (value: string) => void
+): () => void;
+
+class LiveValueNode extends ReactiveNode {
+    public value: string | null = null;
+    @ignore private unsubscribe: (() => void) | null = null;
+
+    get dependencies() {
+        return [];
+    }
+
+    protected onObserved(): void {
+        this.unsubscribe = subscribeToValue((value) => {
+            this.value = value;
+        });
+    }
+
+    protected onUnobserved(): void {
+        this.unsubscribe?.();
+        this.unsubscribe = null;
+    }
+}
+```
+
+Use `onChanged()` when you need to update derived state only after Retree has confirmed that the node actually changed. Retree runs `onChanged()` before listener callbacks flush. If no transaction is already active, Retree starts one so state updates made in `onChanged()` are bundled with the triggering change.
+
+```ts
+class SearchNode extends ReactiveNode {
+    public query = "";
+    public normalizedQuery = "";
+
+    get dependencies() {
+        return [];
+    }
+
+    protected onChanged(): void {
+        const next = this.query.trim().toLowerCase();
+        if (this.normalizedQuery === next) {
+            return;
+        }
+
+        this.normalizedQuery = next;
+    }
+}
+```
+
 #### Memoize computed getters
 
 `ReactiveNode` provides `memo` to cache the result of a getter, similar in spirit to React's `useMemo`. Use it to skip expensive recomputation when the values it depends on haven't changed.

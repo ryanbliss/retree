@@ -24,6 +24,10 @@ export interface IReactiveDependency<TNode extends TreeNode = TreeNode> {
 }
 
 export const COLLECTED_KEYS_SYMBOL = "RETREE_COLLECTED_KEYS_SYMBOL";
+export const RUN_CHANGED_EFFECT_SYMBOL = "RETREE_RUN_CHANGED_EFFECT_SYMBOL";
+export const RUN_OBSERVED_EFFECT_SYMBOL = "RETREE_RUN_OBSERVED_EFFECT_SYMBOL";
+export const RUN_UNOBSERVED_EFFECT_SYMBOL =
+    "RETREE_RUN_UNOBSERVED_EFFECT_SYMBOL";
 
 /**
  * Declare dependencies for other nodes in the tree to conditionally emit changes for the node.
@@ -67,6 +71,32 @@ export abstract class ReactiveNode {
      * When any {@link IReactiveDependency} criteria is met, a change will be emitted for this {@link ReactiveNode} instance.
      */
     abstract get dependencies(): IReactiveDependency[];
+
+    /**
+     * Runs when this {@link ReactiveNode} gets its first active
+     * `nodeChanged` or `treeChanged` observer.
+     * @remarks
+     * Override this for work that requires the proxied instance, such as
+     * starting external subscriptions that write back into Retree state.
+     */
+    protected onObserved(): void {}
+
+    /**
+     * Runs when this {@link ReactiveNode} loses its last active
+     * `nodeChanged` or `treeChanged` observer.
+     */
+    protected onUnobserved(): void {}
+
+    /**
+     * Runs after this {@link ReactiveNode} receives a fresh reproxy.
+     * @remarks
+     * Override this when a node needs to synchronize derived state only after a
+     * real Retree change. Retree runs this before `nodeChanged` /
+     * `treeChanged` listeners flush. If no transaction is already active,
+     * Retree starts one so state updates made here are batched with the reproxy
+     * that triggered the effect.
+     */
+    protected onChanged(): void {}
     /**
      * Creates a new {@link IReactiveDependency} instance.
      *
@@ -151,4 +181,25 @@ export abstract class ReactiveNode {
     public [COLLECTED_KEYS_SYMBOL]: Set<string | symbol> = new Set<
         string | symbol
     >();
+
+    /**
+     * @hidden
+     */
+    public static [RUN_CHANGED_EFFECT_SYMBOL](node: ReactiveNode): void {
+        node.onChanged();
+    }
+
+    /**
+     * @hidden
+     */
+    public static [RUN_OBSERVED_EFFECT_SYMBOL](node: ReactiveNode): void {
+        node.onObserved();
+    }
+
+    /**
+     * @hidden
+     */
+    public static [RUN_UNOBSERVED_EFFECT_SYMBOL](node: ReactiveNode): void {
+        node.onUnobserved();
+    }
 }

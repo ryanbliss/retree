@@ -125,6 +125,66 @@ class ListFilter extends ReactiveNode {
 
 The cache is per-instance (a `WeakMap` keyed by the unproxied `ReactiveNode`) and is GC'd with the node.
 
+## React to observation and changes
+
+`ReactiveNode` has lifecycle hooks for work that should happen when a node is observed, unobserved, or actually changed:
+
+-   `onObserved()` runs when the node gets its first active `nodeChanged` or `treeChanged` observer.
+-   `onUnobserved()` runs when the node loses its last active `nodeChanged` or `treeChanged` observer.
+-   `onChanged()` runs after the node receives a fresh reproxy because one of its own properties changed or one of its declared dependencies changed.
+
+Use `onObserved()` for setup that needs the proxied instance, such as starting an external subscription that writes back into Retree state. Keep `dependencies` declarative; it should describe dependency nodes and comparison values, not start subscriptions or perform synchronization.
+
+```ts
+import { ReactiveNode, ignore } from "@retreejs/core";
+
+declare function subscribeToValue(
+    callback: (value: string) => void
+): () => void;
+
+class SubscriptionNode extends ReactiveNode {
+    public value: string | null = null;
+    @ignore private unsubscribe: (() => void) | null = null;
+
+    get dependencies() {
+        return [];
+    }
+
+    protected onObserved(): void {
+        this.unsubscribe = subscribeToValue((value) => {
+            this.value = value;
+        });
+    }
+
+    protected onUnobserved(): void {
+        this.unsubscribe?.();
+        this.unsubscribe = null;
+    }
+}
+```
+
+`onChanged()` is useful for synchronizing derived state after Retree knows a change really happened. Retree runs it before listener callbacks flush. If no transaction is already active, Retree starts one so state updates made in `onChanged()` are bundled with the change that triggered it.
+
+```ts
+class SearchNode extends ReactiveNode {
+    public query = "";
+    public normalizedQuery = "";
+
+    get dependencies() {
+        return [];
+    }
+
+    protected onChanged(): void {
+        const next = this.query.trim().toLowerCase();
+        if (this.normalizedQuery === next) {
+            return;
+        }
+
+        this.normalizedQuery = next;
+    }
+}
+```
+
 ## Opt fields out of reactivity with `@ignore`
 
 `@ignore` is a class-field decorator that excludes a property of a `ReactiveNode` from Retree's reactivity system. Reads and writes still work normally — what's skipped is listener emission. Nested mutations (`this.cache.foo = 1`) and top-level replacement (`this.cache = {...}`) both bypass `nodeChanged` / `treeChanged`, and the proxy will not wrap the field's value or build child proxies underneath it.

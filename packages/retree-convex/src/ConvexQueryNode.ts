@@ -39,7 +39,6 @@ export class ConvexQueryNode<
     > | null = null;
     @ignore
     private reconciler: IStateReconciler<FunctionReturnType<Query>> | undefined;
-
     /**
      * Latest query state emitted by Convex, or the initial state before Convex
      * emits.
@@ -79,11 +78,15 @@ export class ConvexQueryNode<
     }
 
     get dependencies() {
-        // Retree calls this getter when the node is observed. Starting the
-        // subscription here makes Convex callbacks write through the proxied node
-        // instead of the raw constructor instance, so `state` updates emit.
-        this.syncArgs(this.args, false);
         return [];
+    }
+
+    protected onObserved(): void {
+        this.syncArgs(this.args, false);
+    }
+
+    protected onChanged(): void {
+        this.syncArgs(this.args, false);
     }
 
     /**

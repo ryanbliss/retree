@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
+import { ignore } from "./decorators";
 import { Transactions } from "./internals/transactions";
 
 const rootsToCleanup: object[] = [];
@@ -53,6 +54,48 @@ class DynamicComparisonNode extends ReactiveNode {
     }
 }
 
+class ChangedEffectNode extends ReactiveNode {
+    public value = 0;
+    public syncedValue = 0;
+    @ignore
+    public effectRuns = 0;
+
+    get dependencies() {
+        return [];
+    }
+
+    protected onChanged(): void {
+        if (this.syncedValue === this.value) {
+            return;
+        }
+
+        this.syncedValue = this.value;
+        this.effectRuns++;
+    }
+}
+
+class ObservedLifecycleNode extends ReactiveNode {
+    @ignore
+    public dependenciesReadCount = 0;
+    @ignore
+    public observedCount = 0;
+    @ignore
+    public unobservedCount = 0;
+
+    get dependencies() {
+        this.dependenciesReadCount++;
+        return [];
+    }
+
+    protected onObserved(): void {
+        this.observedCount++;
+    }
+
+    protected onUnobserved(): void {
+        this.unobservedCount++;
+    }
+}
+
 describe("ReactiveNode", () => {
     it("emits only when comparison values change", () => {
         const root = trackRoot(Retree.root(new EvenNumberNode()));
@@ -83,5 +126,62 @@ describe("ReactiveNode", () => {
         expect(() => {
             root.numbers.push(1);
         }).toThrow(/comparisons/i);
+    });
+
+    it("does not run changed effects when the node is first observed", () => {
+        const root = trackRoot(Retree.root(new ChangedEffectNode()));
+
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.effectRuns).toBe(0);
+        expect(root.syncedValue).toBe(0);
+    });
+
+    it("batches changed effect state updates with the triggering change", () => {
+        const root = trackRoot(Retree.root(new ChangedEffectNode()));
+        const nodeChanged = vi.fn((reproxy: ChangedEffectNode) => {
+            expect(reproxy.value).toBe(1);
+            expect(reproxy.syncedValue).toBe(1);
+        });
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        root.value = 1;
+
+        expect(root.effectRuns).toBe(1);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("adds changed effect updates to an existing transaction", () => {
+        const root = trackRoot(Retree.root(new ChangedEffectNode()));
+        const nodeChanged = vi.fn((reproxy: ChangedEffectNode) => {
+            expect(reproxy.value).toBe(2);
+            expect(reproxy.syncedValue).toBe(2);
+        });
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        Retree.runTransaction(() => {
+            root.value = 1;
+            root.value = 2;
+        });
+
+        expect(root.effectRuns).toBe(2);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("runs observation lifecycle hooks outside dependencies", () => {
+        const root = trackRoot(Retree.root(new ObservedLifecycleNode()));
+
+        const unsubscribeNodeChanged = Retree.on(root, "nodeChanged", vi.fn());
+        const unsubscribeTreeChanged = Retree.on(root, "treeChanged", vi.fn());
+
+        expect(root.observedCount).toBe(1);
+        expect(root.unobservedCount).toBe(0);
+        expect(root.dependenciesReadCount).toBeGreaterThan(0);
+
+        unsubscribeNodeChanged();
+        expect(root.unobservedCount).toBe(0);
+
+        unsubscribeTreeChanged();
+        expect(root.unobservedCount).toBe(1);
     });
 });
