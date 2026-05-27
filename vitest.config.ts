@@ -27,6 +27,13 @@ const viteConfig = defineViteConfig({
                 ),
             },
             {
+                find: "@retreejs/convex",
+                replacement: path.resolve(
+                    rootDir,
+                    "packages/retree-convex/src/index.ts"
+                ),
+            },
+            {
                 find: "@retreejs/react",
                 replacement: path.resolve(
                     rootDir,
@@ -50,6 +57,7 @@ const vitestConfig = defineVitestConfig({
                     include: [
                         "packages/retree-core/**/*.spec.ts",
                         "packages/retree-core/**/*.spec.tsx",
+                        "packages/retree-convex/**/*.spec.ts",
                     ],
                     environment: "node",
                 },

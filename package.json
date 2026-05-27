@@ -5,6 +5,7 @@
     "main": "index.js",
     "workspaces": [
         "packages/retree-core",
+        "packages/retree-convex",
         "packages/retree-react",
         "samples/01.core-example",
         "samples/02.react-example",
