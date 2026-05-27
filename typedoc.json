@@ -2,7 +2,11 @@
     "$schema": "https://typedoc.org/schema.json",
     "name": "Retree",
     "entryPointStrategy": "packages",
-    "entryPoints": ["packages/retree-core", "packages/retree-react"],
+    "entryPoints": [
+        "packages/retree-core",
+        "packages/retree-react",
+        "packages/retree-convex"
+    ],
     "out": "docs",
     "readme": "README.md",
     "cleanOutputDir": true,
@@ -12,7 +16,8 @@
     "navigationLinks": {
         "GitHub": "https://github.com/ryanbliss/retree",
         "npm: @retreejs/core": "https://www.npmjs.com/package/@retreejs/core",
-        "npm: @retreejs/react": "https://www.npmjs.com/package/@retreejs/react"
+        "npm: @retreejs/react": "https://www.npmjs.com/package/@retreejs/react",
+        "npm: @retreejs/convex": "https://www.npmjs.com/package/@retreejs/convex"
     },
     "packageOptions": {
         "entryPoints": ["src/index.ts"],

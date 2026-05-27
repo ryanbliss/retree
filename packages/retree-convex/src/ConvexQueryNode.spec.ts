@@ -6,12 +6,12 @@ import type {
     FunctionReturnType,
 } from "convex/server";
 import {
+    ConvexNode,
     ConvexQueryNode,
     createRetreeConvexMutation,
-    IConvexQueryClient,
-    IConvexMutationClient,
+    IConvexClient,
+    OptimisticUpdateContext,
     reconcileArrayById,
-    RetreeOptimisticMutation,
 } from "./index";
 
 type TasksQuery = FunctionReference<
@@ -25,6 +25,12 @@ type ConvexTasksQuery = FunctionReference<
     "public",
     { listId: string },
     { _id: string; text: string; isCompleted: boolean }[]
+>;
+type NoArgsQuery = FunctionReference<
+    "query",
+    "public",
+    Record<string, never>,
+    string
 >;
 type ToggleTaskMutation = FunctionReference<
     "mutation",
@@ -47,6 +53,13 @@ const convexTasksQuery: ConvexTasksQuery = {
     _returnType: [],
     _componentPath: undefined,
 };
+const noArgsQuery: NoArgsQuery = {
+    _type: "query",
+    _visibility: "public",
+    _args: {},
+    _returnType: "",
+    _componentPath: undefined,
+};
 const toggleTaskMutation: ToggleTaskMutation = {
     _type: "mutation",
     _visibility: "public",
@@ -55,13 +68,19 @@ const toggleTaskMutation: ToggleTaskMutation = {
     _componentPath: undefined,
 };
 
-class FakeConvexClient implements IConvexQueryClient {
+class FakeConvexClient implements IConvexClient {
     public subscriptions: {
         args: unknown;
         callback: (result: unknown) => unknown;
         onError: ((error: Error) => unknown) | undefined;
         unsubscribe: ReturnType<typeof vi.fn>;
     }[] = [];
+    public readonly mutationCalls: {
+        mutation: unknown;
+        args: unknown;
+    }[] = [];
+    public readonly close = vi.fn<() => Promise<void>>(() => Promise.resolve());
+    public nextMutationPromise: Promise<null> = Promise.resolve(null);
 
     onUpdate<Query extends FunctionReference<"query">>(
         query: Query,
@@ -69,7 +88,11 @@ class FakeConvexClient implements IConvexQueryClient {
         callback: (result: FunctionReturnType<Query>) => unknown,
         onError?: (error: Error) => unknown
     ) {
-        if (query !== tasksQuery && query !== convexTasksQuery) {
+        if (
+            query !== tasksQuery &&
+            query !== convexTasksQuery &&
+            query !== noArgsQuery
+        ) {
             throw new Error("FakeConvexClient received an unexpected query.");
         }
 
@@ -80,16 +103,8 @@ class FakeConvexClient implements IConvexQueryClient {
             getCurrentValue: () => undefined,
         });
     }
-}
 
-class FakeMutationClient implements IConvexMutationClient {
-    public readonly mutationCalls: {
-        mutation: unknown;
-        args: unknown;
-    }[] = [];
-    public nextMutationPromise: Promise<null> = Promise.resolve(null);
-
-    mutation<Mutation extends FunctionReference<"mutation">>(
+    public mutation<Mutation extends FunctionReference<"mutation">>(
         mutation: Mutation,
         args: FunctionArgs<Mutation>
     ): Promise<Awaited<FunctionReturnType<Mutation>>> {
@@ -97,6 +112,32 @@ class FakeMutationClient implements IConvexMutationClient {
         return this.nextMutationPromise as Promise<
             Awaited<FunctionReturnType<Mutation>>
         >;
+    }
+}
+
+class TestConvexNode extends ConvexNode {
+    get dependencies() {
+        return [];
+    }
+
+    public toggleTask(
+        args: FunctionArgs<ToggleTaskMutation>,
+        options?: {
+            withOptimisticUpdate?: (
+                ctx: OptimisticUpdateContext<ToggleTaskMutation>
+            ) => void;
+        }
+    ): Promise<null> {
+        const toggleTask = this.mutation(toggleTaskMutation);
+        return toggleTask(args, options);
+    }
+
+    public tasksQuery() {
+        return this.query(tasksQuery, { args: { listId: "today" } });
+    }
+
+    public noArgsQuery() {
+        return this.query(noArgsQuery);
     }
 }
 
@@ -165,18 +206,52 @@ describe("ConvexQueryNode", () => {
         expect(client.subscriptions[0].unsubscribe).toHaveBeenCalledOnce();
     });
 
+    it("creates typed query nodes from a ConvexNode client", () => {
+        const client = new FakeConvexClient();
+        const node = new TestConvexNode(client);
+        const tasksNode = node.tasksQuery();
+
+        Retree.on(Retree.root(tasksNode), "nodeChanged", () => undefined);
+
+        expect(client.subscriptions[0].args).toEqual({ listId: "today" });
+    });
+
+    it("allows no-args queries to omit args", () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(new ConvexQueryNode(client, noArgsQuery));
+
+        Retree.on(node, "nodeChanged", () => undefined);
+        client.subscriptions[0].callback("ready");
+
+        expect(client.subscriptions[0].args).toEqual({});
+        expect(node.state).toBe("ready");
+    });
+
+    it("allows no-args query wrappers to omit args", () => {
+        const client = new FakeConvexClient();
+        const state = new TestConvexNode(client);
+        const node = Retree.root(state.noArgsQuery());
+
+        Retree.on(node, "nodeChanged", () => undefined);
+        client.subscriptions[0].callback("ready");
+
+        expect(client.subscriptions[0].args).toEqual({});
+        expect(node.state).toBe("ready");
+    });
+
     it("creates typed mutations with optimistic hooks", async () => {
-        const client = new FakeMutationClient();
+        const client = new FakeConvexClient();
         const toggleTask = createRetreeConvexMutation(
             client,
             toggleTaskMutation
         );
-        const onOptimistic =
-            vi.fn<
-                (mutation: RetreeOptimisticMutation<ToggleTaskMutation>) => void
-            >();
+        const withOptimisticUpdate =
+            vi.fn<(ctx: OptimisticUpdateContext<ToggleTaskMutation>) => void>();
 
-        const result = await toggleTask({ taskId: "task-1" }, { onOptimistic });
+        const result = await toggleTask(
+            { taskId: "task-1" },
+            { withOptimisticUpdate }
+        );
 
         expect(result).toBeNull();
         expect(client.mutationCalls).toEqual([
@@ -185,8 +260,32 @@ describe("ConvexQueryNode", () => {
                 args: { taskId: "task-1" },
             },
         ]);
-        expect(onOptimistic).toHaveBeenCalledOnce();
-        expect(onOptimistic.mock.calls[0][0].args).toEqual({
+        expect(withOptimisticUpdate).toHaveBeenCalledOnce();
+        expect(withOptimisticUpdate.mock.calls[0][0].args).toEqual({
+            taskId: "task-1",
+        });
+    });
+
+    it("creates typed mutations from a ConvexNode client", async () => {
+        const client = new FakeConvexClient();
+        const node = new TestConvexNode(client);
+        const withOptimisticUpdate =
+            vi.fn<(ctx: OptimisticUpdateContext<ToggleTaskMutation>) => void>();
+
+        const result = await node.toggleTask(
+            { taskId: "task-1" },
+            { withOptimisticUpdate }
+        );
+
+        expect(result).toBeNull();
+        expect(client.mutationCalls).toEqual([
+            {
+                mutation: toggleTaskMutation,
+                args: { taskId: "task-1" },
+            },
+        ]);
+        expect(withOptimisticUpdate).toHaveBeenCalledOnce();
+        expect(withOptimisticUpdate.mock.calls[0][0].args).toEqual({
             taskId: "task-1",
         });
     });
@@ -203,7 +302,7 @@ describe("ConvexQueryNode", () => {
             { id: "task-1", text: "Buy groceries", isCompleted: false },
         ]);
 
-        await node.applyOptimisticMutation(
+        const result = node.optimisticUpdate(
             {
                 args: { taskId: "task-1" },
                 promise: Promise.resolve(null),
@@ -215,6 +314,7 @@ describe("ConvexQueryNode", () => {
             }
         );
 
+        expect(result).toBeUndefined();
         expect(node.state).toEqual([
             { id: "task-1", text: "Buy groceries", isCompleted: true },
         ]);
@@ -232,7 +332,7 @@ describe("ConvexQueryNode", () => {
             { id: "task-1", text: "Buy groceries", isCompleted: false },
         ]);
 
-        await node.applyOptimisticMutation(
+        const result = node.optimisticUpdate(
             {
                 args: { taskId: "task-1" },
                 promise: Promise.reject(new Error("Mutation failed")),
@@ -243,6 +343,13 @@ describe("ConvexQueryNode", () => {
                 },
             }
         );
+
+        expect(result).toBeUndefined();
+        expect(node.state).toEqual([
+            { id: "task-1", text: "Buy groceries", isCompleted: true },
+        ]);
+
+        await Promise.resolve();
 
         expect(node.state).toEqual([
             { id: "task-1", text: "Buy groceries", isCompleted: false },

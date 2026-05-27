@@ -6,10 +6,9 @@ import { Doc, Id } from "../convex/_generated/dataModel";
 import { TasksState } from "./tasks-state";
 
 export default function Home() {
-    const rootNode = useRoot(
-        () => new TasksState(process.env.NEXT_PUBLIC_CONVEX_URL)
+    const root = useRoot(
+        () => new TasksState(process.env.NEXT_PUBLIC_CONVEX_URL!)
     );
-    const root = useNode(rootNode);
     const tasks = useNode(root.tasks);
 
     useEffect(() => {
