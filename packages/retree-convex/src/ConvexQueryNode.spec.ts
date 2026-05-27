@@ -20,6 +20,12 @@ type TasksQuery = FunctionReference<
     { listId: string },
     { id: string; text: string; isCompleted: boolean }[]
 >;
+type ConvexTasksQuery = FunctionReference<
+    "query",
+    "public",
+    { listId: string },
+    { _id: string; text: string; isCompleted: boolean }[]
+>;
 type ToggleTaskMutation = FunctionReference<
     "mutation",
     "public",
@@ -28,6 +34,13 @@ type ToggleTaskMutation = FunctionReference<
 >;
 
 const tasksQuery: TasksQuery = {
+    _type: "query",
+    _visibility: "public",
+    _args: { listId: "" },
+    _returnType: [],
+    _componentPath: undefined,
+};
+const convexTasksQuery: ConvexTasksQuery = {
     _type: "query",
     _visibility: "public",
     _args: { listId: "" },
@@ -56,7 +69,7 @@ class FakeConvexClient implements IConvexQueryClient {
         callback: (result: FunctionReturnType<Query>) => unknown,
         onError?: (error: Error) => unknown
     ) {
-        if (query !== tasksQuery) {
+        if (query !== tasksQuery && query !== convexTasksQuery) {
             throw new Error("FakeConvexClient received an unexpected query.");
         }
 
@@ -281,6 +294,29 @@ describe("ConvexQueryNode", () => {
         client.subscriptions[0].callback([
             { id: "task-1", text: "Buy groceries", isCompleted: true },
             { id: "task-2", text: "Read docs", isCompleted: false },
+        ]);
+
+        expect(node.state?.[0]?.isCompleted).toBe(true);
+        expect(node.state?.[1]).toBe(unchangedTask);
+    });
+
+    it("defaults to reconciling Convex document arrays by _id", () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(
+            new ConvexQueryNode(client, convexTasksQuery, {
+                args: { listId: "today" },
+            })
+        );
+        Retree.on(node, "nodeChanged", () => undefined);
+        client.subscriptions[0].callback([
+            { _id: "task-1", text: "Buy groceries", isCompleted: false },
+            { _id: "task-2", text: "Read docs", isCompleted: false },
+        ]);
+
+        const unchangedTask = node.state?.[1];
+        client.subscriptions[0].callback([
+            { _id: "task-1", text: "Buy groceries", isCompleted: true },
+            { _id: "task-2", text: "Read docs", isCompleted: false },
         ]);
 
         expect(node.state?.[0]?.isCompleted).toBe(true);

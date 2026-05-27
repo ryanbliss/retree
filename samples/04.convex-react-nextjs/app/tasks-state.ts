@@ -3,7 +3,6 @@
 import {
     ConvexQueryNode,
     createRetreeConvexMutation,
-    reconcileConvexDocuments,
     RetreeConvexMutation,
 } from "@retreejs/convex";
 import { ReactiveNode } from "@retreejs/core";
@@ -34,7 +33,6 @@ export class TasksState extends ReactiveNode {
         const client = new ConvexClient(convexUrl);
         this.tasks = new ConvexQueryNode(client, api.tasks.get, {
             args: {},
-            reconcile: reconcileConvexDocuments(),
         });
         this.toggleCompletedMutation = createRetreeConvexMutation(
             client,

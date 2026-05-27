@@ -97,46 +97,7 @@ export function reconcileArrayById<
                 return next;
             }
 
-            if (current.length === next.length) {
-                let allItemsStayedInPlace = true;
-                for (let index = 0; index < next.length; index++) {
-                    const currentItem = current[index];
-                    const nextItem = next[index];
-                    if (currentItem[idKey] !== nextItem[idKey]) {
-                        allItemsStayedInPlace = false;
-                        break;
-                    }
-
-                    reconcileObject(currentItem, nextItem);
-                }
-
-                if (allItemsStayedInPlace) {
-                    return current;
-                }
-            }
-
-            const currentById = new Map<TItem[TKey], TItem>();
-            for (const currentItem of current) {
-                currentById.set(currentItem[idKey], currentItem);
-            }
-
-            for (let index = 0; index < next.length; index++) {
-                const nextItem = next[index];
-                const currentItem = currentById.get(nextItem[idKey]);
-                if (currentItem === undefined) {
-                    current[index] = nextItem;
-                    continue;
-                }
-
-                reconcileObject(currentItem, nextItem);
-                if (current[index]?.[idKey] === currentItem[idKey]) {
-                    continue;
-                }
-
-                current[index] = currentItem;
-            }
-
-            current.length = next.length;
+            reconcileArray(current, next, (item) => item[idKey]);
             return current;
         },
     };
@@ -146,6 +107,108 @@ export function reconcileConvexDocuments<
     TDoc extends { _id: PropertyKey }
 >(): IStateReconciler<TDoc[]> {
     return reconcileArrayById<TDoc, "_id">("_id");
+}
+
+function tryReconcileConvexDocuments(current: unknown, next: unknown): boolean {
+    if (!isConvexDocumentArray(current)) {
+        return false;
+    }
+    if (!isConvexDocumentArray(next)) {
+        return false;
+    }
+
+    reconcileDocumentArrayById(current, next);
+    return true;
+}
+
+function isConvexDocumentArray(
+    value: unknown
+): value is Array<Record<"_id", PropertyKey>> {
+    if (!Array.isArray(value)) {
+        return false;
+    }
+
+    for (const item of value) {
+        if (!isRecordWithPropertyKeyId(item)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function isRecordWithPropertyKeyId(
+    value: unknown
+): value is Record<"_id", PropertyKey> {
+    if (value === null) {
+        return false;
+    }
+    if (typeof value !== "object") {
+        return false;
+    }
+
+    const id = Reflect.get(value, "_id");
+    if (typeof id === "string") {
+        return true;
+    }
+    if (typeof id === "number") {
+        return true;
+    }
+    return typeof id === "symbol";
+}
+
+function reconcileDocumentArrayById(
+    current: Array<Record<"_id", PropertyKey>>,
+    next: Array<Record<"_id", PropertyKey>>
+): void {
+    reconcileArray(current, next, (item) => item._id);
+}
+
+function reconcileArray<TItem extends object>(
+    current: TItem[],
+    next: TItem[],
+    getId: (item: TItem) => PropertyKey
+): void {
+    if (current.length === next.length) {
+        let allItemsStayedInPlace = true;
+        for (let index = 0; index < next.length; index++) {
+            const currentItem = current[index];
+            const nextItem = next[index];
+            if (getId(currentItem) !== getId(nextItem)) {
+                allItemsStayedInPlace = false;
+                break;
+            }
+
+            reconcileObject(currentItem, nextItem);
+        }
+
+        if (allItemsStayedInPlace) {
+            return;
+        }
+    }
+
+    const currentById = new Map<PropertyKey, TItem>();
+    for (const currentItem of current) {
+        currentById.set(getId(currentItem), currentItem);
+    }
+
+    for (let index = 0; index < next.length; index++) {
+        const nextItem = next[index];
+        const currentItem = currentById.get(getId(nextItem));
+        if (currentItem === undefined) {
+            current[index] = nextItem;
+            continue;
+        }
+
+        reconcileObject(currentItem, nextItem);
+        if (getId(current[index]) === getId(currentItem)) {
+            continue;
+        }
+
+        current[index] = currentItem;
+    }
+
+    current.length = next.length;
 }
 
 function reconcileObject<T extends object>(target: T, source: T): void {
@@ -278,6 +341,10 @@ export class ConvexQueryNode<
         }
 
         if (this.reconciler === undefined) {
+            if (tryReconcileConvexDocuments(this.state, next)) {
+                return;
+            }
+
             this.state = next;
             return;
         }
