@@ -16,6 +16,10 @@ const packagesToPublish = [
         label: "@retreejs/react",
         directory: "packages/retree-react",
     },
+    {
+        label: "@retreejs/convex",
+        directory: "packages/retree-convex",
+    },
 ];
 
 if (process.argv.includes("--help")) {
@@ -23,7 +27,7 @@ if (process.argv.includes("--help")) {
         [
             "Usage: npm run publish:packages",
             "",
-            "Loads root .env variables, then for @retreejs/core and @retreejs/react:",
+            "Loads root .env variables, then for @retreejs/core, @retreejs/react, and @retreejs/convex:",
             "  1. npm run build",
             "  2. npm publish --dry-run",
             "  3. npm publish",

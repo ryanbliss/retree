@@ -9,18 +9,19 @@
         "packages/retree-react",
         "samples/01.core-example",
         "samples/02.react-example",
-        "samples/03.react-recursion"
+        "samples/03.react-recursion",
+        "samples/04.convex-react-nextjs"
     ],
     "scripts": {
         "doctor": "prettier --write . && eslint **/src/**/*.{j,t}s{,x} --fix --no-error-on-unmatched-pattern",
-        "predocs": "npm run build --workspace @retreejs/core",
+        "predocs": "npm run build --workspace @retreejs/core && npm run build --workspace @retreejs/react && npm run build --workspace @retreejs/convex",
         "docs": "typedoc --options typedoc.json",
         "postdocs": "node -e \"require('node:fs').copyFileSync('llms.txt', 'docs/llms.txt')\"",
         "publish:packages": "node scripts/publish-packages.mjs",
         "test": "vitest run",
         "test:watch": "vitest"
     },
-    "author": "",
+    "author": "Ryan Bliss",
     "license": "MIT",
     "devDependencies": {
         "@babel/plugin-proposal-decorators": "^7.29.0",

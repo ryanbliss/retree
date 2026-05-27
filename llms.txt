@@ -1,8 +1,8 @@
 # Retree
 
-> Retree is a lightweight TypeScript state management library for object trees, with core reactivity APIs and React hooks for fine-grained rendering.
+> Retree is a lightweight TypeScript state management library for object trees, with core reactivity APIs, React hooks for fine-grained rendering, and Convex query bindings.
 
-Retree is published as `@retreejs/core` and `@retreejs/react`. Use the links below for installation, API reference, reactivity behavior, React hook behavior, and runnable sample apps.
+Retree is published as `@retreejs/core`, `@retreejs/react`, and `@retreejs/convex`. Use the links below for installation, API reference, reactivity behavior, React hook behavior, Convex query behavior, and runnable sample apps.
 
 ## Documentation
 
@@ -10,6 +10,7 @@ Retree is published as `@retreejs/core` and `@retreejs/react`. Use the links bel
 - [Repository README](https://github.com/ryanbliss/retree#readme): Installation, quick-start examples, React usage, core usage, and sample links.
 - [@retreejs/core README](https://github.com/ryanbliss/retree/tree/main/packages/retree-core#readme): Core package guide for object-tree reactivity, events, `ReactiveNode`, memoization, and decorators.
 - [@retreejs/react README](https://github.com/ryanbliss/retree/tree/main/packages/retree-react#readme): React package guide for `useNode`, `useTree`, `useRoot`, and rendering behavior.
+- [@retreejs/convex README](https://github.com/ryanbliss/retree/tree/main/packages/retree-convex#readme): Convex package guide for query nodes, mutation helpers, optimistic updates, and reconciliation.
 
 ## API Reference
 
@@ -20,6 +21,9 @@ Retree is published as `@retreejs/core` and `@retreejs/react`. Use the links bel
 - [useNode](https://ryanbliss.github.io/retree/functions/_retreejs_react.useNode.html): React hook for subscribing to direct node changes with fine-grained re-rendering.
 - [useTree](https://ryanbliss.github.io/retree/functions/_retreejs_react.useTree.html): React hook for subscribing to node and descendant-tree changes.
 - [useRoot](https://ryanbliss.github.io/retree/functions/_retreejs_react.useRoot.html): React hook for creating and retaining a Retree root in a component.
+- [@retreejs/convex API](https://ryanbliss.github.io/retree/modules/_retreejs_convex.html): Convex exports for `ConvexNode`, `ConvexQueryNode`, mutation helpers, optimistic update contexts, and reconcilers.
+- [ConvexNode class](https://ryanbliss.github.io/retree/classes/_retreejs_convex.ConvexNode.html): Base class for Retree nodes that own a Convex client and create typed query and mutation helpers.
+- [ConvexQueryNode class](https://ryanbliss.github.io/retree/classes/_retreejs_convex.ConvexQueryNode.html): Reactive query node that subscribes to Convex query updates and writes them into Retree state.
 
 ## Samples
 
@@ -31,6 +35,7 @@ Retree is published as `@retreejs/core` and `@retreejs/react`. Use the links bel
 
 - [@retreejs/core on npm](https://www.npmjs.com/package/@retreejs/core): Core state-management package.
 - [@retreejs/react on npm](https://www.npmjs.com/package/@retreejs/react): React hooks package.
+- [@retreejs/convex on npm](https://www.npmjs.com/package/@retreejs/convex): Convex query and mutation bindings package.
 
 ## Optional
 
