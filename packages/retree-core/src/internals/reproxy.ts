@@ -10,6 +10,7 @@ import {
     getBaseProxy,
     getUnproxiedNode,
     FUNCTION_NAMES_BIND_TO_RAW,
+    isInternalSlotInstance,
 } from "./proxy";
 import { getReactiveNodeGetter, popMemoGetter, pushMemoGetter } from "./memo";
 import {
@@ -93,9 +94,9 @@ function buildReproxy<T extends TreeNode = TreeNode>(
             }
             const baseProxy: TCustomProxy<T> = getBaseProxy(receiver);
             const rawNode = getUnproxiedNode(baseProxy);
-            // Map/Set methods need internal slots on `this`. Delegate property access to the
+            // Some built-in methods need internal slots on `this`. Delegate property access to the
             // base proxy so the bind/wrap logic in buildProxy is reused (and mutations emit).
-            if (rawNode instanceof Map || rawNode instanceof Set) {
+            if (isInternalSlotInstance(rawNode)) {
                 return Reflect.get(baseProxy, prop, baseProxy);
             }
             const reproxy = getReproxyNode(baseProxy);

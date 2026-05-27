@@ -29,16 +29,58 @@ export const FUNCTION_NAMES_BIND_TO_RAW: (string | symbol)[] = [
 
 const MAP_MUTATING_METHODS = new Set(["set", "delete", "clear"]);
 const SET_MUTATING_METHODS = new Set(["add", "delete", "clear"]);
+type DateMutatingMethodName =
+    | "setDate"
+    | "setFullYear"
+    | "setHours"
+    | "setMilliseconds"
+    | "setMinutes"
+    | "setMonth"
+    | "setSeconds"
+    | "setTime"
+    | "setUTCDate"
+    | "setUTCFullYear"
+    | "setUTCHours"
+    | "setUTCMilliseconds"
+    | "setUTCMinutes"
+    | "setUTCMonth"
+    | "setUTCSeconds";
+const DATE_MUTATING_METHODS: Record<
+    DateMutatingMethodName,
+    (this: Date, ...args: number[]) => number
+> = {
+    setDate: Date.prototype.setDate,
+    setFullYear: Date.prototype.setFullYear,
+    setHours: Date.prototype.setHours,
+    setMilliseconds: Date.prototype.setMilliseconds,
+    setMinutes: Date.prototype.setMinutes,
+    setMonth: Date.prototype.setMonth,
+    setSeconds: Date.prototype.setSeconds,
+    setTime: Date.prototype.setTime,
+    setUTCDate: Date.prototype.setUTCDate,
+    setUTCFullYear: Date.prototype.setUTCFullYear,
+    setUTCHours: Date.prototype.setUTCHours,
+    setUTCMilliseconds: Date.prototype.setUTCMilliseconds,
+    setUTCMinutes: Date.prototype.setUTCMinutes,
+    setUTCMonth: Date.prototype.setUTCMonth,
+    setUTCSeconds: Date.prototype.setUTCSeconds,
+};
 
 /**
- * Built-ins like {@link Map} and {@link Set} rely on internal slots, so calling their methods
+ * Built-ins like {@link Date}, {@link Map}, and {@link Set} rely on internal slots, so calling their methods
  * with a Proxy as the `this` value throws "incompatible receiver". For those instances we bind
  * methods to the raw target and wrap mutating methods so they still emit change events.
  */
-function isInternalSlotInstance(
+export function isInternalSlotInstance(
     target: any
-): target is Map<any, any> | Set<any> {
-    return target instanceof Map || target instanceof Set;
+): target is Date | Map<any, any> | Set<any> {
+    return (
+        target instanceof Date || target instanceof Map || target instanceof Set
+    );
+}
+
+function isDateMutatingMethod(prop: string): prop is DateMutatingMethodName {
+    return Object.prototype.hasOwnProperty.call(DATE_MUTATING_METHODS, prop);
 }
 
 /**
@@ -113,6 +155,18 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         SET_MUTATING_METHODS.has(prop)
                     ) {
                         return wrapSetMutation(
+                            prop,
+                            target,
+                            baseProxy,
+                            emitter
+                        );
+                    }
+                    if (
+                        target instanceof Date &&
+                        typeof prop === "string" &&
+                        isDateMutatingMethod(prop)
+                    ) {
+                        return wrapDateMutation(
                             prop,
                             target,
                             baseProxy,
@@ -650,6 +704,23 @@ function wrapSetMutation(
         };
     }
     throw new Error(`Unsupported Set mutation: ${prop}`);
+}
+
+function wrapDateMutation(
+    prop: DateMutatingMethodName,
+    target: Date,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter
+) {
+    return function dateMutationWrapper(...args: number[]) {
+        const previousTime = Date.prototype.getTime.call(target);
+        const result = DATE_MUTATING_METHODS[prop].call(target, ...args);
+        const nextTime = Date.prototype.getTime.call(target);
+        if (!Object.is(previousTime, nextTime)) {
+            emitCollectionChange(target, baseProxy, emitter, []);
+        }
+        return result;
+    };
 }
 
 function detachCollectionChild(
