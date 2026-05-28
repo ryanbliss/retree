@@ -119,7 +119,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     propString === COLLECTED_KEYS_SYMBOL ||
                     target[COLLECTED_KEYS_SYMBOL].has(propString)
                 ) {
-                    return Reflect.get(target, prop, receiver);
+                    return Reflect.get(target, prop, target);
                 }
             }
             if (
@@ -218,6 +218,9 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     target,
                     prop
                 );
+                if (!descriptor || !descriptorHasValue(descriptor)) {
+                    return value;
+                }
                 if (!shouldKeepRawPropertyValue(descriptor, value)) {
                     return getOrCreateProxiedChild(
                         proxyHandler,
@@ -238,7 +241,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     propString === COLLECTED_KEYS_SYMBOL ||
                     target[COLLECTED_KEYS_SYMBOL].has(propString)
                 ) {
-                    return Reflect.set(target, prop, newValue, receiver);
+                    return Reflect.set(target, prop, newValue, target);
                 }
             }
             const prev = (target as any)[prop];
@@ -261,10 +264,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     if (isCustomProxy(newValue)) {
                         valueToSet = reparentProxy(newValue, parentToSet);
                         proxyHandler[proxiedChildrenKey][prop] = valueToSet;
-                    } else if (
-                        !(target instanceof ReactiveNode) &&
-                        shouldCreatePlainObjectProxyLazily(newValue)
-                    ) {
+                    } else if (shouldCreatePlainObjectProxyLazily(newValue)) {
                         deleteProxiedChild(proxyHandler, prop);
                     } else {
                         valueToSet = buildProxy(newValue, emitter, parentToSet);
@@ -512,10 +512,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     deleteProxiedChild(proxyHandler, prop);
                     return;
                 }
-                if (
-                    !(object instanceof ReactiveNode) &&
-                    shouldCreatePlainObjectProxyLazily(value)
-                ) {
+                if (shouldCreatePlainObjectProxyLazily(value)) {
                     deleteProxiedChild(proxyHandler, prop);
                     return;
                 }
@@ -525,6 +522,15 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 });
                 proxyHandler[proxiedChildrenKey][prop] = getBaseProxy(cProxy);
             }
+        });
+    }
+    if (
+        object instanceof ReactiveNode &&
+        object.options.prepare?.autoPrepare &&
+        isReactiveNodeProxy(proxy)
+    ) {
+        proxy.prepareTree({
+            depth: object.options.prepare.depth,
         });
     }
     updateReproxyNode(proxy);
@@ -541,6 +547,13 @@ function deleteProxiedChild(
     prop: string | symbol
 ) {
     Reflect.deleteProperty(proxyHandler[proxiedChildrenKey], prop);
+}
+
+function isReactiveNodeProxy(node: object): node is TCustomProxy<ReactiveNode> {
+    if (!(node instanceof ReactiveNode)) {
+        return false;
+    }
+    return isCustomProxy(node);
 }
 
 function descriptorHasValue(
@@ -624,9 +637,6 @@ function shouldLazilyProxyProperty(
         return false;
     }
     if (!shouldCreatePlainObjectProxyLazily(value)) {
-        return false;
-    }
-    if (target instanceof ReactiveNode) {
         return false;
     }
     return true;

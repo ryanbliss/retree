@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
 import { ignore } from "./decorators";
-import { getUnproxiedNode } from "./internals";
+import { getCustomProxyHandler, getUnproxiedNode } from "./internals";
+import { proxiedChildrenKey } from "./internals/proxy-types";
 import { getReactiveDependencies } from "./internals/reactive-node-utils";
 import { Transactions } from "./internals/transactions";
 
@@ -73,6 +74,30 @@ class ChangedEffectNode extends ReactiveNode {
 
         this.syncedValue = this.value;
         this.effectRuns++;
+    }
+}
+
+class NestedPayloadNode extends ReactiveNode {
+    public payload = {
+        stats: {
+            count: 0,
+        },
+    };
+    public items = [{ value: 1 }];
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class AutoPreparePayloadNode extends NestedPayloadNode {
+    constructor(depth?: number) {
+        super({
+            prepare: {
+                autoPrepare: true,
+                depth,
+            },
+        });
     }
 }
 
@@ -267,6 +292,78 @@ describe("ReactiveNode", () => {
 
         unsubscribeTreeChanged();
         expect(root.unobservedCount).toBe(1);
+    });
+
+    it("lazily proxies ReactiveNode object and array fields with parent metadata", () => {
+        const root = trackRoot(Retree.root(new NestedPayloadNode()));
+
+        expect(Retree.parent(root.payload)).toBe(root);
+        expect(Retree.parent(root.payload.stats)).toBe(root.payload);
+        expect(Retree.parent(root.items)).toBe(root);
+        expect(Retree.parent(root.items[0])).toBe(root.items);
+    });
+
+    it("emits from nested ReactiveNode fields after replacing a lazy object field", () => {
+        const root = trackRoot(Retree.root(new NestedPayloadNode()));
+        const statsChanged = vi.fn();
+
+        root.payload = {
+            stats: {
+                count: 10,
+            },
+        };
+        Retree.on(root.payload.stats, "nodeChanged", statsChanged);
+
+        root.payload.stats.count = 11;
+
+        expect(statsChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("prepares lazy ReactiveNode data fields without reading getters or ignored fields", () => {
+        const root = trackRoot(Retree.root(new ObservedLifecycleNode()));
+        const nested = trackRoot(Retree.root(new NestedPayloadNode()));
+        const nestedHandler = getCustomProxyHandler(nested);
+        if (nestedHandler === undefined) {
+            throw new Error(
+                "ReactiveNode prepareTree test expected nested root to expose proxy metadata."
+            );
+        }
+
+        root.prepareTree();
+        nested.prepareTree({ depth: 0 });
+
+        expect(root.dependenciesReadCount).toBe(0);
+        expect(nestedHandler[proxiedChildrenKey].payload).toBeDefined();
+        expect(nestedHandler[proxiedChildrenKey].items).toBeDefined();
+
+        const payloadHandler = getCustomProxyHandler(nested.payload);
+        if (payloadHandler === undefined) {
+            throw new Error(
+                "ReactiveNode prepareTree test expected payload to expose proxy metadata."
+            );
+        }
+        expect(payloadHandler[proxiedChildrenKey].stats).toBeUndefined();
+    });
+
+    it("auto prepares lazy ReactiveNode data fields when configured", () => {
+        const root = trackRoot(Retree.root(new AutoPreparePayloadNode(0)));
+        const rootHandler = getCustomProxyHandler(root);
+        if (rootHandler === undefined) {
+            throw new Error(
+                "ReactiveNode auto prepare test expected root to expose proxy metadata."
+            );
+        }
+
+        expect(rootHandler[proxiedChildrenKey].payload).toBeDefined();
+        expect(rootHandler[proxiedChildrenKey].items).toBeDefined();
+
+        const payloadHandler = getCustomProxyHandler(root.payload);
+        if (payloadHandler === undefined) {
+            throw new Error(
+                "ReactiveNode auto prepare test expected payload to expose proxy metadata."
+            );
+        }
+        expect(payloadHandler[proxiedChildrenKey].stats).toBeUndefined();
     });
 
     it("shares one Retree listener for many dependents on the same dependency node", () => {

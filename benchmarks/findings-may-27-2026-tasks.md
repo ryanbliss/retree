@@ -225,16 +225,23 @@ Acceptance:
 
 Goal: revisit transaction and collection mutation overhead after the larger architecture fixes land.
 
--   [ ] Re-run stable and exhaustive benchmarks after Phases 1-7.
--   [ ] Inspect whether `runTransaction` still scales poorly with large mutation counts.
--   [ ] Profile array and map mutation paths after lazy proxying changes.
--   [ ] Consider batching reproxy updates inside `runTransaction` more aggressively if benchmarks still show a problem.
--   [ ] Add targeted tests before changing transaction flush behavior.
+-   [x] Re-run stable benchmarks after Phases 1-7.
+    -   `AFTER-PHASE-8` was run with stable / medium / `--workers 1` for a lower-noise comparison.
+-   [x] Inspect whether `runTransaction` still scales poorly with large mutation counts.
+    -   `runTransaction` improved versus `AFTER-PHASE-7`: average down about 14%, P95 down about 18%.
+-   [x] Profile array and map mutation paths after lazy proxying changes.
+    -   Array-heavy transaction work remains the most visible per-commit bottleneck; setup/proxy P95 improved broadly from ReactiveNode lazy object/array fields.
+-   [x] Add an explicit warmup escape hatch for apps that want to pay lazy proxy cost before hot mutations.
+    -   `ReactiveNode.prepareTree({ depth })` warms non-ignored own data fields without evaluating computed getters like `dependencies`.
+-   [x] Consider batching reproxy updates inside `runTransaction` more aggressively if benchmarks still show a problem.
+    -   Deferred for now: stronger batching would need a separate listener-ordering design because current transaction semantics still update reproxy state during the mutation path.
+-   [x] Add targeted tests before changing transaction flush behavior.
+    -   Added coverage for preserving pending transaction callbacks while replacing only the callback type being upserted.
 
 Acceptance:
 
--   [ ] Remaining transaction/mutation bottlenecks are either addressed or documented as inherent work.
--   [ ] Any transaction changes preserve listener emission counts and ordering.
+-   [x] Remaining transaction/mutation bottlenecks are either addressed or documented as inherent work.
+-   [x] Any transaction changes preserve listener emission counts and ordering.
 
 ## Phase 9: Documentation and Migration Guidance
 

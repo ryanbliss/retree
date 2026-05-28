@@ -79,7 +79,7 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                     prop === COLLECTED_KEYS_SYMBOL ||
                     target[COLLECTED_KEYS_SYMBOL].has(prop)
                 ) {
-                    return Reflect.get(target, prop, receiver);
+                    return Reflect.get(target, prop, target);
                 }
             }
             if (
@@ -134,6 +134,14 @@ function buildReproxy<T extends TreeNode = TreeNode>(
             return value;
         },
         set(target, prop, newValue, receiver) {
+            if (target instanceof ReactiveNode) {
+                if (
+                    prop === COLLECTED_KEYS_SYMBOL ||
+                    target[COLLECTED_KEYS_SYMBOL].has(prop)
+                ) {
+                    return Reflect.set(target, prop, newValue, target);
+                }
+            }
             return Reflect.set(target, prop, newValue, receiver);
         },
     };

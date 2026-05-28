@@ -59,12 +59,17 @@ export class Transactions {
         let transaction = this.pendingTransactions.get(node);
         if (!transaction) {
             transaction = {};
+            this.pendingTransactions.set(node, transaction);
         }
-        transaction = {
-            ...transaction,
-            ...upsertTransaction,
-        };
-        this.pendingTransactions.set(node, transaction);
+        if (upsertTransaction.emitNodeChanged !== undefined) {
+            transaction.emitNodeChanged = upsertTransaction.emitNodeChanged;
+        }
+        if (upsertTransaction.emitTreeChanged !== undefined) {
+            transaction.emitTreeChanged = upsertTransaction.emitTreeChanged;
+        }
+        if (upsertTransaction.emitNodeRemoved !== undefined) {
+            transaction.emitNodeRemoved = upsertTransaction.emitNodeRemoved;
+        }
     }
 
     /**

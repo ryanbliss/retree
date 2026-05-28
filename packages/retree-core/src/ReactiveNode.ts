@@ -23,6 +23,35 @@ export interface IReactiveDependency<TNode extends TreeNode = TreeNode> {
     comparisons?: any[];
 }
 
+export interface IRetreePrepareTreeOptions {
+    /**
+     * Maximum nested object depth to prepare.
+     * @remarks
+     * Defaults to `Infinity`, which prepares every reachable non-ignored
+     * object/array/Map/Set value below this node.
+     */
+    depth?: number;
+}
+
+export interface IRetreePrepareNodeOptions extends IRetreePrepareTreeOptions {
+    /**
+     * When true, Retree prepares this node's tree when the node is proxied.
+     * @remarks
+     * This pays the lazy child-proxy cost up front instead of on first nested
+     * access.
+     */
+    autoPrepare: boolean;
+}
+
+export interface IRetreeNodeOptions {
+    /**
+     * Controls how this {@link ReactiveNode} prepares its object tree for Retree.
+     * @remarks
+     * When unset, Retree lazily prepares plain object and array fields on access.
+     */
+    prepare?: IRetreePrepareNodeOptions;
+}
+
 export const COLLECTED_KEYS_SYMBOL = "RETREE_COLLECTED_KEYS_SYMBOL";
 export const RUN_CHANGED_EFFECT_SYMBOL = "RETREE_RUN_CHANGED_EFFECT_SYMBOL";
 export const RUN_OBSERVED_EFFECT_SYMBOL = "RETREE_RUN_OBSERVED_EFFECT_SYMBOL";
@@ -65,6 +94,28 @@ export const RUN_UNOBSERVED_EFFECT_SYMBOL =
  ```
  */
 export abstract class ReactiveNode {
+    /**
+     * @hidden
+     */
+    public [COLLECTED_KEYS_SYMBOL]: Set<string | symbol> = new Set<
+        string | symbol
+    >();
+
+    /**
+     * Runtime options for this Retree node.
+     * @remarks
+     * Retree ignores this field for reactivity so options do not emit or become
+     * part of the tree.
+     */
+    public options: IRetreeNodeOptions = {};
+
+    constructor(options?: IRetreeNodeOptions) {
+        this[COLLECTED_KEYS_SYMBOL].add("options");
+        if (options !== undefined) {
+            this.options = options;
+        }
+    }
+
     /**
      * Dependencies to listen for changes to.
      * @remarks
@@ -113,6 +164,26 @@ export abstract class ReactiveNode {
             comparisons,
         };
     }
+
+    /**
+     * Prepare lazy Retree child proxies below this {@link ReactiveNode}.
+     * @remarks
+     * Retree lazily proxies plain object and array fields on ReactiveNodes. Call
+     * this when an app wants to pay that first-touch cost during a controlled
+     * phase, such as while showing a loading spinner. This walks only own data
+     * properties, so computed getters like `dependencies` are not evaluated or
+     * cached as child nodes. Fields marked with `@ignore` are skipped.
+     */
+    public prepareTree(options: IRetreePrepareTreeOptions = {}): void {
+        const depth = options.depth ?? Infinity;
+        if (depth < 0) {
+            throw new Error(
+                "ReactiveNode.prepareTree: depth must be greater than or equal to 0."
+            );
+        }
+        prepareObject(this, depth, new WeakSet<object>());
+    }
+
     /**
      * Memoize the result of `fn`, scoped to this {@link ReactiveNode} instance.
      * @remarks
@@ -178,13 +249,6 @@ export abstract class ReactiveNode {
     /**
      * @hidden
      */
-    public [COLLECTED_KEYS_SYMBOL]: Set<string | symbol> = new Set<
-        string | symbol
-    >();
-
-    /**
-     * @hidden
-     */
     public static [RUN_CHANGED_EFFECT_SYMBOL](node: ReactiveNode): void {
         node.onChanged();
     }
@@ -202,4 +266,82 @@ export abstract class ReactiveNode {
     public static [RUN_UNOBSERVED_EFFECT_SYMBOL](node: ReactiveNode): void {
         node.onUnobserved();
     }
+}
+
+function prepareObject(
+    object: object,
+    remainingDepth: number,
+    seen: WeakSet<object>
+): void {
+    if (remainingDepth < 0) {
+        return;
+    }
+    if (seen.has(object)) {
+        return;
+    }
+    seen.add(object);
+
+    if (object instanceof Map) {
+        for (const value of object.values()) {
+            prepareValue(value, remainingDepth - 1, seen);
+        }
+        return;
+    }
+    if (object instanceof Set) {
+        for (const value of object.values()) {
+            prepareValue(value, remainingDepth - 1, seen);
+        }
+        return;
+    }
+
+    for (const key of Reflect.ownKeys(object)) {
+        if (shouldSkipMaterializeKey(object, key)) {
+            continue;
+        }
+        const descriptor = Reflect.getOwnPropertyDescriptor(object, key);
+        if (!descriptorHasValue(descriptor)) {
+            continue;
+        }
+        const value = Reflect.get(object, key, object);
+        prepareValue(value, remainingDepth - 1, seen);
+    }
+}
+
+function prepareValue(
+    value: unknown,
+    remainingDepth: number,
+    seen: WeakSet<object>
+): void {
+    if (remainingDepth < 0) {
+        return;
+    }
+    if (value === null) {
+        return;
+    }
+    if (typeof value !== "object") {
+        return;
+    }
+    prepareObject(value, remainingDepth, seen);
+}
+
+function shouldSkipMaterializeKey(
+    object: object,
+    key: string | symbol
+): boolean {
+    if (!(object instanceof ReactiveNode)) {
+        return false;
+    }
+    if (key === COLLECTED_KEYS_SYMBOL) {
+        return true;
+    }
+    return object[COLLECTED_KEYS_SYMBOL].has(key);
+}
+
+function descriptorHasValue(
+    descriptor: PropertyDescriptor | undefined
+): descriptor is PropertyDescriptor & { value: unknown } {
+    if (descriptor === undefined) {
+        return false;
+    }
+    return Object.prototype.hasOwnProperty.call(descriptor, "value");
 }

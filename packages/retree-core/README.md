@@ -209,6 +209,47 @@ class SearchNode extends ReactiveNode {
 }
 ```
 
+## Prepare lazy ReactiveNode fields
+
+`ReactiveNode` plain object and array fields are proxied lazily. That keeps root creation and setup cheaper, but the first read of a nested field pays the proxy cost. Call `prepareTree()` when you want to pay that cost during a controlled phase, such as while showing a loading spinner.
+
+`prepareTree()` walks own data fields only. It skips computed getters like `dependencies` and skips fields marked with `@ignore`.
+
+```ts
+class LargeNode extends ReactiveNode {
+    public sections = [{ title: "Intro", cards: [] }];
+
+    get dependencies() {
+        return [];
+    }
+}
+
+const node = Retree.root(new LargeNode());
+node.prepareTree(); // warm all reachable non-ignored child proxies
+node.prepareTree({ depth: 0 }); // warm only direct object/array fields
+```
+
+You can also opt a node into automatic preparation when Retree proxies it:
+
+```ts
+class EagerNode extends ReactiveNode {
+    constructor() {
+        super({
+            prepare: {
+                autoPrepare: true,
+                depth: 0,
+            },
+        });
+    }
+
+    public sections = [{ title: "Intro", cards: [] }];
+
+    get dependencies() {
+        return [];
+    }
+}
+```
+
 ## Opt fields out of reactivity with `@ignore`
 
 `@ignore` is a class-field decorator that excludes a property of a `ReactiveNode` from Retree's reactivity system. Reads and writes still work normally — what's skipped is listener emission. Nested mutations (`this.cache.foo = 1`) and top-level replacement (`this.cache = {...}`) both bypass `nodeChanged` / `treeChanged`, and the proxy will not wrap the field's value or build child proxies underneath it.
