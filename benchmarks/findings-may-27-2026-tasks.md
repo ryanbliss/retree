@@ -23,11 +23,20 @@ Goal: make sure each optimization has a benchmark that can show whether it helpe
     -   [ ] `nodeRemoved` on replaced collection children,
     -   [ ] `Retree.parent(...)` after map/set/array replacement,
     -   [ ] reproxy identity changes after collection replacement.
+-   [ ] Split benchmark Markdown artifacts into concise and verbose reports:
+    -   [ ] Rename the current full-detail Markdown report to a verbose artifact, such as `retree-benchmark-latest.verbose.md`.
+    -   [ ] Generate a new concise Markdown report as the default `retree-benchmark-latest.md`.
+    -   [ ] Keep the concise report focused on the minimum information needed to infer trends without post-processing raw JSON.
+    -   [ ] Include scenario-level summaries, slowest cases, setup hotspots, mutation warnings, and major dimension trends in the concise report.
+    -   [ ] Exclude giant all-case tables from the concise report unless a section has very few rows.
+    -   [ ] Keep raw per-commit measures and full case detail in JSON and the verbose Markdown report.
 
 Acceptance:
 
 -   [ ] Benchmark Markdown has a visible section for fresh collection/object assignment costs.
 -   [ ] Benchmark JSON captures setup/proxy time for those assignments separately from listener emission.
+-   [ ] Benchmark output includes concise `.md`, verbose `.verbose.md`, and raw `.json` artifacts.
+-   [ ] The concise Markdown report can be reviewed directly without writing a separate compaction script from raw JSON.
 -   [ ] `npm run test` and `npm run doctor` pass.
 
 ## Phase 1: Reactive Dependency Listener Sharing
