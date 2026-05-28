@@ -168,6 +168,18 @@ class ReplacingDependencyNode extends ReactiveNode {
     }
 }
 
+class OptionalDependencyNode extends ReactiveNode {
+    public dependencyNode: number[] | null | undefined = undefined;
+
+    get dependencies() {
+        return [
+            this.dependency(this.dependencyNode, [
+                this.dependencyNode?.length ?? null,
+            ]),
+        ];
+    }
+}
+
 describe("ReactiveNode", () => {
     it("emits only when comparison values change", () => {
         const root = trackRoot(Retree.root(new EvenNumberNode()));
@@ -402,5 +414,33 @@ describe("ReactiveNode", () => {
             )
         ).toHaveLength(1);
         onSpy.mockRestore();
+    });
+
+    it("allows null and undefined dependency nodes as no-op dependency targets", () => {
+        const root = trackRoot(Retree.root(new OptionalDependencyNode()));
+
+        expect(() => {
+            Retree.on(root, "nodeChanged", vi.fn());
+        }).not.toThrow();
+        expect(() => {
+            root.dependencyNode = null;
+        }).not.toThrow();
+        expect(() => {
+            root.dependencyNode = undefined;
+        }).not.toThrow();
+    });
+
+    it("subscribes when an optional dependency changes from nullish to a real node", () => {
+        const dependencyNode = trackRoot(Retree.root<number[]>([]));
+        const root = trackRoot(Retree.root(new OptionalDependencyNode()));
+        const nodeChanged = vi.fn();
+
+        Retree.on(root, "nodeChanged", nodeChanged);
+        root.dependencyNode = dependencyNode;
+        nodeChanged.mockClear();
+
+        dependencyNode.push(1);
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
     });
 });

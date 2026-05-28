@@ -198,19 +198,54 @@ describe("Map within Retree proxy", () => {
 
         it("proxies object values that were already in the Map at root time", () => {
             const inner = { count: 0 };
+            const sourceMap = new Map<string, { count: number }>([
+                ["a", inner],
+            ]);
             const root = trackRoot(
                 Retree.root({
-                    map: new Map<string, { count: number }>([["a", inner]]),
+                    map: sourceMap,
                 })
             );
 
+            expect(sourceMap.get("a")).toBe(inner);
             const stored = root.map.get("a")!;
+            expect(stored).not.toBe(inner);
+            expect(sourceMap.get("a")).toBe(stored);
             expect(Retree.parent(stored)).toBe(root.map);
 
             const treeChanged = vi.fn();
             Retree.on(root, "treeChanged", treeChanged);
             stored.count = 1;
             expect(treeChanged).toHaveBeenCalledTimes(1);
+        });
+
+        it("lazily proxies object values read through Map iteration APIs", () => {
+            const first = { count: 1 };
+            const second = { count: 2 };
+            const root = trackRoot(
+                Retree.root({
+                    map: new Map<string, { count: number }>([
+                        ["first", first],
+                        ["second", second],
+                    ]),
+                })
+            );
+
+            const values = [...root.map.values()];
+            expect(values[0]).not.toBe(first);
+            expect(values[1]).not.toBe(second);
+            expect(Retree.parent(values[0]!)).toBe(root.map);
+            expect(Retree.parent(values[1]!)).toBe(root.map);
+
+            const entries = [...root.map.entries()];
+            expect(entries[0]?.[1]).toBe(values[0]);
+            expect(entries[1]?.[1]).toBe(values[1]);
+
+            const forEachValues: { count: number }[] = [];
+            root.map.forEach((value) => {
+                forEachValues.push(value);
+            });
+            expect(forEachValues).toEqual(values);
         });
 
         it("emits nodeRemoved when an object value is replaced via set", () => {
@@ -252,6 +287,31 @@ describe("Map within Retree proxy", () => {
             const first = root.map.get("a");
             const second = root.map.get("a");
             expect(first).toBe(second);
+        });
+
+        it("reacts after replacing a Map with fresh object values and then mutating a value", () => {
+            const root = trackRoot(
+                Retree.root({
+                    map: new Map<string, { count: number }>([
+                        ["old", { count: 0 }],
+                    ]),
+                })
+            );
+            const treeChanged = vi.fn();
+            Retree.on(root, "treeChanged", treeChanged);
+
+            root.map = new Map<string, { count: number }>([
+                ["new", { count: 1 }],
+            ]);
+            treeChanged.mockClear();
+            const stored = root.map.get("new");
+            if (stored === undefined) {
+                throw new Error("Expected replacement Map value to exist.");
+            }
+            stored.count = 2;
+
+            expect(treeChanged).toHaveBeenCalledTimes(1);
+            expect(Retree.parent(stored)).toBe(root.map);
         });
     });
 
@@ -367,15 +427,20 @@ describe("Map within Retree proxy", () => {
 
         it("emits nodeRemoved and clears parent links when Set object values are removed", () => {
             const raw = { count: 0 };
+            const sourceSet = new Set<{ count: number }>([raw]);
             const root = trackRoot(
                 Retree.root({
-                    set: new Set<{ count: number }>([raw]),
+                    set: sourceSet,
                 })
             );
+            expect(sourceSet.has(raw)).toBe(true);
             const original = [...root.set][0];
             if (original === undefined) {
                 throw new Error("Expected an original Set object value.");
             }
+            expect(original).not.toBe(raw);
+            expect(sourceSet.has(raw)).toBe(false);
+            expect(sourceSet.has(original)).toBe(true);
             const removed = vi.fn();
             Retree.on(original, "nodeRemoved", removed);
 
@@ -402,6 +467,46 @@ describe("Map within Retree proxy", () => {
             expect(stored).not.toBe(raw);
             expect(root.set.has(raw)).toBe(true);
             expect(root.set.has(stored)).toBe(true);
+            expect(Retree.parent(stored)).toBe(root.set);
+        });
+
+        it("deletes proxied Set object values when called with the original raw value", () => {
+            const raw = { count: 0 };
+            const root = trackRoot(
+                Retree.root({ set: new Set<{ count: number }>([raw]) })
+            );
+            const stored = [...root.set][0];
+            if (stored === undefined) {
+                throw new Error("Expected a lazily proxied Set value.");
+            }
+            const removed = vi.fn();
+            Retree.on(stored, "nodeRemoved", removed);
+
+            expect(root.set.delete(raw)).toBe(true);
+
+            expect(removed).toHaveBeenCalledTimes(1);
+            expect(root.set.size).toBe(0);
+            expect(Retree.parent(stored)).toBeNull();
+        });
+
+        it("reacts after replacing a Set with fresh object values and then mutating a value", () => {
+            const root = trackRoot(
+                Retree.root({
+                    set: new Set<{ count: number }>([{ count: 0 }]),
+                })
+            );
+            const treeChanged = vi.fn();
+            Retree.on(root, "treeChanged", treeChanged);
+
+            root.set = new Set<{ count: number }>([{ count: 1 }]);
+            treeChanged.mockClear();
+            const stored = [...root.set][0];
+            if (stored === undefined) {
+                throw new Error("Expected replacement Set value to exist.");
+            }
+            stored.count = 2;
+
+            expect(treeChanged).toHaveBeenCalledTimes(1);
             expect(Retree.parent(stored)).toBe(root.set);
         });
     });

@@ -149,6 +149,9 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                             emitter
                         );
                     }
+                    if (target instanceof Map) {
+                        return wrapMapRead(prop, target, baseProxy, emitter);
+                    }
                     if (
                         target instanceof Set &&
                         typeof prop === "string" &&
@@ -160,6 +163,9 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                             baseProxy,
                             emitter
                         );
+                    }
+                    if (target instanceof Set) {
+                        return wrapSetRead(prop, target, baseProxy, emitter);
                     }
                     if (
                         target instanceof Set &&
@@ -462,32 +468,25 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     if (isCustomProxy(object)) return getBaseProxy(object);
     const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
     if (object instanceof Map) {
-        // Replace each existing object value with a proxied/parented version so reads
-        // through the proxy yield reactive children with correct parent links.
-        const entries = Array.from(object.entries());
-        for (const [key, value] of entries) {
-            if (value !== null && typeof value === "object") {
+        for (const [key, value] of object.entries()) {
+            if (isCustomProxy(value)) {
                 const parentToSet: IProxyParent<any> = {
                     proxyNode: proxy,
                     propName: mapKeyAsPropName(key),
                 };
-                const childProxy = isCustomProxy(value)
-                    ? reparentProxy(value, parentToSet)
-                    : buildProxy(value, emitter, parentToSet);
+                const childProxy = reparentProxy(value, parentToSet);
                 Map.prototype.set.call(object, key, childProxy);
             }
         }
     } else if (object instanceof Set) {
         const values = Array.from(object.values());
         for (const value of values) {
-            if (value !== null && typeof value === "object") {
+            if (isCustomProxy(value)) {
                 const parentToSet: IProxyParent<any> = {
                     proxyNode: proxy,
                     propName: null,
                 };
-                const childProxy = isCustomProxy(value)
-                    ? reparentProxy(value, parentToSet)
-                    : buildProxy(value, emitter, parentToSet);
+                const childProxy = reparentProxy(value, parentToSet);
                 if (childProxy !== value) {
                     Set.prototype.delete.call(object, value);
                     Set.prototype.add.call(object, childProxy);
@@ -712,6 +711,100 @@ function preparePropertyValue(
     return valueToSet;
 }
 
+function wrapMapRead(
+    prop: string | symbol,
+    target: Map<any, any>,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter
+): Function {
+    if (prop === "get") {
+        return function getWrapper(key: any) {
+            const value = Map.prototype.get.call(target, key);
+            return getOrCreateMapValueProxy(
+                target,
+                key,
+                value,
+                baseProxy,
+                emitter
+            );
+        };
+    }
+    if (prop === "values") {
+        return function valuesWrapper() {
+            return mapValuesIterator(target, baseProxy, emitter);
+        };
+    }
+    if (prop === "entries" || prop === Symbol.iterator) {
+        return function entriesWrapper() {
+            return mapEntriesIterator(target, baseProxy, emitter);
+        };
+    }
+    if (prop === "forEach") {
+        return function forEachWrapper(
+            callback: (value: any, key: any, map: Map<any, any>) => void,
+            thisArg?: any
+        ) {
+            Map.prototype.forEach.call(target, (value, key) => {
+                const valueToRead = getOrCreateMapValueProxy(
+                    target,
+                    key,
+                    value,
+                    baseProxy,
+                    emitter
+                );
+                callback.call(thisArg, valueToRead, key, baseProxy);
+            });
+        };
+    }
+    return (Reflect.get(target, prop, target) as Function).bind(target);
+}
+
+function* mapValuesIterator(
+    target: Map<any, any>,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter
+) {
+    for (const [key, value] of Map.prototype.entries.call(target)) {
+        yield getOrCreateMapValueProxy(target, key, value, baseProxy, emitter);
+    }
+}
+
+function* mapEntriesIterator(
+    target: Map<any, any>,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter
+) {
+    for (const [key, value] of Map.prototype.entries.call(target)) {
+        yield [
+            key,
+            getOrCreateMapValueProxy(target, key, value, baseProxy, emitter),
+        ];
+    }
+}
+
+function getOrCreateMapValueProxy(
+    target: Map<any, any>,
+    key: any,
+    value: any,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter
+) {
+    if (value === null || typeof value !== "object") {
+        return value;
+    }
+    const parentToSet: IProxyParent<any> = {
+        proxyNode: baseProxy,
+        propName: mapKeyAsPropName(key),
+    };
+    const valueToRead = isCustomProxy(value)
+        ? reparentProxy(value, parentToSet)
+        : buildProxy(value, emitter, parentToSet);
+    if (valueToRead !== value) {
+        Map.prototype.set.call(target, key, valueToRead);
+    }
+    return valueToRead;
+}
+
 function wrapMapMutation(
     prop: string,
     target: Map<any, any>,
@@ -737,9 +830,9 @@ function wrapMapMutation(
                     proxyNode: baseProxy,
                     propName: mapKeyAsPropName(key),
                 };
-                valueToStore = isCustomProxy(value)
-                    ? reparentProxy(value, parentToSet)
-                    : buildProxy(value, emitter, parentToSet);
+                if (isCustomProxy(value)) {
+                    valueToStore = reparentProxy(value, parentToSet);
+                }
             }
             Map.prototype.set.call(target, key, valueToStore);
             emitCollectionChange(target, baseProxy, emitter, removedNodes);
@@ -783,6 +876,95 @@ function wrapMapMutation(
     throw new Error(`Unsupported Map mutation: ${prop}`);
 }
 
+function wrapSetRead(
+    prop: string | symbol,
+    target: Set<any>,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter
+): Function {
+    if (prop === "has") {
+        return wrapSetHas(target);
+    }
+    if (prop === "values" || prop === "keys" || prop === Symbol.iterator) {
+        return function valuesWrapper() {
+            return setValuesIterator(target, baseProxy, emitter);
+        };
+    }
+    if (prop === "entries") {
+        return function entriesWrapper() {
+            return setEntriesIterator(target, baseProxy, emitter);
+        };
+    }
+    if (prop === "forEach") {
+        return function forEachWrapper(
+            callback: (value: any, valueAgain: any, set: Set<any>) => void,
+            thisArg?: any
+        ) {
+            for (const value of Set.prototype.values.call(target)) {
+                const valueToRead = getOrCreateSetValueProxy(
+                    target,
+                    value,
+                    baseProxy,
+                    emitter
+                );
+                callback.call(thisArg, valueToRead, valueToRead, baseProxy);
+            }
+        };
+    }
+    return (Reflect.get(target, prop, target) as Function).bind(target);
+}
+
+function* setValuesIterator(
+    target: Set<any>,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter
+) {
+    const values = Array.from(Set.prototype.values.call(target));
+    for (const value of values) {
+        yield getOrCreateSetValueProxy(target, value, baseProxy, emitter);
+    }
+}
+
+function* setEntriesIterator(
+    target: Set<any>,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter
+) {
+    const values = Array.from(Set.prototype.values.call(target));
+    for (const value of values) {
+        const valueToRead = getOrCreateSetValueProxy(
+            target,
+            value,
+            baseProxy,
+            emitter
+        );
+        yield [valueToRead, valueToRead];
+    }
+}
+
+function getOrCreateSetValueProxy(
+    target: Set<any>,
+    value: any,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter
+) {
+    if (value === null || typeof value !== "object") {
+        return value;
+    }
+    const parentToSet: IProxyParent<any> = {
+        proxyNode: baseProxy,
+        propName: null,
+    };
+    const valueToRead = isCustomProxy(value)
+        ? reparentProxy(value, parentToSet)
+        : buildProxy(value, emitter, parentToSet);
+    if (valueToRead !== value) {
+        Set.prototype.delete.call(target, value);
+        Set.prototype.add.call(target, valueToRead);
+    }
+    return valueToRead;
+}
+
 function wrapSetMutation(
     prop: string,
     target: Set<any>,
@@ -801,9 +983,9 @@ function wrapSetMutation(
                     proxyNode: baseProxy,
                     propName: null,
                 };
-                valueToStore = isCustomProxy(value)
-                    ? reparentProxy(value, parentToSet)
-                    : buildProxy(value, emitter, parentToSet);
+                if (isCustomProxy(value)) {
+                    valueToStore = reparentProxy(value, parentToSet);
+                }
             }
             Set.prototype.add.call(target, valueToStore);
             emitCollectionChange(target, baseProxy, emitter, []);

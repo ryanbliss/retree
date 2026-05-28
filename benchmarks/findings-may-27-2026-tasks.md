@@ -119,37 +119,37 @@ Acceptance:
 
 Goal: address expensive fresh `Map` / `Set` assignment and root setup while preserving collection identity semantics.
 
--   [ ] Design Map lazy value proxying:
-    -   [ ] `get`,
-    -   [ ] `set`,
-    -   [ ] `delete`,
-    -   [ ] `clear`,
-    -   [ ] `entries`,
-    -   [ ] `values`,
-    -   [ ] `forEach`,
-    -   [ ] iteration.
--   [ ] Design Set lazy value proxying carefully because Set values are also keys.
--   [ ] Decide whether Set object values should:
-    -   [ ] stay raw until read,
-    -   [ ] be proxied on iteration only,
+-   [x] Design Map lazy value proxying:
+    -   [x] `get`,
+    -   [x] `set`,
+    -   [x] `delete`,
+    -   [x] `clear`,
+    -   [x] `entries`,
+    -   [x] `values`,
+    -   [x] `forEach`,
+    -   [x] iteration.
+-   [x] Design Set lazy value proxying carefully because Set values are also keys.
+-   [x] Decide whether Set object values should:
+    -   [x] stay raw until read,
+    -   [x] be proxied on iteration only,
     -   [ ] maintain raw-to-proxy and proxy-to-raw lookup maps,
     -   [ ] or remain eager for correctness until a safer design is proven.
--   [ ] Add behavior tests for Map and Set identity:
-    -   [ ] `has(rawValue)`,
-    -   [ ] `has(proxyValue)`,
-    -   [ ] `delete(rawValue)`,
-    -   [ ] `delete(proxyValue)`,
-    -   [ ] iteration values,
-    -   [ ] `Retree.parent(value)`.
--   [ ] Add tests for replacing broad `Set` / `Map` values and then mutating values inside them.
--   [ ] Implement Map laziness first if Set identity semantics need more design time.
--   [ ] Implement Set laziness only if identity behavior can remain intuitive and backward-compatible.
+-   [x] Add behavior tests for Map and Set identity:
+    -   [x] `has(rawValue)`,
+    -   [x] `has(proxyValue)`,
+    -   [x] `delete(rawValue)`,
+    -   [x] `delete(proxyValue)`,
+    -   [x] iteration values,
+    -   [x] `Retree.parent(value)`.
+-   [x] Add tests for replacing broad `Set` / `Map` values and then mutating values inside them.
+-   [x] Implement Map laziness first if Set identity semantics need more design time.
+-   [x] Implement Set laziness only if identity behavior can remain intuitive and backward-compatible.
 
 Acceptance:
 
--   [ ] Fresh Map assignment benchmark improves.
--   [ ] Fresh Set assignment benchmark improves or the doc records why Set must remain eager for now.
--   [ ] Map/Set tests prove collection lookup semantics did not regress.
+-   [x] Fresh Map assignment benchmark improves.
+-   [x] Fresh Set assignment benchmark improves or the doc records why Set must remain eager for now.
+-   [x] Map/Set tests prove collection lookup semantics did not regress.
 
 ## Phase 5: Skip treeChanged Work When Unused
 

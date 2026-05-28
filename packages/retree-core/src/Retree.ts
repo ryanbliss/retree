@@ -710,16 +710,18 @@ export class Retree {
                         comparisons: currentDependency.comparisons,
                         index: depIndex,
                     });
-                    unsubscribe = retainReactiveDependencySubscription(
-                        currentUnproxiedDependencyNode,
-                        () =>
-                            this.on(
-                                newDependencyNode,
-                                // TODO: figure out if I should support treeChanged for this...seems expensive
-                                "nodeChanged",
-                                this.reactiveDependentNodeChangedListener
-                            )
-                    );
+                    if (newDependencyNode) {
+                        unsubscribe = retainReactiveDependencySubscription(
+                            currentUnproxiedDependencyNode,
+                            () =>
+                                this.on(
+                                    newDependencyNode,
+                                    // TODO: figure out if I should support treeChanged for this...seems expensive
+                                    "nodeChanged",
+                                    this.reactiveDependentNodeChangedListener
+                                )
+                        );
+                    }
                 }
             }
 
