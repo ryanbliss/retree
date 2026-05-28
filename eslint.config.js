@@ -21,6 +21,7 @@ module.exports = [
             "**/dist/**",
             "**/docs/assets/main.js",
             "**/manifest/**",
+            "**/.next/**",
             "**/node_modules/**",
             "**/package-lock.json",
             "**/.eslintrc.cjs",

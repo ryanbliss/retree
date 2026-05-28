@@ -1,4 +1,5 @@
 bin
+benchmarks
 build
 docs
 demo-packages
@@ -7,3 +8,4 @@ manifest
 node_modules
 package-lock.json
 .agents/skills
+**/.next
