@@ -4,6 +4,7 @@
  */
 
 export * from "./useNode";
+export * from "./useSelect";
 export * from "./useTree";
 export * from "./useRoot";
 export * from "./types";

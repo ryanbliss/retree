@@ -63,7 +63,8 @@ class TasksState extends ConvexNode {
             { taskId },
             {
                 withOptimisticUpdate: (ctx) => {
-                    this.tasks.optimisticUpdate(ctx, {
+                    this.tasks.optimisticUpdate({
+                        ctx,
                         apply(tasks) {
                             const task = tasks.find((candidateTask) => {
                                 return candidateTask._id === taskId;
@@ -359,6 +360,20 @@ While `useTree` is powerful and can make things a lot easier, it is important to
 
 **Tip:** Always use React Dev Tools' profile tab to measure render performance when using `useTree`.
 
+### Performance guidance
+
+Retree performs best when components subscribe to the narrowest node or value they need:
+
+-   Prefer `useNode(child)` for item rows and focused panels.
+-   Prefer `useSelect(node, selector)` for derived values that should only re-render when the selected result changes.
+-   Treat `useTree` / `treeChanged` as broad subtree invalidation, especially in hot paths.
+-   Keep `ReactiveNode.dependencies` stable in length and order, with comparison values when only some dependency changes should emit.
+-   Avoid constructing large Retree roots or `ReactiveNode` graphs during React render; create them once, or initialize them through `useMemo` / `useState`.
+
+Large `ReactiveNode` object and array fields are prepared lazily. This improves initial setup, but the first nested read pays the preparation cost. Use `node.prepareTree({ depth })` or `super({ prepare: { autoPrepare: true, depth } })` if you want to pay that cost during a controlled loading phase.
+
+Recent stable medium benchmark runs show the main direction of the architecture work: `runTransaction` average time dropped from about `3.881 ms` to `1.350 ms`, and `Reactive dependency fan-out` average time dropped from about `2.049 ms` to `0.290 ms`. Setup P95 for direct `nodeChanged` dropped from about `6.146 ms` to `1.562 ms`.
+
 ### Optimize for performance
 
 `Retree` offers useful utility APIs for further optimizing performance, including `ReactiveNode`, `Retree.runTransaction`, and `Retree.runSilent`.
@@ -404,6 +419,66 @@ node.list.push(100);
 // ❌ Will not re-render
 node.list.push(3);
 node.list.push(99);
+```
+
+##### ReactiveNode lifecycle hooks
+
+`ReactiveNode` also exposes lifecycle hooks for setup, cleanup, and post-change synchronization:
+
+-   `onObserved()` runs when the node gets its first active `nodeChanged` or `treeChanged` observer.
+-   `onUnobserved()` runs when the node loses its last active `nodeChanged` or `treeChanged` observer.
+-   `onChanged()` runs after the node receives a fresh reproxy because one of its own properties changed or one of its declared dependencies changed.
+
+Use `onObserved()` and `onUnobserved()` for external resources that should only exist while something is observing the node. This keeps `dependencies` purely declarative instead of using it as a setup side effect.
+
+```ts
+import { ReactiveNode, ignore } from "@retreejs/core";
+
+declare function subscribeToValue(
+    callback: (value: string) => void
+): () => void;
+
+class LiveValueNode extends ReactiveNode {
+    public value: string | null = null;
+    @ignore private unsubscribe: (() => void) | null = null;
+
+    get dependencies() {
+        return [];
+    }
+
+    protected onObserved(): void {
+        this.unsubscribe = subscribeToValue((value) => {
+            this.value = value;
+        });
+    }
+
+    protected onUnobserved(): void {
+        this.unsubscribe?.();
+        this.unsubscribe = null;
+    }
+}
+```
+
+Use `onChanged()` when you need to update derived state only after Retree has confirmed that the node actually changed. Retree runs `onChanged()` before listener callbacks flush. If no transaction is already active, Retree starts one so state updates made in `onChanged()` are bundled with the triggering change.
+
+```ts
+class SearchNode extends ReactiveNode {
+    public query = "";
+    public normalizedQuery = "";
+
+    get dependencies() {
+        return [];
+    }
+
+    protected onChanged(): void {
+        const next = this.query.trim().toLowerCase();
+        if (this.normalizedQuery === next) {
+            return;
+        }
+
+        this.normalizedQuery = next;
+    }
+}
 ```
 
 #### Memoize computed getters

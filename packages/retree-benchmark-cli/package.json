@@ -1,0 +1,48 @@
+{
+    "name": "@retreejs/benchmark-cli",
+    "version": "0.3.0",
+    "description": "Benchmark Retree listener emission performance across deterministic tree scenarios.",
+    "author": "Ryan Bliss",
+    "license": "MIT",
+    "private": false,
+    "type": "module",
+    "bin": {
+        "retree-benchmark": "./bin/cli.js"
+    },
+    "main": "./bin/index.js",
+    "types": "./bin/index.d.ts",
+    "scripts": {
+        "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
+        "benchmark": "npm run build && node ./bin/cli.js",
+        "typecheck": "tsc -p tsconfig.json --noEmit"
+    },
+    "dependencies": {
+        "@inquirer/prompts": "^7.0.0",
+        "@retreejs/core": "0.3.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.2.3",
+        "typescript": "^6.0.2",
+        "vite": "^8.0.0",
+        "vitest": "^3.2.4"
+    },
+    "repository": {
+        "directory": "packages/retree-benchmark-cli",
+        "type": "git",
+        "url": "https://github.com/ryanbliss/retree"
+    },
+    "homepage": "https://studiobliss.io",
+    "bugs": {
+        "url": "https://github.com/ryanbliss/retree/issues"
+    },
+    "exports": {
+        ".": {
+            "types": "./bin/index.d.ts",
+            "default": "./bin/index.js"
+        }
+    },
+    "files": [
+        "bin",
+        "README.md"
+    ]
+}

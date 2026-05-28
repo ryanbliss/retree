@@ -35,7 +35,6 @@ export class ConvexPaginatedQueryNode<
     private initialNumItems: number;
     @ignore
     private unsubscribe: IConvexQuerySubscription<unknown> | null = null;
-
     /**
      * Latest paginated query state emitted by Convex.
      */
@@ -72,8 +71,15 @@ export class ConvexPaginatedQueryNode<
     }
 
     get dependencies() {
-        this.syncArgs(this.args, false);
         return [];
+    }
+
+    protected onObserved(): void {
+        this.syncArgs(this.args, false);
+    }
+
+    protected onChanged(): void {
+        this.syncArgs(this.args, false);
     }
 
     /**

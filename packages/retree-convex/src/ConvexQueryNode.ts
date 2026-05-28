@@ -18,7 +18,6 @@ import {
     IOptimisticTransform,
     IStateReconciler,
     MutationReference,
-    OptimisticUpdateContext,
     QueryReference,
 } from "./types";
 
@@ -39,7 +38,6 @@ export class ConvexQueryNode<
     > | null = null;
     @ignore
     private reconciler: IStateReconciler<FunctionReturnType<Query>> | undefined;
-
     /**
      * Latest query state emitted by Convex, or the initial state before Convex
      * emits.
@@ -54,6 +52,9 @@ export class ConvexQueryNode<
      */
     public error: Error | null = null;
     private lastEmittedState: ConvexQueryNodeState<Query>;
+    private isOptimisticDirty = false;
+    private optimisticGeneration = 0;
+    private optimisticRollbackState: ConvexQueryNodeState<Query>;
 
     /**
      * Create a node for a Convex query subscription.
@@ -79,11 +80,15 @@ export class ConvexQueryNode<
     }
 
     get dependencies() {
-        // Retree calls this getter when the node is observed. Starting the
-        // subscription here makes Convex callbacks write through the proxied node
-        // instead of the raw constructor instance, so `state` updates emit.
-        this.syncArgs(this.args, false);
         return [];
+    }
+
+    protected onObserved(): void {
+        this.syncArgs(this.args, false);
+    }
+
+    protected onChanged(): void {
+        this.syncArgs(this.args, false);
     }
 
     /**
@@ -160,33 +165,40 @@ export class ConvexQueryNode<
     }
 
     /**
-     * Apply an optimistic update and attach rollback handling to the mutation
-     * promise.
+     * Apply an optimistic update. If a mutation context is provided, rollback
+     * when its promise rejects unless a newer server value resolves the dirty
+     * state first.
      *
-     * @param ctx Optimistic update context from a Retree Convex mutation.
-     * @param transform Optional state transform to apply optimistically.
+     * @param transform Optimistic transform and optional mutation context.
      */
     public optimisticUpdate<Mutation extends MutationReference>(
-        ctx: OptimisticUpdateContext<Mutation>,
-        transform?: IOptimisticTransform<FunctionReturnType<Query>>
+        transform: IOptimisticTransform<FunctionReturnType<Query>, Mutation>
     ): void {
-        const snapshot =
-            this.state === undefined ? undefined : this.cloneState(this.state);
-        if (this.state !== undefined && transform !== undefined) {
+        const generation = this.markOptimisticDirty();
+        if (this.state !== undefined) {
             transform.apply(this.state);
         }
 
-        ctx.promise.catch((error: unknown) => {
+        transform.ctx?.promise.catch((error: unknown) => {
             Retree.runTransaction(() => {
                 if (
-                    this.state !== undefined &&
-                    snapshot !== undefined &&
-                    transform?.revert !== undefined
+                    !this.isOptimisticDirty ||
+                    this.optimisticGeneration !== generation
                 ) {
-                    transform.revert(this.state, snapshot);
-                } else {
-                    this.restoreState(snapshot ?? this.lastEmittedState);
+                    return;
                 }
+
+                if (
+                    this.state !== undefined &&
+                    this.optimisticRollbackState !== undefined &&
+                    transform.revert !== undefined
+                ) {
+                    transform.revert(this.state, this.optimisticRollbackState);
+                } else {
+                    this.restoreState(this.optimisticRollbackState);
+                }
+                this.clearOptimisticDirty();
+                this.setResultFromState();
                 this.error = getError(error);
             });
         });
@@ -204,6 +216,7 @@ export class ConvexQueryNode<
         Retree.runTransaction(() => {
             this.state = undefined;
             this.lastEmittedState = undefined;
+            this.clearOptimisticDirty();
             this.error = null;
             this.result = { status: "skipped" };
         });
@@ -217,14 +230,32 @@ export class ConvexQueryNode<
     }
 
     private setEmittedState(next: FunctionReturnType<Query>): void {
+        if (
+            this.isOptimisticDirty &&
+            this.stateEquals(next, this.lastEmittedState)
+        ) {
+            this.lastEmittedState = this.cloneState(next);
+            return;
+        }
+
+        this.clearOptimisticDirty();
         this.restoreState(next);
         this.lastEmittedState = this.cloneState(this.state);
+        this.setResultFromState(next);
+    }
+
+    private setResultFromState(next?: FunctionReturnType<Query>): void {
         if (this.state !== undefined) {
             this.result = { status: "success", data: this.state };
             return;
         }
 
-        this.result = { status: "success", data: next };
+        if (next !== undefined) {
+            this.result = { status: "success", data: next };
+            return;
+        }
+
+        this.result = { status: "pending" };
     }
 
     private restoreState(next: ConvexQueryNodeState<Query>): void {
@@ -286,6 +317,30 @@ export class ConvexQueryNode<
         }
 
         return JSON.parse(serializedState) as T;
+    }
+
+    private markOptimisticDirty(): number {
+        if (!this.isOptimisticDirty) {
+            this.isOptimisticDirty = true;
+            this.optimisticGeneration++;
+            this.optimisticRollbackState = this.cloneState(
+                this.lastEmittedState
+            );
+        }
+
+        return this.optimisticGeneration;
+    }
+
+    private clearOptimisticDirty(): void {
+        this.isOptimisticDirty = false;
+        this.optimisticRollbackState = undefined;
+    }
+
+    private stateEquals(
+        left: ConvexQueryNodeState<Query>,
+        right: ConvexQueryNodeState<Query>
+    ): boolean {
+        return JSON.stringify(left) === JSON.stringify(right);
     }
 }
 

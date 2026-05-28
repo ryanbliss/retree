@@ -295,7 +295,16 @@ export type OptionalConvexArgs<
 /**
  * Imperative optimistic state transform for a {@link ConvexQueryNode}.
  */
-export interface IOptimisticTransform<TState> {
+export interface IOptimisticTransform<
+    TState,
+    Mutation extends MutationReference = MutationReference
+> {
+    /**
+     * Optional mutation context. When provided, Retree Convex rolls this
+     * optimistic state back if the mutation promise rejects before a newer
+     * server value resolves the dirty state.
+     */
+    ctx?: OptimisticUpdateContext<Mutation>;
     /**
      * Apply an optimistic change to the current query state.
      */

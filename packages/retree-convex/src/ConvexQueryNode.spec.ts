@@ -646,17 +646,15 @@ describe("ConvexQueryNode", () => {
             { id: "task-1", text: "Buy groceries", isCompleted: false },
         ]);
 
-        const result = node.optimisticUpdate(
-            {
+        const result = node.optimisticUpdate({
+            ctx: {
                 args: { taskId: "task-1" },
                 promise: Promise.resolve(null),
             },
-            {
-                apply(tasks) {
-                    tasks[0].isCompleted = true;
-                },
-            }
-        );
+            apply(tasks) {
+                tasks[0].isCompleted = true;
+            },
+        });
 
         expect(result).toBeUndefined();
         expect(node.state).toEqual([
@@ -676,22 +674,122 @@ describe("ConvexQueryNode", () => {
             { id: "task-1", text: "Buy groceries", isCompleted: false },
         ]);
 
-        const result = node.optimisticUpdate(
-            {
+        const result = node.optimisticUpdate({
+            ctx: {
                 args: { taskId: "task-1" },
                 promise: Promise.reject(new Error("Mutation failed")),
             },
-            {
-                apply(tasks) {
-                    tasks[0].isCompleted = true;
-                },
-            }
-        );
+            apply(tasks) {
+                tasks[0].isCompleted = true;
+            },
+        });
 
         expect(result).toBeUndefined();
         expect(node.state).toEqual([
             { id: "task-1", text: "Buy groceries", isCompleted: true },
         ]);
+
+        await Promise.resolve();
+
+        expect(node.state).toEqual([
+            { id: "task-1", text: "Buy groceries", isCompleted: false },
+        ]);
+        expect(node.error?.message).toBe("Mutation failed");
+    });
+
+    it("keeps dirty optimistic state when the server echoes the last clean value", () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(
+            new ConvexQueryNode(client, tasksQuery, {
+                args: { listId: "today" },
+            })
+        );
+        Retree.on(node, "nodeChanged", () => undefined);
+        client.subscriptions[0].callback([
+            { id: "task-1", text: "Buy groceries", isCompleted: false },
+        ]);
+
+        node.optimisticUpdate({
+            apply(tasks) {
+                tasks[0].isCompleted = true;
+            },
+        });
+        client.subscriptions[0].callback([
+            { id: "task-1", text: "Buy groceries", isCompleted: false },
+        ]);
+
+        expect(node.state).toEqual([
+            { id: "task-1", text: "Buy groceries", isCompleted: true },
+        ]);
+    });
+
+    it("clears dirty optimistic state when the server sends a changed value", async () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(
+            new ConvexQueryNode(client, tasksQuery, {
+                args: { listId: "today" },
+            })
+        );
+        Retree.on(node, "nodeChanged", () => undefined);
+        client.subscriptions[0].callback([
+            { id: "task-1", text: "Buy groceries", isCompleted: false },
+        ]);
+
+        node.optimisticUpdate({
+            ctx: {
+                args: { taskId: "task-1" },
+                promise: Promise.reject(new Error("Mutation failed")),
+            },
+            apply(tasks) {
+                tasks[0].isCompleted = true;
+            },
+        });
+        client.subscriptions[0].callback([
+            {
+                id: "task-1",
+                text: "Buy groceries from the server",
+                isCompleted: false,
+            },
+        ]);
+
+        await Promise.resolve();
+
+        expect(node.state).toEqual([
+            {
+                id: "task-1",
+                text: "Buy groceries from the server",
+                isCompleted: false,
+            },
+        ]);
+        expect(node.error).toBeNull();
+    });
+
+    it("rolls dirty optimistic state back when a later mutation fails first", async () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(
+            new ConvexQueryNode(client, tasksQuery, {
+                args: { listId: "today" },
+            })
+        );
+        Retree.on(node, "nodeChanged", () => undefined);
+        client.subscriptions[0].callback([
+            { id: "task-1", text: "Buy groceries", isCompleted: false },
+        ]);
+
+        node.optimisticUpdate({
+            apply(tasks) {
+                tasks[0].isCompleted = true;
+            },
+        });
+        node.optimisticUpdate({
+            ctx: {
+                args: { taskId: "task-1" },
+                promise: Promise.reject(new Error("Mutation failed")),
+            },
+            apply(tasks) {
+                tasks[0].text = "Optimistic text";
+            },
+        });
 
         await Promise.resolve();
 

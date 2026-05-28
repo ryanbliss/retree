@@ -55,6 +55,7 @@ const vitestConfig = defineVitestConfig({
                 test: {
                     name: "core",
                     include: [
+                        "packages/retree-benchmark-cli/**/*.spec.ts",
                         "packages/retree-core/**/*.spec.ts",
                         "packages/retree-core/**/*.spec.tsx",
                         "packages/retree-convex/**/*.spec.ts",

@@ -5,6 +5,7 @@
     "main": "index.js",
     "workspaces": [
         "packages/retree-core",
+        "packages/retree-benchmark-cli",
         "packages/retree-convex",
         "packages/retree-react",
         "samples/01.core-example",
@@ -13,6 +14,7 @@
         "samples/04.convex-react-nextjs"
     ],
     "scripts": {
+        "benchmark": "npm run benchmark --workspace @retreejs/benchmark-cli -- --output-dir ../../benchmarks/results",
         "doctor": "prettier --write . && eslint **/src/**/*.{j,t}s{,x} --fix --no-error-on-unmatched-pattern",
         "predocs": "npm run build --workspace @retreejs/core && npm run build --workspace @retreejs/react && npm run build --workspace @retreejs/convex",
         "docs": "typedoc --options typedoc.json",

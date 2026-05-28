@@ -1,6 +1,6 @@
 import React from "react";
 import { act, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Retree } from "@retreejs/core";
 import { useNode } from "./useNode";
 
@@ -110,5 +110,111 @@ describe("useNode", () => {
         });
 
         expect(screen.getByTestId("factory").textContent).toBe("3");
+    });
+
+    it("shares one Retree listener for multiple subscribers to the same node", () => {
+        const root = trackRoot(Retree.root({ count: 0 }));
+        const onSpy = vi.spyOn(Retree, "on");
+
+        function Probe({ id }: { id: string }) {
+            const state = useNode(root);
+            return <div data-testid={id}>{state.count}</div>;
+        }
+
+        render(
+            <>
+                <Probe id="first" />
+                <Probe id="second" />
+            </>
+        );
+
+        expect(
+            onSpy.mock.calls.filter(
+                ([node, listenerType]) =>
+                    node === root && listenerType === "nodeChanged"
+            )
+        ).toHaveLength(1);
+
+        act(() => {
+            root.count = 1;
+        });
+
+        expect(screen.getByTestId("first").textContent).toBe("1");
+        expect(screen.getByTestId("second").textContent).toBe("1");
+
+        onSpy.mockRestore();
+    });
+
+    it("keeps the shared listener alive until the final subscriber unmounts", () => {
+        const root = trackRoot(Retree.root({ count: 0 }));
+        const onSpy = vi.spyOn(Retree, "on");
+
+        function Probe({ id }: { id: string }) {
+            const state = useNode(root);
+            return <div data-testid={id}>{state.count}</div>;
+        }
+
+        function View({ showFirst }: { showFirst: boolean }) {
+            return (
+                <>
+                    {showFirst ? <Probe id="first" /> : null}
+                    <Probe id="second" />
+                </>
+            );
+        }
+
+        const view = render(<View showFirst />);
+        view.rerender(<View showFirst={false} />);
+
+        act(() => {
+            root.count = 1;
+        });
+
+        expect(screen.queryByTestId("first")).toBeNull();
+        expect(screen.getByTestId("second").textContent).toBe("1");
+
+        view.unmount();
+        render(<Probe id="third" />);
+
+        expect(
+            onSpy.mock.calls.filter(
+                ([node, listenerType]) =>
+                    node === root && listenerType === "nodeChanged"
+            )
+        ).toHaveLength(2);
+
+        onSpy.mockRestore();
+    });
+
+    it("does not leave stale subscribers after Strict Mode remounts", () => {
+        const root = trackRoot(Retree.root({ count: 0 }));
+        const onSpy = vi.spyOn(Retree, "on");
+        let renderCount = 0;
+
+        function Probe() {
+            renderCount += 1;
+            const state = useNode(root);
+            return <div data-testid="strict">{state.count}</div>;
+        }
+
+        render(
+            <React.StrictMode>
+                <Probe />
+            </React.StrictMode>
+        );
+        const subscriptionCountAfterMount = onSpy.mock.calls.filter(
+            ([node, listenerType]) =>
+                node === root && listenerType === "nodeChanged"
+        ).length;
+
+        act(() => {
+            root.count = 1;
+        });
+
+        expect(screen.getByTestId("strict").textContent).toBe("1");
+        expect(renderCount).toBeLessThanOrEqual(4);
+        expect(subscriptionCountAfterMount).toBeGreaterThanOrEqual(1);
+
+        onSpy.mockRestore();
     });
 });

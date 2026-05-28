@@ -52,7 +52,8 @@ export class TasksState extends ConvexNode {
             { taskId },
             {
                 withOptimisticUpdate: (ctx) => {
-                    this.tasks.optimisticUpdate(ctx, {
+                    this.tasks.optimisticUpdate({
+                        ctx,
                         apply(tasks) {
                             const task = tasks.find(
                                 (candidateTask) => candidateTask._id === taskId
@@ -132,7 +133,7 @@ this.connection = this.connectionState();
 
 ## Optimistic updates
 
-`RetreeConvexMutation` accepts `withOptimisticUpdate`, which receives an `OptimisticUpdateContext`. Pass that context to `ConvexQueryNode.optimisticUpdate(...)` with a narrow transform:
+`ConvexQueryNode.optimisticUpdate(...)` accepts a narrow transform and an optional mutation context. Call it without `ctx` for local optimistic state that should stay dirty until Convex sends a changed server value. Pass `ctx` when you also want mutation failure to roll back the dirty state:
 
 ```ts
 const toggleCompleted = this.mutation(api.tasks.toggleCompleted);
@@ -141,7 +142,8 @@ return toggleCompleted(
     { taskId },
     {
         withOptimisticUpdate: (ctx) => {
-            this.tasks.optimisticUpdate(ctx, {
+            this.tasks.optimisticUpdate({
+                ctx,
                 apply(tasks) {
                     const task = tasks.find((candidate) => {
                         return candidate._id === taskId;
@@ -156,7 +158,7 @@ return toggleCompleted(
 );
 ```
 
-If the mutation promise rejects, `ConvexQueryNode` restores the snapshot captured before `apply(...)` ran. You can provide `revert(...)` when you need custom rollback behavior.
+If the mutation promise rejects before a changed server value arrives, `ConvexQueryNode` restores the last clean server value. If Convex sends a changed value first, the dirty optimistic state is cleared and later mutation rejection is ignored. Server echoes that match the last clean value keep the optimistic state in place. You can provide `revert(...)` when you need custom rollback behavior.
 
 ## Reconciliation
 

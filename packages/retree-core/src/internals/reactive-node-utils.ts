@@ -1,13 +1,14 @@
 import { IReactiveDependency, ReactiveNode } from "../ReactiveNode";
 import { TreeNode } from "../types";
-import { getUnproxiedNode } from "./proxy";
 
 export interface IActiveReactiveDependency extends IReactiveDependency {
     unsubscribeListener: (() => void) | undefined;
+    unproxiedNode: TreeNode | undefined;
 }
 
 export interface IPreviousReactiveDependent {
     reactiveNode: ReactiveNode;
+    unproxiedReactiveNode: TreeNode;
     comparisons?: any[];
     index: number;
 }
@@ -18,6 +19,16 @@ let reactiveDependentMap:
 
 let reactiveDependenciesMap:
     | WeakMap<TreeNode, IActiveReactiveDependency[]>
+    | undefined;
+
+let reactiveDependencySubscriptionMap:
+    | WeakMap<
+          TreeNode,
+          {
+              referenceCount: number;
+              unsubscribe: () => void;
+          }
+      >
     | undefined;
 
 export function getReactiveDependencies(
@@ -62,41 +73,31 @@ export function setReactiveDependents(
     unproxiedNode: TreeNode,
     dependent: IPreviousReactiveDependent
 ) {
-    const unproxy = getUnproxiedNode(dependent.reactiveNode);
-    if (!unproxy) {
-        throw new Error(
-            "Unexpected no unproxy node for new dependent node being checked"
-        );
-    }
     const reactiveDeps = getReactiveDependents(unproxiedNode);
     if (!reactiveDeps) {
         reactiveDependentMap?.set(unproxiedNode, [dependent]);
         return;
     }
-    let replacedExisting = false;
-    const dependents = reactiveDeps.map((cDep) => {
-        const cUnproxy = getUnproxiedNode(cDep.reactiveNode);
-        if (!cUnproxy) {
-            throw new Error(
-                "Unexpected no unproxy node for the reactive node being checked"
-            );
+
+    for (const existingDependent of reactiveDeps) {
+        if (
+            existingDependent.unproxiedReactiveNode ===
+                dependent.unproxiedReactiveNode &&
+            existingDependent.index === dependent.index
+        ) {
+            existingDependent.reactiveNode = dependent.reactiveNode;
+            existingDependent.comparisons = dependent.comparisons;
+            return;
         }
-        if (cUnproxy === unproxy) {
-            replacedExisting = true;
-            return dependent;
-        }
-        return cDep;
-    });
-    if (!replacedExisting) {
-        dependents.push(dependent);
     }
 
-    reactiveDependentMap?.set(unproxiedNode, dependents);
+    reactiveDeps.push(dependent);
 }
 
 export function deleteReactiveDependent(
     unproxiedDependentNode: TreeNode,
-    unproxiedDependencyNode: TreeNode
+    unproxiedDependencyNode: TreeNode,
+    dependencyIndex?: number
 ) {
     if (!reactiveDependentMap) {
         reactiveDependentMap = new WeakMap();
@@ -107,17 +108,65 @@ export function deleteReactiveDependent(
         return;
     }
     const newDependents = dependents.filter((dep) => {
-        const unproxiedDep = getUnproxiedNode(dep.reactiveNode);
-        if (!unproxiedDep) {
-            throw new Error(
-                "Unexpected no unproxy node for the reactive node being checked"
-            );
+        if (dep.unproxiedReactiveNode !== unproxiedDependencyNode) {
+            return true;
         }
-        return unproxiedDep !== unproxiedDependencyNode;
+        if (dependencyIndex === undefined) {
+            return false;
+        }
+        return dep.index !== dependencyIndex;
     });
     if (newDependents.length === 0) {
         reactiveDependentMap?.delete(unproxiedDependentNode);
         return;
     }
     reactiveDependentMap.set(unproxiedDependentNode, newDependents);
+}
+
+export function retainReactiveDependencySubscription(
+    unproxiedDependencyNode: TreeNode,
+    subscribe: () => () => void
+): () => void {
+    if (!reactiveDependencySubscriptionMap) {
+        reactiveDependencySubscriptionMap = new WeakMap();
+    }
+
+    const existing = reactiveDependencySubscriptionMap.get(
+        unproxiedDependencyNode
+    );
+    if (existing !== undefined) {
+        existing.referenceCount++;
+        return () =>
+            releaseReactiveDependencySubscription(unproxiedDependencyNode);
+    }
+
+    const unsubscribe = subscribe();
+    reactiveDependencySubscriptionMap.set(unproxiedDependencyNode, {
+        referenceCount: 1,
+        unsubscribe,
+    });
+    return () => releaseReactiveDependencySubscription(unproxiedDependencyNode);
+}
+
+function releaseReactiveDependencySubscription(
+    unproxiedDependencyNode: TreeNode
+) {
+    if (!reactiveDependencySubscriptionMap) {
+        return;
+    }
+
+    const existing = reactiveDependencySubscriptionMap.get(
+        unproxiedDependencyNode
+    );
+    if (existing === undefined) {
+        return;
+    }
+
+    existing.referenceCount--;
+    if (existing.referenceCount > 0) {
+        return;
+    }
+
+    reactiveDependencySubscriptionMap.delete(unproxiedDependencyNode);
+    existing.unsubscribe();
 }

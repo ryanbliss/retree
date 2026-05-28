@@ -18,6 +18,7 @@ import {
     getReactiveDependencies,
     getReactiveDependents,
     IActiveReactiveDependency,
+    retainReactiveDependencySubscription,
     setReactiveDependencies,
     setReactiveDependents,
 } from "./internals/reactive-node-utils";
@@ -27,7 +28,12 @@ import {
     updateReproxyNode,
 } from "./internals/reproxy";
 import { Transactions } from "./internals/transactions";
-import { ReactiveNode } from "./ReactiveNode";
+import {
+    ReactiveNode,
+    RUN_CHANGED_EFFECT_SYMBOL,
+    RUN_OBSERVED_EFFECT_SYMBOL,
+    RUN_UNOBSERVED_EFFECT_SYMBOL,
+} from "./ReactiveNode";
 import {
     TRetreeEvents,
     TNodeChangedListener,
@@ -35,6 +41,11 @@ import {
     TreeNode,
     TRetreeChangedEvents,
 } from "./types";
+
+export interface RetreeSelectOptions<TSelected = unknown> {
+    equals?: (previous: TSelected, next: TSelected) => boolean;
+    listenerType?: TRetreeChangedEvents;
+}
 
 type TInternalNodeChangedListener = (
     node: TreeNode,
@@ -59,6 +70,11 @@ export class Retree {
     private static nodeRemovedListeners: Map<TreeNode, (() => void)[]> =
         new Map();
     private static nodeChangeEmitter = new TreeChangeEmitter();
+    private static reactiveDependentNodeChangedListener = (
+        reproxy: TreeNode
+    ) => {
+        this.handleReactiveDependentNodeChanged(reproxy);
+    };
 
     /**
      * @deprecated
@@ -140,6 +156,12 @@ export class Retree {
                 : listenerType === "treeChanged"
                 ? this.treeChangedListeners
                 : this.nodeRemovedListeners;
+        const isReactiveChangeListener =
+            listenerType === "nodeChanged" || listenerType === "treeChanged";
+        const wasObserved =
+            node instanceof ReactiveNode &&
+            isReactiveChangeListener &&
+            this.hasReactiveChangedListeners(unproxiedNode);
 
         let listeners = relevantListenerMap.get(unproxiedNode);
         if (!listeners) {
@@ -148,10 +170,10 @@ export class Retree {
         } else {
             listeners.push(callback as TRetreeListeners);
         }
-        if (
-            node instanceof ReactiveNode &&
-            (listenerType === "nodeChanged" || listenerType === "treeChanged")
-        ) {
+        if (node instanceof ReactiveNode && isReactiveChangeListener) {
+            if (!wasObserved) {
+                ReactiveNode[RUN_OBSERVED_EFFECT_SYMBOL](node);
+            }
             this.handleReactiveNode(node, unproxiedNode);
         }
         return this.buildUnsubscribeCallback(
@@ -159,6 +181,40 @@ export class Retree {
             node,
             callback as TRetreeListeners,
             relevantListenerMap
+        );
+    }
+
+    /**
+     * Subscribe to a derived value from any Retree-managed node.
+     *
+     * @remarks
+     * `select` recomputes the selected value when the observed node emits,
+     * then calls `callback` only when the selected value changes.
+     * This is a subscription primitive, not a memo cache: use `memo` /
+     * `fnMemo` to cache computation, and `select` to narrow notifications.
+     */
+    static select<TNode extends TreeNode, TSelected>(
+        node: TNode,
+        selector: (node: TNode) => TSelected,
+        callback: (next: TSelected, previous: TSelected) => void,
+        options: RetreeSelectOptions<TSelected> = {}
+    ): () => void {
+        const equals = options.equals ?? Object.is;
+        const listenerType = options.listenerType ?? "nodeChanged";
+        let previous = selector(getReproxyNode(node));
+
+        return this.on<TNode, TRetreeChangedEvents>(
+            node,
+            listenerType,
+            (reproxy) => {
+                const next = selector(reproxy);
+                if (equals(previous, next)) {
+                    return;
+                }
+                const previousToEmit = previous;
+                previous = next;
+                callback(next, previousToEmit);
+            }
         );
     }
 
@@ -237,6 +293,11 @@ export class Retree {
      ```
      */
     static runTransaction(transaction: () => void) {
+        if (Transactions.runningTransaction) {
+            transaction();
+            return;
+        }
+
         Transactions.runningTransaction = true;
         try {
             transaction();
@@ -264,9 +325,16 @@ export class Retree {
         if (!rawNode) {
             throw new Error("Cannot clear listeners for an unproxied `node`");
         }
+        const shouldStopReactiveNode =
+            node instanceof ReactiveNode &&
+            this.hasReactiveChangedListeners(rawNode);
         this.nodeChangedListeners.delete(rawNode);
         this.nodeRemovedListeners.delete(rawNode);
         this.treeChangedListeners.delete(rawNode);
+        if (shouldStopReactiveNode) {
+            this.stopReactiveNode(node, rawNode);
+            ReactiveNode[RUN_UNOBSERVED_EFFECT_SYMBOL](node);
+        }
         if (
             this.treeChangedListeners.size === 0 &&
             this.nodeChangedListeners.size === 0 &&
@@ -276,6 +344,10 @@ export class Retree {
         }
         if (shallow) return;
         Object.values(node).forEach((child) => {
+            if (child === null || typeof child !== "object") {
+                return;
+            }
+
             this.clearListeners(child);
         });
     }
@@ -295,8 +367,12 @@ export class Retree {
                     relevantListenerMap.delete(unproxiedNode);
                 }
             }
+            const isReactiveChangeListenerMap =
+                relevantListenerMap === this.nodeChangedListeners ||
+                relevantListenerMap === this.treeChangedListeners;
             if (
                 proxiedNode instanceof ReactiveNode &&
+                isReactiveChangeListenerMap &&
                 (_listeners === undefined || _listeners.length === 0)
             ) {
                 // Check if listening to this node from other reactive listener type.
@@ -310,6 +386,7 @@ export class Retree {
                 ) {
                     // Stop listening to reactive dependencies
                     this.stopReactiveNode(proxiedNode, unproxiedNode);
+                    ReactiveNode[RUN_UNOBSERVED_EFFECT_SYMBOL](proxiedNode);
                 }
             }
             if (
@@ -321,6 +398,17 @@ export class Retree {
             }
         };
         return unsubscribe.bind(this);
+    }
+
+    private static hasReactiveChangedListeners(unproxiedNode: TreeNode) {
+        const nodeChangedListeners =
+            this.nodeChangedListeners.get(unproxiedNode) ?? [];
+        const treeChangedListeners =
+            this.treeChangedListeners.get(unproxiedNode) ?? [];
+
+        return (
+            nodeChangedListeners.length > 0 || treeChangedListeners.length > 0
+        );
     }
 
     private static handleNotifyTreeChanged(
@@ -436,34 +524,21 @@ export class Retree {
             proxyNode: TCustomProxy<TreeNode>,
             reproxyNode: TreeNode
         ) => {
-            // If this is a reactive proxy node, update comparisons and listeners
-            if (proxyNode instanceof ReactiveNode) {
-                this.handleReactiveNode(proxyNode, unproxiedNode);
+            if (
+                proxyNode instanceof ReactiveNode &&
+                !Transactions.runningTransaction
+            ) {
+                this.runTransaction(() => {
+                    this.handleNodeChanged(
+                        unproxiedNode,
+                        proxyNode,
+                        reproxyNode
+                    );
+                });
+                return;
             }
-            // If in a skipEmit transaction state, skip emitting nodeChanged
-            if (!Transactions.skipEmit) {
-                const emitNodeChangedListeners = () => {
-                    const nodeChangedListnersToNotify =
-                        this.nodeChangedListeners.get(unproxiedNode) ?? [];
-                    // We copy the list because it could get changed if the first callback triggers an unsubscribe
-                    [...nodeChangedListnersToNotify].forEach((callback) => {
-                        callback(reproxyNode);
-                    });
-                };
-                // If running a transaction, schedule this to emit later.
-                // That way if this same node gets changed later, we can only emit once for that node.
-                if (Transactions.runningTransaction) {
-                    Transactions.upsertPendingTransaction(unproxiedNode, {
-                        emitNodeChanged: emitNodeChangedListeners,
-                    });
-                } else {
-                    // emit immediately
-                    emitNodeChangedListeners();
-                }
-            }
-            // Still handle here so we reproxy parents, despite skipping emit later in biz logic
-            // Note that we should never have gotten this far if skipReproxy is true, so we skip checking again
-            this.handleNotifyTreeChanged(unproxiedNode, proxyNode, proxyNode);
+
+            this.handleNodeChanged(unproxiedNode, proxyNode, reproxyNode);
         };
         this.nodeChangeListener = _nodeChangeListener.bind(this);
         this.nodeChangeEmitter.on("nodeChanged", this.nodeChangeListener);
@@ -494,6 +569,56 @@ export class Retree {
         this.nodeRemovedListener = _nodeRemovedListener.bind(this);
         this.nodeChangeEmitter.on("nodeRemoved", this.nodeRemovedListener);
     }
+
+    private static handleNodeChanged(
+        unproxiedNode: TreeNode,
+        proxyNode: TCustomProxy<TreeNode>,
+        reproxyNode: TreeNode
+    ) {
+        const isReactiveNode = proxyNode instanceof ReactiveNode;
+        if (isReactiveNode) {
+            this.handleReactiveNode(proxyNode, unproxiedNode);
+        }
+
+        const emitNodeChangedListeners = () => {
+            const nodeChangedListnersToNotify =
+                this.nodeChangedListeners.get(unproxiedNode) ?? [];
+            // We copy the list because it could get changed if the first callback triggers an unsubscribe
+            [...nodeChangedListnersToNotify].forEach((callback) => {
+                callback(reproxyNode);
+            });
+        };
+
+        const scheduleNodeChangedListeners = () => {
+            // If running a transaction, schedule this to emit later.
+            // That way if this same node gets changed later, we can only emit once for that node.
+            if (Transactions.runningTransaction) {
+                Transactions.upsertPendingTransaction(unproxiedNode, {
+                    emitNodeChanged: emitNodeChangedListeners,
+                });
+                return;
+            }
+
+            // emit immediately
+            emitNodeChangedListeners();
+        };
+
+        if (!Transactions.skipEmit) {
+            scheduleNodeChangedListeners();
+        }
+
+        // Still handle here so we reproxy parents, despite skipping emit later in biz logic.
+        // If no treeChanged listeners exist, no parent can observe this work.
+        // Note that we should never have gotten this far if skipReproxy is true, so we skip checking again.
+        if (this.treeChangedListeners.size > 0) {
+            this.handleNotifyTreeChanged(unproxiedNode, proxyNode, proxyNode);
+        }
+
+        if (isReactiveNode) {
+            ReactiveNode[RUN_CHANGED_EFFECT_SYMBOL](proxyNode);
+        }
+    }
+
     private static stopListening() {
         if (this.nodeChangeListener) {
             this.nodeChangeEmitter.off("nodeChanged", this.nodeChangeListener);
@@ -533,9 +658,28 @@ export class Retree {
         proxiedDependentNode: ReactiveNode,
         unproxiedDependentNode: TreeNode
     ) {
-        const current = proxiedDependentNode.dependencies;
-        const previous = getReactiveDependencies(unproxiedDependentNode);
-        if (previous && previous.length !== current.length) {
+        const currentDependencies = proxiedDependentNode.dependencies;
+        const previousDependencies = getReactiveDependencies(
+            unproxiedDependentNode
+        );
+        if (currentDependencies.length === 0) {
+            if (
+                previousDependencies !== undefined &&
+                previousDependencies.length !== 0
+            ) {
+                throw new Error(
+                    "ReactiveNode length of dependencies does not equal previous value. Please ensure your dependencies list is consistent in its length and ordering."
+                );
+            }
+            if (previousDependencies !== undefined) {
+                deleteReactiveDependencies(unproxiedDependentNode);
+            }
+            return;
+        }
+        if (
+            previousDependencies &&
+            previousDependencies.length !== currentDependencies.length
+        ) {
             throw new Error(
                 "ReactiveNode length of dependencies does not equal previous value. Please ensure your dependencies list is consistent in its length and ordering."
             );
@@ -543,27 +687,32 @@ export class Retree {
         const newActiveDependencies: IActiveReactiveDependency[] = [];
         for (
             let depIndex = 0;
-            depIndex < proxiedDependentNode.dependencies.length;
+            depIndex < currentDependencies.length;
             depIndex++
         ) {
-            const depPrevious = previous?.[depIndex];
-            depPrevious?.unsubscribeListener?.();
-            const currentDependency =
-                proxiedDependentNode.dependencies[depIndex];
-            const prevDependencyNode = depPrevious?.node;
+            const previousDependency = previousDependencies?.[depIndex];
+            const currentDependency = currentDependencies[depIndex];
             const newDependencyNode = currentDependency.node;
             let unsubscribe: (() => void) | undefined;
-            if (prevDependencyNode && !newDependencyNode) {
-                const prevUnproxiedNode = getUnproxiedNode(prevDependencyNode);
-                if (!prevUnproxiedNode) {
-                    throw new Error(
-                        "Unexpected unproxied node for previous dependent reactive node"
-                    );
-                }
-                deleteReactiveDependent(
-                    prevUnproxiedNode,
-                    unproxiedDependentNode
+            const previousUnproxiedDependencyNode =
+                previousDependency?.unproxiedNode;
+            let currentUnproxiedDependencyNode: TreeNode | undefined;
+
+            if (
+                previousDependency?.node !== undefined &&
+                previousDependency.node !== null &&
+                previousUnproxiedDependencyNode === undefined
+            ) {
+                throw new Error(
+                    "Unexpected missing cached unproxied node for previous dependent reactive node"
                 );
+            }
+            if (
+                previousDependency !== undefined &&
+                previousDependency.node === newDependencyNode
+            ) {
+                currentUnproxiedDependencyNode =
+                    previousDependency.unproxiedNode;
             } else if (newDependencyNode) {
                 const unproxiedDependencyNode =
                     getUnproxiedNode(newDependencyNode);
@@ -572,22 +721,57 @@ export class Retree {
                         "Unexpected unproxied node for current dependent reactive node"
                     );
                 }
-                setReactiveDependents(unproxiedDependencyNode, {
+                currentUnproxiedDependencyNode = unproxiedDependencyNode;
+            }
+
+            if (
+                previousUnproxiedDependencyNode !== undefined &&
+                previousUnproxiedDependencyNode ===
+                    currentUnproxiedDependencyNode
+            ) {
+                setReactiveDependents(previousUnproxiedDependencyNode, {
                     reactiveNode: proxiedDependentNode,
+                    unproxiedReactiveNode: unproxiedDependentNode,
                     comparisons: currentDependency.comparisons,
                     index: depIndex,
                 });
-                unsubscribe = this.on(
-                    newDependencyNode,
-                    // TODO: figure out if I should support treeChanged for this...seems expensive
-                    "nodeChanged",
-                    this.handleReactiveDependentNodeChanged.bind(this)
-                );
+                unsubscribe = previousDependency?.unsubscribeListener;
+            } else {
+                previousDependency?.unsubscribeListener?.();
+                if (previousUnproxiedDependencyNode !== undefined) {
+                    deleteReactiveDependent(
+                        previousUnproxiedDependencyNode,
+                        unproxiedDependentNode,
+                        depIndex
+                    );
+                }
+                if (currentUnproxiedDependencyNode !== undefined) {
+                    setReactiveDependents(currentUnproxiedDependencyNode, {
+                        reactiveNode: proxiedDependentNode,
+                        unproxiedReactiveNode: unproxiedDependentNode,
+                        comparisons: currentDependency.comparisons,
+                        index: depIndex,
+                    });
+                    if (newDependencyNode) {
+                        unsubscribe = retainReactiveDependencySubscription(
+                            currentUnproxiedDependencyNode,
+                            () =>
+                                this.on(
+                                    newDependencyNode,
+                                    // TODO: figure out if I should support treeChanged for this...seems expensive
+                                    "nodeChanged",
+                                    this.reactiveDependentNodeChangedListener
+                                )
+                        );
+                    }
+                }
             }
+
             newActiveDependencies.push({
                 node: currentDependency.node,
                 comparisons: currentDependency.comparisons,
                 unsubscribeListener: unsubscribe,
+                unproxiedNode: currentUnproxiedDependencyNode,
             });
         }
         // Set reactive dependencies
@@ -598,32 +782,21 @@ export class Retree {
         proxiedNode: ReactiveNode,
         unproxiedNode: TreeNode
     ) {
-        const current = proxiedNode.dependencies;
         const previous = getReactiveDependencies(unproxiedNode);
-        if (previous && previous.length !== current.length) {
-            throw new Error(
-                "ReactiveNode length of dependencies does not equal previous value. Please ensure your dependencies list is consistent in its length and ordering."
-            );
+        if (!previous) {
+            deleteReactiveDependencies(unproxiedNode);
+            return;
         }
-        for (
-            let depIndex = 0;
-            depIndex < proxiedNode.dependencies.length;
-            depIndex++
-        ) {
-            const depPrevious = previous?.[depIndex];
+
+        for (let depIndex = 0; depIndex < previous.length; depIndex++) {
+            const depPrevious = previous[depIndex];
             depPrevious?.unsubscribeListener?.();
-            const prevDependentNode = depPrevious?.node;
-            if (prevDependentNode) {
-                const prevUnproxiedDependentNode =
-                    getUnproxiedNode(prevDependentNode);
-                if (!prevUnproxiedDependentNode) {
-                    throw new Error(
-                        "Unexpected unproxied node for previous dependent reactive node"
-                    );
-                }
+            const prevUnproxiedDependentNode = depPrevious?.unproxiedNode;
+            if (prevUnproxiedDependentNode !== undefined) {
                 deleteReactiveDependent(
                     prevUnproxiedDependentNode,
-                    unproxiedNode
+                    unproxiedNode,
+                    depIndex
                 );
             }
         }

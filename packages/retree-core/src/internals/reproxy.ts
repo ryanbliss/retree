@@ -10,10 +10,12 @@ import {
     getBaseProxy,
     getUnproxiedNode,
     FUNCTION_NAMES_BIND_TO_RAW,
+    isInternalSlotInstance,
 } from "./proxy";
 import { getReactiveNodeGetter, popMemoGetter, pushMemoGetter } from "./memo";
 import {
     ICustomProxyHandler,
+    isCustomProxy,
     proxiedChildrenKey,
     unproxiedBaseNodeKey,
     proxiedParentKey,
@@ -77,7 +79,7 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                     prop === COLLECTED_KEYS_SYMBOL ||
                     target[COLLECTED_KEYS_SYMBOL].has(prop)
                 ) {
-                    return Reflect.get(target, prop, receiver);
+                    return Reflect.get(target, prop, target);
                 }
             }
             if (
@@ -93,9 +95,9 @@ function buildReproxy<T extends TreeNode = TreeNode>(
             }
             const baseProxy: TCustomProxy<T> = getBaseProxy(receiver);
             const rawNode = getUnproxiedNode(baseProxy);
-            // Map/Set methods need internal slots on `this`. Delegate property access to the
+            // Some built-in methods need internal slots on `this`. Delegate property access to the
             // base proxy so the bind/wrap logic in buildProxy is reused (and mutations emit).
-            if (rawNode instanceof Map || rawNode instanceof Set) {
+            if (isInternalSlotInstance(rawNode)) {
                 return Reflect.get(baseProxy, prop, baseProxy);
             }
             const reproxy = getReproxyNode(baseProxy);
@@ -123,9 +125,23 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                 }
                 return value.bind(reproxy);
             }
+            if (value !== null && typeof value === "object") {
+                const baseValue = Reflect.get(baseProxy, prop, baseProxy);
+                if (isCustomProxy(baseValue)) {
+                    return getReproxyNode(baseValue) ?? baseValue;
+                }
+            }
             return value;
         },
         set(target, prop, newValue, receiver) {
+            if (target instanceof ReactiveNode) {
+                if (
+                    prop === COLLECTED_KEYS_SYMBOL ||
+                    target[COLLECTED_KEYS_SYMBOL].has(prop)
+                ) {
+                    return Reflect.set(target, prop, newValue, target);
+                }
+            }
             return Reflect.set(target, prop, newValue, receiver);
         },
     };
