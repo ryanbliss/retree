@@ -96,6 +96,24 @@ class ObservedLifecycleNode extends ReactiveNode {
     }
 }
 
+class SharedDependencyTargetNode extends ReactiveNode {
+    public values: number[] = [];
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class SharedDependencyNode extends ReactiveNode {
+    constructor(public target: SharedDependencyTargetNode) {
+        super();
+    }
+
+    get dependencies() {
+        return [this.dependency(this.target.values)];
+    }
+}
+
 describe("ReactiveNode", () => {
     it("emits only when comparison values change", () => {
         const root = trackRoot(Retree.root(new EvenNumberNode()));
@@ -183,5 +201,64 @@ describe("ReactiveNode", () => {
 
         unsubscribeTreeChanged();
         expect(root.unobservedCount).toBe(1);
+    });
+
+    it("shares one Retree listener for many dependents on the same dependency node", () => {
+        const target = trackRoot(Retree.root(new SharedDependencyTargetNode()));
+        const first = trackRoot(Retree.root(new SharedDependencyNode(target)));
+        const second = trackRoot(Retree.root(new SharedDependencyNode(target)));
+        const onSpy = vi.spyOn(Retree, "on");
+
+        const unsubscribeFirst = Retree.on(first, "nodeChanged", vi.fn());
+        const unsubscribeSecond = Retree.on(second, "nodeChanged", vi.fn());
+
+        expect(
+            onSpy.mock.calls.filter(
+                ([node, listenerType]) =>
+                    node === target.values && listenerType === "nodeChanged"
+            )
+        ).toHaveLength(1);
+
+        unsubscribeFirst();
+        unsubscribeSecond();
+        const third = trackRoot(Retree.root(new SharedDependencyNode(target)));
+        const unsubscribeThird = Retree.on(third, "nodeChanged", vi.fn());
+
+        expect(
+            onSpy.mock.calls.filter(
+                ([node, listenerType]) =>
+                    node === target.values && listenerType === "nodeChanged"
+            )
+        ).toHaveLength(2);
+        unsubscribeThird();
+        onSpy.mockRestore();
+    });
+
+    it("keeps shared dependency listeners alive until the final dependent unsubscribes", () => {
+        const target = trackRoot(Retree.root(new SharedDependencyTargetNode()));
+        const first = trackRoot(Retree.root(new SharedDependencyNode(target)));
+        const second = trackRoot(Retree.root(new SharedDependencyNode(target)));
+        const firstChanged = vi.fn();
+        const secondChanged = vi.fn();
+        const unsubscribeFirst = Retree.on(first, "nodeChanged", firstChanged);
+        const unsubscribeSecond = Retree.on(
+            second,
+            "nodeChanged",
+            secondChanged
+        );
+
+        target.values.push(1);
+        expect(firstChanged).toHaveBeenCalledTimes(1);
+        expect(secondChanged).toHaveBeenCalledTimes(1);
+
+        unsubscribeFirst();
+        target.values.push(2);
+        expect(firstChanged).toHaveBeenCalledTimes(1);
+        expect(secondChanged).toHaveBeenCalledTimes(2);
+
+        unsubscribeSecond();
+        target.values.push(3);
+        expect(firstChanged).toHaveBeenCalledTimes(1);
+        expect(secondChanged).toHaveBeenCalledTimes(2);
     });
 });

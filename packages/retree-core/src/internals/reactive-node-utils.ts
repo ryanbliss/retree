@@ -20,6 +20,16 @@ let reactiveDependenciesMap:
     | WeakMap<TreeNode, IActiveReactiveDependency[]>
     | undefined;
 
+let reactiveDependencySubscriptionMap:
+    | WeakMap<
+          TreeNode,
+          {
+              referenceCount: number;
+              unsubscribe: () => void;
+          }
+      >
+    | undefined;
+
 export function getReactiveDependencies(
     unproxiedNode: TreeNode
 ): IActiveReactiveDependency[] | undefined {
@@ -120,4 +130,52 @@ export function deleteReactiveDependent(
         return;
     }
     reactiveDependentMap.set(unproxiedDependentNode, newDependents);
+}
+
+export function retainReactiveDependencySubscription(
+    unproxiedDependencyNode: TreeNode,
+    subscribe: () => () => void
+): () => void {
+    if (!reactiveDependencySubscriptionMap) {
+        reactiveDependencySubscriptionMap = new WeakMap();
+    }
+
+    const existing = reactiveDependencySubscriptionMap.get(
+        unproxiedDependencyNode
+    );
+    if (existing !== undefined) {
+        existing.referenceCount++;
+        return () =>
+            releaseReactiveDependencySubscription(unproxiedDependencyNode);
+    }
+
+    const unsubscribe = subscribe();
+    reactiveDependencySubscriptionMap.set(unproxiedDependencyNode, {
+        referenceCount: 1,
+        unsubscribe,
+    });
+    return () => releaseReactiveDependencySubscription(unproxiedDependencyNode);
+}
+
+function releaseReactiveDependencySubscription(
+    unproxiedDependencyNode: TreeNode
+) {
+    if (!reactiveDependencySubscriptionMap) {
+        return;
+    }
+
+    const existing = reactiveDependencySubscriptionMap.get(
+        unproxiedDependencyNode
+    );
+    if (existing === undefined) {
+        return;
+    }
+
+    existing.referenceCount--;
+    if (existing.referenceCount > 0) {
+        return;
+    }
+
+    reactiveDependencySubscriptionMap.delete(unproxiedDependencyNode);
+    existing.unsubscribe();
 }

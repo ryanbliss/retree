@@ -43,24 +43,24 @@ Acceptance:
 
 Goal: prevent many `ReactiveNode`s that depend on the same node from registering duplicate Retree listeners that each scan the same dependent list.
 
--   [ ] Add an internal dependency subscription registry keyed by unproxied dependency node.
--   [ ] Store one Retree `nodeChanged` listener per dependency node, with a reference count for active dependent edges.
--   [ ] Make reactive dependency cleanup decrement the shared subscription ref count and unsubscribe only when the last edge is removed.
--   [ ] Avoid rebinding `handleReactiveDependentNodeChanged` for every dependency edge.
--   [ ] Preserve current `ReactiveNode.dependencies` behavior:
-    -   [ ] fixed dependency length/order requirement,
-    -   [ ] comparison array behavior,
-    -   [ ] `onObserved` / `onUnobserved`,
-    -   [ ] `onChanged`,
-    -   [ ] transaction batching.
--   [ ] Add tests proving many dependents on the same dependency node trigger one dependency listener fan-out, not repeated fan-out scans.
--   [ ] Add tests proving dependency cleanup removes shared listeners after the final dependent unsubscribes.
+-   [x] Add an internal dependency subscription registry keyed by unproxied dependency node.
+-   [x] Store one Retree `nodeChanged` listener per dependency node, with a reference count for active dependent edges.
+-   [x] Make reactive dependency cleanup decrement the shared subscription ref count and unsubscribe only when the last edge is removed.
+-   [x] Avoid rebinding `handleReactiveDependentNodeChanged` for every dependency edge.
+-   [x] Preserve current `ReactiveNode.dependencies` behavior:
+    -   [x] fixed dependency length/order requirement,
+    -   [x] comparison array behavior,
+    -   [x] `onObserved` / `onUnobserved`,
+    -   [x] `onChanged`,
+    -   [x] transaction batching.
+-   [x] Add tests proving many dependents on the same dependency node trigger one dependency listener fan-out, not repeated fan-out scans.
+-   [x] Add tests proving dependency cleanup removes shared listeners after the final dependent unsubscribes.
 
 Acceptance:
 
--   [ ] Dependency fan-out benchmark improves for shared dependency nodes.
--   [ ] Existing `ReactiveNode` tests pass without public API changes.
--   [ ] New tests cover shared listener lifecycle and cleanup.
+-   [x] Dependency fan-out benchmark improves for shared dependency nodes.
+-   [x] Existing `ReactiveNode` tests pass without public API changes.
+-   [x] New tests cover shared listener lifecycle and cleanup.
 
 ## Phase 2: Reactive Dependency Diffing
 

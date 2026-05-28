@@ -18,6 +18,7 @@ import {
     getReactiveDependencies,
     getReactiveDependents,
     IActiveReactiveDependency,
+    retainReactiveDependencySubscription,
     setReactiveDependencies,
     setReactiveDependents,
 } from "./internals/reactive-node-utils";
@@ -64,6 +65,11 @@ export class Retree {
     private static nodeRemovedListeners: Map<TreeNode, (() => void)[]> =
         new Map();
     private static nodeChangeEmitter = new TreeChangeEmitter();
+    private static reactiveDependentNodeChangedListener = (
+        reproxy: TreeNode
+    ) => {
+        this.handleReactiveDependentNodeChanged(reproxy);
+    };
 
     /**
      * @deprecated
@@ -654,11 +660,15 @@ export class Retree {
                     comparisons: currentDependency.comparisons,
                     index: depIndex,
                 });
-                unsubscribe = this.on(
-                    newDependencyNode,
-                    // TODO: figure out if I should support treeChanged for this...seems expensive
-                    "nodeChanged",
-                    this.handleReactiveDependentNodeChanged.bind(this)
+                unsubscribe = retainReactiveDependencySubscription(
+                    unproxiedDependencyNode,
+                    () =>
+                        this.on(
+                            newDependencyNode,
+                            // TODO: figure out if I should support treeChanged for this...seems expensive
+                            "nodeChanged",
+                            this.reactiveDependentNodeChangedListener
+                        )
                 );
             }
             newActiveDependencies.push({
