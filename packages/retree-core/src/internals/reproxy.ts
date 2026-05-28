@@ -15,6 +15,7 @@ import {
 import { getReactiveNodeGetter, popMemoGetter, pushMemoGetter } from "./memo";
 import {
     ICustomProxyHandler,
+    isCustomProxy,
     proxiedChildrenKey,
     unproxiedBaseNodeKey,
     proxiedParentKey,
@@ -123,6 +124,12 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                     return value.bind(rawNode);
                 }
                 return value.bind(reproxy);
+            }
+            if (value !== null && typeof value === "object") {
+                const baseValue = Reflect.get(baseProxy, prop, baseProxy);
+                if (isCustomProxy(baseValue)) {
+                    return getReproxyNode(baseValue) ?? baseValue;
+                }
             }
             return value;
         },

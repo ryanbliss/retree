@@ -207,6 +207,21 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 }
                 return value.bind(baseProxy);
             }
+            if (shouldLazilyProxyProperty(target, prop, value)) {
+                const descriptor = Reflect.getOwnPropertyDescriptor(
+                    target,
+                    prop
+                );
+                if (!shouldKeepRawPropertyValue(descriptor, value)) {
+                    return getOrCreateProxiedChild(
+                        proxyHandler,
+                        prop,
+                        value,
+                        baseProxy,
+                        emitter
+                    );
+                }
+            }
             return value;
         },
         set(target, prop, newValue, receiver) {
@@ -231,15 +246,24 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         return Reflect.set(target, prop, newValue, receiver);
 
                     // If already a proxied object, we simply reparent
-                    // Otherwise, build a new proxy object
+                    // Otherwise, build a new proxy object, unless this is a plain
+                    // object/array child that can be proxied lazily on first read.
                     const parentToSet: IProxyParent<any> = {
                         proxyNode: baseProxy,
                         propName: prop,
                     };
-                    valueToSet = isCustomProxy(newValue)
-                        ? reparentProxy(newValue, parentToSet)
-                        : buildProxy(newValue, emitter, parentToSet);
-                    proxyHandler[proxiedChildrenKey][prop] = valueToSet;
+                    if (isCustomProxy(newValue)) {
+                        valueToSet = reparentProxy(newValue, parentToSet);
+                        proxyHandler[proxiedChildrenKey][prop] = valueToSet;
+                    } else if (
+                        !(target instanceof ReactiveNode) &&
+                        shouldCreatePlainObjectProxyLazily(newValue)
+                    ) {
+                        deleteProxiedChild(proxyHandler, prop);
+                    } else {
+                        valueToSet = buildProxy(newValue, emitter, parentToSet);
+                        proxyHandler[proxiedChildrenKey][prop] = valueToSet;
+                    }
                 } else {
                     deleteProxiedChild(proxyHandler, prop);
                 }
@@ -489,6 +513,13 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     deleteProxiedChild(proxyHandler, prop);
                     return;
                 }
+                if (
+                    !(object instanceof ReactiveNode) &&
+                    shouldCreatePlainObjectProxyLazily(value)
+                ) {
+                    deleteProxiedChild(proxyHandler, prop);
+                    return;
+                }
                 const cProxy = buildProxy(value, emitter, {
                     proxyNode: proxy,
                     propName: prop,
@@ -583,6 +614,63 @@ function shouldKeepRawPropertyValue(
         return false;
     }
     return descriptorRequiresExactDefinedValue(descriptor, descriptor);
+}
+
+function shouldLazilyProxyProperty(
+    target: object,
+    prop: string | symbol,
+    value: unknown
+): value is object {
+    if (prop === "constructor") {
+        return false;
+    }
+    if (!shouldCreatePlainObjectProxyLazily(value)) {
+        return false;
+    }
+    if (target instanceof ReactiveNode) {
+        return false;
+    }
+    return true;
+}
+
+function shouldCreatePlainObjectProxyLazily(value: unknown): value is object {
+    if (!isProxyableObject(value)) {
+        return false;
+    }
+    if (isCustomProxy(value)) {
+        return false;
+    }
+    if (value instanceof ReactiveNode) {
+        return false;
+    }
+    if (isInternalSlotInstance(value)) {
+        return false;
+    }
+    return (
+        Array.isArray(value) ||
+        Object.getPrototypeOf(value) === Object.prototype
+    );
+}
+
+function getOrCreateProxiedChild(
+    proxyHandler: ICustomProxyHandler<any>,
+    prop: string | symbol,
+    value: object,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter
+): object {
+    const cachedChild = proxyHandler[proxiedChildrenKey][prop];
+    if (cachedChild) {
+        return cachedChild;
+    }
+    const parentToSet: IProxyParent<any> = {
+        proxyNode: baseProxy,
+        propName: prop,
+    };
+    const childProxy = buildProxy(value, emitter, parentToSet);
+    const baseChildProxy = getBaseProxy(childProxy);
+    proxyHandler[proxiedChildrenKey][prop] = baseChildProxy;
+    return baseChildProxy;
 }
 
 function isProxyableObject(value: unknown): value is object {

@@ -89,31 +89,31 @@ Acceptance:
 
 Goal: reduce initial `Retree.root(...)` cost and fresh object/array assignment cost without changing public semantics.
 
--   [ ] Change `buildProxy(...)` so plain object and array children are proxied lazily on first access instead of recursively during root creation.
--   [ ] Preserve parent metadata when a lazy child proxy is created.
+-   [x] Change `buildProxy(...)` so plain object and array children are proxied lazily on first access instead of recursively during root creation.
+-   [x] Preserve parent metadata when a lazy child proxy is created.
 -   [ ] Preserve current behavior for:
-    -   [ ] `Retree.parent(child)`,
-    -   [ ] `nodeChanged`,
-    -   [ ] `nodeRemoved`,
-    -   [ ] reproxy identity,
-    -   [ ] ignored `ReactiveNode` fields,
-    -   [ ] non-configurable / non-writable descriptors.
--   [ ] Ensure assigning a fresh object/array stores enough metadata to proxy lazily while still emitting the correct change for the parent node.
--   [ ] Add tests for nested object and array access after lazy proxying.
--   [ ] Add tests for replacing an object/array and then mutating a nested child.
--   [ ] Add tests for removing a lazily proxied child and verifying `nodeRemoved` / parent cleanup.
--   [ ] Run benchmark comparison for:
-    -   [ ] root setup,
-    -   [ ] fresh object assignment,
-    -   [ ] fresh array assignment,
-    -   [ ] direct node mutation,
-    -   [ ] `ReactiveNode.dependencies`.
+    -   [x] `Retree.parent(child)`,
+    -   [x] `nodeChanged`,
+    -   [x] `nodeRemoved`,
+    -   [x] reproxy identity,
+    -   [x] ignored `ReactiveNode` fields,
+    -   [x] non-configurable / non-writable descriptors.
+-   [x] Ensure assigning a fresh object/array stores enough metadata to proxy lazily while still emitting the correct change for the parent node.
+-   [x] Add tests for nested object and array access after lazy proxying.
+-   [x] Add tests for replacing an object/array and then mutating a nested child.
+-   [x] Add tests for removing a lazily proxied child and verifying `nodeRemoved` / parent cleanup.
+-   [x] Run benchmark comparison for:
+    -   [x] root setup,
+    -   [x] fresh object assignment,
+    -   [x] fresh array assignment,
+    -   [x] direct node mutation,
+    -   [x] `ReactiveNode.dependencies`.
 
 Acceptance:
 
--   [ ] Root setup and fresh object/array assignment benchmarks improve.
--   [ ] Existing proxy/reproxy tests pass.
--   [ ] No change to public API.
+-   [x] Root setup and fresh object/array assignment benchmarks improve.
+-   [x] Existing proxy/reproxy tests pass.
+-   [x] No change to public API.
 
 ## Phase 4: Collection Proxying Strategy for Map and Set
 

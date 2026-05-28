@@ -3,6 +3,7 @@ import { Retree } from "./Retree";
 import { Transactions } from "./internals/transactions";
 import { getReproxyNode } from "./internals/reproxy";
 import { getBaseProxy, getCustomProxyHandler } from "./internals/proxy";
+import { proxiedChildrenKey } from "./internals/proxy-types";
 
 const rootsToCleanup: object[] = [];
 
@@ -420,6 +421,71 @@ describe("Retree", () => {
         expect(Retree.parent(root.set)).toBe(root);
         expect(Retree.parent(setItem)).toBe(root.set);
         expect(getReproxyNode(root)).not.toBe(originalRootReproxy);
+    });
+
+    it("lazily proxies nested plain object and array children on first access", () => {
+        const root = trackRoot(
+            Retree.root({
+                child: { grandchild: { value: 1 } },
+                list: [{ value: 2 }],
+            })
+        );
+        const rootHandler = getCustomProxyHandler(root);
+        if (!rootHandler) {
+            throw new Error("Expected root to expose proxy metadata.");
+        }
+
+        expect(Object.keys(rootHandler[proxiedChildrenKey])).toEqual([]);
+
+        const child = root.child;
+        const list = root.list;
+        const listItem = list[0];
+        if (listItem === undefined) {
+            throw new Error("Expected lazy proxied array item to exist.");
+        }
+
+        expect(Retree.parent(child)).toBe(root);
+        expect(Retree.parent(child.grandchild)).toBe(child);
+        expect(Retree.parent(list)).toBe(root);
+        expect(Retree.parent(listItem)).toBe(list);
+    });
+
+    it("emits treeChanged after replacing an object and mutating a lazily proxied nested child", () => {
+        const root = trackRoot(
+            Retree.root<{ child: { grandchild: { value: number } } }>({
+                child: { grandchild: { value: 1 } },
+            })
+        );
+        const treeChanged = vi.fn();
+        Retree.on(root, "treeChanged", treeChanged);
+
+        root.child = { grandchild: { value: 2 } };
+        treeChanged.mockClear();
+        root.child.grandchild.value = 3;
+
+        expect(treeChanged).toHaveBeenCalledTimes(1);
+        expect(root.child.grandchild.value).toBe(3);
+        expect(Retree.parent(root.child.grandchild)).toBe(root.child);
+    });
+
+    it("emits nodeRemoved and clears parent metadata for a lazily proxied removed child", () => {
+        const root = trackRoot(
+            Retree.root<{ child?: { value: number } }>({
+                child: { value: 1 },
+            })
+        );
+        const child = root.child;
+        if (!child) {
+            throw new Error("Expected lazy child to exist before deletion.");
+        }
+        const childRemoved = vi.fn();
+        Retree.on(child, "nodeRemoved", childRemoved);
+
+        const didDelete = delete root.child;
+
+        expect(didDelete).toBe(true);
+        expect(childRemoved).toHaveBeenCalledTimes(1);
+        expect(Retree.parent(child)).toBeNull();
     });
 
     it("enforces the single-parent rule for proxied children", () => {

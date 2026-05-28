@@ -20,6 +20,7 @@ module.exports = [
             "**/demo-packages/**",
             "**/dist/**",
             "**/docs/assets/main.js",
+            "**/_generated/**",
             "**/manifest/**",
             "**/.next/**",
             "**/node_modules/**",
