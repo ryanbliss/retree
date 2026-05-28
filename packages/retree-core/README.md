@@ -250,6 +250,66 @@ class EagerNode extends ReactiveNode {
 }
 ```
 
+## Performance model
+
+Retree is built on JavaScript proxies plus stable "base" proxies and fresh reproxy identities after changes. That model is ergonomic, but the cost is not uniform. The main rule of thumb is to subscribe and read as narrowly as your UI or workflow allows.
+
+### Prefer narrow `nodeChanged` subscriptions
+
+Use `nodeChanged` for hot paths and direct node ownership. Use `treeChanged` when you intentionally need descendant changes from a broad subtree, and treat it as a wider invalidation primitive.
+
+```ts
+Retree.on(todo, "nodeChanged", (nextTodo) => {
+    console.log(nextTodo.checked);
+});
+
+Retree.on(todoList, "treeChanged", (nextList) => {
+    console.log(nextList.todos.length);
+});
+```
+
+`treeChanged` is most expensive when a listener also performs deep reads across the subtree, because the listener is asking Retree to propagate the ancestor change and then traverse the changed graph. If a selector or component only needs one derived value, prefer `Retree.select(...)` on the narrowest node that owns that value.
+
+### Use `ReactiveNode.dependencies` as a narrow bridge
+
+`ReactiveNode.dependencies` is a good way to make one node react to another node without subscribing a broad tree. Keep the getter deterministic and stable:
+
+-   Keep dependency list length and order stable.
+-   Use comparison values when only some changes should emit.
+-   Avoid doing setup, network subscriptions, or synchronization inside `dependencies`; use `onObserved()`, `onUnobserved()`, and `onChanged()` for lifecycle work.
+-   Prefer one dependency on a narrow child node over a dependency on a broad parent.
+
+Retree shares dependency listeners for many dependent nodes that observe the same dependency node, but fan-out still has real work: every dependent may need comparison checks and a reproxy when it should emit.
+
+### Understand preparation and collection costs
+
+Plain object and array fields on `ReactiveNode` are prepared lazily. This makes initial root/proxy setup cheaper, and it avoids preparing subtrees that are never read. The first read of a lazy child pays that proxy preparation cost. If the app wants to pay that cost during a controlled phase, call `prepareTree()` or use `super({ prepare: { autoPrepare: true, depth } })`.
+
+Assignments of new object, array, `Map`, or `Set` values still have work proportional to the values Retree must prepare or later read. Laziness mostly changes when that cost is paid:
+
+-   Untouched assigned subtrees are cheaper because they are not prepared.
+-   Touched assigned paths are prepared once on first access.
+-   Broad loops that repeatedly create and immediately traverse fresh objects will still pay for those fresh objects.
+
+### Listener fan-out and transactions
+
+Each listener is work. Many listeners on the exact same broad node can be slower than fewer listeners on narrower children or selected values. For React, this is why `useNode(child)` and `useSelect(node, selector)` usually scale better than many components reading the same broad parent.
+
+Use `Retree.runTransaction(...)` when multiple synchronous mutations are one logical update. It coalesces listener emission per node during the transaction. It does not make the mutations themselves free, and it is less useful when each mutation targets unrelated nodes that all need distinct notifications.
+
+### Benchmark summary
+
+In stable medium single-worker benchmark runs before and after the recent architecture work:
+
+| Area                                 | Before avg ms | After avg ms | Before P95 ms | After P95 ms |
+| ------------------------------------ | ------------- | ------------ | ------------- | ------------ |
+| `runTransaction`                     | 3.881         | 1.350        | 10.994        | 4.081        |
+| `Reactive dependency fan-out`        | 2.049         | 0.290        | 2.361         | 0.372        |
+| `Reactive dependency update fan-out` | 0.138         | 0.071        | 0.184         | 0.105        |
+| `Direct nodeChanged`                 | 0.269         | 0.170        | 0.391         | 0.351        |
+
+Setup P95 also dropped substantially after lazy preparation. For example, `Direct nodeChanged` setup P95 moved from about `6.146 ms` to about `1.562 ms`. Some measured first-touch mutation tails can move up because laziness defers preparation into the first read; use `prepareTree()` when that tradeoff is undesirable.
+
 ## Opt fields out of reactivity with `@ignore`
 
 `@ignore` is a class-field decorator that excludes a property of a `ReactiveNode` from Retree's reactivity system. Reads and writes still work normally — what's skipped is listener emission. Nested mutations (`this.cache.foo = 1`) and top-level replacement (`this.cache = {...}`) both bypass `nodeChanged` / `treeChanged`, and the proxy will not wrap the field's value or build child proxies underneath it.

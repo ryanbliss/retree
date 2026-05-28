@@ -247,24 +247,24 @@ Acceptance:
 
 Goal: make the performance model clear to users.
 
--   [ ] Update docs with guidance for:
-    -   [ ] avoiding `treeChanged` in hot paths,
-    -   [ ] using `useNode` on narrow child nodes,
-    -   [ ] using `ReactiveNode.dependencies` responsibly,
-    -   [ ] using `useSelect` for derived values,
-    -   [ ] avoiding repeated construction/proxying during React render.
--   [ ] Add a performance guide section explaining:
-    -   [ ] initial proxy cost,
-    -   [ ] collection assignment cost,
-    -   [ ] dependency fan-out,
-    -   [ ] listener fan-out,
-    -   [ ] when `runTransaction` helps.
--   [ ] Include before/after benchmark summaries from the completed phases.
+-   [x] Update docs with guidance for:
+    -   [x] avoiding `treeChanged` in hot paths,
+    -   [x] using `useNode` on narrow child nodes,
+    -   [x] using `ReactiveNode.dependencies` responsibly,
+    -   [x] using `useSelect` for derived values,
+    -   [x] avoiding repeated construction/proxying during React render.
+-   [x] Add a performance guide section explaining:
+    -   [x] initial proxy cost,
+    -   [x] collection assignment cost,
+    -   [x] dependency fan-out,
+    -   [x] listener fan-out,
+    -   [x] when `runTransaction` helps.
+-   [x] Include before/after benchmark summaries from the completed phases.
 
 Acceptance:
 
--   [ ] README and package docs reflect the new architecture and APIs.
--   [ ] Benchmark results are linked or summarized in human-readable guidance.
+-   [x] README and package docs reflect the new architecture and APIs.
+-   [x] Benchmark results are linked or summarized in human-readable guidance.
 
 ## Suggested Approval Boundaries
 

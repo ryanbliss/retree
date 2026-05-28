@@ -360,6 +360,20 @@ While `useTree` is powerful and can make things a lot easier, it is important to
 
 **Tip:** Always use React Dev Tools' profile tab to measure render performance when using `useTree`.
 
+### Performance guidance
+
+Retree performs best when components subscribe to the narrowest node or value they need:
+
+-   Prefer `useNode(child)` for item rows and focused panels.
+-   Prefer `useSelect(node, selector)` for derived values that should only re-render when the selected result changes.
+-   Treat `useTree` / `treeChanged` as broad subtree invalidation, especially in hot paths.
+-   Keep `ReactiveNode.dependencies` stable in length and order, with comparison values when only some dependency changes should emit.
+-   Avoid constructing large Retree roots or `ReactiveNode` graphs during React render; create them once, or initialize them through `useMemo` / `useState`.
+
+Large `ReactiveNode` object and array fields are prepared lazily. This improves initial setup, but the first nested read pays the preparation cost. Use `node.prepareTree({ depth })` or `super({ prepare: { autoPrepare: true, depth } })` if you want to pay that cost during a controlled loading phase.
+
+Recent stable medium benchmark runs show the main direction of the architecture work: `runTransaction` average time dropped from about `3.881 ms` to `1.350 ms`, and `Reactive dependency fan-out` average time dropped from about `2.049 ms` to `0.290 ms`. Setup P95 for direct `nodeChanged` dropped from about `6.146 ms` to `1.562 ms`.
+
 ### Optimize for performance
 
 `Retree` offers useful utility APIs for further optimizing performance, including `ReactiveNode`, `Retree.runTransaction`, and `Retree.runSilent`.

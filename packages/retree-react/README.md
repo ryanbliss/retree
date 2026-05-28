@@ -306,6 +306,37 @@ While `useTree` is powerful and can make things a lot easier, it is important to
 
 **Tip:** Always use React Dev Tools' profile tab to measure render performance when using `useTree`.
 
+## React performance guide
+
+Retree's fastest React path is narrow subscription plus narrow render work:
+
+-   Use `useNode(child)` when a component owns one child node.
+-   Use `useSelect(node, selector)` when a component only needs a derived value.
+-   Use `useTree(node)` when a component truly needs descendant changes from a subtree.
+-   Avoid constructing new Retree roots or large `ReactiveNode` trees during render. Create them outside React render, in stable module state, or with `useMemo` / `useState` initialization.
+
+```tsx
+function TodoRow({ todo }: { todo: Todo }) {
+    const state = useNode(todo);
+    return <input checked={state.checked} readOnly />;
+}
+
+function TodoCount({ todos }: { todos: Todo[] }) {
+    const completed = useSelect(
+        todos,
+        (items) => items.filter((todo) => todo.checked).length,
+        { listenerType: "treeChanged" }
+    );
+    return <span>{completed}</span>;
+}
+```
+
+`useTree` maps to broad descendant invalidation. It is still useful, especially for small local subtrees, but it should not be the default for large app-level roots. If a `useTree` component reads deeply on every render, the render itself becomes part of the benchmark cost.
+
+`ReactiveNode.dependencies` is often a better bridge than `useTree` when one node needs to update from another node. Keep dependency lists stable in length and order, use comparison values to suppress irrelevant changes, and keep setup work in `onObserved()` instead of inside the `dependencies` getter.
+
+Plain object and array fields on `ReactiveNode` are prepared lazily. This reduces initial proxy/setup time, but the first nested read pays the preparation cost. If you want to pay that cost during a loading state, call `node.prepareTree({ depth })` or opt into `super({ prepare: { autoPrepare: true, depth } })`.
+
 ## Optimize for performance
 
 `Retree` offers useful utility APIs for further optimizing performance, including `ReactiveNode`, `Retree.runTransaction`, and `Retree.runSilent`.
