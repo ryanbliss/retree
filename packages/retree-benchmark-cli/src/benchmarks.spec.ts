@@ -28,7 +28,7 @@ describe("benchmark scenarios", () => {
             widthTiers: [profile.widthTiers.low],
         });
 
-        expect(results.scenarios).toHaveLength(9);
+        expect(results.scenarios).toHaveLength(11);
 
         const direct = results.scenarios.find(
             (scenario) => scenario.scenarioId === "direct-node-changed"
@@ -44,8 +44,15 @@ describe("benchmark scenarios", () => {
             (scenario) =>
                 scenario.scenarioId === "listener-fan-out-node-changed"
         );
+        const distinctNodeListeners = results.scenarios.find(
+            (scenario) => scenario.scenarioId === "distinct-node-listeners"
+        );
         const dependencyFanout = results.scenarios.find(
             (scenario) => scenario.scenarioId === "reactive-dependency-fan-out"
+        );
+        const dependencyUpdateFanout = results.scenarios.find(
+            (scenario) =>
+                scenario.scenarioId === "reactive-dependency-update-fan-out"
         );
         const onChangedEffect = results.scenarios.find(
             (scenario) => scenario.scenarioId === "on-changed-effect"
@@ -76,7 +83,10 @@ describe("benchmark scenarios", () => {
         expect(dependency?.cases[0]?.dependencyDepth).toBe(1);
         expect(dependency?.skipped[0]?.reason).toMatch(/deeper than tree/);
         expect(listenerFanout?.cases[0]?.listenerCount).toBe(2);
+        expect(distinctNodeListeners?.cases[0]?.listenerCount).toBe(2);
         expect(dependencyFanout?.cases[0]?.dependencyFanout).toBe(2);
+        expect(dependencyUpdateFanout?.cases[0]?.dependencyFanout).toBe(2);
+        expect(dependencyUpdateFanout?.cases[0]?.dependencyDepth).toBe(1);
         expect(onChangedEffect?.cases[0]?.effectWrites).toBe(1);
         expect(subscriptionChurn?.cases[0]?.measurements[0]?.mutationType).toBe(
             "subscription-cycle"

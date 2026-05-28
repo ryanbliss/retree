@@ -32,6 +32,7 @@ export {
     renderConsoleReport,
     renderConsoleSummaryReport,
     renderMarkdownReport,
+    renderMarkdownVerboseReport,
     writeBenchmarkArtifacts,
     type WrittenBenchmarkArtifacts,
 } from "./report";

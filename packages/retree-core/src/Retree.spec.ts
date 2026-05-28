@@ -361,6 +361,67 @@ describe("Retree", () => {
         expect(childRemoved).toHaveBeenCalledTimes(1);
     });
 
+    it("keeps parent links and reproxy identity correct when an array item is replaced", () => {
+        const root = trackRoot(Retree.root({ list: [{ value: 1 }] }));
+        const originalItem = root.list[0];
+        if (originalItem === undefined) {
+            throw new Error(
+                "Expected an original array item before replacement."
+            );
+        }
+        const originalListReproxy = getReproxyNode(root.list);
+        const itemRemoved = vi.fn();
+        Retree.on(originalItem, "nodeRemoved", itemRemoved);
+
+        root.list[0] = { value: 2 };
+
+        const replacementItem = root.list[0];
+        if (replacementItem === undefined) {
+            throw new Error("Expected a replacement array item.");
+        }
+        expect(itemRemoved).toHaveBeenCalledTimes(1);
+        expect(Retree.parent(originalItem)).toBeNull();
+        expect(Retree.parent(replacementItem)).toBe(root.list);
+        expect(getReproxyNode(root.list)).not.toBe(originalListReproxy);
+    });
+
+    it("parents fresh collection values after map, set, and array replacement", () => {
+        const root = trackRoot(
+            Retree.root({
+                list: [{ value: 1 }],
+                map: new Map<string, { value: number }>([
+                    ["old", { value: 1 }],
+                ]),
+                set: new Set<{ value: number }>([{ value: 1 }]),
+            })
+        );
+        const originalRootReproxy = getReproxyNode(root);
+
+        root.list = [{ value: 2 }];
+        root.map = new Map<string, { value: number }>([["new", { value: 2 }]]);
+        root.set = new Set<{ value: number }>([{ value: 2 }]);
+
+        const listItem = root.list[0];
+        const mapItem = root.map.get("new");
+        const setItem = [...root.set][0];
+        if (listItem === undefined) {
+            throw new Error("Expected replacement array item.");
+        }
+        if (mapItem === undefined) {
+            throw new Error("Expected replacement map item.");
+        }
+        if (setItem === undefined) {
+            throw new Error("Expected replacement set item.");
+        }
+        expect(Retree.parent(root.list)).toBe(root);
+        expect(Retree.parent(listItem)).toBe(root.list);
+        expect(Retree.parent(root.map)).toBe(root);
+        expect(Retree.parent(mapItem)).toBe(root.map);
+        expect(Retree.parent(root.set)).toBe(root);
+        expect(Retree.parent(setItem)).toBe(root.set);
+        expect(getReproxyNode(root)).not.toBe(originalRootReproxy);
+    });
+
     it("enforces the single-parent rule for proxied children", () => {
         const root1 = trackRoot(Retree.root({ child: { value: 1 } }));
         const root2 = trackRoot(

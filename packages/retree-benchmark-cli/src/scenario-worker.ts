@@ -125,9 +125,11 @@ function isScenarioId(value: unknown): value is ScenarioId {
     return (
         value === "ancestor-tree-changed-fan-out" ||
         value === "direct-node-changed" ||
+        value === "distinct-node-listeners" ||
         value === "listener-fan-out-node-changed" ||
         value === "on-changed-effect" ||
         value === "reactive-dependency-fan-out" ||
+        value === "reactive-dependency-update-fan-out" ||
         value === "root-tree-changed" ||
         value === "reactive-dependency-node-changed" ||
         value === "run-transaction" ||

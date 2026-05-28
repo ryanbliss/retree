@@ -6,38 +6,38 @@ This task plan turns [findings-may-27-2026.md](/Users/ryanbliss/Documents/Develo
 
 Goal: make sure each optimization has a benchmark that can show whether it helped, hurt, or simply moved cost elsewhere.
 
--   [ ] Add targeted benchmark cases for assigning fresh broad values:
-    -   [ ] Fresh `Set` with primitive values.
-    -   [ ] Fresh `Set` with object / `ReactiveNode` values.
-    -   [ ] Fresh `Map` with primitive values.
-    -   [ ] Fresh `Map` with object / `ReactiveNode` values.
-    -   [ ] Fresh array and plain object replacement.
--   [ ] Split "new collection assignment setup/proxy cost" from listener emission timing in the JSON and Markdown output.
--   [ ] Add a benchmark dimension or scenario for repeated `ReactiveNode.dependencies` updates where many dependents share the same dependency node.
--   [ ] Add a benchmark that distinguishes:
-    -   [ ] many `useNode`-style listeners attached to one node,
-    -   [ ] many `ReactiveNode` dependency edges attached to one dependency node,
-    -   [ ] many distinct nodes each with one listener.
--   [ ] Add regression assertions around current behavior for:
-    -   [ ] parent tracking after collection replacement,
-    -   [ ] `nodeRemoved` on replaced collection children,
-    -   [ ] `Retree.parent(...)` after map/set/array replacement,
-    -   [ ] reproxy identity changes after collection replacement.
--   [ ] Split benchmark Markdown artifacts into concise and verbose reports:
-    -   [ ] Rename the current full-detail Markdown report to a verbose artifact, such as `retree-benchmark-latest.verbose.md`.
-    -   [ ] Generate a new concise Markdown report as the default `retree-benchmark-latest.md`.
-    -   [ ] Keep the concise report focused on the minimum information needed to infer trends without post-processing raw JSON.
-    -   [ ] Include scenario-level summaries, slowest cases, setup hotspots, mutation warnings, and major dimension trends in the concise report.
-    -   [ ] Exclude giant all-case tables from the concise report unless a section has very few rows.
-    -   [ ] Keep raw per-commit measures and full case detail in JSON and the verbose Markdown report.
+-   [x] Add targeted benchmark cases for assigning fresh broad values:
+    -   [x] Fresh `Set` with primitive values.
+    -   [x] Fresh `Set` with object / `ReactiveNode` values.
+    -   [x] Fresh `Map` with primitive values.
+    -   [x] Fresh `Map` with object / `ReactiveNode` values.
+    -   [x] Fresh array and plain object replacement.
+-   [x] Split "new collection assignment setup/proxy cost" from listener emission timing in the JSON and Markdown output.
+-   [x] Add a benchmark dimension or scenario for repeated `ReactiveNode.dependencies` updates where many dependents share the same dependency node.
+-   [x] Add a benchmark that distinguishes:
+    -   [x] many `useNode`-style listeners attached to one node,
+    -   [x] many `ReactiveNode` dependency edges attached to one dependency node,
+    -   [x] many distinct nodes each with one listener.
+-   [x] Add regression assertions around current behavior for:
+    -   [x] parent tracking after collection replacement,
+    -   [x] `nodeRemoved` on replaced collection children,
+    -   [x] `Retree.parent(...)` after map/set/array replacement,
+    -   [x] reproxy identity changes after collection replacement.
+-   [x] Split benchmark Markdown artifacts into concise and verbose reports:
+    -   [x] Rename the current full-detail Markdown report to a verbose artifact, such as `retree-benchmark-latest.verbose.md`.
+    -   [x] Generate a new concise Markdown report as the default `retree-benchmark-latest.md`.
+    -   [x] Keep the concise report focused on the minimum information needed to infer trends without post-processing raw JSON.
+    -   [x] Include scenario-level summaries, slowest cases, setup hotspots, mutation warnings, and major dimension trends in the concise report.
+    -   [x] Exclude giant all-case tables from the concise report unless a section has very few rows.
+    -   [x] Keep raw per-commit measures and full case detail in JSON and the verbose Markdown report.
 
 Acceptance:
 
--   [ ] Benchmark Markdown has a visible section for fresh collection/object assignment costs.
--   [ ] Benchmark JSON captures setup/proxy time for those assignments separately from listener emission.
--   [ ] Benchmark output includes concise `.md`, verbose `.verbose.md`, and raw `.json` artifacts.
--   [ ] The concise Markdown report can be reviewed directly without writing a separate compaction script from raw JSON.
--   [ ] `npm run test` and `npm run doctor` pass.
+-   [x] Benchmark Markdown has a visible section for fresh collection/object assignment costs.
+-   [x] Benchmark JSON captures setup/proxy time for those assignments separately from listener emission.
+-   [x] Benchmark output includes concise `.md`, verbose `.verbose.md`, and raw `.json` artifacts.
+-   [x] The concise Markdown report can be reviewed directly without writing a separate compaction script from raw JSON.
+-   [x] `npm run test` and `npm run doctor` pass.
 
 ## Phase 1: Reactive Dependency Listener Sharing
 

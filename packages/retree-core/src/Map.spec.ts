@@ -225,6 +225,8 @@ describe("Map within Retree proxy", () => {
 
             root.map.set("a", { count: 5 });
             expect(removed).toHaveBeenCalledTimes(1);
+            expect(Retree.parent(original)).toBeNull();
+            expect(Retree.parent(root.map.get("a")!)).toBe(root.map);
         });
 
         it("emits nodeRemoved when an object value is removed via delete", () => {
@@ -361,6 +363,46 @@ describe("Map within Retree proxy", () => {
             root.set.clear();
 
             expect(nodeChanged).toHaveBeenCalledTimes(4);
+        });
+
+        it("emits nodeRemoved and clears parent links when Set object values are removed", () => {
+            const raw = { count: 0 };
+            const root = trackRoot(
+                Retree.root({
+                    set: new Set<{ count: number }>([raw]),
+                })
+            );
+            const original = [...root.set][0];
+            if (original === undefined) {
+                throw new Error("Expected an original Set object value.");
+            }
+            const removed = vi.fn();
+            Retree.on(original, "nodeRemoved", removed);
+
+            expect(root.set.has(raw)).toBe(true);
+            expect(root.set.has(original)).toBe(true);
+            expect(root.set.delete(original)).toBe(true);
+
+            expect(removed).toHaveBeenCalledTimes(1);
+            expect(Retree.parent(original)).toBeNull();
+        });
+
+        it("parents object values added to a Set", () => {
+            const root = trackRoot(
+                Retree.root({ set: new Set<{ count: number }>() })
+            );
+            const raw = { count: 0 };
+
+            root.set.add(raw);
+
+            const stored = [...root.set][0];
+            if (stored === undefined) {
+                throw new Error("Expected an added Set object value.");
+            }
+            expect(stored).not.toBe(raw);
+            expect(root.set.has(raw)).toBe(true);
+            expect(root.set.has(stored)).toBe(true);
+            expect(Retree.parent(stored)).toBe(root.set);
         });
     });
 });

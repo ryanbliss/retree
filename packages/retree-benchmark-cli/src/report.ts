@@ -11,7 +11,10 @@ import {
 export interface WrittenBenchmarkArtifacts extends BenchmarkArtifactPaths {
     latestJsonPath: string;
     latestMarkdownPath: string;
+    latestVerboseMarkdownPath: string;
     markdown: string;
+    verboseMarkdown: string;
+    verboseMarkdownPath: string;
 }
 
 export async function writeBenchmarkArtifacts(
@@ -27,6 +30,10 @@ export async function writeBenchmarkArtifacts(
     const basename = `retree-benchmark-${timestamp}`;
     const jsonPath = path.join(resolvedOutputDir, `${basename}.json`);
     const markdownPath = path.join(resolvedOutputDir, `${basename}.md`);
+    const verboseMarkdownPath = path.join(
+        resolvedOutputDir,
+        `${basename}.verbose.md`
+    );
     const latestJsonPath = path.join(
         resolvedOutputDir,
         "retree-benchmark-latest.json"
@@ -35,21 +42,31 @@ export async function writeBenchmarkArtifacts(
         resolvedOutputDir,
         "retree-benchmark-latest.md"
     );
+    const latestVerboseMarkdownPath = path.join(
+        resolvedOutputDir,
+        "retree-benchmark-latest.verbose.md"
+    );
     const jsonResults = createJsonResults(results);
     const markdown = renderMarkdownReport(results);
+    const verboseMarkdown = renderMarkdownVerboseReport(results);
     const json = `${JSON.stringify(jsonResults, null, 4)}\n`;
 
     await fs.writeFile(jsonPath, json);
     await fs.writeFile(markdownPath, `${markdown}\n`);
+    await fs.writeFile(verboseMarkdownPath, `${verboseMarkdown}\n`);
     await fs.writeFile(latestJsonPath, json);
     await fs.writeFile(latestMarkdownPath, `${markdown}\n`);
+    await fs.writeFile(latestVerboseMarkdownPath, `${verboseMarkdown}\n`);
 
     return {
         jsonPath,
         latestJsonPath,
         latestMarkdownPath,
+        latestVerboseMarkdownPath,
         markdown,
         markdownPath,
+        verboseMarkdown,
+        verboseMarkdownPath,
     };
 }
 
@@ -68,6 +85,7 @@ export function renderConsoleReport(
             artifacts.markdownPath,
             "green"
         )}`,
+        renderVerboseArtifactLine(artifacts),
         renderLatestArtifactLine(artifacts),
         "",
         renderConsoleBenchmarkReport(results),
@@ -89,16 +107,39 @@ export function renderConsoleSummaryReport(
             artifacts.markdownPath,
             "green"
         )}`,
+        renderVerboseArtifactLine(artifacts),
         renderLatestArtifactLine(artifacts),
-        colorize("Full scenario tables were written to Markdown.", "dim"),
+        colorize(
+            "Concise Markdown is the default report; full scenario tables were written to the verbose Markdown report.",
+            "dim"
+        ),
         "",
         renderConsoleBenchmarkSummary(results),
     ].join("\n");
 }
 
 export function renderMarkdownReport(results: BenchmarkResults) {
+    return renderMarkdownReportWithOptions(results, {
+        includeAllCases: false,
+        includeSkippedDetails: false,
+        title: "Retree Benchmark Results",
+    });
+}
+
+export function renderMarkdownVerboseReport(results: BenchmarkResults) {
+    return renderMarkdownReportWithOptions(results, {
+        includeAllCases: true,
+        includeSkippedDetails: true,
+        title: "Retree Benchmark Results (Verbose)",
+    });
+}
+
+function renderMarkdownReportWithOptions(
+    results: BenchmarkResults,
+    options: MarkdownReportOptions
+) {
     const lines = [
-        "# Retree Benchmark Results",
+        `# ${options.title}`,
         "",
         `Generated: ${results.metadata.generatedAtIso}`,
         `Profile: ${results.metadata.profileName}`,
@@ -125,20 +166,31 @@ export function renderMarkdownReport(results: BenchmarkResults) {
         "",
         renderMarkdownLegend(),
         "",
+        "## Scenario Summary",
+        "",
+        renderMarkdownScenarioSummaryTable(results.scenarios),
+        "",
     ];
 
     for (const scenario of results.scenarios) {
-        lines.push(renderMarkdownScenarioSection(scenario));
+        lines.push(renderMarkdownScenarioSection(scenario, options));
         lines.push("");
     }
 
     return lines.join("\n").trimEnd();
 }
 
+interface MarkdownReportOptions {
+    includeAllCases: boolean;
+    includeSkippedDetails: boolean;
+    title: string;
+}
+
 function renderLatestArtifactLine(artifacts: BenchmarkArtifactPaths) {
     if (
         artifacts.latestJsonPath === undefined ||
-        artifacts.latestMarkdownPath === undefined
+        artifacts.latestMarkdownPath === undefined ||
+        artifacts.latestVerboseMarkdownPath === undefined
     ) {
         return colorize(
             "Latest aliases were not provided for this benchmark run.",
@@ -150,6 +202,19 @@ function renderLatestArtifactLine(artifacts: BenchmarkArtifactPaths) {
         "green"
     )} ${colorize("and", "dim")} ${colorize(
         artifacts.latestMarkdownPath,
+        "green"
+    )} ${colorize("and", "dim")} ${colorize(
+        artifacts.latestVerboseMarkdownPath,
+        "green"
+    )}`;
+}
+
+function renderVerboseArtifactLine(artifacts: BenchmarkArtifactPaths) {
+    if (artifacts.verboseMarkdownPath === undefined) {
+        return colorize("Verbose Markdown report was not provided.", "dim");
+    }
+    return `${colorize("Verbose Markdown:", "bold")} ${colorize(
+        artifacts.verboseMarkdownPath,
         "green"
     )}`;
 }
@@ -176,6 +241,10 @@ function renderMarkdownLegend() {
                     "Many nodeChanged listeners are attached to the same mutated target node.",
                 ],
                 [
+                    "Distinct node listeners",
+                    "Many distinct nodes each have one nodeChanged listener; one listened node is mutated per commit.",
+                ],
+                [
                     "Ancestor treeChanged fan-out",
                     "treeChanged listeners are attached to each node on the primary ancestor path, then the deepest target is mutated.",
                 ],
@@ -186,6 +255,10 @@ function renderMarkdownLegend() {
                 [
                     "Reactive dependency fan-out",
                     "Many dependent roots listen through dependencies that point at the same dependency target.",
+                ],
+                [
+                    "Reactive dependency update fan-out",
+                    "Many dependent roots share one dependency target, but commits mutate a dependent root to measure dependency update overhead.",
                 ],
                 [
                     "onChanged effect",
@@ -289,6 +362,54 @@ function renderMarkdownLegend() {
         renderAlignedTable(
             ["Setup operation", "What it measures"],
             [
+                [
+                    "broad-array-construction",
+                    "Construction of a fresh broad array value before assignment to an already-proxied node.",
+                ],
+                [
+                    "broad-array-assignment",
+                    "Assignment of that fresh broad array to an already-proxied node, including any proxying Retree performs.",
+                ],
+                [
+                    "broad-object-construction",
+                    "Construction of a fresh broad object-record value before assignment to an already-proxied node.",
+                ],
+                [
+                    "broad-object-assignment",
+                    "Assignment of that fresh broad object record to an already-proxied node, including any proxying Retree performs.",
+                ],
+                [
+                    "broad-map-construction",
+                    "Construction of a fresh broad Map before assignment to an already-proxied node.",
+                ],
+                [
+                    "broad-map-assignment",
+                    "Assignment of that fresh broad Map to an already-proxied node, including any proxying Retree performs.",
+                ],
+                [
+                    "broad-primitive-map-construction",
+                    "Construction of a fresh broad Map with primitive values before assignment to an already-proxied node.",
+                ],
+                [
+                    "broad-primitive-map-assignment",
+                    "Assignment of that fresh primitive Map to an already-proxied node, including any proxying Retree performs.",
+                ],
+                [
+                    "broad-primitive-set-construction",
+                    "Construction of a fresh broad Set with primitive values before assignment to an already-proxied node.",
+                ],
+                [
+                    "broad-primitive-set-assignment",
+                    "Assignment of that fresh primitive Set to an already-proxied node, including any proxying Retree performs.",
+                ],
+                [
+                    "broad-set-construction",
+                    "Construction of a fresh broad Set before assignment to an already-proxied node.",
+                ],
+                [
+                    "broad-set-assignment",
+                    "Assignment of that fresh broad Set to an already-proxied node, including any proxying Retree performs.",
+                ],
                 [
                     "case-setup-total",
                     "Total setup time for the case before warmup and measured commits.",
@@ -471,7 +592,10 @@ function renderConsoleScenarioSummaryTable(
     });
 }
 
-function renderMarkdownScenarioSection(scenario: BenchmarkScenarioResult) {
+function renderMarkdownScenarioSection(
+    scenario: BenchmarkScenarioResult,
+    options: MarkdownReportOptions
+) {
     const lines = [`## ${scenario.title}`, ""];
 
     if (scenario.cases.length === 0) {
@@ -497,13 +621,19 @@ function renderMarkdownScenarioSection(scenario: BenchmarkScenarioResult) {
         lines.push("");
         lines.push(renderMarkdownMutationTable(scenario));
         lines.push("");
-        lines.push("### All cases");
-        lines.push("");
-        lines.push(renderMarkdownCaseTable(scenario.cases));
+        if (options.includeAllCases) {
+            lines.push("### All cases");
+            lines.push("");
+            lines.push(renderMarkdownCaseTable(scenario.cases));
+        }
     }
 
     if (scenario.skipped.length > 0) {
         lines.push("");
+        if (!options.includeSkippedDetails) {
+            lines.push(`Skipped cases: ${scenario.skipped.length}`);
+            return lines.join("\n");
+        }
         lines.push("Skipped cases:");
         lines.push("");
         lines.push(renderMarkdownSkippedTable(scenario.skipped));
@@ -535,6 +665,15 @@ function renderConsoleScenarioSection(scenario: BenchmarkScenarioResult) {
 
 function renderMarkdownCaseTable(cases: BenchmarkCaseResult[]) {
     const table = createCaseTable(cases);
+    return renderAlignedTable(table.headers, table.rows, {
+        format: "markdown",
+    });
+}
+
+function renderMarkdownScenarioSummaryTable(
+    scenarios: BenchmarkScenarioResult[]
+) {
+    const table = createScenarioSummaryTable(scenarios);
     return renderAlignedTable(table.headers, table.rows, {
         format: "markdown",
     });

@@ -162,6 +162,13 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         );
                     }
                     if (
+                        target instanceof Set &&
+                        typeof prop === "string" &&
+                        prop === "has"
+                    ) {
+                        return wrapSetHas(target);
+                    }
+                    if (
                         target instanceof Date &&
                         typeof prop === "string" &&
                         isDateMutatingMethod(prop)
@@ -446,6 +453,23 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 Map.prototype.set.call(object, key, childProxy);
             }
         }
+    } else if (object instanceof Set) {
+        const values = Array.from(object.values());
+        for (const value of values) {
+            if (value !== null && typeof value === "object") {
+                const parentToSet: IProxyParent<any> = {
+                    proxyNode: proxy,
+                    propName: null,
+                };
+                const childProxy = isCustomProxy(value)
+                    ? reparentProxy(value, parentToSet)
+                    : buildProxy(value, emitter, parentToSet);
+                if (childProxy !== value) {
+                    Set.prototype.delete.call(object, value);
+                    Set.prototype.add.call(object, childProxy);
+                }
+            }
+        }
     } else {
         Object.entries(object).forEach(([prop, value]) => {
             const propString = String(prop);
@@ -679,19 +703,42 @@ function wrapSetMutation(
 ) {
     if (prop === "add") {
         return function addWrapper(value: any) {
-            const hadValue = target.has(value);
-            Set.prototype.add.call(target, value);
-            if (!hadValue) {
-                emitCollectionChange(target, baseProxy, emitter, []);
+            const hadValue = findSetStoredValue(target, value) !== undefined;
+            if (hadValue) {
+                return baseProxy;
             }
+            let valueToStore = value;
+            if (value !== null && typeof value === "object") {
+                const parentToSet: IProxyParent<any> = {
+                    proxyNode: baseProxy,
+                    propName: null,
+                };
+                valueToStore = isCustomProxy(value)
+                    ? reparentProxy(value, parentToSet)
+                    : buildProxy(value, emitter, parentToSet);
+            }
+            Set.prototype.add.call(target, valueToStore);
+            emitCollectionChange(target, baseProxy, emitter, []);
             return baseProxy;
         };
     }
     if (prop === "delete") {
         return function deleteWrapper(value: any) {
-            const result = Set.prototype.delete.call(target, value);
+            const valueToDelete = findSetStoredValue(target, value);
+            const removedNodes: object[] = [];
+            if (
+                valueToDelete !== undefined &&
+                typeof valueToDelete === "object"
+            ) {
+                const removed = detachCollectionChild(valueToDelete, baseProxy);
+                if (removed) removedNodes.push(removed);
+            }
+            const result =
+                valueToDelete === undefined
+                    ? false
+                    : Set.prototype.delete.call(target, valueToDelete);
             if (result) {
-                emitCollectionChange(target, baseProxy, emitter, []);
+                emitCollectionChange(target, baseProxy, emitter, removedNodes);
             }
             return result;
         };
@@ -699,11 +746,47 @@ function wrapSetMutation(
     if (prop === "clear") {
         return function clearWrapper() {
             if (target.size === 0) return;
+            const removedNodes: object[] = [];
+            target.forEach((value) => {
+                if (value !== null && typeof value === "object") {
+                    const removed = detachCollectionChild(value, baseProxy);
+                    if (removed) removedNodes.push(removed);
+                }
+            });
             Set.prototype.clear.call(target);
-            emitCollectionChange(target, baseProxy, emitter, []);
+            emitCollectionChange(target, baseProxy, emitter, removedNodes);
         };
     }
     throw new Error(`Unsupported Set mutation: ${prop}`);
+}
+
+function wrapSetHas(target: Set<any>) {
+    return function hasWrapper(value: any) {
+        return findSetStoredValue(target, value) !== undefined;
+    };
+}
+
+function findSetStoredValue(target: Set<any>, value: any) {
+    if (Set.prototype.has.call(target, value)) {
+        return value;
+    }
+    if (value === null || typeof value !== "object") {
+        return undefined;
+    }
+    const rawValue = getUnproxiedNode(value);
+    for (const storedValue of target.values()) {
+        if (storedValue === value) {
+            return storedValue;
+        }
+        if (
+            storedValue !== null &&
+            typeof storedValue === "object" &&
+            getUnproxiedNode(storedValue) === rawValue
+        ) {
+            return storedValue;
+        }
+    }
+    return undefined;
 }
 
 function wrapDateMutation(

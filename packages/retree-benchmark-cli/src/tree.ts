@@ -24,6 +24,8 @@ export interface SerializableBenchmarkNode {
     mapChildren: Array<[string, SerializableBenchmarkLeaf]>;
     metadata: BenchmarkMetadataPayload;
     primary: SerializableBenchmarkNode | null;
+    primitiveMapChildren: Array<[string, number]>;
+    primitiveSetChildren: number[];
     recordChildren: Record<string, SerializableBenchmarkLeaf>;
     setChildren: SerializableBenchmarkLeaf[];
     value: number;
@@ -90,6 +92,8 @@ export class BenchmarkNode extends ReactiveNode {
     public mapChildren: Map<string, BenchmarkLeafNode>;
     public metadata: BenchmarkMetadataPayload;
     public primary: BenchmarkNode | null;
+    public primitiveMapChildren: Map<string, number>;
+    public primitiveSetChildren: Set<number>;
     public recordChildren: Record<string, BenchmarkLeafNode>;
     public setChildren: Set<BenchmarkLeafNode>;
     public value: number;
@@ -101,6 +105,8 @@ export class BenchmarkNode extends ReactiveNode {
         mapChildren: Map<string, BenchmarkLeafNode>;
         metadata: BenchmarkMetadataPayload;
         primary: BenchmarkNode | null;
+        primitiveMapChildren: Map<string, number>;
+        primitiveSetChildren: Set<number>;
         recordChildren: Record<string, BenchmarkLeafNode>;
         setChildren: Set<BenchmarkLeafNode>;
         value: number;
@@ -112,6 +118,8 @@ export class BenchmarkNode extends ReactiveNode {
         this.mapChildren = options.mapChildren;
         this.metadata = options.metadata;
         this.primary = options.primary;
+        this.primitiveMapChildren = options.primitiveMapChildren;
+        this.primitiveSetChildren = options.primitiveSetChildren;
         this.recordChildren = options.recordChildren;
         this.setChildren = options.setChildren;
         this.value = options.value;
@@ -307,6 +315,8 @@ export function serializeBenchmarkNode(
         },
         primary:
             node.primary === null ? null : serializeBenchmarkNode(node.primary),
+        primitiveMapChildren: [...node.primitiveMapChildren.entries()],
+        primitiveSetChildren: [...node.primitiveSetChildren.values()],
         recordChildren: Object.fromEntries(
             Object.entries(node.recordChildren).map(([key, value]) => [
                 key,
@@ -391,6 +401,15 @@ function createRawBenchmarkNode(options: {
             (leaf, index) => [`map-${index}`, leaf]
         )
     );
+    const primitiveMapChildren = new Map<string, number>(
+        createPrimitiveValues(options.rng).map((value, index) => [
+            `primitive-map-${index}`,
+            value,
+        ])
+    );
+    const primitiveSetChildren = new Set<number>(
+        createPrimitiveValues(options.rng)
+    );
     const setChildren = new Set<BenchmarkLeafNode>(
         createLeaves(`set-${options.currentDepth}`, options.rng)
     );
@@ -417,6 +436,8 @@ function createRawBenchmarkNode(options: {
             ],
         },
         primary: options.primary,
+        primitiveMapChildren,
+        primitiveSetChildren,
         recordChildren,
         setChildren,
         value,
@@ -448,6 +469,14 @@ function createLeaves(prefix: string, rng: SeededRandom) {
         );
     }
     return leaves;
+}
+
+function createPrimitiveValues(rng: SeededRandom) {
+    const values: number[] = [];
+    for (let index = 0; index < 3; index++) {
+        values.push(rng.nextInt(10_000));
+    }
+    return values;
 }
 
 export function createBenchmarkLeaf(

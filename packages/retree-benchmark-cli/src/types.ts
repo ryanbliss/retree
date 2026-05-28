@@ -21,9 +21,11 @@ export type MutationType =
 export type ScenarioId =
     | "ancestor-tree-changed-fan-out"
     | "direct-node-changed"
+    | "distinct-node-listeners"
     | "listener-fan-out-node-changed"
     | "on-changed-effect"
     | "reactive-dependency-fan-out"
+    | "reactive-dependency-update-fan-out"
     | "root-tree-changed"
     | "reactive-dependency-node-changed"
     | "run-transaction"
@@ -96,6 +98,18 @@ export interface BenchmarkMeasurement {
 }
 
 export type BenchmarkSetupOperation =
+    | "broad-array-assignment"
+    | "broad-array-construction"
+    | "broad-map-assignment"
+    | "broad-map-construction"
+    | "broad-object-assignment"
+    | "broad-object-construction"
+    | "broad-primitive-map-assignment"
+    | "broad-primitive-map-construction"
+    | "broad-primitive-set-assignment"
+    | "broad-primitive-set-construction"
+    | "broad-set-assignment"
+    | "broad-set-construction"
     | "case-setup-total"
     | "changed-effect-configuration"
     | "dependent-node-root-proxy"
@@ -207,7 +221,9 @@ export interface BenchmarkArtifactPaths {
     jsonPath: string;
     latestJsonPath?: string;
     latestMarkdownPath?: string;
+    latestVerboseMarkdownPath?: string;
     markdownPath: string;
+    verboseMarkdownPath?: string;
 }
 
 export interface BenchmarkWorkEstimate {

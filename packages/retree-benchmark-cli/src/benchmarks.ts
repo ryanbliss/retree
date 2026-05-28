@@ -89,6 +89,10 @@ const SCENARIOS: BenchmarkScenarioDefinition[] = [
         title: "Listener fan-out nodeChanged",
     },
     {
+        id: "distinct-node-listeners",
+        title: "Distinct node listeners",
+    },
+    {
         id: "ancestor-tree-changed-fan-out",
         title: "Ancestor treeChanged fan-out",
     },
@@ -99,6 +103,10 @@ const SCENARIOS: BenchmarkScenarioDefinition[] = [
     {
         id: "reactive-dependency-fan-out",
         title: "Reactive dependency fan-out",
+    },
+    {
+        id: "reactive-dependency-update-fan-out",
+        title: "Reactive dependency update fan-out",
     },
     {
         id: "on-changed-effect",
@@ -478,7 +486,10 @@ function createScenarioVariants(options: {
         };
     }
 
-    if (options.scenario.id === "reactive-dependency-fan-out") {
+    if (
+        options.scenario.id === "reactive-dependency-fan-out" ||
+        options.scenario.id === "reactive-dependency-update-fan-out"
+    ) {
         for (const dependencyDepth of options.config.dependencyDepths) {
             for (const dependencyFanout of options.config.dependencyFanouts) {
                 if (dependencyDepth > options.depthTier.value) {
@@ -503,7 +514,10 @@ function createScenarioVariants(options: {
         };
     }
 
-    if (options.scenario.id === "listener-fan-out-node-changed") {
+    if (
+        options.scenario.id === "listener-fan-out-node-changed" ||
+        options.scenario.id === "distinct-node-listeners"
+    ) {
         for (const listenerCount of options.config.listenerFanouts) {
             cases.push({
                 listenerCount,
@@ -582,7 +596,7 @@ function runBenchmarkCase(options: BenchmarkRunContext): BenchmarkCaseResult {
                 commitIndex: warmupIndex,
                 expectedCalls: prepared.subscriptions.expectedCalls,
                 listenerCalls: () => listenerCalls,
-                mutationTarget: prepared.mutationTarget,
+                mutationTarget: resolvePreparedMutationTarget(prepared),
                 mutationType,
                 onBeforeCommit: () => {
                     listenerCalls = 0;
@@ -610,7 +624,7 @@ function runBenchmarkCase(options: BenchmarkRunContext): BenchmarkCaseResult {
                 commitIndex,
                 expectedCalls: prepared.subscriptions.expectedCalls,
                 listenerCalls: () => listenerCalls,
-                mutationTarget: prepared.mutationTarget,
+                mutationTarget: resolvePreparedMutationTarget(prepared),
                 mutationType,
                 onBeforeCommit: () => {
                     listenerCalls = 0;
@@ -711,7 +725,7 @@ async function runBenchmarkCaseWithProgress(
                 commitIndex: warmupIndex,
                 expectedCalls: prepared.subscriptions.expectedCalls,
                 listenerCalls: () => listenerCalls,
-                mutationTarget: prepared.mutationTarget,
+                mutationTarget: resolvePreparedMutationTarget(prepared),
                 mutationType,
                 onBeforeCommit: () => {
                     listenerCalls = 0;
@@ -750,7 +764,7 @@ async function runBenchmarkCaseWithProgress(
                 commitIndex,
                 expectedCalls: prepared.subscriptions.expectedCalls,
                 listenerCalls: () => listenerCalls,
-                mutationTarget: prepared.mutationTarget,
+                mutationTarget: resolvePreparedMutationTarget(prepared),
                 mutationType,
                 onBeforeCommit: () => {
                     listenerCalls = 0;
@@ -798,6 +812,15 @@ function prepareBenchmarkCase(options: BenchmarkRunContext) {
         setupMeasurements,
         width: options.widthTier.value,
     });
+    measureFreshBroadValueSetup({
+        seed:
+            options.config.seed +
+            options.depthTier.value * 31 +
+            options.widthTier.value * 997,
+        setupMeasurements,
+        target: tree.target,
+        width: options.widthTier.value,
+    });
     const subscriptions = subscribeBenchmarkCase({
         ...options,
         setupMeasurements,
@@ -807,6 +830,7 @@ function prepareBenchmarkCase(options: BenchmarkRunContext) {
         setupMeasurements,
         "mutation-target-resolution",
         () =>
+            subscriptions.mutationTarget ??
             resolveMutationTarget({
                 dependencyDepth: options.dependencyDepth,
                 scenarioId: options.scenario.id,
@@ -820,6 +844,163 @@ function prepareBenchmarkCase(options: BenchmarkRunContext) {
         subscriptions,
         tree,
     };
+}
+
+function resolvePreparedMutationTarget(prepared: {
+    mutationTarget: BenchmarkNode;
+    subscriptions: {
+        mutationTarget?: BenchmarkNode;
+    };
+}) {
+    return prepared.subscriptions.mutationTarget ?? prepared.mutationTarget;
+}
+
+function measureFreshBroadValueSetup(options: {
+    seed: number;
+    setupMeasurements: BenchmarkSetupMeasurement[];
+    target: BenchmarkNode;
+    width: number;
+}) {
+    const broadValueSize = Math.max(1, options.width);
+    const broadArray = measureSetupOperation(
+        options.setupMeasurements,
+        "broad-array-construction",
+        () =>
+            createMutationLeaves({
+                count: broadValueSize,
+                mutationType: "array-push",
+                options: {
+                    commitIndex: 0,
+                    target: options.target,
+                },
+            })
+    );
+    measureSetupOperation(
+        options.setupMeasurements,
+        "broad-array-assignment",
+        () => {
+            options.target.arrayChildren = broadArray;
+        }
+    );
+
+    const broadObject = measureSetupOperation(
+        options.setupMeasurements,
+        "broad-object-construction",
+        () => {
+            const entries: Array<
+                [string, ReturnType<typeof createBenchmarkLeaf>]
+            > = [];
+            for (let index = 0; index < broadValueSize; index++) {
+                entries.push([
+                    `broad-object-${index}`,
+                    createBenchmarkLeaf(
+                        `broad-object-${index}`,
+                        options.seed + index
+                    ),
+                ]);
+            }
+            return Object.fromEntries(entries);
+        }
+    );
+    measureSetupOperation(
+        options.setupMeasurements,
+        "broad-object-assignment",
+        () => {
+            options.target.recordChildren = broadObject;
+        }
+    );
+
+    const broadMap = measureSetupOperation(
+        options.setupMeasurements,
+        "broad-map-construction",
+        () => {
+            const entries: Array<
+                [string, ReturnType<typeof createBenchmarkLeaf>]
+            > = [];
+            for (let index = 0; index < broadValueSize; index++) {
+                entries.push([
+                    `broad-map-${index}`,
+                    createBenchmarkLeaf(
+                        `broad-map-${index}`,
+                        options.seed + broadValueSize + index
+                    ),
+                ]);
+            }
+            return new Map(entries);
+        }
+    );
+    measureSetupOperation(
+        options.setupMeasurements,
+        "broad-map-assignment",
+        () => {
+            options.target.mapChildren = broadMap;
+        }
+    );
+
+    const broadPrimitiveMap = measureSetupOperation(
+        options.setupMeasurements,
+        "broad-primitive-map-construction",
+        () => {
+            const entries: Array<[string, number]> = [];
+            for (let index = 0; index < broadValueSize; index++) {
+                entries.push([
+                    `broad-primitive-map-${index}`,
+                    options.seed + index,
+                ]);
+            }
+            return new Map(entries);
+        }
+    );
+    measureSetupOperation(
+        options.setupMeasurements,
+        "broad-primitive-map-assignment",
+        () => {
+            options.target.primitiveMapChildren = broadPrimitiveMap;
+        }
+    );
+
+    const broadPrimitiveSet = measureSetupOperation(
+        options.setupMeasurements,
+        "broad-primitive-set-construction",
+        () => {
+            const values: number[] = [];
+            for (let index = 0; index < broadValueSize; index++) {
+                values.push(options.seed + broadValueSize + index);
+            }
+            return new Set(values);
+        }
+    );
+    measureSetupOperation(
+        options.setupMeasurements,
+        "broad-primitive-set-assignment",
+        () => {
+            options.target.primitiveSetChildren = broadPrimitiveSet;
+        }
+    );
+
+    const broadSet = measureSetupOperation(
+        options.setupMeasurements,
+        "broad-set-construction",
+        () => {
+            const values: Array<ReturnType<typeof createBenchmarkLeaf>> = [];
+            for (let index = 0; index < broadValueSize; index++) {
+                values.push(
+                    createBenchmarkLeaf(
+                        `broad-set-${index}`,
+                        options.seed + broadValueSize * 2 + index
+                    )
+                );
+            }
+            return new Set(values);
+        }
+    );
+    measureSetupOperation(
+        options.setupMeasurements,
+        "broad-set-assignment",
+        () => {
+            options.target.setChildren = broadSet;
+        }
+    );
 }
 
 function createBenchmarkCaseResult(
@@ -913,6 +1094,7 @@ function subscribeBenchmarkCase(
     }
 ) {
     const unsubscribe: Array<() => void> = [];
+    let mutationTarget: BenchmarkNode | undefined;
     const activate = (
         listener: (reproxiedNode: BenchmarkNode) => void
     ): void => {
@@ -947,6 +1129,41 @@ function subscribeBenchmarkCase(
                                 );
                             }
                         }
+                    );
+                    return;
+                }
+
+                if (options.scenario.id === "distinct-node-listeners") {
+                    const listenerCount = requireNumber(
+                        options.listenerCount,
+                        "Distinct node listeners benchmark requires listenerCount."
+                    );
+                    const listenerNodes = createBenchmarkDependentNodes({
+                        count: listenerCount,
+                        seed:
+                            options.config.seed +
+                            options.depthTier.value +
+                            listenerCount,
+                        setupMeasurements: options.setupMeasurements,
+                    });
+                    measureSetupOperation(
+                        options.setupMeasurements,
+                        "listener-registration",
+                        () => {
+                            for (const listenerNode of listenerNodes) {
+                                unsubscribe.push(
+                                    Retree.on(
+                                        listenerNode,
+                                        "nodeChanged",
+                                        listener
+                                    )
+                                );
+                            }
+                        }
+                    );
+                    mutationTarget = resolveFirstBenchmarkNode(
+                        listenerNodes,
+                        "Distinct node listeners benchmark requires at least one listener node."
                     );
                     return;
                 }
@@ -1043,6 +1260,58 @@ function subscribeBenchmarkCase(
                     return;
                 }
 
+                if (
+                    options.scenario.id === "reactive-dependency-update-fan-out"
+                ) {
+                    const dependencyNode = resolveDependencyNode({
+                        dependencyDepth: options.dependencyDepth,
+                        tree: options.tree,
+                    });
+                    const dependencyFanout = requireNumber(
+                        options.dependencyFanout,
+                        "Reactive dependency update fan-out benchmark requires dependencyFanout."
+                    );
+                    const dependents = createBenchmarkDependentNodes({
+                        count: dependencyFanout,
+                        seed:
+                            options.config.seed +
+                            options.depthTier.value +
+                            dependencyFanout,
+                        setupMeasurements: options.setupMeasurements,
+                    });
+                    measureSetupOperation(
+                        options.setupMeasurements,
+                        "dependency-linking",
+                        () => {
+                            for (const dependent of dependents) {
+                                setBenchmarkDependencies(dependent, [
+                                    dependencyNode,
+                                ]);
+                            }
+                        }
+                    );
+                    measureSetupOperation(
+                        options.setupMeasurements,
+                        "listener-registration",
+                        () => {
+                            for (const dependent of dependents) {
+                                unsubscribe.push(
+                                    Retree.on(
+                                        dependent,
+                                        "nodeChanged",
+                                        listener
+                                    )
+                                );
+                            }
+                        }
+                    );
+                    mutationTarget = resolveFirstBenchmarkNode(
+                        dependents,
+                        "Reactive dependency update fan-out benchmark requires at least one dependent node."
+                    );
+                    return;
+                }
+
                 if (options.scenario.id === "on-changed-effect") {
                     const effectWrites = requireNumber(
                         options.effectWrites,
@@ -1094,6 +1363,9 @@ function subscribeBenchmarkCase(
     return {
         activate,
         expectedCalls: resolveExpectedCalls(options),
+        get mutationTarget() {
+            return mutationTarget;
+        },
         unsubscribe,
     };
 }
@@ -1313,6 +1585,17 @@ function resolveDependencyNode(options: {
     return dependencyNode;
 }
 
+function resolveFirstBenchmarkNode(
+    nodes: BenchmarkNode[],
+    errorMessage: string
+) {
+    const first = nodes[0];
+    if (first === undefined) {
+        throw new Error(errorMessage);
+    }
+    return first;
+}
+
 function resolveListenerEvent(scenarioId: ScenarioId): ListenerEvent {
     if (scenarioId === "root-tree-changed") {
         return "treeChanged";
@@ -1330,6 +1613,9 @@ function resolveExpectedCalls(options: BenchmarkRunContext) {
             "Listener fan-out benchmark requires listenerCount."
         );
     }
+    if (options.scenario.id === "distinct-node-listeners") {
+        return 1;
+    }
     if (options.scenario.id === "ancestor-tree-changed-fan-out") {
         return options.depthTier.value + 1;
     }
@@ -1338,6 +1624,9 @@ function resolveExpectedCalls(options: BenchmarkRunContext) {
             options.dependencyFanout,
             "Reactive dependency fan-out benchmark requires dependencyFanout."
         );
+    }
+    if (options.scenario.id === "reactive-dependency-update-fan-out") {
+        return 1;
     }
     return 1;
 }
@@ -1373,6 +1662,8 @@ function consumeCallbackRead(
             node.arrayChildren.length +
             Object.keys(node.recordChildren).length +
             node.mapChildren.size +
+            node.primitiveMapChildren.size +
+            node.primitiveSetChildren.size +
             node.setChildren.size +
             node.wideChildren.length;
         return;
@@ -1387,6 +1678,8 @@ function readDeepNode(node: BenchmarkNode): number {
         node.metadata.stats.version +
         node.arrayChildren.length +
         node.mapChildren.size +
+        node.primitiveMapChildren.size +
+        node.primitiveSetChildren.size +
         node.setChildren.size +
         node.wideChildren.length;
 
@@ -1398,6 +1691,12 @@ function readDeepNode(node: BenchmarkNode): number {
     }
     for (const leaf of node.mapChildren.values()) {
         total = total + leaf.value + leaf.metadata.counts.length;
+    }
+    for (const value of node.primitiveMapChildren.values()) {
+        total = total + value;
+    }
+    for (const value of node.primitiveSetChildren.values()) {
+        total = total + value;
     }
     for (const leaf of node.setChildren.values()) {
         total = total + leaf.value + leaf.metadata.counts.length;

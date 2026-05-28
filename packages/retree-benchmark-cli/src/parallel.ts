@@ -470,8 +470,10 @@ function getShardWidthTiers(config: BenchmarkConfig, scenarioId: ScenarioId) {
 function shouldShardScenarioByWidth(scenarioId: ScenarioId) {
     return (
         scenarioId === "ancestor-tree-changed-fan-out" ||
+        scenarioId === "distinct-node-listeners" ||
         scenarioId === "listener-fan-out-node-changed" ||
         scenarioId === "reactive-dependency-fan-out" ||
+        scenarioId === "reactive-dependency-update-fan-out" ||
         scenarioId === "run-transaction"
     );
 }

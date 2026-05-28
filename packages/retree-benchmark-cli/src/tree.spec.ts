@@ -48,6 +48,8 @@ describe("benchmark tree generation", () => {
         expect(tree.root.arrayChildren).toHaveLength(3);
         expect(Object.keys(tree.root.recordChildren)).toHaveLength(3);
         expect(tree.root.mapChildren.size).toBe(3);
+        expect(tree.root.primitiveMapChildren.size).toBe(3);
+        expect(tree.root.primitiveSetChildren.size).toBe(3);
         expect(tree.root.setChildren.size).toBe(3);
         expect(tree.root.wideChildren).toHaveLength(3);
         expect(tree.root.wideChildren[0]?.primary).toBeNull();

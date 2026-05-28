@@ -6,6 +6,7 @@ import {
     renderConsoleReport,
     renderConsoleSummaryReport,
     renderMarkdownReport,
+    renderMarkdownVerboseReport,
     writeBenchmarkArtifacts,
 } from "./report";
 import { summarizeDurations } from "./stats";
@@ -25,12 +26,17 @@ describe("benchmark stats and reports", () => {
 
     it("renders one Markdown result table per scenario", () => {
         const markdown = renderMarkdownReport(createExampleResults());
+        const verboseMarkdown = renderMarkdownVerboseReport(
+            createExampleResults()
+        );
 
         expect(markdown).toContain("## Legend");
         expect(markdown).toContain("### Scenario legend");
+        expect(markdown).toContain("## Scenario Summary");
         expect(markdown).toContain("Ancestor treeChanged fan-out");
         expect(markdown).toContain("### Column legend");
         expect(markdown).toContain("### Setup operation legend");
+        expect(markdown).toContain("broad-set-assignment");
         expect(markdown).toContain("## Direct nodeChanged");
         expect(markdown).toContain("## Root treeChanged");
         expect(markdown).toContain("### Matrix summary");
@@ -38,16 +44,23 @@ describe("benchmark stats and reports", () => {
         expect(markdown).toContain("### Setup operations");
         expect(markdown).toContain("### Slowest setup cases");
         expect(markdown).toContain("### Mutation types");
-        expect(markdown).toContain(
+        expect(verboseMarkdown).toContain(
             "| Scenario           | Depth title | Depth | Width title | Width |"
         );
-        expect(markdown).toContain(
+        expect(verboseMarkdown).toContain(
             "| Direct nodeChanged | Low         | 2     | Low         | 1"
         );
         expect(markdown).toContain("Average/mean ms");
         expect(markdown).toContain("Mutation warnings");
-        expect(markdown).toContain("Skipped cases:");
+        expect(markdown).toContain("Skipped cases: 1");
+        expect(markdown).not.toContain("### All cases");
+        expect(verboseMarkdown).toContain(
+            "# Retree Benchmark Results (Verbose)"
+        );
+        expect(verboseMarkdown).toContain("### All cases");
+        expect(verboseMarkdown).toContain("Skipped cases:");
         expectTableBlocksToBeAligned(markdown);
+        expectTableBlocksToBeAligned(verboseMarkdown);
     });
 
     it("writes JSON analysis alongside raw case measurements", async () => {
@@ -66,18 +79,33 @@ describe("benchmark stats and reports", () => {
             artifacts.latestMarkdownPath,
             "utf8"
         );
+        const verboseMarkdown = await fs.readFile(
+            artifacts.verboseMarkdownPath,
+            "utf8"
+        );
+        const latestVerboseMarkdown = await fs.readFile(
+            artifacts.latestVerboseMarkdownPath,
+            "utf8"
+        );
 
         expect(json.scenarios[0].cases[0].measurements).toHaveLength(2);
         expect(latestJson.metadata.generatedAtIso).toBe(
             json.metadata.generatedAtIso
         );
         expect(latestMarkdown).toContain("# Retree Benchmark Results");
-        expect(json.scenarios[0].cases[0].setupMeasurements).toHaveLength(3);
+        expect(latestMarkdown).not.toContain("### All cases");
+        expect(verboseMarkdown).toContain(
+            "# Retree Benchmark Results (Verbose)"
+        );
+        expect(verboseMarkdown).toContain("### All cases");
+        expect(latestVerboseMarkdown).toBe(verboseMarkdown);
+        expect(json.scenarios[0].cases[0].setupMeasurements).toHaveLength(4);
         expect(json.analysis.scenarios[0].dimensions.mutationTypes).toEqual([
             "array-push",
             "scalar-set",
         ]);
         expect(json.analysis.scenarios[0].dimensions.setupOperations).toEqual([
+            "broad-set-assignment",
             "case-setup-total",
             "raw-tree-construction",
             "root-proxy",
@@ -101,7 +129,10 @@ describe("benchmark stats and reports", () => {
                 jsonPath: "/tmp/results.json",
                 latestJsonPath: "/tmp/retree-benchmark-latest.json",
                 latestMarkdownPath: "/tmp/retree-benchmark-latest.md",
+                latestVerboseMarkdownPath:
+                    "/tmp/retree-benchmark-latest.verbose.md",
                 markdownPath: "/tmp/results.md",
+                verboseMarkdownPath: "/tmp/results.verbose.md",
             },
             createExampleResults()
         );
@@ -121,13 +152,16 @@ describe("benchmark stats and reports", () => {
                 jsonPath: "/tmp/results.json",
                 latestJsonPath: "/tmp/retree-benchmark-latest.json",
                 latestMarkdownPath: "/tmp/retree-benchmark-latest.md",
+                latestVerboseMarkdownPath:
+                    "/tmp/retree-benchmark-latest.verbose.md",
                 markdownPath: "/tmp/results.md",
+                verboseMarkdownPath: "/tmp/results.verbose.md",
             },
             createExampleResults()
         );
 
         expect(report).toContain(
-            "Full scenario tables were written to Markdown."
+            "full scenario tables were written to the verbose Markdown report"
         );
         expect(report).toContain("Direct nodeChanged");
         expect(report).toContain("Cases");
@@ -198,6 +232,10 @@ function createExampleResults(): BenchmarkResults {
                         scenarioTitle: "Direct nodeChanged",
                         setupMeasurements: [
                             {
+                                durationMs: 0.25,
+                                operation: "broad-set-assignment",
+                            },
+                            {
                                 durationMs: 3,
                                 operation: "raw-tree-construction",
                             },
@@ -211,6 +249,10 @@ function createExampleResults(): BenchmarkResults {
                             },
                         ],
                         setupSummaries: [
+                            {
+                                ...summarizeDurations([0.25]),
+                                operation: "broad-set-assignment",
+                            },
                             {
                                 ...summarizeDurations([3]),
                                 operation: "raw-tree-construction",
