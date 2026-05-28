@@ -571,6 +571,7 @@ function formatCaseKey(benchmarkCase: BenchmarkCaseResult) {
         benchmarkCase.dependencyFanout ?? "",
         benchmarkCase.effectWrites ?? "",
         benchmarkCase.listenerCount ?? "",
+        benchmarkCase.selectionMode ?? "",
         benchmarkCase.transactionMutations ?? "",
     ].join("|");
 }
@@ -596,6 +597,9 @@ function formatCaseLabel(benchmarkCase: BenchmarkCaseResult) {
     }
     if (benchmarkCase.transactionMutations !== undefined) {
         details.push(`tx mutations ${benchmarkCase.transactionMutations}`);
+    }
+    if (benchmarkCase.selectionMode !== undefined) {
+        details.push(`selection ${benchmarkCase.selectionMode}`);
     }
     return details.join(", ");
 }

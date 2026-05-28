@@ -28,7 +28,7 @@ describe("benchmark scenarios", () => {
             widthTiers: [profile.widthTiers.low],
         });
 
-        expect(results.scenarios).toHaveLength(11);
+        expect(results.scenarios).toHaveLength(12);
 
         const direct = results.scenarios.find(
             (scenario) => scenario.scenarioId === "direct-node-changed"
@@ -63,6 +63,9 @@ describe("benchmark scenarios", () => {
         const transaction = results.scenarios.find(
             (scenario) => scenario.scenarioId === "run-transaction"
         );
+        const selectVsTraversal = results.scenarios.find(
+            (scenario) => scenario.scenarioId === "select-vs-tree-traversal"
+        );
 
         expect(direct?.cases).toHaveLength(1);
         expect(tree?.cases).toHaveLength(1);
@@ -92,6 +95,21 @@ describe("benchmark scenarios", () => {
             "subscription-cycle"
         );
         expect(transaction?.cases[0]?.transactionMutations).toBe(2);
+        expect(
+            selectVsTraversal?.cases.map((benchmarkCase) => ({
+                callbackReadMode: benchmarkCase.callbackReadMode,
+                selectionMode: benchmarkCase.selectionMode,
+            }))
+        ).toEqual([
+            {
+                callbackReadMode: "none",
+                selectionMode: "reactive-dependency-select",
+            },
+            {
+                callbackReadMode: "none",
+                selectionMode: "root-tree-traversal",
+            },
+        ]);
     });
 
     it("runs the stable mutation mix without reparenting collection children", () => {

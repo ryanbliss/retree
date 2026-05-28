@@ -191,34 +191,35 @@ Acceptance:
 
 Goal: provide a narrower subscription primitive for derived values without requiring a custom `ReactiveNode` dependency edge.
 
--   [ ] Design core API:
-    -   [ ] `Retree.select(node, selector, callback, options?)`.
-    -   [ ] Accept any Retree-managed node, not only roots.
-    -   [ ] Default equality: `Object.is`.
-    -   [ ] Optional custom `equals(previous, next)`.
-    -   [ ] Return unsubscribe function.
--   [ ] Decide dependency tracking model:
+-   [x] Design core API:
+    -   [x] `Retree.select(node, selector, callback, options?)`.
+    -   [x] Accept any Retree-managed node, not only roots.
+    -   [x] Default equality: `Object.is`.
+    -   [x] Optional custom `equals(previous, next)`.
+    -   [x] Return unsubscribe function.
+-   [x] Decide dependency tracking model:
     -   [ ] explicit dependency declaration,
     -   [ ] automatic tracking via proxy reads,
-    -   [ ] initial implementation using `nodeChanged` on the selected node only,
-    -   [ ] or a staged combination.
--   [ ] Add React API:
-    -   [ ] `useSelect(node, selector, options?)`.
-    -   [ ] Return the selected value.
-    -   [ ] Integrate with React subscription semantics.
--   [ ] Document how `select` differs from `memo`, `fnMemo`, and `ReactiveNode.dependencies`.
--   [ ] Add tests for:
-    -   [ ] selecting from root,
-    -   [ ] selecting from child node,
-    -   [ ] custom equality,
-    -   [ ] unsubscribe,
-    -   [ ] React `useSelect` re-render behavior.
+    -   [x] initial implementation using `nodeChanged` on the selected node only,
+    -   [x] or a staged combination.
+-   [x] Add React API:
+    -   [x] `useSelect(node, selector, options?)`.
+    -   [x] Return the selected value.
+    -   [x] Integrate with React subscription semantics.
+-   [x] Add benchmark scenario comparing `Retree.select` with manual tree traversal after every observed descendant change.
+-   [x] Document how `select` differs from `memo`, `fnMemo`, and `ReactiveNode.dependencies`.
+-   [x] Add tests for:
+    -   [x] selecting from root,
+    -   [x] selecting from child node,
+    -   [x] custom equality,
+    -   [x] unsubscribe,
+    -   [x] React `useSelect` re-render behavior.
 
 Acceptance:
 
--   [ ] Users can subscribe to derived values from any Retree node.
--   [ ] `useSelect` offers `useNode`-like ergonomics for derived values.
--   [ ] Documentation clearly positions `select` as a complement to memoization.
+-   [x] Users can subscribe to derived values from any Retree node.
+-   [x] `useSelect` offers `useNode`-like ergonomics for derived values.
+-   [x] Documentation clearly positions `select` as a complement to memoization.
 
 ## Phase 8: Transaction and Mutation Bookkeeping Follow-Up
 

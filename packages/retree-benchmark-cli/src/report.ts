@@ -787,6 +787,7 @@ function createCaseTable(cases: BenchmarkCaseResult[]) {
             "Listener count",
             "Effect writes",
             "Tx mutations",
+            "Selection mode",
             "Setup P95 ms",
             "Setup max ms",
             "Samples",
@@ -821,6 +822,7 @@ function createCaseTable(cases: BenchmarkCaseResult[]) {
             result.transactionMutations === undefined
                 ? ""
                 : String(result.transactionMutations),
+            result.selectionMode ?? "",
             formatMs(result.setupSummary.p95Ms),
             formatMs(result.setupSummary.maxMs),
             String(result.summary.samples),
@@ -865,6 +867,10 @@ function createScenarioMatrixTable(scenario: BenchmarkScenarioResult) {
             [
                 "Transaction mutations",
                 formatDimensionList(dimensions.transactionMutations),
+            ],
+            [
+                "Selection modes",
+                formatStringDimensionList(dimensions.selectionModes),
             ],
             ["Mutation types", dimensions.mutationTypes.join(", ")],
             ["Setup operations", dimensions.setupOperations.join(", ")],
@@ -1021,6 +1027,7 @@ function createSkippedTable(skippedCases: SkippedBenchmarkCase[]) {
             "Listener count",
             "Effect writes",
             "Tx mutations",
+            "Selection mode",
             "Reason",
         ],
         rows: skippedCases.map((skipped) => [
@@ -1047,6 +1054,7 @@ function createSkippedTable(skippedCases: SkippedBenchmarkCase[]) {
             skipped.transactionMutations === undefined
                 ? ""
                 : String(skipped.transactionMutations),
+            skipped.selectionMode ?? "",
             skipped.reason,
         ]),
     };
@@ -1173,6 +1181,9 @@ function summarizeScenarioDimensions(scenario: BenchmarkScenarioResult) {
                     (summary) => summary.mutationType
                 )
             )
+        ),
+        selectionModes: uniqueSortedStrings(
+            scenario.cases.map((benchmarkCase) => benchmarkCase.selectionMode)
         ),
         setupOperations: uniqueSortedStrings(
             scenario.cases.flatMap((benchmarkCase) =>
@@ -1332,6 +1343,7 @@ function formatCaseDimensionsForJson(benchmarkCase: BenchmarkCaseResult) {
         effectWrites: benchmarkCase.effectWrites,
         frequencyTitle: benchmarkCase.frequencyTitle,
         listenerCount: benchmarkCase.listenerCount,
+        selectionMode: benchmarkCase.selectionMode,
         scenarioDetail: formatScenarioDetail(benchmarkCase),
         transactionMutations: benchmarkCase.transactionMutations,
         width: benchmarkCase.width,
@@ -1356,6 +1368,9 @@ function formatScenarioDetail(result: BenchmarkCaseResult) {
     if (result.transactionMutations !== undefined) {
         details.push(`tx mutations ${result.transactionMutations}`);
     }
+    if (result.selectionMode !== undefined) {
+        details.push(`selection ${result.selectionMode}`);
+    }
     return details.length === 0 ? "base" : details.join(", ");
 }
 
@@ -1376,6 +1391,13 @@ function formatDimensionList(values: number[]) {
     return values.map(String).join(", ");
 }
 
+function formatStringDimensionList(values: string[]) {
+    if (values.length === 0) {
+        return "n/a";
+    }
+    return values.join(", ");
+}
+
 function formatRelativePercent(value: number, baseline: number) {
     if (baseline === 0) {
         return "n/a";
@@ -1385,8 +1407,9 @@ function formatRelativePercent(value: number, baseline: number) {
     return `${prefix}${percentage.toFixed(1)}%`;
 }
 
-function uniqueSortedStrings(values: string[]) {
-    return [...new Set(values)].sort((left, right) =>
+function uniqueSortedStrings(values: Array<string | undefined>) {
+    const strings = values.filter((value) => value !== undefined);
+    return [...new Set(strings)].sort((left, right) =>
         left.localeCompare(right)
     );
 }
@@ -1501,7 +1524,7 @@ function styleConsoleTableCell(
     if (
         context.options.skippedTable &&
         context.options.role === "body" &&
-        context.columnIndex === 13
+        context.columnIndex === 14
     ) {
         return colorize(value, "yellow");
     }

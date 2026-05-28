@@ -42,6 +42,11 @@ import {
     TRetreeChangedEvents,
 } from "./types";
 
+export interface RetreeSelectOptions<TSelected = unknown> {
+    equals?: (previous: TSelected, next: TSelected) => boolean;
+    listenerType?: TRetreeChangedEvents;
+}
+
 type TInternalNodeChangedListener = (
     node: TreeNode,
     proxyNode: TCustomProxy<TreeNode>,
@@ -176,6 +181,40 @@ export class Retree {
             node,
             callback as TRetreeListeners,
             relevantListenerMap
+        );
+    }
+
+    /**
+     * Subscribe to a derived value from any Retree-managed node.
+     *
+     * @remarks
+     * `select` recomputes the selected value when the observed node emits,
+     * then calls `callback` only when the selected value changes.
+     * This is a subscription primitive, not a memo cache: use `memo` /
+     * `fnMemo` to cache computation, and `select` to narrow notifications.
+     */
+    static select<TNode extends TreeNode, TSelected>(
+        node: TNode,
+        selector: (node: TNode) => TSelected,
+        callback: (next: TSelected, previous: TSelected) => void,
+        options: RetreeSelectOptions<TSelected> = {}
+    ): () => void {
+        const equals = options.equals ?? Object.is;
+        const listenerType = options.listenerType ?? "nodeChanged";
+        let previous = selector(getReproxyNode(node));
+
+        return this.on<TNode, TRetreeChangedEvents>(
+            node,
+            listenerType,
+            (reproxy) => {
+                const next = selector(reproxy);
+                if (equals(previous, next)) {
+                    return;
+                }
+                const previousToEmit = previous;
+                previous = next;
+                callback(next, previousToEmit);
+            }
         );
     }
 

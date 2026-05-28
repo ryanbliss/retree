@@ -61,6 +61,30 @@ tree.todos[0].delete();
 unsubscribe();
 ```
 
+## Select derived values
+
+`Retree.select` subscribes to a derived value from any Retree-managed node and only calls your callback when that selected value changes. This is different from `memo` and `fnMemo`: memoization caches computation, while `select` narrows notifications.
+
+```ts
+const root = Retree.root({
+    total: 20,
+    taxRate: 0.08,
+});
+
+const unsubscribe = Retree.select(
+    root,
+    (invoice) => invoice.total * (1 + invoice.taxRate),
+    (nextGrandTotal, previousGrandTotal) => {
+        console.log({ nextGrandTotal, previousGrandTotal });
+    }
+);
+
+root.total = 25;
+unsubscribe();
+```
+
+By default, `select` listens to `nodeChanged` on the node you pass. This is best for selecting direct values owned by that exact node, including `ReactiveNode` values that emit when their dependencies change. Pass `listenerType: "treeChanged"` when the selector intentionally reads descendant nodes, and pass `equals` when the selected value is a new object or array that should be compared structurally.
+
 ## Memoize computed getters
 
 `ReactiveNode` exposes a `memo` helper for caching the result of a computed getter, similar in spirit to React's `useMemo`. It also exposes `@fnMemo` for caching deterministic method return values. Four forms are supported:

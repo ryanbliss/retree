@@ -40,6 +40,7 @@ export {
     BenchmarkLeafNode,
     BenchmarkNode,
     configureBenchmarkChangedEffect,
+    configureBenchmarkDependencyMirror,
     createBenchmarkDependentNodes,
     createBenchmarkLeaf,
     createBenchmarkTree,

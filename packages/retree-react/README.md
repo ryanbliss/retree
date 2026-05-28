@@ -20,7 +20,34 @@ yarn add @retreejs/core @retreejs/react
 
 ## How to use
 
-It's extremely easy to get started with Retree. There are two React hooks: `useNode` and `useTree`. Each have specific advantages while leveraging the same simple interface.
+It's extremely easy to get started with Retree. The main React hooks are `useNode`, `useTree`, and `useSelect`. Each has specific advantages while leveraging the same simple interface.
+
+### useSelect hook
+
+Use `useSelect` when a component needs a derived value from a Retree node but should only re-render when that derived value changes. It accepts any Retree-managed node, not only a root.
+
+```tsx
+import { Retree } from "@retreejs/core";
+import { useSelect } from "@retreejs/react";
+
+const root = Retree.root({
+    total: 20,
+    taxRate: 0.08,
+});
+
+function TotalRow() {
+    const total = useSelect(
+        root,
+        (invoice) => invoice.total * (1 + invoice.taxRate)
+    );
+
+    return <td>{total}</td>;
+}
+```
+
+`useSelect` listens with `nodeChanged` by default. This is best for selecting direct values owned by that exact node, including `ReactiveNode` values that emit when their dependencies change. Pass `listenerType: "treeChanged"` when the selector intentionally reads descendant nodes.
+
+`useSelect` is a subscription primitive, not a memo cache. Use `memo` or `fnMemo` to cache expensive computation, and use `useSelect` to narrow React updates. If your selector returns a fresh object or array, pass `equals` to avoid re-rendering when the selected value is logically unchanged.
 
 ### useNode hook
 

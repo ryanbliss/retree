@@ -4,6 +4,7 @@ import { Retree } from "@retreejs/core";
 import {
     BenchmarkNode,
     configureBenchmarkChangedEffect,
+    configureBenchmarkDependencyMirror,
     createBenchmarkDependentNodes,
     createBenchmarkLeaf,
     createBenchmarkTree,
@@ -27,6 +28,7 @@ import {
     CallbackReadMode,
     MutationType,
     ScenarioId,
+    SelectionMode,
     SkippedBenchmarkCase,
     TierDefinition,
 } from "./types";
@@ -43,6 +45,7 @@ interface BenchmarkVariant {
     dependencyFanout?: number;
     effectWrites?: number;
     listenerCount?: number;
+    selectionMode?: SelectionMode;
     transactionMutations?: number;
 }
 
@@ -119,6 +122,10 @@ const SCENARIOS: BenchmarkScenarioDefinition[] = [
     {
         id: "run-transaction",
         title: "runTransaction",
+    },
+    {
+        id: "select-vs-tree-traversal",
+        title: "Reactive select vs tree traversal",
     },
 ];
 
@@ -548,6 +555,19 @@ function createScenarioVariants(options: {
                 transactionMutations,
             });
         }
+        return {
+            cases,
+            skipped,
+        };
+    }
+
+    if (options.scenario.id === "select-vs-tree-traversal") {
+        cases.push({
+            selectionMode: "reactive-dependency-select",
+        });
+        cases.push({
+            selectionMode: "root-tree-traversal",
+        });
         return {
             cases,
             skipped,
@@ -1030,6 +1050,7 @@ function createBenchmarkCaseResult(
         listenerCount: options.listenerCount,
         measurements,
         mutationSummaries,
+        selectionMode: options.selectionMode,
         scenarioId: options.scenario.id,
         scenarioTitle: options.scenario.title,
         setupMeasurements,
@@ -1070,6 +1091,7 @@ async function waitForBenchmarkTurn(options: {
         operationIndex: options.progressState.operationIndex + 1,
         phase: options.phase,
         phaseIndex: options.progressState.phaseIndex,
+        selectionMode: options.options.selectionMode,
         scenarioId: options.options.scenario.id,
         scenarioTitle: options.options.scenario.title,
         totalCases: options.progressState.totalCases,
@@ -1342,6 +1364,83 @@ function subscribeBenchmarkCase(
                     return;
                 }
 
+                if (options.scenario.id === "select-vs-tree-traversal") {
+                    if (options.selectionMode === undefined) {
+                        throw new Error(
+                            "Reactive select vs tree traversal benchmark requires selectionMode."
+                        );
+                    }
+                    if (
+                        options.selectionMode === "reactive-dependency-select"
+                    ) {
+                        const dependents = createBenchmarkDependentNodes({
+                            count: 1,
+                            seed:
+                                options.config.seed +
+                                options.depthTier.value +
+                                options.widthTier.value,
+                            setupMeasurements: options.setupMeasurements,
+                        });
+                        const dependent = resolveFirstBenchmarkNode(
+                            dependents,
+                            "Reactive select vs tree traversal benchmark requires one dependent node."
+                        );
+                        measureSetupOperation(
+                            options.setupMeasurements,
+                            "dependency-linking",
+                            () => {
+                                setBenchmarkDependencies(dependent, [
+                                    options.tree.target,
+                                ]);
+                                configureBenchmarkDependencyMirror(
+                                    dependent,
+                                    options.tree.target
+                                );
+                            }
+                        );
+                        measureSetupOperation(
+                            options.setupMeasurements,
+                            "listener-registration",
+                            () => {
+                                unsubscribe.push(
+                                    Retree.select(
+                                        dependent,
+                                        (node) =>
+                                            node.value +
+                                            node.metadata.stats.version,
+                                        (selectedTotal) => {
+                                            callbackReadSink =
+                                                callbackReadSink +
+                                                selectedTotal;
+                                            listener(dependent);
+                                        }
+                                    )
+                                );
+                            }
+                        );
+                        return;
+                    }
+                    measureSetupOperation(
+                        options.setupMeasurements,
+                        "listener-registration",
+                        () => {
+                            unsubscribe.push(
+                                Retree.on(
+                                    options.tree.root,
+                                    "treeChanged",
+                                    (reproxiedRoot) => {
+                                        callbackReadSink =
+                                            callbackReadSink +
+                                            readDeepNode(reproxiedRoot);
+                                        listener(reproxiedRoot);
+                                    }
+                                )
+                            );
+                        }
+                    );
+                    return;
+                }
+
                 const event = resolveListenerEvent(options.scenario.id);
                 const listenerNode =
                     options.scenario.id === "root-tree-changed"
@@ -1537,6 +1636,9 @@ function resolveMutationType(
     if (options.scenario.id === "subscription-churn") {
         return "subscription-cycle";
     }
+    if (options.scenario.id === "select-vs-tree-traversal") {
+        return "scalar-set";
+    }
 
     const mutationType =
         options.config.mutationTypes[
@@ -1636,6 +1738,9 @@ export function getBenchmarkScenarioCallbackReadModes(
     scenarioId: ScenarioId
 ): CallbackReadMode[] {
     if (scenarioId === "subscription-churn") {
+        return ["none"];
+    }
+    if (scenarioId === "select-vs-tree-traversal") {
         return ["none"];
     }
     return [...config.callbackReadModes];
@@ -1832,6 +1937,7 @@ function createSkippedCase(
         frequencyTitle: options.frequencyTier.title,
         listenerCount: options.listenerCount,
         reason: options.reason,
+        selectionMode: options.selectionMode,
         scenarioId: options.scenario.id,
         scenarioTitle: options.scenario.title,
         transactionMutations: options.transactionMutations,

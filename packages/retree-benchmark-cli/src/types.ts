@@ -8,6 +8,10 @@ export type ProfileName = "smoke" | "stable" | "exhaustive";
 
 export type CallbackReadMode = "none" | "shallow" | "deep";
 
+export type SelectionMode =
+    | "reactive-dependency-select"
+    | "root-tree-traversal";
+
 export type BenchmarkPhase = "measured" | "setup" | "warmup";
 
 export type MutationType =
@@ -29,6 +33,7 @@ export type ScenarioId =
     | "root-tree-changed"
     | "reactive-dependency-node-changed"
     | "run-transaction"
+    | "select-vs-tree-traversal"
     | "subscription-churn";
 
 export interface TierDefinition {
@@ -158,6 +163,7 @@ export interface BenchmarkCaseResult {
     listenerCount?: number;
     measurements: BenchmarkMeasurement[];
     mutationSummaries: BenchmarkMutationSummary[];
+    selectionMode?: SelectionMode;
     scenarioId: ScenarioId;
     scenarioTitle: string;
     setupMeasurements: BenchmarkSetupMeasurement[];
@@ -181,6 +187,7 @@ export interface SkippedBenchmarkCase {
     frequencyTitle: string;
     listenerCount?: number;
     reason: string;
+    selectionMode?: SelectionMode;
     scenarioId: ScenarioId;
     scenarioTitle: string;
     transactionMutations?: number;
@@ -258,6 +265,7 @@ export interface BenchmarkProgressTask {
     phase?: BenchmarkPhase;
     phaseIndex: number;
     p95OperationDurationMs?: number;
+    selectionMode?: SelectionMode;
     scenarioId: ScenarioId;
     scenarioTitle: string;
     status: BenchmarkProgressTaskStatus;
@@ -282,6 +290,7 @@ export interface BenchmarkProgressEvent {
     phase: BenchmarkPhase;
     phaseIndex: number;
     parallelTasks?: BenchmarkProgressTask[];
+    selectionMode?: SelectionMode;
     scenarioId: ScenarioId;
     scenarioTitle: string;
     totalCases: number;

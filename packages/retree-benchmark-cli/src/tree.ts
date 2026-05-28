@@ -60,6 +60,7 @@ const changedEffectByNode = new WeakMap<
         writes: number;
     }
 >();
+const dependencyMirrorByNode = new WeakMap<BenchmarkNode, BenchmarkNode>();
 
 export class BenchmarkLeafNode extends ReactiveNode {
     public id: string;
@@ -135,6 +136,13 @@ export class BenchmarkNode extends ReactiveNode {
     }
 
     protected onChanged(): void {
+        const dependencyMirror = dependencyMirrorByNode.get(this);
+        if (dependencyMirror !== undefined) {
+            this.value = dependencyMirror.value;
+            this.metadata.stats.version =
+                dependencyMirror.metadata.stats.version;
+        }
+
         const effectConfig = changedEffectByNode.get(this);
         if (effectConfig === undefined) {
             return;
@@ -184,6 +192,13 @@ export function configureBenchmarkChangedEffect(
     changedEffectByNode.set(node, {
         writes,
     });
+}
+
+export function configureBenchmarkDependencyMirror(
+    node: BenchmarkNode,
+    dependency: BenchmarkNode
+) {
+    dependencyMirrorByNode.set(node, dependency);
 }
 
 export function createBenchmarkDependentNodes(options: {

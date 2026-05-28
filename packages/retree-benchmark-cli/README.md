@@ -1,7 +1,8 @@
 # @retreejs/benchmark-cli
 
 Deterministic Retree benchmarks for comparing `nodeChanged`, `treeChanged`,
-and `ReactiveNode.dependencies` listener emission performance.
+`ReactiveNode.dependencies`, listener fan-out, and `Retree.select` listener
+emission performance.
 
 ```bash
 npm run build --workspace @retreejs/benchmark-cli

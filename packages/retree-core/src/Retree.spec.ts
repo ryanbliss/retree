@@ -36,6 +36,140 @@ function clearListenersRecursively(node: unknown, seen = new Set<object>()) {
 }
 
 describe("Retree", () => {
+    it("selects from a root node and only emits when the selected value changes", () => {
+        const root = trackRoot(
+            Retree.root({
+                count: 1,
+                label: "one",
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(root, (node) => node.count, selected);
+
+        root.label = "two";
+        root.count = 2;
+
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(selected).toHaveBeenCalledWith(2, 1);
+    });
+
+    it("selects from any Retree-managed child node", () => {
+        const root = trackRoot(
+            Retree.root({
+                child: {
+                    count: 1,
+                    label: "one",
+                },
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(root.child, (node) => node.count, selected);
+
+        root.child.label = "two";
+        root.child.count = 2;
+
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(selected).toHaveBeenCalledWith(2, 1);
+    });
+
+    it("uses custom select equality before notifying", () => {
+        const root = trackRoot(
+            Retree.root({
+                child: {
+                    count: 1,
+                },
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(root.child, (node) => ({ count: node.count }), selected, {
+            equals: (previous, next) => previous.count === next.count,
+        });
+
+        root.child.count = 1;
+        root.child.count = 2;
+
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(selected.mock.calls[0]?.[0]).toEqual({ count: 2 });
+        expect(selected.mock.calls[0]?.[1]).toEqual({ count: 1 });
+    });
+
+    it("stops select notifications after unsubscribe", () => {
+        const root = trackRoot(
+            Retree.root({
+                count: 1,
+            })
+        );
+        const selected = vi.fn();
+        const unsubscribe = Retree.select(root, (node) => node.count, selected);
+
+        unsubscribe();
+        root.count = 2;
+
+        expect(selected).not.toHaveBeenCalled();
+    });
+
+    it("selects across child changes when treeChanged is requested", () => {
+        const root = trackRoot(
+            Retree.root({
+                child: {
+                    count: 1,
+                },
+                sibling: {
+                    count: 10,
+                },
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(
+            root,
+            (node) => node.child.count + node.sibling.count,
+            selected,
+            {
+                listenerType: "treeChanged",
+            }
+        );
+
+        root.child.count = 2;
+
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(selected).toHaveBeenCalledWith(12, 11);
+    });
+
+    it("does not select across child changes by default", () => {
+        const root = trackRoot(
+            Retree.root({
+                child: {
+                    count: 1,
+                },
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(root, (node) => node.child.count, selected);
+
+        root.child.count = 2;
+
+        expect(selected).not.toHaveBeenCalled();
+    });
+
+    it("selects direct node changes by default", () => {
+        const root = trackRoot(
+            Retree.root({
+                child: {
+                    count: 1,
+                },
+                count: 10,
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(root, (node) => node.child.count + node.count, selected);
+
+        root.child.count = 2;
+        root.count = 11;
+
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(selected).toHaveBeenCalledWith(13, 11);
+    });
+
     it("tracks parent relationships for nested objects and array items", () => {
         const root = trackRoot(
             Retree.root({

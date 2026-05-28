@@ -392,6 +392,7 @@ function renderProgressEventLine(event: BenchmarkProgressEvent) {
         `width ${event.widthTitle}=${event.width}`,
         `freq ${event.frequencyTitle}`,
         `read ${event.callbackReadMode}`,
+        renderSelectionMode(event.selectionMode),
     ].join("  ");
 }
 
@@ -416,6 +417,7 @@ function renderProgressTaskLine(task: BenchmarkProgressTask) {
             `width ${formatPendingNumber(task.widthTitle, task.width)}`,
             `freq ${task.frequencyTitle ?? "unknown"}`,
             `read ${task.callbackReadMode ?? "mixed"}`,
+            renderSelectionMode(task.selectionMode),
             renderQueuedTaskState(task.status),
         ].join("  ");
     }
@@ -497,7 +499,17 @@ function renderProgressTaskLine(task: BenchmarkProgressTask) {
         `width ${widthTitle}=${width}`,
         `freq ${frequencyTitle}`,
         `read ${callbackReadMode}`,
+        renderSelectionMode(task.selectionMode),
     ].join("  ");
+}
+
+function renderSelectionMode(
+    selectionMode: BenchmarkProgressTask["selectionMode"]
+) {
+    if (selectionMode === undefined) {
+        return "";
+    }
+    return `selection ${selectionMode}`;
 }
 
 function formatPendingNumber(

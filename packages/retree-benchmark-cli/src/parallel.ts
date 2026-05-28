@@ -323,6 +323,7 @@ function createShardProgressTask(
         operationIndex: event.operationIndex,
         phase: event.phase,
         phaseIndex: event.phaseIndex,
+        selectionMode: event.selectionMode,
         scenarioId: event.scenarioId,
         scenarioTitle: event.scenarioTitle,
         status: snapshot.status,
@@ -474,7 +475,8 @@ function shouldShardScenarioByWidth(scenarioId: ScenarioId) {
         scenarioId === "listener-fan-out-node-changed" ||
         scenarioId === "reactive-dependency-fan-out" ||
         scenarioId === "reactive-dependency-update-fan-out" ||
-        scenarioId === "run-transaction"
+        scenarioId === "run-transaction" ||
+        scenarioId === "select-vs-tree-traversal"
     );
 }
 
@@ -567,7 +569,8 @@ function compareCases(
         compareOptionalNumber(
             left.transactionMutations,
             right.transactionMutations
-        )
+        ) ||
+        compareOptionalString(left.selectionMode, right.selectionMode)
     );
 }
 
@@ -587,7 +590,8 @@ function compareSkippedCases(
         compareOptionalNumber(
             left.transactionMutations,
             right.transactionMutations
-        )
+        ) ||
+        compareOptionalString(left.selectionMode, right.selectionMode)
     );
 }
 
@@ -609,6 +613,22 @@ function compareOptionalNumber(
         return 1;
     }
     return left - right;
+}
+
+function compareOptionalString(
+    left: string | undefined,
+    right: string | undefined
+) {
+    if (left === undefined && right === undefined) {
+        return 0;
+    }
+    if (left === undefined) {
+        return -1;
+    }
+    if (right === undefined) {
+        return 1;
+    }
+    return left.localeCompare(right);
 }
 
 function resolveWorkerCount(options: {
