@@ -74,6 +74,30 @@ describe("Retree", () => {
         );
     });
 
+    it("does not refresh ancestor reproxies for deep nodeChanged-only workloads", () => {
+        const root = trackRoot(Retree.root({ child: { value: 1 } }));
+        const rootReproxyBefore = getReproxyNode(root);
+        const childNodeChanged = vi.fn();
+        Retree.on(root.child, "nodeChanged", childNodeChanged);
+
+        root.child.value = 2;
+
+        expect(childNodeChanged).toHaveBeenCalledTimes(1);
+        expect(getReproxyNode(root)).toBe(rootReproxyBefore);
+    });
+
+    it("refreshes ancestor reproxies when treeChanged listeners exist", () => {
+        const root = trackRoot(Retree.root({ child: { value: 1 } }));
+        const rootReproxyBefore = getReproxyNode(root);
+        const rootTreeChanged = vi.fn();
+        Retree.on(root, "treeChanged", rootTreeChanged);
+
+        root.child.value = 2;
+
+        expect(rootTreeChanged).toHaveBeenCalledTimes(1);
+        expect(getReproxyNode(root)).not.toBe(rootReproxyBefore);
+    });
+
     it("emits nodeChanged with a fresh reproxy when the delete keyword removes a leaf property", () => {
         const root = trackRoot(
             Retree.root<{ count?: number; label: string }>({

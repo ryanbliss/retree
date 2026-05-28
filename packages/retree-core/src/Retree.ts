@@ -568,9 +568,12 @@ export class Retree {
             scheduleNodeChangedListeners();
         }
 
-        // Still handle here so we reproxy parents, despite skipping emit later in biz logic
-        // Note that we should never have gotten this far if skipReproxy is true, so we skip checking again
-        this.handleNotifyTreeChanged(unproxiedNode, proxyNode, proxyNode);
+        // Still handle here so we reproxy parents, despite skipping emit later in biz logic.
+        // If no treeChanged listeners exist, no parent can observe this work.
+        // Note that we should never have gotten this far if skipReproxy is true, so we skip checking again.
+        if (this.treeChangedListeners.size > 0) {
+            this.handleNotifyTreeChanged(unproxiedNode, proxyNode, proxyNode);
+        }
 
         if (isReactiveNode) {
             ReactiveNode[RUN_CHANGED_EFFECT_SYMBOL](proxyNode);

@@ -155,15 +155,15 @@ Acceptance:
 
 Goal: remove unnecessary ancestor walking from pure `nodeChanged` / `useNode` workloads.
 
--   [ ] Short-circuit `handleNotifyTreeChanged(...)` when there are no active `treeChanged` listeners.
--   [ ] Ensure `nodeChanged`, `nodeRemoved`, and `ReactiveNode.onChanged` still run exactly as before.
--   [ ] Add tests showing a deep child mutation does not call parent traversal logic when no `treeChanged` listeners exist.
--   [ ] Add tests showing `treeChanged` behavior remains unchanged when listeners do exist.
+-   [x] Short-circuit `handleNotifyTreeChanged(...)` when there are no active `treeChanged` listeners.
+-   [x] Ensure `nodeChanged`, `nodeRemoved`, and `ReactiveNode.onChanged` still run exactly as before.
+-   [x] Add tests showing a deep child mutation does not call parent traversal logic when no `treeChanged` listeners exist.
+-   [x] Add tests showing `treeChanged` behavior remains unchanged when listeners do exist.
 
 Acceptance:
 
--   [ ] Direct `nodeChanged` and `useNode`-style benchmarks improve or remain flat.
--   [ ] `treeChanged` benchmarks remain behaviorally correct.
+-   [x] Direct `nodeChanged` and `useNode`-style benchmarks improve or remain flat.
+-   [x] `treeChanged` benchmarks remain behaviorally correct.
 
 ## Phase 6: React useNode Subscription Hub
 
