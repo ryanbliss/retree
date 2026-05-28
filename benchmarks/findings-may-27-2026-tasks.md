@@ -169,23 +169,23 @@ Acceptance:
 
 Goal: reduce Retree-level duplicate listener registration when many React components subscribe to the same node.
 
--   [ ] Add an internal React subscription hub keyed by base proxy and listener type.
--   [ ] Register one Retree listener for each `(baseProxy, listenerType)` pair.
--   [ ] Fan out from the hub to React subscribers.
--   [ ] Use `useSyncExternalStore` or equivalent semantics if needed for concurrent React correctness.
--   [ ] Preserve `useNode` and `useTree` public APIs.
--   [ ] Add tests for:
-    -   [ ] multiple components subscribing to the same node,
-    -   [ ] cleanup when some subscribers unmount,
-    -   [ ] cleanup when the final subscriber unmounts,
-    -   [ ] no stale updates after unmount,
-    -   [ ] Strict Mode behavior.
+-   [x] Add an internal React subscription hub keyed by base proxy and listener type.
+-   [x] Register one Retree listener for each `(baseProxy, listenerType)` pair.
+-   [x] Fan out from the hub to React subscribers.
+-   [x] Use `useSyncExternalStore` or equivalent semantics if needed for concurrent React correctness.
+-   [x] Preserve `useNode` and `useTree` public APIs.
+-   [x] Add tests for:
+    -   [x] multiple components subscribing to the same node,
+    -   [x] cleanup when some subscribers unmount,
+    -   [x] cleanup when the final subscriber unmounts,
+    -   [x] no stale updates after unmount,
+    -   [x] Strict Mode behavior.
 
 Acceptance:
 
--   [ ] Listener fan-out benchmark or a new React-specific benchmark shows fewer Retree listener registrations.
--   [ ] Existing React tests pass.
--   [ ] No public API change.
+-   [x] React subscription tests show fewer Retree listener registrations.
+-   [x] Existing React tests pass.
+-   [x] No public API change.
 
 ## Phase 7: Retree.select and useSelect
 
