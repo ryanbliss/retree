@@ -616,9 +616,28 @@ export class Retree {
         proxiedDependentNode: ReactiveNode,
         unproxiedDependentNode: TreeNode
     ) {
-        const current = proxiedDependentNode.dependencies;
-        const previous = getReactiveDependencies(unproxiedDependentNode);
-        if (previous && previous.length !== current.length) {
+        const currentDependencies = proxiedDependentNode.dependencies;
+        const previousDependencies = getReactiveDependencies(
+            unproxiedDependentNode
+        );
+        if (currentDependencies.length === 0) {
+            if (
+                previousDependencies !== undefined &&
+                previousDependencies.length !== 0
+            ) {
+                throw new Error(
+                    "ReactiveNode length of dependencies does not equal previous value. Please ensure your dependencies list is consistent in its length and ordering."
+                );
+            }
+            if (previousDependencies !== undefined) {
+                deleteReactiveDependencies(unproxiedDependentNode);
+            }
+            return;
+        }
+        if (
+            previousDependencies &&
+            previousDependencies.length !== currentDependencies.length
+        ) {
             throw new Error(
                 "ReactiveNode length of dependencies does not equal previous value. Please ensure your dependencies list is consistent in its length and ordering."
             );
@@ -626,27 +645,32 @@ export class Retree {
         const newActiveDependencies: IActiveReactiveDependency[] = [];
         for (
             let depIndex = 0;
-            depIndex < proxiedDependentNode.dependencies.length;
+            depIndex < currentDependencies.length;
             depIndex++
         ) {
-            const depPrevious = previous?.[depIndex];
-            depPrevious?.unsubscribeListener?.();
-            const currentDependency =
-                proxiedDependentNode.dependencies[depIndex];
-            const prevDependencyNode = depPrevious?.node;
+            const previousDependency = previousDependencies?.[depIndex];
+            const currentDependency = currentDependencies[depIndex];
             const newDependencyNode = currentDependency.node;
             let unsubscribe: (() => void) | undefined;
-            if (prevDependencyNode && !newDependencyNode) {
-                const prevUnproxiedNode = getUnproxiedNode(prevDependencyNode);
-                if (!prevUnproxiedNode) {
-                    throw new Error(
-                        "Unexpected unproxied node for previous dependent reactive node"
-                    );
-                }
-                deleteReactiveDependent(
-                    prevUnproxiedNode,
-                    unproxiedDependentNode
+            const previousUnproxiedDependencyNode =
+                previousDependency?.unproxiedNode;
+            let currentUnproxiedDependencyNode: TreeNode | undefined;
+
+            if (
+                previousDependency?.node !== undefined &&
+                previousDependency.node !== null &&
+                previousUnproxiedDependencyNode === undefined
+            ) {
+                throw new Error(
+                    "Unexpected missing cached unproxied node for previous dependent reactive node"
                 );
+            }
+            if (
+                previousDependency !== undefined &&
+                previousDependency.node === newDependencyNode
+            ) {
+                currentUnproxiedDependencyNode =
+                    previousDependency.unproxiedNode;
             } else if (newDependencyNode) {
                 const unproxiedDependencyNode =
                     getUnproxiedNode(newDependencyNode);
@@ -655,26 +679,55 @@ export class Retree {
                         "Unexpected unproxied node for current dependent reactive node"
                     );
                 }
-                setReactiveDependents(unproxiedDependencyNode, {
+                currentUnproxiedDependencyNode = unproxiedDependencyNode;
+            }
+
+            if (
+                previousUnproxiedDependencyNode !== undefined &&
+                previousUnproxiedDependencyNode ===
+                    currentUnproxiedDependencyNode
+            ) {
+                setReactiveDependents(previousUnproxiedDependencyNode, {
                     reactiveNode: proxiedDependentNode,
+                    unproxiedReactiveNode: unproxiedDependentNode,
                     comparisons: currentDependency.comparisons,
                     index: depIndex,
                 });
-                unsubscribe = retainReactiveDependencySubscription(
-                    unproxiedDependencyNode,
-                    () =>
-                        this.on(
-                            newDependencyNode,
-                            // TODO: figure out if I should support treeChanged for this...seems expensive
-                            "nodeChanged",
-                            this.reactiveDependentNodeChangedListener
-                        )
-                );
+                unsubscribe = previousDependency?.unsubscribeListener;
+            } else {
+                previousDependency?.unsubscribeListener?.();
+                if (previousUnproxiedDependencyNode !== undefined) {
+                    deleteReactiveDependent(
+                        previousUnproxiedDependencyNode,
+                        unproxiedDependentNode,
+                        depIndex
+                    );
+                }
+                if (currentUnproxiedDependencyNode !== undefined) {
+                    setReactiveDependents(currentUnproxiedDependencyNode, {
+                        reactiveNode: proxiedDependentNode,
+                        unproxiedReactiveNode: unproxiedDependentNode,
+                        comparisons: currentDependency.comparisons,
+                        index: depIndex,
+                    });
+                    unsubscribe = retainReactiveDependencySubscription(
+                        currentUnproxiedDependencyNode,
+                        () =>
+                            this.on(
+                                newDependencyNode,
+                                // TODO: figure out if I should support treeChanged for this...seems expensive
+                                "nodeChanged",
+                                this.reactiveDependentNodeChangedListener
+                            )
+                    );
+                }
             }
+
             newActiveDependencies.push({
                 node: currentDependency.node,
                 comparisons: currentDependency.comparisons,
                 unsubscribeListener: unsubscribe,
+                unproxiedNode: currentUnproxiedDependencyNode,
             });
         }
         // Set reactive dependencies
@@ -694,18 +747,12 @@ export class Retree {
         for (let depIndex = 0; depIndex < previous.length; depIndex++) {
             const depPrevious = previous[depIndex];
             depPrevious?.unsubscribeListener?.();
-            const prevDependentNode = depPrevious?.node;
-            if (prevDependentNode) {
-                const prevUnproxiedDependentNode =
-                    getUnproxiedNode(prevDependentNode);
-                if (!prevUnproxiedDependentNode) {
-                    throw new Error(
-                        "Unexpected unproxied node for previous dependent reactive node"
-                    );
-                }
+            const prevUnproxiedDependentNode = depPrevious?.unproxiedNode;
+            if (prevUnproxiedDependentNode !== undefined) {
                 deleteReactiveDependent(
                     prevUnproxiedDependentNode,
-                    unproxiedNode
+                    unproxiedNode,
+                    depIndex
                 );
             }
         }

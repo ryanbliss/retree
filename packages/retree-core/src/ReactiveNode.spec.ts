@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
 import { ignore } from "./decorators";
+import { getUnproxiedNode } from "./internals";
+import { getReactiveDependencies } from "./internals/reactive-node-utils";
 import { Transactions } from "./internals/transactions";
 
 const rootsToCleanup: object[] = [];
@@ -77,6 +79,7 @@ class ChangedEffectNode extends ReactiveNode {
 class ObservedLifecycleNode extends ReactiveNode {
     @ignore
     public dependenciesReadCount = 0;
+    public localValue = 0;
     @ignore
     public observedCount = 0;
     @ignore
@@ -111,6 +114,57 @@ class SharedDependencyNode extends ReactiveNode {
 
     get dependencies() {
         return [this.dependency(this.target.values)];
+    }
+}
+
+class CountingStableDependencyNode extends ReactiveNode {
+    @ignore
+    public dependenciesReadCount = 0;
+    public localValue = 0;
+
+    @ignore
+    public target: SharedDependencyTargetNode;
+
+    constructor(target: SharedDependencyTargetNode) {
+        super();
+        this.target = target;
+    }
+
+    get dependencies() {
+        this.dependenciesReadCount++;
+        return [this.dependency(this.target.values)];
+    }
+}
+
+class CountingComparisonDependencyNode extends ReactiveNode {
+    @ignore
+    public dependenciesReadCount = 0;
+
+    @ignore
+    public target: SharedDependencyTargetNode;
+
+    constructor(target: SharedDependencyTargetNode) {
+        super();
+        this.target = target;
+    }
+
+    get dependencies() {
+        this.dependenciesReadCount++;
+        return [
+            this.dependency(this.target.values, [this.target.values.length]),
+        ];
+    }
+}
+
+class ReplacingDependencyNode extends ReactiveNode {
+    public useSecond = false;
+
+    constructor(public first: number[], public second: number[]) {
+        super();
+    }
+
+    get dependencies() {
+        return [this.dependency(this.useSecond ? this.second : this.first)];
     }
 }
 
@@ -260,5 +314,93 @@ describe("ReactiveNode", () => {
         target.values.push(3);
         expect(firstChanged).toHaveBeenCalledTimes(1);
         expect(secondChanged).toHaveBeenCalledTimes(2);
+    });
+
+    it("reads dependencies once per reactive-node update when dependency nodes stay stable", () => {
+        const target = trackRoot(Retree.root(new SharedDependencyTargetNode()));
+        const root = trackRoot(
+            Retree.root(new CountingStableDependencyNode(target))
+        );
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.dependenciesReadCount).toBe(1);
+
+        root.localValue = 1;
+
+        expect(root.dependenciesReadCount).toBe(2);
+    });
+
+    it("does not retain empty active dependency records for nodes without dependencies", () => {
+        const root = trackRoot(Retree.root(new ObservedLifecycleNode()));
+        Retree.on(root, "nodeChanged", vi.fn());
+        const unproxiedRoot = getUnproxiedNode(root);
+        if (unproxiedRoot === undefined) {
+            throw new Error(
+                "ReactiveNode test expected proxied root to have an unproxied node."
+            );
+        }
+
+        expect(getReactiveDependencies(unproxiedRoot)).toBeUndefined();
+
+        root.localValue = 2;
+
+        expect(getReactiveDependencies(unproxiedRoot)).toBeUndefined();
+    });
+
+    it("updates dependency comparisons without resubscribing when dependency nodes stay stable", () => {
+        const target = trackRoot(Retree.root(new SharedDependencyTargetNode()));
+        const root = trackRoot(
+            Retree.root(new CountingComparisonDependencyNode(target))
+        );
+        const nodeChanged = vi.fn();
+        const onSpy = vi.spyOn(Retree, "on");
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        target.values.push(1);
+        target.values.push(2);
+
+        expect(nodeChanged).toHaveBeenCalledTimes(2);
+        expect(
+            onSpy.mock.calls.filter(
+                ([node, listenerType]) =>
+                    node === target.values && listenerType === "nodeChanged"
+            )
+        ).toHaveLength(1);
+        expect(root.dependenciesReadCount).toBe(5);
+        onSpy.mockRestore();
+    });
+
+    it("unsubscribes replaced dependency nodes and subscribes new dependency nodes", () => {
+        const first = trackRoot(Retree.root<number[]>([]));
+        const second = trackRoot(Retree.root<number[]>([]));
+        const root = trackRoot(
+            Retree.root(new ReplacingDependencyNode(first, second))
+        );
+        const nodeChanged = vi.fn();
+        const onSpy = vi.spyOn(Retree, "on");
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        first.push(1);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+
+        root.useSecond = true;
+        nodeChanged.mockClear();
+        first.push(2);
+        second.push(1);
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(
+            onSpy.mock.calls.filter(
+                ([node, listenerType]) =>
+                    node === first && listenerType === "nodeChanged"
+            )
+        ).toHaveLength(1);
+        expect(
+            onSpy.mock.calls.filter(
+                ([node, listenerType]) =>
+                    node === second && listenerType === "nodeChanged"
+            )
+        ).toHaveLength(1);
+        onSpy.mockRestore();
     });
 });

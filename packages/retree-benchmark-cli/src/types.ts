@@ -61,7 +61,9 @@ export interface BenchmarkConfig {
     effectWrites: number[];
     listenerFanouts: number[];
     mutationTypes: MutationType[];
+    nameSuffix?: string;
     outputDir: string;
+    overwriteArtifacts: boolean;
     parallelWorkers?: number;
     profile: ProfileDefinition;
     profileName: ProfileName;
@@ -77,7 +79,9 @@ export interface ParsedCliArgs {
     frequencyTiers?: TierName[];
     help: boolean;
     interactive?: boolean;
+    nameSuffix?: string;
     outputDir?: string;
+    overwriteArtifacts?: boolean;
     profileName?: ProfileName;
     tierPreset?: Exclude<TierPreset, "custom">;
     workers?: number;

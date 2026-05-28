@@ -19,7 +19,8 @@ export interface WrittenBenchmarkArtifacts extends BenchmarkArtifactPaths {
 
 export async function writeBenchmarkArtifacts(
     results: BenchmarkResults,
-    outputDir: string
+    outputDir: string,
+    options: WriteBenchmarkArtifactOptions = {}
 ): Promise<WrittenBenchmarkArtifacts> {
     const resolvedOutputDir = path.resolve(outputDir);
     await fs.mkdir(resolvedOutputDir, {
@@ -27,7 +28,8 @@ export async function writeBenchmarkArtifacts(
     });
 
     const timestamp = results.metadata.generatedAtIso.replace(/[:.]/g, "-");
-    const basename = `retree-benchmark-${timestamp}`;
+    const artifactSuffix = options.nameSuffix ?? timestamp;
+    const basename = `retree-benchmark-${artifactSuffix}`;
     const jsonPath = path.join(resolvedOutputDir, `${basename}.json`);
     const markdownPath = path.join(resolvedOutputDir, `${basename}.md`);
     const verboseMarkdownPath = path.join(
@@ -51,6 +53,10 @@ export async function writeBenchmarkArtifacts(
     const verboseMarkdown = renderMarkdownVerboseReport(results);
     const json = `${JSON.stringify(jsonResults, null, 4)}\n`;
 
+    await assertCanWriteArtifacts(
+        [jsonPath, markdownPath, verboseMarkdownPath],
+        options.overwrite ?? false
+    );
     await fs.writeFile(jsonPath, json);
     await fs.writeFile(markdownPath, `${markdown}\n`);
     await fs.writeFile(verboseMarkdownPath, `${verboseMarkdown}\n`);
@@ -68,6 +74,35 @@ export async function writeBenchmarkArtifacts(
         verboseMarkdown,
         verboseMarkdownPath,
     };
+}
+
+export interface WriteBenchmarkArtifactOptions {
+    nameSuffix?: string;
+    overwrite?: boolean;
+}
+
+async function assertCanWriteArtifacts(paths: string[], overwrite: boolean) {
+    if (overwrite) {
+        return;
+    }
+
+    for (const artifactPath of paths) {
+        try {
+            await fs.access(artifactPath);
+        } catch (error: unknown) {
+            if (isNodeError(error) && error.code === "ENOENT") {
+                continue;
+            }
+            throw error;
+        }
+        throw new Error(
+            `Benchmark artifact already exists: ${artifactPath}. Pass --overwrite to replace named artifacts.`
+        );
+    }
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+    return error instanceof Error && "code" in error;
 }
 
 export function renderConsoleReport(

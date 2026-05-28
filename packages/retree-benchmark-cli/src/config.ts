@@ -188,6 +188,16 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
             parsed.outputDir = value.value;
             continue;
         }
+        if (option.name === "--name-suffix") {
+            const value = readOptionValue(argv, index, option);
+            index = value.nextIndex;
+            parsed.nameSuffix = parseNameSuffix(value.value);
+            continue;
+        }
+        if (option.name === "--overwrite") {
+            parsed.overwriteArtifacts = true;
+            continue;
+        }
         if (option.name === "--tiers") {
             const value = readOptionValue(argv, index, option);
             index = value.nextIndex;
@@ -295,7 +305,9 @@ export async function resolveBenchmarkConfig(
         effectWrites: [...profile.effectWrites],
         listenerFanouts: [...profile.listenerFanouts],
         mutationTypes: [...profile.mutationTypes],
+        nameSuffix: parsed.nameSuffix,
         outputDir: parsed.outputDir ?? DEFAULT_OUTPUT_DIR,
+        overwriteArtifacts: parsed.overwriteArtifacts ?? false,
         parallelWorkers: parsed.workers,
         profile,
         profileName,
@@ -317,14 +329,35 @@ export function renderHelp() {
         "Options:",
         "  --profile smoke|stable|exhaustive",
         "  --output-dir <dir>",
+        "  --name-suffix <name>",
+        "  --overwrite",
         "  --tiers all|low|medium|high|very-high",
         "  --depth-tiers <comma-separated tiers>",
         "  --frequency-tiers <comma-separated tiers>",
         "  --workers <count>",
         "  --interactive",
         "  --no-interactive",
+        "  --compare <left-name-or-json> <right-name-or-json> [--verbose]",
+        "  compare [--output-dir <dir>] <left-name-or-json> <right-name-or-json> [--verbose]",
         "  -h, --help",
     ].join("\n");
+}
+
+function parseNameSuffix(value: string) {
+    if (value.trim().length === 0) {
+        throw new Error("--name-suffix requires a non-empty value.");
+    }
+    if (!/^[A-Za-z0-9._-]+$/.test(value)) {
+        throw new Error(
+            `Invalid --name-suffix value "${value}". Use only letters, numbers, dots, underscores, and hyphens.`
+        );
+    }
+    if (value.includes("/") || value.includes("\\")) {
+        throw new Error(
+            `Invalid --name-suffix value "${value}". Path separators are not allowed.`
+        );
+    }
+    return value;
 }
 
 function shouldPromptForProfile(parsed: ParsedCliArgs, isTTY: boolean) {

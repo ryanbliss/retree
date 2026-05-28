@@ -1,4 +1,5 @@
 import { pathToFileURL } from "node:url";
+import { parseCompareArgs, renderBenchmarkComparison } from "./compare";
 import { parseCliArgs, renderHelp, resolveBenchmarkConfig } from "./config";
 import { createInquirerPromptAdapter } from "./prompts";
 import { BenchmarkStoppedError, estimateBenchmarkWork } from "./benchmarks";
@@ -17,6 +18,11 @@ import {
 } from "./types";
 
 export async function main(argv = process.argv.slice(2)) {
+    if (argv.includes("compare") || argv.includes("--compare")) {
+        console.log(await renderBenchmarkComparison(parseCompareArgs(argv)));
+        return;
+    }
+
     const parsed = parseCliArgs(argv);
     if (parsed.help) {
         console.log(renderHelp());
@@ -65,7 +71,10 @@ export async function main(argv = process.argv.slice(2)) {
     }
 
     progressController.finish();
-    const artifacts = await writeBenchmarkArtifacts(results, config.outputDir);
+    const artifacts = await writeBenchmarkArtifacts(results, config.outputDir, {
+        nameSuffix: config.nameSuffix,
+        overwrite: config.overwriteArtifacts,
+    });
     console.log(renderConsoleSummaryReport(artifacts, results));
 }
 

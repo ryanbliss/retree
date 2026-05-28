@@ -66,24 +66,24 @@ Acceptance:
 
 Goal: stop fully tearing down and rebuilding dependency subscriptions when the dependency nodes did not change.
 
--   [ ] Read `proxiedDependentNode.dependencies` exactly once per `handleReactiveNode(...)` call.
--   [ ] Diff current dependencies against previous active dependencies by index.
--   [ ] Reuse existing subscriptions when the dependency node is unchanged.
--   [ ] Update stored comparison values without resubscribing when only comparisons changed.
--   [ ] Unsubscribe removed/replaced dependencies only when the dependency node actually changes.
--   [ ] Keep distinct errors for:
-    -   [ ] changed dependency length,
-    -   [ ] missing unproxied previous dependency node,
-    -   [ ] missing unproxied current dependency node,
-    -   [ ] inconsistent comparison length/order.
--   [ ] Add tests for stable dependencies that update comparisons repeatedly without resubscription.
--   [ ] Add tests for dependency node replacement that correctly unsubscribes the old node and subscribes the new node.
+-   [x] Read `proxiedDependentNode.dependencies` exactly once per `handleReactiveNode(...)` call.
+-   [x] Diff current dependencies against previous active dependencies by index.
+-   [x] Reuse existing subscriptions when the dependency node is unchanged.
+-   [x] Update stored comparison values without resubscribing when only comparisons changed.
+-   [x] Unsubscribe removed/replaced dependencies only when the dependency node actually changes.
+-   [x] Keep distinct errors for:
+    -   [x] changed dependency length,
+    -   [x] missing unproxied previous dependency node,
+    -   [x] missing unproxied current dependency node,
+    -   [x] inconsistent comparison length/order.
+-   [x] Add tests for stable dependencies that update comparisons repeatedly without resubscription.
+-   [x] Add tests for dependency node replacement that correctly unsubscribes the old node and subscribes the new node.
 
 Acceptance:
 
--   [ ] Dependency update benchmark improves when dependency nodes stay stable.
--   [ ] Dependency fan-out benchmark remains correct after Phase 1.
--   [ ] `ReactiveNode.dependencies` getter read count is reduced in tests.
+-   [x] Dependency update benchmark improves when dependency nodes stay stable.
+-   [x] Dependency fan-out benchmark remains correct after Phase 1.
+-   [x] `ReactiveNode.dependencies` getter read count is reduced in tests.
 
 ## Phase 3: Lazy Proxying for Plain Objects and Arrays
 

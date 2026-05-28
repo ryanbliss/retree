@@ -9,6 +9,9 @@ describe("benchmark CLI config", () => {
             "--profile",
             "smoke",
             "--output-dir=tmp/bench",
+            "--name-suffix",
+            "AFTER-PHASE-2.1",
+            "--overwrite",
             "--tiers",
             "very-high",
             "--workers=2",
@@ -18,7 +21,9 @@ describe("benchmark CLI config", () => {
         expect(parsed).toEqual({
             help: false,
             interactive: false,
+            nameSuffix: "AFTER-PHASE-2.1",
             outputDir: "tmp/bench",
+            overwriteArtifacts: true,
             profileName: "smoke",
             tierPreset: "veryHigh",
             workers: 2,
@@ -66,6 +71,29 @@ describe("benchmark CLI config", () => {
         );
 
         expect(config.parallelWorkers).toBe(3);
+    });
+
+    it("resolves named artifact output options", async () => {
+        const config = await resolveBenchmarkConfig(
+            parseCliArgs([
+                "--tiers",
+                "low",
+                "--name-suffix=AFTER-PHASE-2",
+                "--overwrite",
+            ]),
+            {
+                isTTY: false,
+            }
+        );
+
+        expect(config.nameSuffix).toBe("AFTER-PHASE-2");
+        expect(config.overwriteArtifacts).toBe(true);
+    });
+
+    it("rejects unsafe artifact name suffixes", () => {
+        expect(() =>
+            parseCliArgs(["--name-suffix", "../AFTER-PHASE-2"])
+        ).toThrow(/Invalid --name-suffix value/);
     });
 
     it("supports custom interactive depth and frequency tier selections", async () => {
