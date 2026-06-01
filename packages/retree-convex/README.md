@@ -16,6 +16,17 @@ Install with `yarn`:
 yarn add @retreejs/core @retreejs/convex convex
 ```
 
+## Feature glossary
+
+-   [`ConvexNode`](#how-to-use) is the full base class for app state that owns a Convex client. Use it when you want `this.query(...)`, `this.paginatedQuery(...)`, `this.connectionState(...)`, `this.mutation(...)`, `this.action(...)`, and `this.queryOnce(...)`.
+-   [`BaseConvexNode`](#how-to-use) is the smaller base class for nodes that only need `this.mutation(...)`, `this.action(...)`, or `this.queryOnce(...)`.
+-   [`ConvexQueryNode`](#query-status-and-skipping) stores one live Convex query in Retree state. Use it for subscribed query results that should trigger Retree/React updates.
+-   [`ConvexPaginatedQueryNode`](#paginated-queries) stores one live paginated Convex query and exposes `loadMore(...)`.
+-   [`ConvexConnectionStateNode`](#connection-state) stores the Convex client's connection state in Retree state.
+-   [`createRetreeConvexMutation`](#standalone-action-and-mutation-helpers) and [`createRetreeConvexAction`](#standalone-action-and-mutation-helpers) create typed imperative helpers when you are not inside a `BaseConvexNode`.
+-   [`optimisticUpdate`](#optimistic-updates) mutates a query node optimistically and emits through Retree immediately.
+-   [`reconcileConvexDocuments` and `reconcileArrayById`](#reconciliation) preserve item identity across server results so child `useNode(item)` components stay narrow.
+
 ## How to use
 
 Create an app state node that extends `ConvexNode`, pass it a Convex client, and build query nodes with the protected `this.query(...)` helper. Query arguments are optional for Convex queries that do not require args.
@@ -79,6 +90,21 @@ const filteredTasks = new ConvexQueryNode(client, api.tasks.byStatus, {
 });
 ```
 
+Query nodes are `ReactiveNode`s. When Convex sends a new value, the query node writes `state`, `result`, and `error`, which emits Retree listeners and re-renders React components subscribed with `useNode`, `useTree`, or `useSelect`.
+
+```tsx
+import { useSelect } from "@retreejs/react";
+
+function TaskCount({
+    tasks,
+}: {
+    tasks: ConvexQueryNode<typeof api.tasks.get>;
+}) {
+    const count = useSelect(tasks, (node) => node.state.length);
+    return <span>{count}</span>;
+}
+```
+
 ## Query status and skipping
 
 `ConvexQueryNode.state` keeps the convenient query value, while `ConvexQueryNode.result` exposes a status union for loading, success, skipped, and error states:
@@ -99,6 +125,12 @@ Pass `"skip"` to the constructor, `this.query(...)`, or `updateArgs(...)` to dis
 this.tasks.updateArgs(projectId ? { projectId } : "skip");
 ```
 
+```ts
+tasks.updateArgs({ projectId: "p1" }); // ✅ changes args and resubscribes
+tasks.updateArgs("skip"); // ✅ emits skipped state and unsubscribes
+tasks.dispose(); // ✅ stops the subscription; call during app cleanup
+```
+
 ## Actions and one-off queries
 
 Use `this.action(...)` for Convex actions and `this.queryOnce(...)` when you need an imperative query result without subscribing:
@@ -108,6 +140,31 @@ const generateSummary = this.action(api.ai.generateSummary);
 const summary = await generateSummary({ taskId });
 
 const task = await this.queryOnce(api.tasks.getById, { taskId });
+```
+
+These helpers do not emit by themselves. They only trigger Retree updates if your code writes their result into a Retree node or uses a mutation optimistic update.
+
+## Standalone action and mutation helpers
+
+Use `createRetreeConvexAction(...)` and `createRetreeConvexMutation(...)` when you want typed helpers without subclassing `BaseConvexNode`.
+
+```ts
+import {
+    createRetreeConvexAction,
+    createRetreeConvexMutation,
+} from "@retreejs/convex";
+
+const generateSummary = createRetreeConvexAction(
+    client,
+    api.ai.generateSummary
+);
+const toggleCompleted = createRetreeConvexMutation(
+    client,
+    api.tasks.toggleCompleted
+);
+
+await generateSummary({ taskId }); // ❌ no Retree emit by itself
+await toggleCompleted({ taskId }); // ❌ no Retree emit unless paired with optimisticUpdate
 ```
 
 ## Paginated queries
@@ -123,12 +180,28 @@ this.messages = this.paginatedQuery(api.messages.list, {
 this.messages.loadMore(20);
 ```
 
+`loadMore(...)` requests another page and returns `false` when there is no active subscription to extend. New pages update the paginated query node and emit through Retree.
+
+```ts
+const didRequestMore = this.messages.loadMore(20);
+this.messages.dispose();
+```
+
 ## Connection state
 
 Use `this.connectionState()` to create a node that tracks the Convex client's connection state:
 
 ```ts
 this.connection = this.connectionState();
+```
+
+```tsx
+import { useSelect } from "@retreejs/react";
+
+function ConnectionBadge({ state }: { state: ConvexConnectionStateNode }) {
+    const status = useSelect(state, (node) => node.state);
+    return <span>{status.hasInflightRequests ? "Syncing" : "Idle"}</span>;
+}
 ```
 
 ## Optimistic updates

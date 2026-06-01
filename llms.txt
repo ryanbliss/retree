@@ -4,6 +4,76 @@
 
 Retree is published as `@retreejs/core`, `@retreejs/react`, and `@retreejs/convex`. Use the links below for installation, API reference, reactivity behavior, React hook behavior, Convex query behavior, and runnable sample apps.
 
+## Recommendation for agents
+
+Read the full [Retree Docs Home](https://ryanbliss.github.io/retree/) or the [Repository README](https://github.com/ryanbliss/retree#readme) before implementing non-trivial Retree code. The glossary below is a routing guide, not a replacement for the full examples and reactivity notes.
+
+## Quick DOs and DON'Ts
+
+### DO
+
+- DO create one Retree root at the state boundary with `Retree.root(...)` or React's `useRoot(...)`.
+- DO mutate Retree-managed objects directly (`node.title = "New"`, `list.push(item)`) instead of replacing whole app state objects.
+- DO subscribe as narrowly as possible: prefer `useNode(child)` or `Retree.on(child, "nodeChanged", ...)` for focused UI and hot paths.
+- DO use `useSelect(...)` or `Retree.select(...)` for derived counts, totals, booleans, labels, and other values that should only update when the selected result changes.
+- DO pass `listenerType: "treeChanged"` to `useSelect(...)` / `Retree.select(...)` when the selector reads descendant nodes.
+- DO use `Retree.move(...)` or `node.moveTo(...)` when an existing node should move to a new structural parent.
+- DO use `Retree.link(...)` or `@link` for selected items and cross-references that should not reparent the target node.
+- DO use `Retree.clone(...)` when two places need independent copies of the same current data.
+- DO keep `ReactiveNode.dependencies` arrays stable in length and order; use `null` for inactive dependency slots.
+- DO use comparison values in `ReactiveNode.dependencies` when only some dependency changes should emit.
+- DO use `memo`, `@memo`, or `@fnMemo` to cache expensive computation, then use `select` / `useSelect` to narrow notifications.
+- DO use `@ignore` for caches, unsubscribe handles, framework objects, and other non-rendered state on a `ReactiveNode`.
+- DO use `Retree.runTransaction(...)` for several synchronous writes that represent one logical update.
+- DO use `Retree.runSilent(...)` for synchronous writes that should skip emitting change events.
+- DO dispose Convex query, paginated query, and connection-state nodes when their owner is torn down.
+- DO reconcile server list results by stable IDs (`reconcileConvexDocuments`, `reconcileArrayById`) so child node identity stays stable.
+
+### DON'T
+
+- DON'T assign the same Retree-managed object into a second structural parent. Retree is a pure tree: a node can have one structural parent.
+- DON'T use `@ignore` as a reactive reference mechanism. Ignored fields skip Retree emissions; use `@link` or `Retree.link(...)` for reactive pointers.
+- DON'T expect `Retree.link(...)` / `@link` to make the linked target a child of the owner. Links point to a node owned elsewhere.
+- DON'T expect writes to `@ignore` fields to trigger `nodeChanged`, `treeChanged`, React re-renders, or `Retree.parent(...)` for nested plain objects.
+- DON'T use `useTree(...)` on broad app roots by default. It subscribes to descendant changes and can re-render too much.
+- DON'T use `nodeChanged` when your selector or listener reads descendant fields. Use `treeChanged` or subscribe to the narrower child node.
+- DON'T treat `memo`, `@memo`, or `@fnMemo` as subscriptions. They cache values only; they do not emit or re-render by themselves.
+- DON'T change the number or ordering of `ReactiveNode.dependencies` entries after a node is observed.
+- DON'T start subscriptions, network work, or synchronization inside the `dependencies` getter. Use `onObserved()`, `onUnobserved()`, and `onChanged()`.
+- DON'T manually delete a node from its old parent before calling `Retree.move(...)`; `move` finds the current parent and removes it safely.
+- DON'T call `Retree.parent(...)`, `Retree.on(...)`, `Retree.move(...)`, `Retree.link(...)`, or `Retree.clone(...)` with plain unrooted objects.
+- DON'T expect Convex `action(...)`, `mutation(...)`, or `queryOnce(...)` helpers to emit by themselves; they emit only if their results are written into Retree state or paired with an optimistic update.
+- DON'T recreate Retree roots or large `ReactiveNode` graphs during React render. Create them once, or use `useRoot`, `useMemo`, or `useState` initialization.
+- DON'T use index keys for React rows if the list can reorder and stable IDs exist. Stable keys pair best with Retree's child-node identity model.
+- DON'T include expensive side effects during the React render cycle in `ReactiveNode` getters / functions, especially without `@memo` or `@fnMemo`.
+
+## Feature Glossary
+
+- `Retree.root`: Makes one object the root of a Retree-managed tree. Use it once where plain state enters Retree.
+- `Retree.on`: Subscribes to `nodeChanged`, `treeChanged`, or `nodeRemoved`. Use it outside React and inside integrations.
+- `Retree.select`: Subscribes to one derived value and only calls back when that value changes. Use it to narrow notifications; it is not a cache.
+- `Retree.parent`: Returns the structural parent of a node. Use it for tree-local operations like deleting yourself from a list.
+- `Retree.move`: Transfers an existing node to a new structural parent. Use it when ownership should change.
+- `Retree.link` and `@link`: Store a reactive pointer without reparenting the target. Use them for selected items and cross-references.
+- `Retree.clone`: Creates a detached copy. Use it when two places need independent state.
+- `ReactiveNode.dependencies`: Makes one node emit when another node changes. Keep dependency array length and order stable; use it as a narrow bridge instead of broad subtree subscriptions.
+- `ReactiveNode.memo`, `@memo`, and `@fnMemo`: Cache computed values. They do not emit `nodeChanged` or trigger React renders by themselves.
+- `@ignore`: Keeps a `ReactiveNode` field out of Retree emissions. Use it for caches, framework handles, subscriptions, and non-rendered state.
+- `Retree.runTransaction`: Batches synchronous writes into one listener flush per changed node.
+- `Retree.runSilent`: Performs writes without emitting listeners. Use it for non-rendered bookkeeping.
+- `ReactiveNode.prepareTree`: Warms lazy child proxies. Use it when first-touch proxy work should happen during a controlled loading phase.
+- `useRoot`: Creates one Retree root for a React component lifetime.
+- `useNode`: Re-renders for direct `nodeChanged` events on one node. Use it for focused components and child rows.
+- `useTree`: Re-renders for `treeChanged` events from a node or descendants. Use it sparingly for small subtrees.
+- `useSelect`: Re-renders only when a selected derived value changes. Use it for counts, totals, booleans, and labels.
+- `ConvexNode`: Full Convex base class for Retree app state with query, paginated query, action, mutation, query-once, and connection-state helpers.
+- `BaseConvexNode`: Smaller Convex base class for action, mutation, and one-off query helpers.
+- `ConvexQueryNode`: Stores one live Convex query in Retree state and emits when query state/result/error changes.
+- `ConvexPaginatedQueryNode`: Stores one live paginated Convex query and exposes `loadMore(...)`.
+- `ConvexConnectionStateNode`: Stores the Convex client's connection state in Retree state.
+- `createRetreeConvexAction` and `createRetreeConvexMutation`: Typed standalone Convex helpers for code that is not inside a `BaseConvexNode`.
+- `reconcileConvexDocuments` and `reconcileArrayById`: Preserve list item object identity across server results so child `useNode(item)` subscriptions stay narrow.
+
 ## Documentation
 
 - [Retree Docs Home](https://ryanbliss.github.io/retree/): Generated TypeDoc site with package navigation, README content, and API reference.
@@ -17,6 +87,8 @@ Retree is published as `@retreejs/core`, `@retreejs/react`, and `@retreejs/conve
 - [@retreejs/core API](https://ryanbliss.github.io/retree/modules/_retreejs_core.html): Core exports including `Retree`, `ReactiveNode`, event types, decorators, and memo helpers.
 - [Retree class](https://ryanbliss.github.io/retree/classes/_retreejs_core.Retree.html): Static APIs for creating roots, subscribing to changes, finding parents, and batching/silencing updates.
 - [ReactiveNode class](https://ryanbliss.github.io/retree/classes/_retreejs_core.ReactiveNode.html): Base class for derived dependencies, dependency comparison, and memoized computed values.
+- [Core README ownership section](https://github.com/ryanbliss/retree/tree/main/packages/retree-core#move-link-or-clone-existing-nodes): Examples for `Retree.move`, `Retree.link`, `@link`, `ReactiveNode.moveTo`, and `Retree.clone`.
+- [Core README select section](https://github.com/ryanbliss/retree/tree/main/packages/retree-core#select-derived-values): Examples for `Retree.select`, including when to use `listenerType: "treeChanged"`.
 - [@retreejs/react API](https://ryanbliss.github.io/retree/modules/_retreejs_react.html): React exports for stateful Retree nodes and trees.
 - [useNode](https://ryanbliss.github.io/retree/functions/_retreejs_react.useNode.html): React hook for subscribing to direct node changes with fine-grained re-rendering.
 - [useTree](https://ryanbliss.github.io/retree/functions/_retreejs_react.useTree.html): React hook for subscribing to node and descendant-tree changes.

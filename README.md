@@ -18,68 +18,25 @@ The generated static site is written to `docs/` and ignored by Git. The docs bui
 -   `@retreejs/react` provides React hooks for rendering Retree nodes.
 -   `@retreejs/convex` connects Convex queries, paginated queries, actions, mutations, and connection state to Retree nodes.
 
-## @retreejs/convex
+## Feature glossary
 
-Retree Convex lets a `ReactiveNode` own a Convex client, create typed query nodes with `this.query(...)`, run one-off queries with `this.queryOnce(...)`, call actions and mutations, subscribe to paginated queries, and track connection state. Query results are written into Retree state, Convex document arrays are reconciled by `_id` by default, and optimistic updates can be applied narrowly to existing query state.
-
-### How to install
-
-Install with `npm`:
-
-```bash
-npm i @retreejs/core @retreejs/convex convex
-```
-
-Install with `yarn`:
-
-```bash
-yarn add @retreejs/core @retreejs/convex convex
-```
-
-### How to use
-
-```ts
-import { ConvexNode, ConvexQueryNode } from "@retreejs/convex";
-import { ConvexClient } from "convex/browser";
-import { api } from "../convex/_generated/api";
-import { Id } from "../convex/_generated/dataModel";
-
-class TasksState extends ConvexNode {
-    public readonly tasks: ConvexQueryNode<typeof api.tasks.get>;
-
-    constructor(convexUrl: string) {
-        const client = new ConvexClient(convexUrl);
-        super(client);
-        this.tasks = this.query(api.tasks.get);
-    }
-
-    get dependencies() {
-        return [];
-    }
-
-    public toggleCompleted(taskId: Id<"tasks">): Promise<null> {
-        const toggleCompleted = this.mutation(api.tasks.toggleCompleted);
-        return toggleCompleted(
-            { taskId },
-            {
-                withOptimisticUpdate: (ctx) => {
-                    this.tasks.optimisticUpdate({
-                        ctx,
-                        apply(tasks) {
-                            const task = tasks.find((candidateTask) => {
-                                return candidateTask._id === taskId;
-                            });
-                            if (!task) return;
-
-                            task.isCompleted = !task.isCompleted;
-                        },
-                    });
-                },
-            }
-        );
-    }
-}
-```
+-   [`Retree.root`](#retreejscore) makes one object the root of a Retree-managed tree. Use it once where plain state enters Retree.
+-   [`useRoot`](#useroot-hook) creates one Retree root for a React component lifetime. Use it when state belongs to a React subtree.
+-   [`useNode`](#usenode-hook) re-renders a React component for direct `nodeChanged` events on one node. Use it for rows, panels, forms, and focused child components.
+-   [`useTree`](#usetree-hook) re-renders for `treeChanged` events from a node or any descendant. Use it sparingly for small subtrees that truly need broad invalidation.
+-   [`useSelect`](#useselect-hook) re-renders only when a selected derived value changes. Use it for counts, totals, booleans, and other narrow projections.
+-   [`Retree.on`](#core-api-examples) subscribes to `nodeChanged`, `treeChanged`, or `nodeRemoved`. Use it outside React and inside integrations.
+-   [`Retree.select`](#core-api-examples) is the non-React version of `useSelect`. Use it to narrow notifications; it is not a cache.
+-   [`Retree.parent`](#core-api-examples) returns the structural parent of a node. Use it for tree-local operations like deleting yourself from a list.
+-   [`Retree.move`](#core-api-examples) transfers an existing node to a new structural parent. Use it when ownership should change.
+-   [`Retree.link` and `@link`](#core-api-examples) store a reactive pointer without reparenting. Use them for selected items and cross-references.
+-   [`Retree.clone`](#core-api-examples) makes a detached copy. Use it when two places need independent state.
+-   [`ReactiveNode.dependencies`](#reactivenode) makes one node emit when another node changes. Use it as a narrow bridge instead of a broad `treeChanged` subscription.
+-   [`memo`, `@memo`, and `@fnMemo`](#memoize-computed-getters) cache computed values. Use them to avoid recomputation; they do not emit changes by themselves.
+-   [`@ignore`](#opt-fields-out-of-reactivity-with-ignore) keeps a field out of Retree emissions. Use it for caches, subscriptions, framework handles, and non-rendered state.
+-   [`Retree.runTransaction`](#transactions) batches synchronous writes into one listener flush per changed node.
+-   [`Retree.runSilent`](#skip-re-rendering-changes) performs writes without emitting listeners.
+-   [`ReactiveNode.prepareTree`](#core-api-examples) warms lazy child proxies during a controlled phase.
 
 ## @retreejs/react
 
@@ -101,7 +58,24 @@ yarn add @retreejs/core @retreejs/react
 
 ### How to use
 
-It's extremely easy to get started with Retree. There are two React hooks: `useNode` and `useTree`. Each have specific advantages while leveraging the same simple interface.
+It's extremely easy to get started with Retree. The main React hooks are `useNode`, `useTree`, `useSelect`, and `useRoot`. Each has specific advantages while leveraging the same simple interface.
+
+#### useRoot hook
+
+Use `useRoot` when a component should create and retain its own Retree root. The factory runs once for the component lifetime.
+
+```tsx
+import { useNode, useRoot } from "@retreejs/react";
+
+function CounterPanel() {
+    const counter = useRoot(() => ({ count: 0 }));
+    const state = useNode(counter);
+
+    return <button onClick={() => (state.count += 1)}>{state.count}</button>;
+}
+```
+
+`useRoot` creates the root; `useNode`, `useTree`, or `useSelect` decide what causes the component to re-render.
 
 #### useNode hook
 
@@ -134,7 +108,7 @@ class Todo {
     }
 }
 
-// Todo React component that acceps a Todo object as a prop
+// Todo React component that accepts a Todo object as a prop
 function _ViewTodo({ todo }) {
     // Make todo stateful. Changes to todo will only re-render this component.
     const _todo = useNode(todo);
@@ -232,6 +206,37 @@ whiteboardRoot.shapes.push({ type: "circle" });
 
 This is ideal in cases when you want to use child nodes as props into other child components, such as a `<ViewTodo todo={todo} />`. This ensures that state changes to each individual item in the list won't trigger re-renders of its parent. When using `memo` components or the new React compiler, this also means irrelevant changes to parent nodes won't re-render items in the list.
 
+#### useSelect hook
+
+Use `useSelect` when a component needs one derived value from a Retree node and should only re-render when that value changes. It listens to `nodeChanged` by default; pass `listenerType: "treeChanged"` when the selector reads descendants.
+
+```tsx
+import { Retree } from "@retreejs/core";
+import { useSelect } from "@retreejs/react";
+
+const project = Retree.root({
+    tasks: [
+        { title: "Docs", done: false },
+        { title: "Tests", done: true },
+    ],
+});
+
+function DoneCount() {
+    const doneCount = useSelect(
+        project.tasks,
+        (tasks) => tasks.filter((task) => task.done).length,
+        { listenerType: "treeChanged" }
+    );
+
+    return <span>{doneCount}</span>;
+}
+
+project.tasks[0].done = true; // ✅ re-renders DoneCount: 1 -> 2
+project.tasks[0].title = "Better docs"; // ❌ no re-render: doneCount stayed 2
+```
+
+`useSelect` is a subscription primitive, not a memo cache. Use `memo`, `@memo`, or `@fnMemo` for expensive computation you want to cache, then select the cached value when you want narrower renders.
+
 #### useTree hook
 
 In some cases it might be desirable to get re-renders for all child nodes at a given point in your object tree. In such cases, it can be impractical to put each child node in `useNode`. Fortunately, `useTree` makes this very simple.
@@ -264,7 +269,7 @@ function Headers({ headers }) {
 }
 
 function Row({ row }) {
-    // In this simple case, `useNode` and `useTree` can be used interchangably.
+    // In this simple case, `useNode` and `useTree` can be used interchangeably.
     const rowState = useNode(row);
     return (
         <tr>
@@ -382,43 +387,37 @@ Recent stable medium benchmark runs show the main direction of the architecture 
 
 The `ReactiveNode` class allows nodes in your tree to reactively update when their declared dependencies change. This offers a middleground between `useTree` and `useNode` that can be extremely powerful for minimizing re-renders in your application.
 
-```ts
-import { Retree, ReactiveNode } from "@retree/core";
-import { useNode } from "@retree/core";
-// Declare a class that extends `ReactiveNode`
-class Node extends ReactiveNode {
-    numbers: number[] = [];
-    constructor() {
-        super();
-    }
-    // Get count of even numbers in the list
+```tsx
+import { Retree, ReactiveNode } from "@retreejs/core";
+import { useNode } from "@retreejs/react";
+
+class EvenCounter extends ReactiveNode {
+    public numbers: number[] = [];
+
     get evenNumberCount(): number {
         return this.numbers.filter((number) => number % 2 === 0).length;
     }
-    // Implement abstract `dependencies` getter with list of dependencies
+
     get dependencies() {
         return [
-            // Similar to React, dependencies cannot change in length or order between updates.
             this.dependency(
-                // The dependency node to listen to changes for.
                 this.numbers,
-                // Optional comparison dependencies so that only specific changes cause `Node` instances to updates.
-                // If not provided, all changes to `this.numbers` would cause `Node` instances to update.
+                // Only emit when the derived value changes.
                 [this.evenNumberCount]
             ),
         ];
     }
 }
-// Create root `ReactiveNode` instance and listen for changes in `useNode`
-const node = Retree.root(new Node());
-const nodeState = useNode(node);
 
-// ✅ Will re-render
-node.list.push(2);
-node.list.push(100);
-// ❌ Will not re-render
-node.list.push(3);
-node.list.push(99);
+const counter = Retree.root(new EvenCounter());
+
+function EvenBadge() {
+    const state = useNode(counter);
+    return <span>{state.evenNumberCount}</span>;
+}
+
+counter.numbers.push(2); // ✅ re-renders: evenNumberCount 0 -> 1
+counter.numbers.push(3); // ❌ no re-render: evenNumberCount stayed 1
 ```
 
 ##### ReactiveNode lifecycle hooks
@@ -672,7 +671,7 @@ If you are making multiple changes to one or many nodes at once, you can use `Re
 ```ts
 const _counter = Retree.root({ count: 0 });
 const counter = useNode(_counter);
-// Will only emit "valueChanged" once
+// Will only emit "nodeChanged" once
 Retree.runTransaction(() => {
     counter.count = counter.count + 1;
     counter.count = counter.count * 2;
@@ -687,7 +686,7 @@ If you want to skip re-rendering on a change, you can use the `Retree.runSilent`
 const counter = Retree.root({ count: 0, multiplier: 1 });
 const counterState = useNode(counter);
 // Skip re-render on setting the multiplier
-function onClickIncrementMultipler() {
+function onClickIncrementMultiplier() {
     Retree.runSilent(() => {
         counterState.multiplier += 1;
     });
@@ -757,15 +756,141 @@ const tree = Retree.root(new TodoList());
 const unsubscribe = Retree.on(tree.todos, "treeChanged", (todos) => {
     console.log("list updated", todos);
 });
-tree.todos.add();
+tree.add();
 tree.todos[0].toggle();
 tree.todos[0].delete();
 unsubscribe();
 ```
 
+### Core API examples
+
+Use `Retree.on` when you need events outside React:
+
+```ts
+Retree.on(tree.todos, "nodeChanged", () => console.log("list changed"));
+Retree.on(tree.todos, "treeChanged", () =>
+    console.log("list or child changed")
+);
+
+tree.todos.push(new Todo()); // ✅ nodeChanged, ✅ treeChanged
+tree.todos[0].toggle(); //    ❌ nodeChanged on list, ✅ treeChanged on list
+```
+
+Use `Retree.select` when only one derived value matters:
+
+```ts
+const unsubscribeDoneCount = Retree.select(
+    tree.todos,
+    (todos) => todos.filter((todo) => todo.checked).length,
+    (doneCount) => console.log(doneCount),
+    { listenerType: "treeChanged" }
+);
+
+tree.todos[0].toggle(); // ✅ emits if done count changes
+tree.todos[0].text = "Docs"; // ❌ no emit if done count is unchanged
+unsubscribeDoneCount();
+```
+
+Use `Retree.move`, `Retree.link`, and `Retree.clone` to make ownership explicit:
+
+```ts
+const task = projectA.tasks[0];
+
+Retree.move(task, projectB.tasks); // ✅ transfers ownership
+projectA.selected = Retree.link(task); // ✅ points at task without reparenting
+projectA.tasks.push(Retree.clone(task)); // ✅ independent copy
+```
+
+Use `Retree.parent` for tree-local operations:
+
+```ts
+const parent = Retree.parent(tree.todos[0]);
+if (Array.isArray(parent)) {
+    parent.splice(0, 1); // ✅ removes the task and emits on the parent list
+}
+```
+
+Use `ReactiveNode.prepareTree` when you want lazy child proxy setup to happen before first render or first interaction:
+
+```ts
+class ProjectState extends ReactiveNode {
+    public tasks = [{ title: "Docs", comments: [] }];
+
+    get dependencies() {
+        return [];
+    }
+}
+
+const root = Retree.root(new ProjectState());
+root.prepareTree({ depth: 1 });
+```
+
 ### Core samples
 
 See the [useNode React hook](https://github.com/ryanbliss/retree/blob/main/packages/retree-react/src/useNode.ts) or [example 01 project](https://github.com/ryanbliss/retree/tree/main/samples/01.core-example) for more example usages.
+
+## @retreejs/convex
+
+Retree Convex lets a `ReactiveNode` own a Convex client, create typed query nodes with `this.query(...)`, run one-off queries with `this.queryOnce(...)`, call actions and mutations, subscribe to paginated queries, and track connection state. Query results are written into Retree state, Convex document arrays are reconciled by `_id` by default, and optimistic updates can be applied narrowly to existing query state.
+
+### How to install
+
+Install with `npm`:
+
+```bash
+npm i @retreejs/core @retreejs/convex convex
+```
+
+Install with `yarn`:
+
+```bash
+yarn add @retreejs/core @retreejs/convex convex
+```
+
+### How to use
+
+```ts
+import { ConvexNode, ConvexQueryNode } from "@retreejs/convex";
+import { ConvexClient } from "convex/browser";
+import { api } from "../convex/_generated/api";
+import { Id } from "../convex/_generated/dataModel";
+
+class TasksState extends ConvexNode {
+    public readonly tasks: ConvexQueryNode<typeof api.tasks.get>;
+
+    constructor(convexUrl: string) {
+        const client = new ConvexClient(convexUrl);
+        super(client);
+        this.tasks = this.query(api.tasks.get);
+    }
+
+    get dependencies() {
+        return [];
+    }
+
+    public toggleCompleted(taskId: Id<"tasks">): Promise<null> {
+        const toggleCompleted = this.mutation(api.tasks.toggleCompleted);
+        return toggleCompleted(
+            { taskId },
+            {
+                withOptimisticUpdate: (ctx) => {
+                    this.tasks.optimisticUpdate({
+                        ctx,
+                        apply(tasks) {
+                            const task = tasks.find((candidateTask) => {
+                                return candidateTask._id === taskId;
+                            });
+                            if (!task) return;
+
+                            task.isCompleted = !task.isCompleted;
+                        },
+                    });
+                },
+            }
+        );
+    }
+}
+```
 
 ## Docs
 

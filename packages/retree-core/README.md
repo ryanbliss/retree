@@ -6,10 +6,8 @@ Retree is a lightweight and simple state management library, specifically design
 
 Install with `npm`:
 
-xretree
-
 ```bash
-npm i @evergreen/core
+npm i @retreejs/core
 ```
 
 Install with `yarn`:
@@ -17,6 +15,24 @@ Install with `yarn`:
 ```bash
 yarn add @retreejs/core
 ```
+
+## Feature glossary
+
+Use this as a quick map before choosing an API:
+
+-   [`Retree.root`](#how-to-use) makes one object the root of a Retree-managed tree. Use it once at the boundary where plain state enters Retree.
+-   [`Retree.on`](#listen-to-nodechanged-treechanged-and-noderemoved) subscribes to `nodeChanged`, `treeChanged`, or `nodeRemoved`. Use it outside React or inside lower-level integrations.
+-   [`Retree.select`](#select-derived-values) subscribes to one derived value and only calls back when that selected value changes. Use it to narrow notifications; it is not a cache.
+-   [`Retree.parent`](#find-a-parent) returns the structural parent of a node. Use it for tree-local actions like deleting yourself from an array.
+-   [`Retree.move`](#move-link-or-clone-existing-nodes) transfers an existing node to a new structural parent. Use it when ownership should change.
+-   [`Retree.link` and `@link`](#move-link-or-clone-existing-nodes) store a reactive pointer to a node without reparenting it. Use it for selected items and cross-references.
+-   [`Retree.clone`](#move-link-or-clone-existing-nodes) creates a detached copy. Use it when two places need independent state.
+-   [`ReactiveNode.dependencies`](#reactive-dependencies) makes one node emit when another node changes. Use it as a narrow bridge instead of broad `treeChanged` subscriptions.
+-   [`memo`, `@memo`, and `@fnMemo`](#memoize-computed-getters) cache computed values. Use them to skip recomputation; they do not emit changes by themselves.
+-   [`@ignore`](#opt-fields-out-of-reactivity-with-ignore) keeps a `ReactiveNode` field out of Retree emissions. Use it for caches, subscriptions, framework handles, and non-rendered state.
+-   [`Retree.runTransaction`](#transactions) batches synchronous mutations into one listener flush per changed node. Use it for one logical update made of several writes.
+-   [`Retree.runSilent`](#skip-emitting-changes) performs writes without emitting listeners. Use it for non-rendered bookkeeping.
+-   [`ReactiveNode.prepareTree`](#prepare-lazy-reactivenode-fields) warms lazy child proxies. Use it when first-touch proxy cost should happen during a controlled loading phase.
 
 ## How to use
 
@@ -55,10 +71,38 @@ const tree = Retree.root(new TodoList());
 const unsubscribe = Retree.on(tree.todos, "treeChanged", (todos) => {
     console.log("list updated", todos);
 });
-tree.todos.add();
+tree.add();
 tree.todos[0].toggle();
 tree.todos[0].delete();
 unsubscribe();
+```
+
+## Listen to nodeChanged, treeChanged, and nodeRemoved
+
+`Retree.on` is the core subscription primitive. `nodeChanged` fires for direct changes to that node. `treeChanged` fires for the node and descendant changes. `nodeRemoved` fires when that node is detached from its parent.
+
+```ts
+const board = Retree.root({
+    title: "Roadmap",
+    cards: [{ text: "Ship docs", done: false }],
+});
+
+Retree.on(board, "nodeChanged", () => console.log("board changed"));
+Retree.on(board, "treeChanged", () => console.log("board subtree changed"));
+Retree.on(board.cards[0], "nodeRemoved", () => console.log("card removed"));
+
+board.title = "Q2 Roadmap"; // ✅ nodeChanged(board), ✅ treeChanged(board)
+board.cards[0].done = true; // ❌ nodeChanged(board), ✅ treeChanged(board)
+board.cards.splice(0, 1); // ✅ nodeRemoved(card), ✅ treeChanged(board)
+```
+
+Call the unsubscribe returned by `Retree.on(...)` when you only want to remove one listener. Use `Retree.clearListeners(node)` when you own all listeners for a node and want to remove them at once.
+
+```ts
+const unsubscribe = Retree.on(board, "nodeChanged", () => {});
+unsubscribe();
+
+Retree.clearListeners(board.cards, false); // clear the list and child listeners
 ```
 
 ## Select derived values
@@ -83,7 +127,28 @@ root.total = 25;
 unsubscribe();
 ```
 
+```ts
+const project = Retree.root({
+    tasks: [
+        { title: "Docs", done: false },
+        { title: "Tests", done: true },
+    ],
+});
+
+Retree.select(
+    project.tasks,
+    (tasks) => tasks.filter((task) => task.done).length,
+    (doneCount) => console.log(doneCount),
+    { listenerType: "treeChanged" }
+);
+
+project.tasks[0].done = true; // ✅ emits: selected count changed 1 -> 2
+project.tasks[0].title = "Better docs"; // ❌ no emit: selected count stayed 2
+```
+
 By default, `select` listens to `nodeChanged` on the node you pass. This is best for selecting direct values owned by that exact node, including `ReactiveNode` values that emit when their dependencies change. Pass `listenerType: "treeChanged"` when the selector intentionally reads descendant nodes, and pass `equals` when the selected value is a new object or array that should be compared structurally.
+
+`select` does not cache expensive work for later reads. If the selector is expensive and reused from multiple places, put the expensive part behind `memo`, `@memo`, or `@fnMemo`, then select the cached value.
 
 ## Move, link, or clone existing nodes
 
@@ -98,6 +163,20 @@ Retree.move(task, tasksById, task.id); // Map key or object key
 ```
 
 `ReactiveNode` also has `moveTo(destination, key?)`, which wraps `Retree.move(this, destination, key)`.
+
+```ts
+class Task extends ReactiveNode {
+    public title = "";
+
+    get dependencies() {
+        return [];
+    }
+
+    public archive(archiveList: Task[]) {
+        this.moveTo(archiveList); // same as Retree.move(this, archiveList)
+    }
+}
+```
 
 Use `Retree.link(node)` or `@link` when one part of your state should point at a node that remains owned somewhere else. Replacing the link emits on the owner, but the target keeps its original parent. Reads return the latest reproxy for the linked node.
 
@@ -115,13 +194,81 @@ root.selectedTask.current.title = "Write better docs";
 class EditorState extends ReactiveNode {
     @link public selectedTask: { title: string } | null = null;
 
+    public select(task: { title: string }) {
+        this.selectedTask = task;
+    }
+
+    public selectedTaskLink(task: { title: string }) {
+        return this.link(task); // same as Retree.link(task)
+    }
+
     get dependencies() {
         return [];
     }
 }
 ```
 
+```ts
+const state = Retree.root(new EditorState());
+state.selectedTask = root.tasks[0]; // ✅ emits on state, ❌ does not reparent task
+state.selectedTask.title = "Renamed"; // ✅ emits where the task is structurally owned
+state.selectedTask = root.tasks[0]; // ❌ no emit if the field already points there
+```
+
 Use `Retree.clone(node)` when you want a detached copy that can become a new child somewhere else.
+
+```ts
+const copy = Retree.clone(root.tasks[0]);
+root.tasks.push(copy); // ✅ emits for root.tasks; copy is a new structural child
+```
+
+## Find a parent
+
+`Retree.parent(node)` returns the node's structural parent, or `null` for a root.
+
+```ts
+class Task {
+    public title = "";
+
+    public removeSelf() {
+        const parent = Retree.parent(this);
+        if (!Array.isArray(parent)) return;
+
+        const index = parent.indexOf(this);
+        if (index >= 0) {
+            parent.splice(index, 1); // ✅ emits on the parent list
+        }
+    }
+}
+```
+
+Links are not structural parents: if `editor.selectedTask` is a `@link` field pointing at `project.tasks[0]`, `Retree.parent(editor.selectedTask)` still returns `project.tasks`.
+
+## Reactive dependencies
+
+`ReactiveNode.dependencies` lets one node emit `nodeChanged` when another node changes. Use it when a node exposes derived state but you do not want broad `treeChanged` subscriptions.
+
+```ts
+class ProjectSummary extends ReactiveNode {
+    public tasks: { done: boolean }[] = [];
+
+    get doneCount() {
+        return this.tasks.filter((task) => task.done).length;
+    }
+
+    get dependencies() {
+        return [this.dependency(this.tasks, [this.doneCount])];
+    }
+}
+
+const summary = Retree.root(new ProjectSummary());
+Retree.on(summary, "nodeChanged", () => console.log(summary.doneCount));
+
+summary.tasks.push({ done: false }); // ❌ no emit: doneCount stayed 0
+summary.tasks[0].done = true; //       ✅ emits: doneCount changed 0 -> 1
+```
+
+Keep dependency arrays stable in length and order. Use `null` as the dependency node for an inactive slot instead of adding or removing array entries.
 
 ## Memoize computed getters
 
@@ -286,6 +433,54 @@ class EagerNode extends ReactiveNode {
         return [];
     }
 }
+```
+
+## Transactions
+
+Use `Retree.runTransaction(...)` when several synchronous writes are one logical update. Retree still updates every changed node, but listener callbacks flush once per changed node after the transaction finishes.
+
+```ts
+const counter = Retree.root({ count: 0 });
+let emits = 0;
+
+Retree.on(counter, "nodeChanged", () => {
+    emits += 1;
+});
+
+Retree.runTransaction(() => {
+    counter.count += 1;
+    counter.count *= 2;
+});
+
+console.log(counter.count); // 2
+console.log(emits); // ✅ 1 emit, not 2
+```
+
+## Skip emitting changes
+
+Use `Retree.runSilent(...)` for writes that should update state without notifying listeners. By default it also skips reproxying, which means old and new object identities remain equal for comparison checks.
+
+```ts
+const settings = Retree.root({
+    renderedCount: 0,
+    telemetryCount: 0,
+});
+
+Retree.on(settings, "nodeChanged", () => console.log("render"));
+
+Retree.runSilent(() => {
+    settings.telemetryCount += 1;
+}); // ❌ no emit
+
+settings.renderedCount += 1; // ✅ emits
+```
+
+Pass `false` as the second argument when you want to suppress listener emission but still refresh reproxy identities for later comparisons:
+
+```ts
+Retree.runSilent(() => {
+    settings.telemetryCount += 1;
+}, false);
 ```
 
 ## Performance model
