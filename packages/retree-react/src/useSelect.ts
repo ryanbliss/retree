@@ -39,6 +39,11 @@ function getNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>) {
  * not included as reactive entries in a dependency list. Pass `equals` when
  * the selected value or tuple should be compared structurally.
  *
+ * Dependency-list subscriptions are observational: if a tuple entry changes,
+ * `useSelect` may re-render this component, but it does not force the node
+ * passed to `useSelect` to receive a fresh reproxy. Use `@select` on a
+ * `ReactiveNode` getter when the owner node itself should emit `nodeChanged`.
+ *
  * Do not use `useSelect` to cache expensive computation for reuse elsewhere.
  * Put that work behind `memo`, `@memo`, or `@fnMemo`, then select the cached
  * value.

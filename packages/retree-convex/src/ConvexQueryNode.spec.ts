@@ -20,6 +20,7 @@ import {
     OptimisticUpdateContext,
     reconcileArrayById,
 } from "./index";
+import { reconcileArray } from "./internals/reconcile";
 
 type TasksQuery = FunctionReference<
     "query",
@@ -870,5 +871,31 @@ describe("ConvexQueryNode", () => {
 
         expect(node.state?.[0]?.isCompleted).toBe(true);
         expect(node.state?.[1]).toBe(unchangedTask);
+    });
+
+    it("reconciles arrays with sparse current slots", () => {
+        const current: { id: string; text: string }[] = [];
+        current.length = 2;
+        current[1] = { id: "task-2", text: "Read docs" };
+        const preservedTask = current[1];
+
+        reconcileArray(
+            current,
+            [
+                { id: "task-1", text: "Buy groceries" },
+                { id: "task-2", text: "Read better docs" },
+            ],
+            (task) => task.id
+        );
+
+        expect(current[0]).toEqual({
+            id: "task-1",
+            text: "Buy groceries",
+        });
+        expect(current[1]).toBe(preservedTask);
+        expect(current[1]).toEqual({
+            id: "task-2",
+            text: "Read better docs",
+        });
     });
 });

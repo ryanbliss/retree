@@ -246,6 +246,8 @@ const [, , attribute] = useSelect(row, (self) => [
 ]);
 ```
 
+Dependency-list subscriptions in `useSelect` are observational: selected dependency changes can re-render the component, but they do not force the node passed to `useSelect` to receive a fresh reproxy. Use `@select` when a `ReactiveNode` owner should emit `nodeChanged`.
+
 `useSelect` is a subscription primitive, not a memo cache. Use `memo`, `@memo`, or `@fnMemo` for expensive computation you want to cache, then select the cached value when you want narrower renders.
 
 #### useTree hook
@@ -383,7 +385,8 @@ Retree performs best when components subscribe to the narrowest node or value th
 -   Prefer `useNode(child)` for item rows and focused panels.
 -   Prefer `useSelect(node, selector)` for selected values or dependency lists that should only re-render when the selection changes.
 -   Treat `useTree` / `treeChanged` as broad subtree invalidation, especially in hot paths.
--   Keep `ReactiveNode.dependencies` stable in length and order, with comparison values when only some dependency changes should emit.
+-   Keep `ReactiveNode.dependencies` deterministic. Length/order can change; Retree treats shape changes as invalidation and refreshes subscriptions.
+-   Prefer `@select` for hot filtered lists where one getter should listen to a broad collection but only emit when the selected items or selected order changes.
 -   Avoid constructing large Retree roots or `ReactiveNode` graphs during React render; create them once, or initialize them through `useMemo` / `useState`.
 
 Large `ReactiveNode` object and array fields are prepared lazily. This improves initial setup, but the first nested read pays the preparation cost. Use `node.prepareTree({ depth })` or `super({ prepare: { autoPrepare: true, depth } })` if you want to pay that cost during a controlled loading phase.
@@ -832,6 +835,8 @@ Retree.select(
     ([, , attribute]) => console.log(attribute)
 );
 ```
+
+Dependency-list subscriptions in `Retree.select` are observational: selected dependency changes can call the callback, but they do not force the node passed to `Retree.select` to receive a fresh reproxy.
 
 Use `Retree.move`, `Retree.link`, and `Retree.clone` to make ownership explicit:
 

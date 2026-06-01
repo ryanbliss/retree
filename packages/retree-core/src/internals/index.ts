@@ -4,6 +4,7 @@
  */
 
 export * from "./TypedEventEmitter";
+export * from "./dependencies";
 export * from "./proxy";
 export * from "./reproxy";
 export * from "./select";

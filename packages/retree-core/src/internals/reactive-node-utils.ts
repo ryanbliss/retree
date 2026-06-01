@@ -2,6 +2,7 @@ import { IReactiveDependency, ReactiveNode } from "../ReactiveNode";
 import { TreeNode } from "../types";
 
 export interface IActiveReactiveDependency extends IReactiveDependency {
+    key: string;
     unsubscribeListener: (() => void) | undefined;
     unproxiedNode: TreeNode | undefined;
 }
@@ -10,7 +11,7 @@ export interface IPreviousReactiveDependent {
     reactiveNode: ReactiveNode;
     unproxiedReactiveNode: TreeNode;
     comparisons?: any[];
-    index: number;
+    key: string;
 }
 
 let reactiveDependentMap:
@@ -83,7 +84,7 @@ export function setReactiveDependents(
         if (
             existingDependent.unproxiedReactiveNode ===
                 dependent.unproxiedReactiveNode &&
-            existingDependent.index === dependent.index
+            existingDependent.key === dependent.key
         ) {
             existingDependent.reactiveNode = dependent.reactiveNode;
             existingDependent.comparisons = dependent.comparisons;
@@ -97,7 +98,7 @@ export function setReactiveDependents(
 export function deleteReactiveDependent(
     unproxiedDependentNode: TreeNode,
     unproxiedDependencyNode: TreeNode,
-    dependencyIndex?: number
+    dependencyKey?: string
 ) {
     if (!reactiveDependentMap) {
         reactiveDependentMap = new WeakMap();
@@ -111,10 +112,10 @@ export function deleteReactiveDependent(
         if (dep.unproxiedReactiveNode !== unproxiedDependencyNode) {
             return true;
         }
-        if (dependencyIndex === undefined) {
+        if (dependencyKey === undefined) {
             return false;
         }
-        return dep.index !== dependencyIndex;
+        return dep.key !== dependencyKey;
     });
     if (newDependents.length === 0) {
         reactiveDependentMap?.delete(unproxiedDependentNode);

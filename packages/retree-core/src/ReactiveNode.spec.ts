@@ -4,7 +4,10 @@ import { Retree } from "./Retree";
 import { ignore } from "./decorators";
 import { getCustomProxyHandler, getUnproxiedNode } from "./internals";
 import { proxiedChildrenKey } from "./internals/proxy-types";
-import { getReactiveDependencies } from "./internals/reactive-node-utils";
+import {
+    getReactiveDependencies,
+    getReactiveDependents,
+} from "./internals/reactive-node-utils";
 import { Transactions } from "./internals/transactions";
 
 const rootsToCleanup: object[] = [];
@@ -142,6 +145,16 @@ class SharedDependencyNode extends ReactiveNode {
     }
 }
 
+class DuplicateDependencyNode extends ReactiveNode {
+    constructor(public target: SharedDependencyTargetNode) {
+        super();
+    }
+
+    get dependencies() {
+        return [this.target.values, this.target.values];
+    }
+}
+
 class CountingStableDependencyNode extends ReactiveNode {
     @ignore
     public dependenciesReadCount = 0;
@@ -221,6 +234,35 @@ class OptionalDependencyNode extends ReactiveNode {
     }
 }
 
+class DynamicDependencyTargetNode extends ReactiveNode {
+    public items = Array.from({ length: 12 }, (_, index) => ({
+        id: String(index),
+        value: 0,
+    }));
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class DynamicItemListDependencyNode extends ReactiveNode {
+    public activeIds = Array.from({ length: 10 }, (_, index) => String(index));
+
+    @ignore
+    public target: DynamicDependencyTargetNode;
+
+    constructor(target: DynamicDependencyTargetNode) {
+        super();
+        this.target = target;
+    }
+
+    get dependencies() {
+        return this.activeIds.map(
+            (id) => this.target.items.find((item) => item.id === id) ?? null
+        );
+    }
+}
+
 describe("ReactiveNode", () => {
     it("emits only when comparison values change", () => {
         const root = trackRoot(Retree.root(new EvenNumberNode()));
@@ -235,22 +277,29 @@ describe("ReactiveNode", () => {
         expect(nodeChanged.mock.calls.at(-1)?.[0].evenNumberCount).toBe(2);
     });
 
-    it("throws when dependency list length changes while subscribed", () => {
+    it("allows dependency list length changes and resubscribes", () => {
         const root = trackRoot(Retree.root(new DynamicDependencyNode()));
-        Retree.on(root, "nodeChanged", vi.fn());
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
 
         expect(() => {
             root.includeSecond = true;
-        }).toThrow(/dependencies/i);
+        }).not.toThrow();
+
+        root.second.push(1);
+
+        expect(nodeChanged).toHaveBeenCalledTimes(2);
     });
 
-    it("throws when comparison list length changes for a dependency", () => {
+    it("emits when comparison list length changes for a dependency", () => {
         const root = trackRoot(Retree.root(new DynamicComparisonNode()));
-        Retree.on(root, "nodeChanged", vi.fn());
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
 
         expect(() => {
             root.numbers.push(1);
-        }).toThrow(/comparisons/i);
+        }).not.toThrow();
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
     });
 
     it("accepts direct reactive and primitive dependency values", () => {
@@ -276,6 +325,62 @@ describe("ReactiveNode", () => {
         expect(activeDependencies?.[1]?.comparisons).toEqual([0]);
         expect(activeDependencies?.[2]?.node).toBeUndefined();
         expect(activeDependencies?.[2]?.comparisons).toEqual([0]);
+    });
+
+    it("supports dynamic dependency lists", () => {
+        const target = trackRoot(
+            Retree.root(new DynamicDependencyTargetNode())
+        );
+        const root = trackRoot(
+            Retree.root(new DynamicItemListDependencyNode(target))
+        );
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        root.activeIds = ["0", "10"];
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+
+        target.items[1].value = 1;
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+
+        target.items[10].value = 1;
+        expect(nodeChanged).toHaveBeenCalledTimes(2);
+    });
+
+    it("unsubscribes removed dependencies even when another value takes the same position", () => {
+        const target = trackRoot(
+            Retree.root(new DynamicDependencyTargetNode())
+        );
+        const root = trackRoot(
+            Retree.root(new DynamicItemListDependencyNode(target))
+        );
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        const rawRoot = getUnproxiedNode(root);
+        const rawRemovedItem = getUnproxiedNode(target.items[9]);
+        if (!rawRoot) {
+            throw new Error("Expected dependent root to be Retree managed.");
+        }
+        if (!rawRemovedItem) {
+            throw new Error("Expected removed item to be Retree managed.");
+        }
+
+        root.activeIds = ["8", "7", "6", "5", "4", "3", "2", "1", "0", "10"];
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        nodeChanged.mockClear();
+
+        expect(
+            getReactiveDependents(rawRemovedItem)?.some(
+                (dependent) => dependent.unproxiedReactiveNode === rawRoot
+            ) ?? false
+        ).toBe(false);
+
+        target.items[9].value = 1;
+        expect(nodeChanged).not.toHaveBeenCalled();
+
+        target.items[10].value = 1;
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
     });
 
     it("does not run changed effects when the node is first observed", () => {
@@ -464,6 +569,20 @@ describe("ReactiveNode", () => {
         target.values.push(3);
         expect(firstChanged).toHaveBeenCalledTimes(1);
         expect(secondChanged).toHaveBeenCalledTimes(2);
+    });
+
+    it("emits once when the same dependency appears in multiple slots", () => {
+        const target = trackRoot(Retree.root(new SharedDependencyTargetNode()));
+        const dependent = trackRoot(
+            Retree.root(new DuplicateDependencyNode(target))
+        );
+        const nodeChanged = vi.fn();
+
+        Retree.on(dependent, "nodeChanged", nodeChanged);
+
+        target.values.push(1);
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
     });
 
     it("reads dependencies once per reactive-node update when dependency nodes stay stable", () => {

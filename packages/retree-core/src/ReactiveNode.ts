@@ -127,8 +127,9 @@ export interface IReactiveSelectGetter<
  * Return Retree-managed nodes directly when any change to that node should
  * emit. Return primitive values directly when they should be compared only.
  * Use {@link ReactiveNode.dependency} when a reactive dependency needs
- * explicit comparison cells. Keep dependency arrays stable in length and order
- * while the node is observed.
+ * explicit comparison cells. Dependency arrays should be deterministic, but
+ * may change length or order at runtime. Retree treats shape changes as
+ * invalidation and refreshes subscriptions.
  * 
  * @example
  ```ts
@@ -282,9 +283,11 @@ export abstract class ReactiveNode {
      * {@link ReactiveNode.onUnobserved}, and {@link ReactiveNode.onChanged} for
      * lifecycle work.
      *
-     * The returned array must keep the same length and ordering while the node
-     * is observed. Use `null` dependency nodes for inactive slots instead of
-     * adding or removing entries.
+     * The returned array may change length or ordering while the node is
+     * observed. Retree treats added, removed, or reordered entries as
+     * invalidation and refreshes subscriptions. Use `null` when you want an
+     * inactive slot to keep its position, but it is not required for
+     * correctness.
      *
      * @example
      * ```ts
@@ -397,9 +400,10 @@ export abstract class ReactiveNode {
      * `nodeChanged`. If `node` is a primitive or unproxied value, Retree
      * treats it as a comparison-only dependency.
      *
-     * Comparisons should be stable in length and order. If no comparisons are
-     * provided, every `nodeChanged` event from the dependency emits for this
-     * node.
+     * Comparison cells should be deterministic. If their length/order changes,
+     * Retree treats that as invalidation and emits for this node. If no
+     * comparisons are provided, every `nodeChanged` event from the dependency
+     * emits for this node.
      *
      * @param node the node to listen to "nodeChanged" events for.
      * @param comparisons Optional. Values to compare between updates to `node`.
@@ -409,9 +413,9 @@ export abstract class ReactiveNode {
      * ```ts
      * get dependencies() {
      *     return [
-     *         this.items,
-     *         this.searchText,
-     *         this.dependency(this.selectedItem ?? null, [this.selectedId]),
+     *         this.authStore,
+     *         this.authStore.session?.userId,
+     *         this.dependency(this.selectedProject ?? null, [this.projectId]),
      *     ];
      * }
      * ```

@@ -161,6 +161,8 @@ const unsubscribeAttribute = Retree.select(
 
 By default, `select` listens to `nodeChanged` on the node you pass. This is best for selecting direct values owned by that exact node, including `ReactiveNode` values that emit when their dependencies change. Pass `listenerType: "treeChanged"` when the selector intentionally reads descendants, and pass `equals` when you need custom comparison for the entire selected value or tuple.
 
+Dependency-list subscriptions in `Retree.select` are observational. If `self.attributes` or `self.attribute` changes in the example above, the callback can run, but the `row` node passed to `Retree.select` is not forced to receive a fresh reproxy. Use `@select` when a `ReactiveNode` owner should emit `nodeChanged`.
+
 `select` does not cache expensive work for later reads. If the selector is expensive and reused from multiple places, put the expensive part behind `memo`, `@memo`, or `@fnMemo`, then select the cached value.
 
 ## Move, link, or clone existing nodes
@@ -283,17 +285,32 @@ summary.tasks.push({ done: false }); // ❌ no emit: doneCount stayed 0
 summary.tasks[0].done = true; //       ✅ emits: doneCount changed 0 -> 1
 ```
 
-Keep dependency arrays stable in length and order. Use `null` as the dependency node for an inactive slot instead of adding or removing array entries.
+Dependency arrays should be deterministic, but they may change length or order at runtime. Retree treats added, removed, or reordered entries as invalidation and refreshes subscriptions. Use `null` when you want an inactive slot to keep its position, but it is not required for correctness.
 
 For simple cases, no wrapper is needed:
 
 ```ts
-class FilterState extends ReactiveNode {
-    public tasks: { done: boolean }[] = [];
-    public searchText = "";
+import { ReactiveNode, link } from "@retreejs/core";
+
+class AuthStore extends ReactiveNode {
+    public session: { userId: string; role: string } | null = null;
 
     get dependencies() {
-        return [this.tasks, this.searchText];
+        return [];
+    }
+}
+
+class HeaderState extends ReactiveNode {
+    @link
+    public auth: AuthStore;
+
+    constructor(auth: AuthStore) {
+        super();
+        this.auth = auth;
+    }
+
+    get dependencies() {
+        return [this.auth, this.auth.session?.userId];
     }
 }
 ```
@@ -560,10 +577,11 @@ Retree.on(todoList, "treeChanged", (nextList) => {
 
 ### Use `ReactiveNode.dependencies` as a narrow bridge
 
-`ReactiveNode.dependencies` is a good way to make one node react to another node without subscribing a broad tree. Keep the getter deterministic and stable:
+`ReactiveNode.dependencies` is a good way to make one node react to another node without subscribing a broad tree. Keep the getter deterministic:
 
--   Keep dependency list length and order stable.
+-   Dependency list length/order can change; Retree treats shape changes as invalidation and refreshes subscriptions.
 -   Use comparison values when only some changes should emit.
+-   Prefer `@select` for hot filtered lists where one getter should listen to a broad collection but only emit when the selected items or selected order changes.
 -   Avoid doing setup, network subscriptions, or synchronization inside `dependencies`; use `onObserved()`, `onUnobserved()`, and `onChanged()` for lifecycle work.
 -   Prefer one dependency on a narrow child node over a dependency on a broad parent.
 

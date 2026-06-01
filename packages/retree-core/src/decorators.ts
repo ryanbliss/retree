@@ -175,10 +175,11 @@ export function memo<This extends ReactiveNode, Value>(
  * slot needs custom comparison cells. When a selected slot changes, Retree
  * reproxies the owning node and emits `nodeChanged` for that owner.
  *
- * The dependency list is ordered and should keep a stable length while the
- * node is observed. Put every value that can change the getter result in the
- * list. Use {@link memo} for expensive intermediate getters, then select the
- * memoized value here.
+ * The dependency list is ordered and may change length at runtime. Retree
+ * treats additions, removals, and reordering as invalidation and refreshes the
+ * underlying subscriptions. Put every value that can change the getter result
+ * in the list. Use {@link memo} for expensive intermediate getters, then
+ * select the memoized value here.
  *
  * @example
  * ```ts

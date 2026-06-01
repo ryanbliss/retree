@@ -1,6 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Retree } from "@retreejs/core";
+import { getReproxyNode } from "@retreejs/core/internal";
 import { useSelect } from "./useSelect";
 
 const rootsToCleanup: object[] = [];
@@ -188,6 +189,7 @@ describe("useSelect", () => {
         }
 
         render(<Probe />);
+        const rootReproxyBeforeSelectedAttributeChange = getReproxyNode(root);
 
         act(() => {
             root.attributes.push({ id: "c", value: 0 });
@@ -203,6 +205,73 @@ describe("useSelect", () => {
 
         expect(screen.getByTestId("value").textContent).toBe("2");
         expect(renderCount).toBe(2);
+        expect(getReproxyNode(root)).toBe(
+            rootReproxyBeforeSelectedAttributeChange
+        );
+    });
+
+    it("supports explicit dependency slots without reproxying the selected root", () => {
+        const root = trackRoot(
+            Retree.root({
+                attributeId: "a",
+                attributes: [
+                    { id: "a", value: 0 },
+                    { id: "b", value: 0 },
+                ],
+                dependency(node: unknown, comparisons?: unknown[]) {
+                    return { node, comparisons };
+                },
+            })
+        );
+        let renderCount = 0;
+
+        function Probe() {
+            renderCount += 1;
+            const selected = useSelect(
+                root,
+                (node) =>
+                    [
+                        node.attributes,
+                        node.attributeId,
+                        node.dependency(
+                            node.attributes.find(
+                                (attribute) => attribute.id === node.attributeId
+                            ),
+                            [
+                                node.attributes.find(
+                                    (attribute) =>
+                                        attribute.id === node.attributeId
+                                )?.id,
+                            ]
+                        ),
+                    ] as const
+            );
+            return (
+                <div data-testid="explicit-value">
+                    {selected[2].comparisons?.[0] ?? "none"}
+                </div>
+            );
+        }
+
+        render(<Probe />);
+        const rootReproxyBeforeDependencyChange = getReproxyNode(root);
+
+        act(() => {
+            root.attributes[0].value = 1;
+        });
+
+        expect(screen.getByTestId("explicit-value").textContent).toBe("a");
+        expect(renderCount).toBe(1);
+
+        act(() => {
+            root.attributeId = "b";
+        });
+
+        expect(screen.getByTestId("explicit-value").textContent).toBe("b");
+        expect(renderCount).toBe(2);
+        expect(getReproxyNode(root)).not.toBe(
+            rootReproxyBeforeDependencyChange
+        );
     });
 
     it("infers tuple select values for equality", () => {

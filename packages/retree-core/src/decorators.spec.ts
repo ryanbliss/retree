@@ -104,6 +104,23 @@ class AttributeViewCustomSelectNode extends ReactiveNode {
     }
 }
 
+class DynamicSelectNode extends ReactiveNode {
+    public includeSecond = false;
+    public first = { value: 0 };
+    public second = { value: 0 };
+
+    @select((self: DynamicSelectNode) =>
+        self.includeSecond ? [self.first, self.second] : [self.first]
+    )
+    get total() {
+        return this.first.value + (this.includeSecond ? this.second.value : 0);
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
 const rootsToCleanup: object[] = [];
 
 function trackRoot<T extends object>(node: T): T {
@@ -264,5 +281,21 @@ describe("select", () => {
 
         expect(nodeChanged).toHaveBeenCalledTimes(1);
         expect(root.attribute?.id).toBe("b");
+    });
+
+    it("allows @select dependency list length changes independently", () => {
+        const root = trackRoot(Retree.root(new DynamicSelectNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        root.second.value = 1;
+        expect(nodeChanged).not.toHaveBeenCalled();
+
+        root.includeSecond = true;
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(root.total).toBe(1);
+
+        root.second.value = 2;
+        expect(nodeChanged).toHaveBeenCalledTimes(2);
     });
 });

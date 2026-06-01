@@ -23,6 +23,14 @@ export function reconcileArray<TItem extends object>(
         for (let index = 0; index < next.length; index++) {
             const currentItem = current[index];
             const nextItem = next[index];
+            if (currentItem === undefined) {
+                allItemsStayedInPlace = false;
+                break;
+            }
+            if (nextItem === undefined) {
+                allItemsStayedInPlace = false;
+                break;
+            }
             if (getId(currentItem) !== getId(nextItem)) {
                 allItemsStayedInPlace = false;
                 break;
@@ -38,11 +46,17 @@ export function reconcileArray<TItem extends object>(
 
     const currentById = new Map<PropertyKey, TItem>();
     for (const currentItem of current) {
+        if (currentItem === undefined) {
+            continue;
+        }
         currentById.set(getId(currentItem), currentItem);
     }
 
     for (let index = 0; index < next.length; index++) {
         const nextItem = next[index];
+        if (nextItem === undefined) {
+            continue;
+        }
         const currentItem = currentById.get(getId(nextItem));
         if (currentItem === undefined) {
             current[index] = nextItem;
@@ -50,7 +64,11 @@ export function reconcileArray<TItem extends object>(
         }
 
         reconcileObject(currentItem, nextItem);
-        if (getId(current[index]) === getId(currentItem)) {
+        const currentSlot = current[index];
+        if (
+            currentSlot !== undefined &&
+            getId(currentSlot) === getId(currentItem)
+        ) {
             continue;
         }
 

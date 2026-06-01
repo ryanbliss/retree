@@ -4,8 +4,12 @@
  */
 
 import { TRetreeChangedEvents, TreeNode } from "../types";
-import { getBaseProxy, getCustomProxyHandler, getUnproxiedNode } from "./proxy";
-import { TCustomProxy } from "./proxy-types";
+import {
+    areDependencyComparisonValuesEqual,
+    getDependencyComparisonValues,
+    normalizeDependencyEntry,
+} from "./dependencies";
+import { getBaseProxy, getUnproxiedNode } from "./proxy";
 import { getReproxyNode } from "./reproxy";
 
 export type RetreeSelectSelector<TNode extends TreeNode, TSelected> = (
@@ -54,16 +58,6 @@ export function defaultSelectEquals<TSelected>(
     return Object.is(previous, next);
 }
 
-function areSelectSlotsEqual(previous: unknown, next: unknown): boolean {
-    if (
-        isRetreeManagedDependency(previous) &&
-        isRetreeManagedDependency(next)
-    ) {
-        return getUnproxiedNode(previous) === getUnproxiedNode(next);
-    }
-    return Object.is(previous, next);
-}
-
 export function defaultSelectShouldNotify<TSelected>(
     previous: TSelected,
     next: TSelected,
@@ -76,35 +70,33 @@ export function defaultSelectShouldNotify<TSelected>(
         return true;
     }
     if (changedDependencyIndex !== undefined) {
+        const currentSlot = normalizeDependencyEntry(
+            next[changedDependencyIndex]
+        );
+        if (currentSlot.explicit) {
+            const previousSlot = normalizeDependencyEntry(
+                previous[changedDependencyIndex]
+            );
+            return !areDependencyComparisonValuesEqual(
+                previousSlot.comparisonValues,
+                currentSlot.comparisonValues
+            );
+        }
         if (changedDependencyIndex >= next.length - 1) {
             return true;
         }
-        for (
-            let index = changedDependencyIndex + 1;
-            index < next.length;
-            index++
-        ) {
-            if (!areSelectSlotsEqual(previous[index], next[index])) {
-                return true;
-            }
-        }
-        return false;
+        return !areDependencyComparisonValuesEqual(
+            getDependencyComparisonValues(
+                previous.slice(changedDependencyIndex + 1)
+            ),
+            getDependencyComparisonValues(
+                next.slice(changedDependencyIndex + 1)
+            )
+        );
     }
-    for (let index = 0; index < previous.length; index++) {
-        if (!areSelectSlotsEqual(previous[index], next[index])) {
-            return true;
-        }
-    }
-    return false;
-}
-
-export function isRetreeManagedDependency(
-    value: unknown
-): value is TCustomProxy<TreeNode> {
-    return (
-        value !== null &&
-        typeof value === "object" &&
-        getCustomProxyHandler(value) !== undefined
+    return !areDependencyComparisonValuesEqual(
+        getDependencyComparisonValues(previous),
+        getDependencyComparisonValues(next)
     );
 }
 
@@ -134,10 +126,11 @@ export function createRetreeSelectionObserver<
 
         for (let index = 0; index < dependencies.length; index++) {
             const dependency = dependencies[index];
-            if (!isRetreeManagedDependency(dependency)) {
+            const normalizedDependency = normalizeDependencyEntry(dependency);
+            if (normalizedDependency.node === undefined) {
                 continue;
             }
-            const dependencyBaseProxy = getBaseProxy(dependency);
+            const dependencyBaseProxy = getBaseProxy(normalizedDependency.node);
             const rawNode = getUnproxiedNode(dependencyBaseProxy);
             if (rawNode === undefined || rawNode === baseRawNode) {
                 continue;

@@ -111,6 +111,8 @@ function AttributeLabel({ row }: { row: AttributeRow }) {
 
 `useSelect` listens with `nodeChanged` by default. This is best for selecting direct values owned by that exact node, including `ReactiveNode` values that emit when their dependencies change. Pass `listenerType: "treeChanged"` when the selector intentionally reads descendant nodes.
 
+Dependency-list subscriptions in `useSelect` are observational. If `self.attributes` or `self.attribute` changes in the example above, the component can re-render, but the `row` node passed to `useSelect` is not forced to receive a fresh reproxy. Use `@select` on a `ReactiveNode` getter when the owner node itself should emit `nodeChanged`.
+
 `useSelect` is a subscription primitive, not a memo cache. Use `memo` or `fnMemo` to cache expensive computation, and use `useSelect` to narrow React updates. If your selector returns a fresh object or array, pass `equals` to avoid re-rendering when the selected value is logically unchanged.
 
 ### useNode hook
@@ -397,7 +399,7 @@ function TodoCount({ todos }: { todos: Todo[] }) {
 
 `useTree` maps to broad descendant invalidation. It is still useful, especially for small local subtrees, but it should not be the default for large app-level roots. If a `useTree` component reads deeply on every render, the render itself becomes part of the benchmark cost.
 
-`ReactiveNode.dependencies` and `@select` are often better bridges than `useTree` when one node needs to update from another node. Keep dependency lists stable in length and order. Return raw reactive nodes/primitives directly for simple slots, and use `this.dependency(node, comparisons)` when one slot needs custom comparison values. Keep setup work in `onObserved()` instead of inside the `dependencies` getter.
+`ReactiveNode.dependencies` and `@select` are often better bridges than `useTree` when one node needs to update from another node. Dependency lists can change length/order; Retree treats shape changes as invalidation and refreshes subscriptions. Return raw reactive nodes/primitives directly for simple slots, and use `this.dependency(node, comparisons)` when one slot needs custom comparison values. Prefer `@select` for hot filtered lists where one getter should listen to a broad collection but only emit when the selected items or selected order changes. Keep setup work in `onObserved()` instead of inside the `dependencies` getter.
 
 Plain object and array fields on `ReactiveNode` are prepared lazily. This reduces initial proxy/setup time, but the first nested read pays the preparation cost. If you want to pay that cost during a loading state, call `node.prepareTree({ depth })` or opt into `super({ prepare: { autoPrepare: true, depth } })`.
 
