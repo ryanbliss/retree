@@ -26,8 +26,25 @@ import { useRef } from "react";
  * across the function body's StrictMode re-renders within a single mount,
  * so a `useRef + null check` guard ensures the factory runs exactly once.
  *
+ * Use `useRoot` when the Retree state belongs to this React subtree. Do not
+ * use it for shared module-level state that should outlive the component;
+ * create that root once outside React instead. Do not create a new Retree root
+ * directly during render.
+ *
  * @param factory function that returns a node wrapped in `Retree.root`.
  * @returns a root proxied node.
+ *
+ * @example
+ * ```tsx
+ * import { useNode, useRoot } from "@retreejs/react";
+ *
+ * function CounterPanel() {
+ *     const counter = useRoot(() => ({ count: 0 }));
+ *     const state = useNode(counter);
+ *
+ *     return <button onClick={() => (state.count += 1)}>{state.count}</button>;
+ * }
+ * ```
  */
 export function useRoot<T extends TreeNode>(factory: () => T): T {
     const ref = useRef<T | null>(null);

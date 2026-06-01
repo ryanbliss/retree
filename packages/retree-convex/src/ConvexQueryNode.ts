@@ -24,6 +24,27 @@ import {
 /**
  * Reactive query node that subscribes to a Convex query and writes emitted
  * values into Retree state.
+ *
+ * @remarks
+ * Use this directly or through {@link ConvexNode.query} when query results
+ * should be live Retree state. Convex emissions update `state`, `result`, and
+ * `error`, which can emit `nodeChanged` and re-render React subscribers.
+ *
+ * Dispose query nodes when their owner is torn down. Use `"skip"` when the
+ * query should be temporarily disabled. Prefer reconciled arrays so unchanged
+ * child objects keep identity for `useNode(item)` components.
+ *
+ * @example
+ * ```ts
+ * const tasks = new ConvexQueryNode(client, api.tasks.byProject, {
+ *     args: { projectId: "p1" },
+ *     initialState: [],
+ * });
+ *
+ * Retree.on(tasks, "nodeChanged", (next) => {
+ *     console.log(next.result.status);
+ * });
+ * ```
  */
 export class ConvexQueryNode<
     Query extends QueryReference
@@ -59,9 +80,23 @@ export class ConvexQueryNode<
     /**
      * Create a node for a Convex query subscription.
      *
+     * @remarks
+     * The subscription starts when the node is observed by Retree. This avoids
+     * opening Convex subscriptions for state nobody is currently rendering or
+     * listening to.
+     *
      * @param client Convex client used for the subscription.
      * @param query Convex query function reference.
      * @param options Query arguments, optional initial state, and optional reconciler.
+     *
+     * @example
+     * ```ts
+     * const tasks = Retree.root(
+     *     new ConvexQueryNode(client, api.tasks.list, {
+     *         initialState: [],
+     *     })
+     * );
+     * ```
      */
     constructor(
         client: IConvexClient,
@@ -95,7 +130,20 @@ export class ConvexQueryNode<
      * Update the query arguments and resubscribe when the shallow argument
      * comparison changes.
      *
+     * @remarks
+     * Use this when query args are controlled by Retree state, routing, or user
+     * input. Passing `"skip"` disables the active subscription and sets
+     * `result.status` to `"skipped"`.
+     *
+     * Updating args can emit because `state`, `result`, and `error` may change.
+     *
      * @param args Next query arguments, or `"skip"` to disable the subscription.
+     *
+     * @example
+     * ```ts
+     * tasks.updateArgs({ projectId: "p2" }); // ✅ may emit pending/success
+     * tasks.updateArgs("skip"); // ✅ emits skipped state and unsubscribes
+     * ```
      */
     public updateArgs(args: ConvexQueryArgs<Query>): void {
         this.args = args;
@@ -169,7 +217,34 @@ export class ConvexQueryNode<
      * when its promise rejects unless a newer server value resolves the dirty
      * state first.
      *
+     * @remarks
+     * Use this from a mutation's `withOptimisticUpdate` callback when the UI
+     * should update immediately before Convex confirms the write. The transform
+     * mutates the existing query state in place and emits through Retree.
+     *
+     * Prefer small, targeted transforms. Provide `revert(...)` when the default
+     * rollback to the last clean server value is not specific enough.
+     *
      * @param transform Optimistic transform and optional mutation context.
+     *
+     * @example
+     * ```ts
+     * const toggle = this.mutation(api.tasks.toggleCompleted);
+     * return toggle(
+     *     { taskId },
+     *     {
+     *         withOptimisticUpdate: (ctx) => {
+     *             this.tasks.optimisticUpdate({
+     *                 ctx,
+     *                 apply(tasks) {
+     *                     const task = tasks.find((item) => item._id === taskId);
+     *                     if (task) task.isCompleted = !task.isCompleted;
+     *                 },
+     *             });
+     *         },
+     *     }
+     * );
+     * ```
      */
     public optimisticUpdate<Mutation extends MutationReference>(
         transform: IOptimisticTransform<FunctionReturnType<Query>, Mutation>
@@ -284,6 +359,26 @@ export class ConvexQueryNode<
 
     /**
      * Stop the active Convex query subscription.
+     *
+     * @remarks
+     * Call this when the owner of the query node is torn down. Disposing stops
+     * future Convex updates; it does not clear `state`, `result`, or `error`.
+     *
+     * @example
+     * ```ts
+     * class TasksState extends ConvexNode {
+     *     public readonly tasks: ConvexQueryNode<typeof api.tasks.list>;
+     *
+     *     constructor(client: IConvexClient) {
+     *         super(client);
+     *         this.tasks = this.query(api.tasks.list);
+     *     }
+     *
+     *     public dispose() {
+     *         this.tasks.dispose();
+     *     }
+     * }
+     * ```
      */
     public dispose(): void {
         if (this.unsubscribe === null) {

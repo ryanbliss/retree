@@ -14,8 +14,14 @@ const LISTENER_TYPE = "treeChanged";
  * Stateful version of an object and its child nodes.
  *
  * @remarks
- * Only use in cases where re-rendering of a parent component will not cause expensive re-renders of child components.
- * The root of the node provided must have been first passed to {@link Retree.root}.
+ * `useTree` subscribes to `treeChanged`, so the component re-renders when the
+ * node or any descendant changes. Use it for small local subtrees that should
+ * render together, such as a compact summary or table section.
+ *
+ * Do not use `useTree` as the default for broad app roots. Prefer
+ * `useNode(child)` for focused child components and `useSelect(...)` for
+ * derived values. The root of the node provided must have been first passed
+ * to {@link Retree.root}.
  *
  * @param node object to make stateful
  * @returns a stateful version of the node provided
@@ -47,7 +53,7 @@ function Headers({ headers }) {
 }
 
 function Row({ row }) {
-    // In this simple case, `useNode` and `useTree` can be used interchangably.
+    // In this simple case, `useNode` and `useTree` can be used interchangeably.
     const rowState = useNode(row);
     return (
         <tr>

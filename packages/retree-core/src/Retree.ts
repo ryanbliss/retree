@@ -57,9 +57,39 @@ type TInternalNodeChangedListener = (
     reproxiedNode: TreeNode
 ) => void;
 
+/**
+ * Reactive pointer to a Retree-managed node owned somewhere else.
+ *
+ * @remarks
+ * `RetreeLink` is created by {@link Retree.link}. Store it in a Retree tree
+ * when one part of state needs to point at another node without becoming that
+ * node's structural parent. Replacing {@link RetreeLink.current} emits for the
+ * link. Mutating `current` emits from the target's structural location.
+ *
+ * Most code should call {@link Retree.link} instead of constructing this class
+ * directly.
+ *
+ * @example
+ * ```ts
+ * const root = Retree.root({
+ *     tasks: [{ title: "Docs" }],
+ *     selected: null as RetreeLink<{ title: string }> | null,
+ * });
+ *
+ * root.selected = Retree.link(root.tasks[0]);
+ * root.selected.current.title = "Better docs";
+ * ```
+ */
 export class RetreeLink<
     TNode extends TreeNode = TreeNode
 > extends ReactiveNode {
+    /**
+     * The linked Retree-managed node.
+     *
+     * @remarks
+     * Replacing `current` emits for the link node. Mutating the target emits
+     * where that target is structurally owned.
+     */
     public current: TNode;
 
     constructor(node: TNode) {
@@ -106,6 +136,12 @@ export class Retree {
     /**
      * @deprecated
      * Use {@link root} instead.
+     *
+     * @example
+     * ```ts
+     * const state = Retree.use({ count: 0 }); // deprecated
+     * const state = Retree.root({ count: 0 }); // preferred
+     * ```
      */
     static use<T extends TreeNode = TreeNode>(object: T): T {
         return this.root(object);
@@ -114,17 +150,25 @@ export class Retree {
     /**
      * Builds a Retree compatible root node for the root object of your tree.
      * @remarks
-     * Use this function only for a root object.
-     * This will make the object compatible with {@link Retree.on}, {@link Retree.parent}, etc.
-     * For child objects of this root node, simply set values to them like you normally would in JS/TS.
+     * Use this once where plain state enters Retree. The returned proxy is
+     * compatible with {@link Retree.on}, {@link Retree.parent},
+     * {@link Retree.move}, {@link Retree.link}, and React hooks from
+     * `@retreejs/react`.
+     *
+     * Do mutate the returned tree directly with normal JavaScript assignment
+     * and collection methods. Do not call `Retree.root(...)` on every child
+     * you assign into the tree; Retree prepares children as they are attached
+     * or read.
      *
      * @param object a root TreeNode for your tree
      * @returns a Retree compatible object of type T
      * 
      * @example
+     * ```ts
      const counter = Retree.root({ count: 0 });
-     Retree.on(counter, "valueChanged", () => console.log(counter.count));
+     Retree.on(counter, "nodeChanged", () => console.log(counter.count));
      counter.count = counter.count + 1;
+     ```
      */
     static root<T extends TreeNode = TreeNode>(object: T): T {
         return buildProxy<T>(object, this.nodeChangeEmitter);
@@ -137,6 +181,26 @@ export class Retree {
      * The returned link can be stored in a Retree tree without reparenting the
      * linked target. Replacing `link.current` emits for the link; mutating the
      * linked target emits from its structural location.
+     *
+     * Use this for selected items, cross-references, and pointers into another
+     * part of the same tree. Do not use a link when ownership should move; use
+     * {@link Retree.move} instead. Do not use a link when the two locations
+     * should diverge independently; use {@link Retree.clone} instead.
+     *
+     * @param node Existing Retree-managed node to point at.
+     * @returns A Retree-managed link object whose `current` points at `node`.
+     *
+     * @example
+     * ```ts
+     * const root = Retree.root({
+     *     tasks: [{ title: "Docs" }],
+     *     selected: null as RetreeLink<{ title: string }> | null,
+     * });
+     *
+     * root.selected = Retree.link(root.tasks[0]); // ✅ emits on root
+     * root.selected.current.title = "Better docs"; // ✅ emits where task is owned
+     * Retree.parent(root.selected.current) === root.tasks; // true
+     * ```
      */
     static link<TNode extends TreeNode>(node: TNode): RetreeLink<TNode> {
         this.assertRetreeManagedNode(node, "Retree.link");
@@ -146,6 +210,28 @@ export class Retree {
     /**
      * Clone a Retree-managed node into a detached object that can be assigned
      * somewhere else as a new structural child.
+     *
+     * @remarks
+     * Use this when two places need independent state initialized from the
+     * same current data. The clone is detached until you assign it into a
+     * Retree tree. Mutating the clone after assignment emits for the clone's
+     * new structural location, not the source node.
+     *
+     * Do not use `clone` when the original object should simply move; use
+     * {@link Retree.move}. Do not use `clone` for a selected-item pointer; use
+     * {@link Retree.link} or `@link`.
+     *
+     * @param node Existing Retree-managed node to copy.
+     * @returns A detached copy of the node's current raw data.
+     *
+     * @example
+     * ```ts
+     * const project = Retree.root({ tasks: [{ title: "Draft" }] });
+     * const copy = Retree.clone(project.tasks[0]);
+     *
+     * project.tasks.push(copy); // ✅ copy becomes a new child
+     * project.tasks[1].title = "Published"; // source task is unchanged
+     * ```
      */
     static clone<TNode extends TreeNode>(node: TNode): TNode {
         this.assertRetreeManagedNode(node, "Retree.clone");
@@ -154,6 +240,34 @@ export class Retree {
 
     /**
      * Move an existing Retree-managed node from its current parent to a new parent.
+     *
+     * @remarks
+     * Retree is a pure tree: each node has one structural parent. Use `move`
+     * when ownership should transfer from the old parent to the destination.
+     * Retree finds the current parent with {@link Retree.parent} and removes
+     * the node safely before inserting it into the destination.
+     *
+     * Arrays accept an optional numeric insertion index. Maps and plain
+     * objects require a key. Sets ignore the key. Do not manually delete the
+     * node from its old parent before calling `move`.
+     *
+     * @param node Existing Retree-managed node to move.
+     * @param destination Retree-managed array, map, set, or object destination.
+     * @param key Insertion index for arrays, map key for maps, or property key
+     * for objects.
+     * @returns The latest reproxy for the moved node.
+     *
+     * @example
+     * ```ts
+     * const workspace = Retree.root({
+     *     todo: [{ title: "Docs" }],
+     *     done: [] as { title: string }[],
+     * });
+     *
+     * const moved = Retree.move(workspace.todo[0], workspace.done);
+     * workspace.todo.length; // 0
+     * workspace.done[0] === moved; // true
+     * ```
      */
     static move<TNode extends TreeNode, TValue extends TreeNode = TNode>(
         node: TNode extends TValue ? TNode : never,
@@ -216,21 +330,21 @@ export class Retree {
     /**
      * Listen for changes to a node.
      * @remarks
-     * Use listener {@link TRetreeEvents"nodeChanged"} for changes to any leaf child of the node.
-     * Use listener {@link TRetreeEvents"treeChanged"} for changes to any leaf child of the node or its child nodes.
-     * Use listener {@link TRetreeEvents"nodeRemoved"} for when this node was removed from its parent.
+     * Use `nodeChanged` for changes directly owned by the node.
+     * Use `treeChanged` for changes to the node or descendants.
+     * Use `nodeRemoved` for when this node is removed from its parent.
      *
      * @param node the object to listen for changes to.
      * @param listenerType the type of {@link TRetreeEvents} change events to listen to.
      * @param callback the callback function for your listener.
-     * @returns an unsubscribe function to cleanup your listners.
+     * @returns an unsubscribe function to clean up your listeners.
      * 
      * @example
      ```ts
      // Create the root node
      const counter = Retree.root({ count: 0 });
      // Listen for changes to values of the node
-     const unsubscribe = Retree.on(counter, "valueChanged", (reproxy) => {
+     const unsubscribe = Retree.on(counter, "nodeChanged", (reproxy) => {
         console.log(reproxy !== counter); // output: false
         console.log(reproxy.count === counter.count); // output: true
      });
@@ -303,6 +417,35 @@ export class Retree {
      * then calls `callback` only when the selected value changes.
      * This is a subscription primitive, not a memo cache: use `memo` /
      * `fnMemo` to cache computation, and `select` to narrow notifications.
+     *
+     * By default `select` listens to `nodeChanged`, which is correct when the
+     * selector reads fields directly owned by `node`. Pass
+     * `listenerType: "treeChanged"` when the selector reads descendants.
+     *
+     * @param node Retree-managed node to observe.
+     * @param selector Function that reads a derived value from the latest
+     * reproxy.
+     * @param callback Called only when the selected value changes.
+     * @param options Optional listener type and equality comparison.
+     * @returns Unsubscribe function.
+     *
+     * @example
+     * ```ts
+     * const project = Retree.root({
+     *     tasks: [{ done: false }, { done: true }],
+     * });
+     *
+     * const unsubscribe = Retree.select(
+     *     project.tasks,
+     *     (tasks) => tasks.filter((task) => task.done).length,
+     *     (next, previous) => console.log({ next, previous }),
+     *     { listenerType: "treeChanged" }
+     * );
+     *
+     * project.tasks[0].done = true; // ✅ callback: 1 -> 2
+     * project.tasks[0].done = true; // ❌ selected value did not change
+     * unsubscribe();
+     * ```
      */
     static select<TNode extends TreeNode, TSelected>(
         node: TNode,
@@ -367,9 +510,30 @@ export class Retree {
     /**
      * Run a synchronous transaction that will not cause `{@link Retree.on} listeners to emit.
      *
+     * @remarks
+     * Use `runSilent` for non-rendered bookkeeping or integration state that
+     * should update without notifying Retree listeners. By default it also
+     * skips reproxying, so old and new object identities stay equal for later
+     * comparison checks.
+     *
+     * Pass `skipReproxy = false` when you want to suppress listener emission
+     * but still refresh reproxy identities.
+     *
      * @param transaction transaction function to run
      * @param skipReproxy skip reproxying nodes such that subsequent comparisons are equal.
      * defaults to true.
+     *
+     * @example
+     * ```ts
+     * const state = Retree.root({ rendered: 0, telemetry: 0 });
+     * Retree.on(state, "nodeChanged", () => console.log("render"));
+     *
+     * Retree.runSilent(() => {
+     *     state.telemetry += 1;
+     * }); // ❌ no listener emit
+     *
+     * state.rendered += 1; // ✅ emits
+     * ```
      */
     static runSilent(transaction: () => void, skipReproxy = true) {
         Transactions.skipEmit = true;
@@ -395,8 +559,8 @@ export class Retree {
      * @example
      ```ts
      const counter = Retree.root({ count: 0 });
-     Retree.on(counter, "valueChanged", () => console.log(counter.count));
-     // Will only emit "valueChanged" once
+     Retree.on(counter, "nodeChanged", () => console.log(counter.count));
+     // Will only emit "nodeChanged" once
      Retree.runTransaction(() => {
         counter.count = counter.count + 1;
         counter.count = counter.count * 2;
@@ -428,8 +592,22 @@ export class Retree {
      * @remarks
      * Equivalent to calling each `unsubscribe` function returned by {@link Retree.on}.
      *
+     * Prefer storing and calling the unsubscribe returned from
+     * {@link Retree.on} when you own a single subscription. Use
+     * `clearListeners` when you own every listener for a node, such as during
+     * teardown of a Retree-managed integration.
+     *
      * @param node node to clear all listeners for
      * @param shallow when false, will unsubscribe to all child nodes as well.
+     *
+     * @example
+     * ```ts
+     * const root = Retree.root({ child: { count: 0 } });
+     * Retree.on(root, "nodeChanged", () => {});
+     * Retree.on(root.child, "nodeChanged", () => {});
+     *
+     * Retree.clearListeners(root, false); // clears root and child listeners
+     * ```
      */
     public static clearListeners(node: TreeNode, shallow: boolean = true) {
         const rawNode = getUnproxiedNode(node);
@@ -663,10 +841,10 @@ export class Retree {
             // If in a skipEmit transaction state, skip emitting
             if (Transactions.skipEmit) return;
             const emitNodeRemovedListeners = () => {
-                const listnersToNotify =
+                const listenersToNotify =
                     this.nodeRemovedListeners.get(node) ?? [];
                 // We copy the list because it could get changed if the first callback triggers an unsubscribe
-                [...listnersToNotify].forEach((callback) => {
+                [...listenersToNotify].forEach((callback) => {
                     callback();
                 });
             };

@@ -20,6 +20,10 @@ import { runFnMemo, runMemo } from "./internals/memo";
  * the tree — caches, scratch buffers, framework handles, references to objects
  * already managed elsewhere, etc.
  *
+ * Do not use `@ignore` when you want a reactive pointer to another node. Use
+ * {@link link} or {@link Retree.link} for that. Writes to ignored fields do
+ * not emit Retree listeners or React re-renders.
+ *
  * @example
  ```ts
  import { Retree, ReactiveNode, ignore } from "@retreejs/core";
@@ -57,6 +61,32 @@ export function ignore(
  * Replacing the linked field emits a normal `nodeChanged` event for the owning
  * {@link ReactiveNode}, but the assigned node keeps its existing parent. Reads
  * return the latest reproxy for the linked node.
+ *
+ * Use this for selected items and cross-references. Do not use it when the
+ * target should become a structural child; use {@link Retree.move} /
+ * {@link ReactiveNode.moveTo}. Do not use it when two places need independent
+ * state; use {@link Retree.clone}.
+ *
+ * @example
+ * ```ts
+ * import { ReactiveNode, Retree, link } from "@retreejs/core";
+ *
+ * class EditorState extends ReactiveNode {
+ *     @link public selectedTask: Task | null = null;
+ *
+ *     get dependencies() {
+ *         return [];
+ *     }
+ * }
+ *
+ * const root = Retree.root({
+ *     tasks: [new Task()],
+ *     editor: new EditorState(),
+ * });
+ *
+ * root.editor.selectedTask = root.tasks[0]; // ✅ emits on editor
+ * Retree.parent(root.editor.selectedTask) === root.tasks; // true
+ * ```
  */
 export function link(
     _value: undefined,
@@ -82,6 +112,13 @@ export function link(
  *
  * The cache key is the getter's property name, so each `@memo`-decorated getter has
  * its own cell automatically.
+ *
+ * `@memo` is a cache, not a subscription. It does not emit Retree events or
+ * trigger React renders by itself. Use `ReactiveNode.dependencies`,
+ * `Retree.select`, or `useSelect` when you also need notification behavior.
+ *
+ * Do not use `@memo` on methods; use {@link fnMemo}. Do not use it for values
+ * with side effects.
  *
  * @example
  ```ts
@@ -149,6 +186,13 @@ type FnMemoComparisonArgs<Args extends unknown[]> = Args extends []
  *
  * Each decorated method stores one cache cell per instance, containing the last
  * argument list and return value.
+ *
+ * `@fnMemo` is a cache, not a subscription. It does not emit Retree events or
+ * trigger React renders by itself. Keep decorated methods deterministic for
+ * the same arguments and dependency values.
+ *
+ * Do not apply `@fnMemo` to static methods or methods that intentionally
+ * perform side effects.
  *
  * @example
  ```ts

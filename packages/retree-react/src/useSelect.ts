@@ -26,6 +26,47 @@ function getNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>) {
  * `useSelect` narrows React updates to changes in the selected value. It is
  * a subscription primitive, not a memo cache: use `memo` / `fnMemo` for
  * caching computation and `useSelect` for reducing re-renders.
+ *
+ * By default `useSelect` listens to `nodeChanged`, which is best when the
+ * selector reads fields directly owned by the node. Pass
+ * `listenerType: "treeChanged"` when the selector reads descendants. Pass
+ * `equals` when the selector returns a new object or array that should be
+ * compared structurally.
+ *
+ * Do not use `useSelect` to cache expensive computation for reuse elsewhere.
+ * Put that work behind `memo`, `@memo`, or `@fnMemo`, then select the cached
+ * value.
+ *
+ * @param node Retree-managed node or node factory to observe.
+ * @param selector Function that reads a selected value from the latest reproxy.
+ * @param options Optional listener type and equality comparison.
+ * @returns The latest selected value.
+ *
+ * @example
+ * ```tsx
+ * import { Retree } from "@retreejs/core";
+ * import { useSelect } from "@retreejs/react";
+ *
+ * const project = Retree.root({
+ *     tasks: [
+ *         { title: "Docs", done: false },
+ *         { title: "Tests", done: true },
+ *     ],
+ * });
+ *
+ * function DoneCount() {
+ *     const doneCount = useSelect(
+ *         project.tasks,
+ *         (tasks) => tasks.filter((task) => task.done).length,
+ *         { listenerType: "treeChanged" }
+ *     );
+ *
+ *     return <span>{doneCount}</span>;
+ * }
+ *
+ * project.tasks[0].done = true; // ✅ re-renders DoneCount
+ * project.tasks[0].title = "Better docs"; // ❌ no re-render
+ * ```
  */
 export function useSelect<TNode extends TreeNode, TSelected>(
     node: TNode | NodeFactory<TNode>,

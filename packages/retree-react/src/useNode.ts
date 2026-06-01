@@ -14,14 +14,21 @@ const LISTENER_TYPE = "nodeChanged";
  * Stateful version of an object and its leafs.
  *
  * @remarks
- * Changes to child leafs (e.g., `node.text`) will cause this to re-render.
- * Changes to child nodes (e.g., `node.someObject.text`) will not cause this to re-render.
- * If the `nodeState` response is used in a comparison check, the old `nodeState` will not equal the new `nodeState`.
+ * `useNode` subscribes to direct `nodeChanged` events for the node you pass.
+ * Changes to fields owned by that node (for example `todo.text`) re-render
+ * the component. Changes inside child nodes (for example
+ * `project.tasks[0].text` when subscribed to `project`) do not re-render the
+ * component.
+ *
+ * Use `useNode` for focused components such as list rows, panels, and forms.
+ * Prefer it over `useTree` for hot paths. If the component only needs a
+ * derived value, prefer `useSelect`.
  *
  * @param node object to make stateful
  * @returns a stateful version of the node provided.
  * 
  * @example
+ * ```tsx
 import React from "react";
 import { Retree } from "@retreejs/core";
 import { useNode } from "@retreejs/react";
@@ -38,7 +45,7 @@ class Todo {
     }
 }
 
-// Todo React component that acceps a Todo object as a prop
+// Todo React component that accepts a Todo object as a prop
 function _ViewTodo({ todo }) {
     // Make todo stateful. Changes to todo will only re-render this component.
     const _todo = useNode(todo);
@@ -80,6 +87,7 @@ function App() {
     );
 }
 export default App;
+ * ```
  */
 export function useNode<T extends TreeNode = TreeNode>(
     node: T | NodeFactory<T>
