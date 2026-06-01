@@ -85,6 +85,44 @@ unsubscribe();
 
 By default, `select` listens to `nodeChanged` on the node you pass. This is best for selecting direct values owned by that exact node, including `ReactiveNode` values that emit when their dependencies change. Pass `listenerType: "treeChanged"` when the selector intentionally reads descendant nodes, and pass `equals` when the selected value is a new object or array that should be compared structurally.
 
+## Move, link, or clone existing nodes
+
+Retree keeps a pure ownership tree: a node can have one structural parent. If you need to put an existing node somewhere else, choose the operation that matches your intent.
+
+Use `Retree.move(node, destination, key?)` when ownership should move. Arrays accept a numeric `key` as the insertion index, or omit it to append. Maps and objects require a key. Sets ignore the key.
+
+```ts
+const task = projectA.tasks[0];
+Retree.move(task, projectB.tasks); // append to projectB.tasks
+Retree.move(task, tasksById, task.id); // Map key or object key
+```
+
+`ReactiveNode` also has `moveTo(destination, key?)`, which wraps `Retree.move(this, destination, key)`.
+
+Use `Retree.link(node)` or `@link` when one part of your state should point at a node that remains owned somewhere else. Replacing the link emits on the owner, but the target keeps its original parent. Reads return the latest reproxy for the linked node.
+
+```ts
+import { Retree, ReactiveNode, link } from "@retreejs/core";
+
+const root = Retree.root({
+    tasks: [{ title: "Write docs" }],
+    selectedTask: null as null | ReturnType<typeof Retree.link>,
+});
+
+root.selectedTask = Retree.link(root.tasks[0]);
+root.selectedTask.current.title = "Write better docs";
+
+class EditorState extends ReactiveNode {
+    @link public selectedTask: { title: string } | null = null;
+
+    get dependencies() {
+        return [];
+    }
+}
+```
+
+Use `Retree.clone(node)` when you want a detached copy that can become a new child somewhere else.
+
 ## Memoize computed getters
 
 `ReactiveNode` exposes a `memo` helper for caching the result of a computed getter, similar in spirit to React's `useMemo`. It also exposes `@fnMemo` for caching deterministic method return values. Four forms are supported:
@@ -334,7 +372,7 @@ node.cache.something = 1; // ❌ no log
 node.count = 1; //            ✅ logs "changed"
 ```
 
-**Caveat:** because the field's value isn't wrapped, you also lose `Retree.parent(...)` for objects stored under it, and they won't appear in `treeChanged` notifications. Treat ignored fields as opaque from Retree's perspective.
+**Caveat:** because the field's value isn't wrapped, plain objects stored under it lose `Retree.parent(...)` and won't appear in `treeChanged` notifications. If you store an existing Retree-managed node in an ignored field, Retree does not reparent it, but reads still return that node's latest reproxy.
 
 ## Core samples
 

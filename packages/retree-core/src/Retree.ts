@@ -29,12 +29,16 @@ import {
 } from "./internals/reproxy";
 import { Transactions } from "./internals/transactions";
 import {
+    LINKED_KEYS_SYMBOL,
     ReactiveNode,
     RUN_CHANGED_EFFECT_SYMBOL,
     RUN_OBSERVED_EFFECT_SYMBOL,
     RUN_UNOBSERVED_EFFECT_SYMBOL,
+    setReactiveNodeLinkImplementation,
+    setReactiveNodeMoveImplementation,
 } from "./ReactiveNode";
 import {
+    RetreeObjectMoveKey,
     TRetreeEvents,
     TNodeChangedListener,
     TRetreeListeners,
@@ -53,11 +57,34 @@ type TInternalNodeChangedListener = (
     reproxiedNode: TreeNode
 ) => void;
 
+export class RetreeLink<
+    TNode extends TreeNode = TreeNode
+> extends ReactiveNode {
+    public current: TNode;
+
+    constructor(node: TNode) {
+        super();
+        this[LINKED_KEYS_SYMBOL].add("current");
+        this.current = node;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
 /**
  * Main entry point for use with Retree package.
  * Exposes utility functions for observing to changes to an object and its children.
  */
 export class Retree {
+    static {
+        setReactiveNodeLinkImplementation((node) => Retree.link(node));
+        setReactiveNodeMoveImplementation((node, destination, key) =>
+            Retree.moveInternal(node, destination, key)
+        );
+    }
+
     private static nodeChangeListener: TInternalNodeChangedListener | null =
         null;
     private static nodeRemovedListener: TInternalNodeChangedListener | null =
@@ -104,6 +131,89 @@ export class Retree {
     }
 
     /**
+     * Create a reactive pointer to an existing Retree-managed node.
+     *
+     * @remarks
+     * The returned link can be stored in a Retree tree without reparenting the
+     * linked target. Replacing `link.current` emits for the link; mutating the
+     * linked target emits from its structural location.
+     */
+    static link<TNode extends TreeNode>(node: TNode): RetreeLink<TNode> {
+        this.assertRetreeManagedNode(node, "Retree.link");
+        return this.root(new RetreeLink(node));
+    }
+
+    /**
+     * Clone a Retree-managed node into a detached object that can be assigned
+     * somewhere else as a new structural child.
+     */
+    static clone<TNode extends TreeNode>(node: TNode): TNode {
+        this.assertRetreeManagedNode(node, "Retree.clone");
+        return this.cloneValue(getUnproxiedNode(node), new WeakMap()) as TNode;
+    }
+
+    /**
+     * Move an existing Retree-managed node from its current parent to a new parent.
+     */
+    static move<TNode extends TreeNode, TValue extends TreeNode = TNode>(
+        node: TNode extends TValue ? TNode : never,
+        destination: TValue[],
+        key?: number
+    ): TNode;
+    static move<
+        TNode extends TreeNode,
+        TKey = unknown,
+        TValue extends TreeNode = TNode
+    >(
+        node: TNode extends TValue ? TNode : never,
+        destination: Map<TKey, TValue>,
+        key: TKey
+    ): TNode;
+    static move<TNode extends TreeNode, TValue extends TreeNode = TNode>(
+        node: TNode extends TValue ? TNode : never,
+        destination: Set<TValue>
+    ): TNode;
+    static move<
+        TNode extends TreeNode,
+        TDestination extends TreeNode = TreeNode
+    >(
+        node: TNode,
+        destination: TDestination,
+        key: RetreeObjectMoveKey<TDestination, TNode>
+    ): TNode;
+    static move<TNode extends TreeNode>(
+        node: TNode,
+        destination: TreeNode,
+        key?: unknown
+    ): TNode {
+        return this.moveInternal(node, destination, key);
+    }
+
+    private static moveInternal<TNode extends TreeNode>(
+        node: TNode,
+        destination: TreeNode,
+        key?: unknown
+    ): TNode {
+        this.assertRetreeManagedNode(node, "Retree.move");
+        this.assertRetreeManagedNode(destination, "Retree.move");
+
+        const parent = this.getParentInternal(node);
+        if (!parent) {
+            // @retree-throws
+            throw new Error(
+                "Retree.move: cannot move a root node because it does not have a parent. This is expected when the node was created directly with Retree.root(...). Fix: move one of the root's children, assign the root into another tree as a cloned value with Retree.clone(...), or create the root under the desired parent first."
+            );
+        }
+
+        const nodeToMove = getBaseProxy(node);
+        Retree.runTransaction(() => {
+            this.removeNodeFromParent(nodeToMove, parent.proxyNode);
+            this.insertNodeIntoDestination(nodeToMove, destination, key);
+        });
+        return getReproxyNode(nodeToMove) as TNode;
+    }
+
+    /**
      * Listen for changes to a node.
      * @remarks
      * Use listener {@link TRetreeEvents"nodeChanged"} for changes to any leaf child of the node.
@@ -146,8 +256,9 @@ export class Retree {
 
         const unproxiedNode = getUnproxiedNode(node);
         if (!unproxiedNode) {
+            // @retree-throws
             throw new Error(
-                "Retree.on: must use an object that is a proxied node. Pass object to Retree.root first, or get value from another child object."
+                "Retree.on: expected a Retree-managed node but received an unproxied value. This is expected when listening to a plain object. Fix: pass the object to Retree.root(...) first, or listen to a child value read from an existing Retree tree."
             );
         }
         const relevantListenerMap =
@@ -323,7 +434,10 @@ export class Retree {
     public static clearListeners(node: TreeNode, shallow: boolean = true) {
         const rawNode = getUnproxiedNode(node);
         if (!rawNode) {
-            throw new Error("Cannot clear listeners for an unproxied `node`");
+            // @retree-throws
+            throw new Error(
+                "Retree.clearListeners: expected a Retree-managed node but received an unproxied value. This is expected when clearing listeners for a plain object. Fix: pass the same Retree.root(...) result or Retree child proxy that was used with Retree.on(...), or call the unsubscribe function returned by Retree.on(...)."
+            );
         }
         const shouldStopReactiveNode =
             node instanceof ReactiveNode &&
@@ -455,8 +569,9 @@ export class Retree {
                     const unproxiedNode =
                         getUnproxiedNode(proxyNodeThatChanged);
                     if (!unproxiedNode) {
+                        // @retree-throws
                         throw new Error(
-                            "Retree.handleNotifyTreeChanged: Unexpected to not find unproxied node for proxyNodeThatChanged"
+                            "Retree internal invariant failed in handleNotifyTreeChanged: could not find the raw node for proxyNodeThatChanged while scheduling a treeChanged event. This is unexpected and likely a Retree bug. Please file an issue with the mutation that triggered this and whether it happened inside Retree.runTransaction(...)."
                         );
                     }
                     Transactions.upsertPendingTransaction(unproxiedNode, {
@@ -489,8 +604,9 @@ export class Retree {
                     if (Transactions.runningTransaction) {
                         const unproxiedPNode = getUnproxiedNode(pNode);
                         if (!unproxiedPNode) {
+                            // @retree-throws
                             throw new Error(
-                                "Retree.handleNotifyTreeChanged: Unexpected to not find unproxied node for proxyNodeThatChanged"
+                                "Retree internal invariant failed in handleNotifyTreeChanged: could not find the raw node for a parent proxy while scheduling a treeChanged event. This is unexpected and likely a Retree bug. Please file an issue with the mutation that triggered this and whether it happened inside Retree.runTransaction(...)."
                             );
                         }
                         Transactions.upsertPendingTransaction(unproxiedPNode, {
@@ -633,25 +749,241 @@ export class Retree {
         this.treeChangedListeners.clear();
     }
 
-    private static getParentInternal(
-        node: TreeNode
-    ): { rawNode: TreeNode; proxyNode: TCustomProxy<TreeNode> } | null {
+    private static getParentInternal(node: TreeNode): {
+        propName: string | symbol | null;
+        rawNode: TreeNode;
+        proxyNode: TCustomProxy<TreeNode>;
+    } | null {
         const oldHandler = getCustomProxyHandler(node);
         if (oldHandler) {
             const parent = oldHandler[proxiedParentKey];
             if (!parent || !parent.proxyNode) return null;
             const rawNode = getUnproxiedNode(parent.proxyNode);
             if (!rawNode) {
+                // @retree-throws
                 throw new Error(
-                    "Retree.getParentInternal: cannot get parent from an unproxied parent node"
+                    "Retree internal invariant failed in Retree.parent: the child has parent metadata, but the parent is not a Retree-managed proxy. This is unexpected and likely a Retree bug. Please file an issue with how the child was assigned, moved, or deleted."
                 );
             }
             return {
+                propName: parent.propName,
                 proxyNode: getBaseProxy(parent.proxyNode),
                 rawNode,
             };
         }
-        throw new Error("Node must be a valid TreeNode");
+        // @retree-throws
+        throw new Error(
+            "Retree.parent: expected a Retree-managed node but received a value without Retree proxy metadata. This is expected when calling Retree.parent(...) with a plain object, primitive, or object not read from a Retree tree. Fix: pass an object returned by Retree.root(...) or a child read from that tree."
+        );
+    }
+
+    private static assertRetreeManagedNode(node: TreeNode, apiName: string) {
+        if (!getCustomProxyHandler(node)) {
+            // @retree-throws
+            throw new Error(
+                `${apiName}: expected a Retree-managed node but received a value without Retree proxy metadata. This is expected when passing a plain object. Fix: pass an object returned by Retree.root(...) or read a child from an existing Retree tree.`
+            );
+        }
+    }
+
+    private static removeNodeFromParent(
+        node: TreeNode,
+        parent: TCustomProxy<TreeNode>
+    ) {
+        if (Array.isArray(parent)) {
+            const index = this.findArrayChildIndex(parent, node);
+            if (index === -1) {
+                // @retree-throws
+                throw new Error(
+                    "Retree.move: could not find the node in its array parent while removing it. This is unexpected if the node was not manually deleted or reassigned before Retree.move(...) ran. Fix: call Retree.move(node, destination, key) without first mutating the old parent; if that is already true, file a Retree issue with the source and destination."
+                );
+            }
+            parent.splice(index, 1);
+            return;
+        }
+
+        if (parent instanceof Map) {
+            const key = this.findMapChildKey(parent, node);
+            if (!key.found) {
+                // @retree-throws
+                throw new Error(
+                    "Retree.move: could not find the node in its Map parent while removing it. This is unexpected if the node was not manually deleted or reassigned before Retree.move(...) ran. Fix: call Retree.move(node, destination, key) without first mutating the old parent; if that is already true, file a Retree issue with the source and destination."
+                );
+            }
+            parent.delete(key.value);
+            return;
+        }
+
+        if (parent instanceof Set) {
+            if (!parent.delete(node)) {
+                // @retree-throws
+                throw new Error(
+                    "Retree.move: could not find the node in its Set parent while removing it. This is unexpected if the node was not manually deleted or reassigned before Retree.move(...) ran. Fix: call Retree.move(node, destination) without first mutating the old parent; if that is already true, file a Retree issue with the source and destination."
+                );
+            }
+            return;
+        }
+
+        const parentInfo = this.getParentInternal(node);
+        if (!parentInfo || parentInfo.propName === null) {
+            // @retree-throws
+            throw new Error(
+                "Retree.move: could not determine the object property that currently owns this node. This is unexpected for object parents and can happen if parent metadata was detached before the move. Fix: call Retree.move(...) before manually deleting/reassigning the old property; if that is already true, file a Retree issue with the source and destination."
+            );
+        }
+        if (!this.isSameTreeNode((parent as any)[parentInfo.propName], node)) {
+            // @retree-throws
+            throw new Error(
+                `Retree.move: parent property ${String(
+                    parentInfo.propName
+                )} no longer points to the node being moved. This is unexpected if the old parent was not manually mutated before Retree.move(...) ran. Fix: call Retree.move(...) before deleting or overwriting the old property; if that is already true, file a Retree issue with the source and destination.`
+            );
+        }
+        delete (parent as any)[parentInfo.propName];
+    }
+
+    private static insertNodeIntoDestination(
+        node: TreeNode,
+        destination: TreeNode,
+        key: unknown
+    ) {
+        if (Array.isArray(destination)) {
+            if (key === undefined) {
+                destination.push(node);
+                return;
+            }
+            if (typeof key !== "number") {
+                // @retree-throws
+                throw new Error(
+                    "Retree.move: array destinations require a numeric key, or no key to append. This is a caller argument error that TypeScript should usually catch. Fix: pass a number index, or omit the key to append to the array."
+                );
+            }
+            destination.splice(key, 0, node);
+            return;
+        }
+
+        if (destination instanceof Map) {
+            if (key === undefined) {
+                // @retree-throws
+                throw new Error(
+                    "Retree.move: Map destinations require a key. This is a caller argument error that TypeScript should usually catch. Fix: pass the Map key as the third argument."
+                );
+            }
+            destination.set(key, node);
+            return;
+        }
+
+        if (destination instanceof Set) {
+            destination.add(node);
+            return;
+        }
+
+        if (typeof key !== "string" && typeof key !== "symbol") {
+            // @retree-throws
+            throw new Error(
+                "Retree.move: object destinations require a string or symbol key. This is a caller argument error that TypeScript should usually catch. Fix: pass the destination property name as the third argument."
+            );
+        }
+        (destination as any)[key] = node;
+    }
+
+    private static findArrayChildIndex(parent: TreeNode[], node: TreeNode) {
+        for (let index = 0; index < parent.length; index++) {
+            if (this.isSameTreeNode(parent[index], node)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private static findMapChildKey(
+        parent: Map<unknown, unknown>,
+        node: TreeNode
+    ): { found: true; value: unknown } | { found: false } {
+        for (const [key, value] of parent.entries()) {
+            if (this.isSameTreeNode(value, node)) {
+                return { found: true, value: key };
+            }
+        }
+        return { found: false };
+    }
+
+    private static isSameTreeNode(value: unknown, node: TreeNode) {
+        if (value !== null && typeof value === "object") {
+            return getUnproxiedNode(value) === getUnproxiedNode(node);
+        }
+        return false;
+    }
+
+    private static cloneValue(
+        value: unknown,
+        seen: WeakMap<object, object>
+    ): unknown {
+        if (value === null || typeof value !== "object") {
+            return value;
+        }
+
+        const rawValue = getUnproxiedNode(value);
+        if (!rawValue) {
+            // @retree-throws
+            throw new Error(
+                "Retree.clone: expected object values to be cloneable Retree nodes while walking the source tree. This is unexpected if the source came from Retree.root(...) and was only mutated through Retree-managed proxies. Fix: avoid storing raw unmanaged objects inside managed nodes except in @ignore fields; if the value is managed, file a Retree issue with the value shape."
+            );
+        }
+        if (seen.has(rawValue)) {
+            return seen.get(rawValue);
+        }
+
+        if (rawValue instanceof Date) {
+            const clonedDate = new Date(rawValue.getTime());
+            seen.set(rawValue, clonedDate);
+            return clonedDate;
+        }
+
+        if (rawValue instanceof Map) {
+            const clonedMap = new Map();
+            seen.set(rawValue, clonedMap);
+            for (const [mapKey, mapValue] of rawValue.entries()) {
+                clonedMap.set(mapKey, this.cloneValue(mapValue, seen));
+            }
+            return clonedMap;
+        }
+
+        if (rawValue instanceof Set) {
+            const clonedSet = new Set();
+            seen.set(rawValue, clonedSet);
+            for (const setValue of rawValue.values()) {
+                clonedSet.add(this.cloneValue(setValue, seen));
+            }
+            return clonedSet;
+        }
+
+        if (Array.isArray(rawValue)) {
+            const clonedArray: unknown[] = [];
+            seen.set(rawValue, clonedArray);
+            rawValue.forEach((item, index) => {
+                clonedArray[index] = this.cloneValue(item, seen);
+            });
+            return clonedArray;
+        }
+
+        const clonedObject = Object.create(Object.getPrototypeOf(rawValue));
+        seen.set(rawValue, clonedObject);
+        for (const key of Reflect.ownKeys(rawValue)) {
+            const descriptor = Reflect.getOwnPropertyDescriptor(rawValue, key);
+            if (!descriptor) {
+                continue;
+            }
+            if ("value" in descriptor) {
+                Reflect.defineProperty(clonedObject, key, {
+                    ...descriptor,
+                    value: this.cloneValue(descriptor.value, seen),
+                });
+                continue;
+            }
+            Reflect.defineProperty(clonedObject, key, descriptor);
+        }
+        return clonedObject;
     }
 
     private static handleReactiveNode(
@@ -667,8 +999,9 @@ export class Retree {
                 previousDependencies !== undefined &&
                 previousDependencies.length !== 0
             ) {
+                // @retree-throws
                 throw new Error(
-                    "ReactiveNode length of dependencies does not equal previous value. Please ensure your dependencies list is consistent in its length and ordering."
+                    "ReactiveNode.dependencies length changed after Retree started observing this node. This is a ReactiveNode implementation error. Fix: return a dependencies array with a stable length and ordering for the lifetime of each ReactiveNode instance; use null dependency nodes when a slot is temporarily inactive."
                 );
             }
             if (previousDependencies !== undefined) {
@@ -680,8 +1013,9 @@ export class Retree {
             previousDependencies &&
             previousDependencies.length !== currentDependencies.length
         ) {
+            // @retree-throws
             throw new Error(
-                "ReactiveNode length of dependencies does not equal previous value. Please ensure your dependencies list is consistent in its length and ordering."
+                "ReactiveNode.dependencies length changed after Retree started observing this node. This is a ReactiveNode implementation error. Fix: return a dependencies array with a stable length and ordering for the lifetime of each ReactiveNode instance; use null dependency nodes when a slot is temporarily inactive."
             );
         }
         const newActiveDependencies: IActiveReactiveDependency[] = [];
@@ -703,8 +1037,9 @@ export class Retree {
                 previousDependency.node !== null &&
                 previousUnproxiedDependencyNode === undefined
             ) {
+                // @retree-throws
                 throw new Error(
-                    "Unexpected missing cached unproxied node for previous dependent reactive node"
+                    "Retree internal invariant failed: a previous ReactiveNode dependency had a node but no cached raw node. This is unexpected and likely a Retree bug. Please file an issue with the ReactiveNode.dependencies implementation and the mutation that triggered this."
                 );
             }
             if (
@@ -717,8 +1052,9 @@ export class Retree {
                 const unproxiedDependencyNode =
                     getUnproxiedNode(newDependencyNode);
                 if (!unproxiedDependencyNode) {
+                    // @retree-throws
                     throw new Error(
-                        "Unexpected unproxied node for current dependent reactive node"
+                        "ReactiveNode.dependencies returned an object that is not Retree-managed. This is expected when a dependency points at a plain object. Fix: return null/undefined for inactive dependencies, or return a node created by Retree.root(...) or read from an existing Retree tree."
                     );
                 }
                 currentUnproxiedDependencyNode = unproxiedDependencyNode;
@@ -813,8 +1149,9 @@ export class Retree {
         // It's cheap to get unproxied node, so doing that for now
         const _unproxy = getUnproxiedNode(reproxy);
         if (!_unproxy) {
+            // @retree-throws
             throw new Error(
-                "Unexpected unproxied node for current dependent reactive node on nodeChanged"
+                "Retree internal invariant failed: a ReactiveNode dependency change arrived with an unproxied node. This is unexpected and likely a Retree bug. Please file an issue with the dependency node and mutation that triggered this."
             );
         }
         const dependents = getReactiveDependents(_unproxy);
@@ -835,8 +1172,9 @@ export class Retree {
                     !previousComparisons ||
                     latestComparisons.length !== previousComparisons.length
                 ) {
+                    // @retree-throws
                     throw new Error(
-                        "Unexpected comparisons value for ReactiveNode. Ensure your comparisons have a consistent length and ordering for each ReactiveNode instance."
+                        "ReactiveNode dependency comparisons changed shape. This is a ReactiveNode implementation error. Fix: keep each dependency's comparisons array either undefined or a stable-length array in a stable order for the lifetime of that dependency slot."
                     );
                 }
                 for (let i = 0; i < latestComparisons.length; i++) {
@@ -855,8 +1193,9 @@ export class Retree {
                 ? getReproxyNodeForUnproxiedNode(dependentUnproxied)
                 : updateReproxyNode(dependentBaseProxy);
             if (!dependentReproxy) {
+                // @retree-throws
                 throw new Error(
-                    "Unexpectely found no existing reproxy value for dependent node."
+                    "Retree internal invariant failed: unexpectedly found no reproxy value for a dependent ReactiveNode. This is unexpected and likely a Retree bug. Please file an issue with the ReactiveNode.dependencies implementation and whether the mutation happened inside Retree.runSilent(...)."
                 );
             }
             this.nodeChangeListener?.(

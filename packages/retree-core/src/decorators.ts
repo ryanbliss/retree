@@ -1,4 +1,8 @@
-import { COLLECTED_KEYS_SYMBOL, ReactiveNode } from "./ReactiveNode";
+import {
+    COLLECTED_KEYS_SYMBOL,
+    LINKED_KEYS_SYMBOL,
+    ReactiveNode,
+} from "./ReactiveNode";
 import { runFnMemo, runMemo } from "./internals/memo";
 
 /**
@@ -46,6 +50,26 @@ export function ignore(
 }
 
 /**
+ * Field decorator that stores a reactive pointer to another Retree-managed node
+ * without making that node a structural child.
+ *
+ * @remarks
+ * Replacing the linked field emits a normal `nodeChanged` event for the owning
+ * {@link ReactiveNode}, but the assigned node keeps its existing parent. Reads
+ * return the latest reproxy for the linked node.
+ */
+export function link(
+    _value: undefined,
+    context: ClassFieldDecoratorContext
+): void | ((this: ReactiveNode, value: any) => any) {
+    context.addInitializer(function () {
+        if (!(this instanceof ReactiveNode)) return;
+        this[LINKED_KEYS_SYMBOL].add(context.name);
+    });
+    return;
+}
+
+/**
  * Decorator that memoizes a getter on a {@link ReactiveNode}.
  * @remarks
  * Pass a function that returns the comparisons array — the function captures `this`
@@ -82,8 +106,9 @@ export function memo<This extends ReactiveNode, Value>(
         context: ClassGetterDecoratorContext<This, Value>
     ): (this: This) => Value {
         if (context.kind !== "getter") {
+            // @retree-throws
             throw new Error(
-                "@memo can only be applied to a getter on a ReactiveNode subclass."
+                "@memo can only be applied to a getter on a ReactiveNode subclass. This is expected when @memo is placed on a field, method, setter, or non-ReactiveNode class. Fix: move @memo to a getter on a class that extends ReactiveNode, or use this.memo('key', fn, deps) for method-local caching."
             );
         }
         const cacheKey = context.name;
@@ -162,13 +187,15 @@ export function fnMemo<
         >
     ): FnMemoMethod<This, MethodArgs, Value> {
         if (context.kind !== "method") {
+            // @retree-throws
             throw new Error(
-                "@fnMemo can only be applied to a method on a ReactiveNode subclass."
+                "@fnMemo can only be applied to a method on a ReactiveNode subclass. This is expected when @fnMemo is placed on a field, getter, setter, or non-ReactiveNode class. Fix: move @fnMemo to an instance method on a class that extends ReactiveNode."
             );
         }
         if (context.static) {
+            // @retree-throws
             throw new Error(
-                "@fnMemo cannot be applied to a static method. It memoizes return values per ReactiveNode instance."
+                "@fnMemo cannot be applied to a static method. This is a decorator usage error because @fnMemo memoizes return values per ReactiveNode instance. Fix: make the method an instance method, or use your own static cache outside Retree."
             );
         }
         const cacheKey = Symbol(`fnMemo:${String(context.name)}`);

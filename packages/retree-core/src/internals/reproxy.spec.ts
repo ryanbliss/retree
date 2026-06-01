@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Retree } from "../Retree";
 import { getBaseProxy } from "./proxy";
+import { isCustomProxy } from "./proxy-types";
 import { getReproxyNode, updateReproxyNode } from "./reproxy";
 
 describe("reproxy internals", () => {
@@ -14,6 +15,11 @@ describe("reproxy internals", () => {
         expect(updated).not.toBe(original);
         expect(getBaseProxy(updated)).toBe(root.child);
 
+        if (!isCustomProxy<{ value: number }>(root.child)) {
+            throw new Error(
+                "Expected root.child to be a custom proxy before manually updating its reproxy."
+            );
+        }
         const manual = updateReproxyNode(root.child);
         expect(manual).not.toBe(updated);
         expect(manual.value).toBe(2);

@@ -601,6 +601,33 @@ The same `deps` rules apply to all forms. For `@fnMemo`, the method arguments ar
 
 The cache is per-instance and stored in a `WeakMap` keyed by the unproxied `ReactiveNode`, so it follows the instance's lifetime and is naturally garbage-collected when the node is dropped.
 
+#### Move, link, or clone existing nodes
+
+Retree keeps a pure ownership tree: a node can have one structural parent. If an existing node needs to appear somewhere else, choose the operation that matches your intent.
+
+-   `Retree.move(node, destination, key?)` transfers ownership. Arrays accept a numeric insertion index or append when omitted. Maps and objects require a key. Sets ignore the key.
+-   `Retree.link(node)` creates a reactive pointer object with `.current`. The link can be stored in the tree without reparenting the target.
+-   `@link` marks a `ReactiveNode` field as a reactive pointer. Replacing the field emits on the owner, but the assigned node keeps its existing parent.
+-   `Retree.clone(node)` creates a detached copy that can become a new child elsewhere.
+
+```ts
+import { Retree, ReactiveNode, link } from "@retreejs/core";
+
+const task = projectA.tasks[0];
+Retree.move(task, projectB.tasks);
+
+root.selectedTask = Retree.link(task);
+root.selectedTask.current.title = "Selected";
+
+class EditorState extends ReactiveNode {
+    @link public selectedTask: Task | null = null;
+
+    get dependencies() {
+        return [];
+    }
+}
+```
+
 #### Opt fields out of reactivity with `@ignore`
 
 `@ignore` is a class-field decorator that excludes a property of a `ReactiveNode` from Retree's reactivity system. Reads and writes to the field still work normally — what's skipped is **listener emission**:
@@ -636,7 +663,7 @@ node.cache = { other: 2 };
 node.count += 1;
 ```
 
-**Caveat:** because the proxy doesn't wrap an `@ignore`-d field's value, you also lose `Retree.parent(...)` for objects stored under it, and they won't appear in `treeChanged` notifications. Treat ignored fields as opaque from Retree's perspective.
+**Caveat:** because the proxy doesn't wrap an `@ignore`-d field's value, plain objects stored under it lose `Retree.parent(...)` and won't appear in `treeChanged` notifications. If you store an existing Retree-managed node in an ignored field, Retree does not reparent it, but reads still return that node's latest reproxy.
 
 #### Transactions
 

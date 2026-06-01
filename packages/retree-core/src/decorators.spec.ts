@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
-import { ignore } from "./decorators";
+import { ignore, link } from "./decorators";
 import { Transactions } from "./internals/transactions";
 
 class IgnoredNode extends ReactiveNode {
@@ -34,13 +34,28 @@ class IgnoredExternalPointerNode extends ReactiveNode {
     }
 }
 
-let root: ReactiveNode | null = null;
+class LinkedPointerNode extends ReactiveNode {
+    public child = { value: 0 };
+
+    @link
+    public selected: { value: number } | null = null;
+
+    get dependencies() {
+        return [];
+    }
+}
+
+const rootsToCleanup: object[] = [];
+
+function trackRoot<T extends object>(node: T): T {
+    rootsToCleanup.push(node);
+    return node;
+}
 
 afterEach(() => {
-    if (root) {
+    for (const root of rootsToCleanup.splice(0)) {
         Retree.clearListeners(root, false);
     }
-    root = null;
     Transactions.skipEmit = false;
     Transactions.skipReproxy = false;
     Transactions.runningTransaction = false;
@@ -49,7 +64,7 @@ afterEach(() => {
 
 describe("ignore", () => {
     it("skips Retree listener emission for ignored nested objects", () => {
-        root = Retree.root(new IgnoredNode());
+        const root = trackRoot(Retree.root(new IgnoredNode()));
         const nodeChanged = vi.fn();
         Retree.on(root, "nodeChanged", nodeChanged);
 
@@ -61,8 +76,7 @@ describe("ignore", () => {
     });
 
     it("does not emit when an ignored field is set to a proxied node", () => {
-        const state = Retree.root(new IgnoredPointerNode());
-        root = state;
+        const state = trackRoot(Retree.root(new IgnoredPointerNode()));
         const nodeChanged = vi.fn();
         Retree.on(state, "nodeChanged", nodeChanged);
 
@@ -72,9 +86,8 @@ describe("ignore", () => {
     });
 
     it("does not reparent a proxied node stored in an ignored field", () => {
-        const source = Retree.root({ child: { value: 0 } });
-        const owner = Retree.root(new IgnoredExternalPointerNode());
-        root = owner;
+        const source = trackRoot(Retree.root({ child: { value: 0 } }));
+        const owner = trackRoot(Retree.root(new IgnoredExternalPointerNode()));
 
         owner.selected = source.child;
 
@@ -87,8 +100,7 @@ describe("ignore", () => {
     });
 
     it("returns the latest reproxy for a proxied node stored in an ignored field", () => {
-        const state = Retree.root(new IgnoredPointerNode());
-        root = state;
+        const state = trackRoot(Retree.root(new IgnoredPointerNode()));
         state.selected = state.child;
 
         const selectedBeforeChange = state.selected;
@@ -104,6 +116,55 @@ describe("ignore", () => {
         if (!selectedAfterChange) {
             throw new Error(
                 "Expected ignored field to return the selected child after mutation."
+            );
+        }
+        expect(selectedAfterChange).not.toBe(selectedBeforeChange);
+        expect(selectedAfterChange.value).toBe(1);
+    });
+});
+
+describe("link", () => {
+    it("emits when a linked field is set to a proxied node", () => {
+        const state = trackRoot(Retree.root(new LinkedPointerNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(state, "nodeChanged", nodeChanged);
+
+        state.selected = state.child;
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not reparent a node stored in a linked field", () => {
+        const source = trackRoot(Retree.root({ child: { value: 0 } }));
+        const owner = trackRoot(Retree.root(new LinkedPointerNode()));
+
+        owner.selected = source.child;
+
+        if (!owner.selected) {
+            throw new Error(
+                "Expected linked field to store the selected source child."
+            );
+        }
+        expect(Retree.parent(owner.selected)).toBe(source);
+    });
+
+    it("returns the latest reproxy for a linked field", () => {
+        const state = trackRoot(Retree.root(new LinkedPointerNode()));
+        state.selected = state.child;
+
+        const selectedBeforeChange = state.selected;
+        if (!selectedBeforeChange) {
+            throw new Error(
+                "Expected linked field to return the selected child before mutation."
+            );
+        }
+
+        state.child.value = 1;
+
+        const selectedAfterChange = state.selected;
+        if (!selectedAfterChange) {
+            throw new Error(
+                "Expected linked field to return the selected child after mutation."
             );
         }
         expect(selectedAfterChange).not.toBe(selectedBeforeChange);

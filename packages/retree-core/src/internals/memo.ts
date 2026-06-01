@@ -261,17 +261,19 @@ export function consumeCurrentMemoGetter(
     const stack = memoGetterStackMap.get(owner);
     const top = stack && stack.length > 0 ? stack[stack.length - 1] : undefined;
     if (!top) {
+        // @retree-throws
         throw new Error(
             "memo() was called without a key outside of a ReactiveNode getter. " +
-                "Either call memo from a getter, or pass an explicit key as the first " +
-                "argument: `this.memo('myKey', fn, deps)`."
+                "This is expected when keyless memo is used from a method, callback, constructor, or async continuation after the getter has returned. " +
+                "Fix: call keyless memo directly inside a ReactiveNode getter, or pass an explicit key as the first argument: `this.memo('myKey', fn, deps)`."
         );
     }
     if (top.memoCalled) {
+        // @retree-throws
         throw new Error(
             `memo() was called more than once in getter '${String(
                 top.getterName
-            )}' without an explicit key. Pass a unique string key as the first ` +
+            )}' without an explicit key. This is expected when one getter needs multiple memo cells. Pass a unique string key as the first ` +
                 "argument: `this.memo('myKey', fn, deps)`."
         );
     }

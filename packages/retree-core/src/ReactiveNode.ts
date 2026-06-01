@@ -1,5 +1,48 @@
 import { consumeCurrentMemoGetter, runMemo } from "./internals/memo";
-import { OptionalNode, TreeNode } from "./types";
+import type { RetreeLink } from "./Retree";
+import { OptionalNode, RetreeObjectMoveKey, TreeNode } from "./types";
+
+type LinkReactiveNode = <TNode extends TreeNode>(
+    node: TNode
+) => RetreeLink<TNode>;
+
+let linkReactiveNode: LinkReactiveNode = () => {
+    // @retree-throws
+    throw new Error(
+        "ReactiveNode.link: Retree link support has not been initialized. This is unexpected and likely a Retree packaging or module-loading bug. Fix: import ReactiveNode and Retree from the same @retreejs/core package instance. If your app already does that, please file a Retree issue with your package manager lockfile and a minimal reproduction."
+    );
+};
+
+type MoveReactiveNode = <TNode extends ReactiveNode>(
+    node: TNode,
+    destination: TreeNode,
+    key?: unknown
+) => TNode;
+
+let moveReactiveNode: MoveReactiveNode = () => {
+    // @retree-throws
+    throw new Error(
+        "ReactiveNode.moveTo: Retree move support has not been initialized. This is unexpected and likely a Retree packaging or module-loading bug. Fix: import ReactiveNode and Retree from the same @retreejs/core package instance. If your app already does that, please file a Retree issue with your package manager lockfile and a minimal reproduction."
+    );
+};
+
+/**
+ * @internal
+ */
+export function setReactiveNodeLinkImplementation(
+    implementation: LinkReactiveNode
+) {
+    linkReactiveNode = implementation;
+}
+
+/**
+ * @internal
+ */
+export function setReactiveNodeMoveImplementation(
+    implementation: MoveReactiveNode
+) {
+    moveReactiveNode = implementation;
+}
 
 /**
  * A dependency for {@link ReactiveNode}.
@@ -53,6 +96,7 @@ export interface IRetreeNodeOptions {
 }
 
 export const COLLECTED_KEYS_SYMBOL = "RETREE_COLLECTED_KEYS_SYMBOL";
+export const LINKED_KEYS_SYMBOL = "RETREE_LINKED_KEYS_SYMBOL";
 export const RUN_CHANGED_EFFECT_SYMBOL = "RETREE_RUN_CHANGED_EFFECT_SYMBOL";
 export const RUN_OBSERVED_EFFECT_SYMBOL = "RETREE_RUN_OBSERVED_EFFECT_SYMBOL";
 export const RUN_UNOBSERVED_EFFECT_SYMBOL =
@@ -100,6 +144,9 @@ export abstract class ReactiveNode {
     public [COLLECTED_KEYS_SYMBOL]: Set<string | symbol> = new Set<
         string | symbol
     >();
+    public [LINKED_KEYS_SYMBOL]: Set<string | symbol> = new Set<
+        string | symbol
+    >();
 
     /**
      * Runtime options for this Retree node.
@@ -111,9 +158,45 @@ export abstract class ReactiveNode {
 
     constructor(options?: IRetreeNodeOptions) {
         this[COLLECTED_KEYS_SYMBOL].add("options");
+        this[COLLECTED_KEYS_SYMBOL].add(LINKED_KEYS_SYMBOL);
         if (options !== undefined) {
             this.options = options;
         }
+    }
+
+    /**
+     * Move this node to a new structural parent.
+     *
+     * @remarks
+     * This is a convenience wrapper around {@link Retree.move}.
+     */
+    public moveTo<TValue extends TreeNode = this>(
+        destination: this extends TValue ? TValue[] : never,
+        key?: number
+    ): this;
+    public moveTo<TKey = unknown, TValue extends TreeNode = this>(
+        destination: this extends TValue ? Map<TKey, TValue> : never,
+        key: TKey
+    ): this;
+    public moveTo<TValue extends TreeNode = this>(
+        destination: this extends TValue ? Set<TValue> : never
+    ): this;
+    public moveTo<TDestination extends TreeNode = TreeNode>(
+        destination: TDestination,
+        key: RetreeObjectMoveKey<TDestination, this>
+    ): this;
+    public moveTo(destination: TreeNode, key?: unknown): this {
+        return moveReactiveNode(this, destination, key);
+    }
+
+    /**
+     * Create a reactive pointer to an existing Retree-managed node.
+     *
+     * @remarks
+     * This is a convenience wrapper around {@link Retree.link}.
+     */
+    public link<TNode extends TreeNode>(node: TNode): RetreeLink<TNode> {
+        return linkReactiveNode(node);
     }
 
     /**
@@ -177,8 +260,9 @@ export abstract class ReactiveNode {
     public prepareTree(options: IRetreePrepareTreeOptions = {}): void {
         const depth = options.depth ?? Infinity;
         if (depth < 0) {
+            // @retree-throws
             throw new Error(
-                "ReactiveNode.prepareTree: depth must be greater than or equal to 0."
+                "ReactiveNode.prepareTree: depth must be greater than or equal to 0. This is a caller configuration error. Fix: omit depth to prepare the full tree, pass 0 to prepare only this node, or pass a positive integer."
             );
         }
         prepareObject(this, depth, new WeakSet<object>());
@@ -334,7 +418,10 @@ function shouldSkipMaterializeKey(
     if (key === COLLECTED_KEYS_SYMBOL) {
         return true;
     }
-    return object[COLLECTED_KEYS_SYMBOL].has(key);
+    if (object[COLLECTED_KEYS_SYMBOL].has(key)) {
+        return true;
+    }
+    return object[LINKED_KEYS_SYMBOL].has(key);
 }
 
 function descriptorHasValue(

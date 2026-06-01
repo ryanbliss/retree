@@ -3,7 +3,11 @@
  * Licensed under the MIT License.
  */
 
-import { COLLECTED_KEYS_SYMBOL, ReactiveNode } from "../ReactiveNode";
+import {
+    COLLECTED_KEYS_SYMBOL,
+    LINKED_KEYS_SYMBOL,
+    ReactiveNode,
+} from "../ReactiveNode";
 import { TreeNode } from "../types";
 import {
     getCustomProxyHandler,
@@ -29,7 +33,10 @@ export function updateReproxyNode<T extends TreeNode = TreeNode>(
 ): TCustomProxy<T> {
     const handler = getCustomProxyHandler(node);
     if (!handler) {
-        throw new Error("Cannot reproxy a root unproxied node");
+        // @retree-throws
+        throw new Error(
+            "Retree internal invariant failed: cannot update a reproxy for an unproxied node. This is unexpected and likely a Retree bug if it came from a public Retree API. Fix: make sure callers pass Retree-managed proxies from Retree.root(...) or tree children; otherwise file a Retree issue with the operation that triggered this."
+        );
     }
     const unproxiedNode = handler[unproxiedBaseNodeKey];
     const reproxy = buildReproxy<T>(node);
@@ -40,7 +47,10 @@ export function updateReproxyNode<T extends TreeNode = TreeNode>(
 export function getReproxyNode<T extends TreeNode = TreeNode>(node: T): T {
     const handler = getCustomProxyHandler<T>(node);
     if (!handler) {
-        throw new Error("Cannot get a reproxy for a root unproxied node");
+        // @retree-throws
+        throw new Error(
+            "Retree internal invariant failed: cannot get a reproxy for an unproxied node. This is unexpected and likely a Retree bug if it came from a public Retree API. Fix: make sure callers pass Retree-managed proxies from Retree.root(...) or tree children; otherwise file a Retree issue with the operation that triggered this."
+        );
     }
     const unproxiedNode = handler[unproxiedBaseNodeKey];
     // If we haven't reproxied, we return the original TreeNode
@@ -58,7 +68,10 @@ function buildReproxy<T extends TreeNode = TreeNode>(
 ): TCustomProxy<T> {
     const handler = getCustomProxyHandler(object);
     if (!handler) {
-        throw new Error("Cannot reproxy a root unproxied node");
+        // @retree-throws
+        throw new Error(
+            "Retree internal invariant failed: cannot build a reproxy for an unproxied node. This is unexpected and likely a Retree bug if it came from a public Retree API. Fix: make sure callers pass Retree-managed proxies from Retree.root(...) or tree children; otherwise file a Retree issue with the operation that triggered this."
+        );
     }
     const proxyHandler: ProxyHandler<T> &
         Omit<ICustomProxyHandler<T>, typeof proxiedChildrenKey> = {
@@ -79,6 +92,11 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                     prop === COLLECTED_KEYS_SYMBOL ||
                     target[COLLECTED_KEYS_SYMBOL].has(prop)
                 ) {
+                    return getLatestIgnoredValue(
+                        Reflect.get(target, prop, target)
+                    );
+                }
+                if (target[LINKED_KEYS_SYMBOL].has(prop)) {
                     return getLatestIgnoredValue(
                         Reflect.get(target, prop, target)
                     );
