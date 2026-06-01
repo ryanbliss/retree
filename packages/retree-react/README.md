@@ -23,8 +23,9 @@ yarn add @retreejs/core @retreejs/react
 -   [`useRoot`](#useroot-hook) creates one Retree root for a component lifetime. Use it when state belongs to a React subtree.
 -   [`useNode`](#usenode-hook) subscribes to direct `nodeChanged` events. Use it for focused components that own one node.
 -   [`useTree`](#usetree-hook) subscribes to `treeChanged` events from a node and descendants. Use it for small subtrees that should re-render together.
--   [`useSelect`](#useselect-hook) subscribes to a derived value and re-renders only when that selected value changes. Use it for counts, totals, booleans, labels, and other narrow projections.
--   [`ReactiveNode.dependencies`](#reactivenode) can make a node emit `nodeChanged` from a narrow dependency. Use it when a view model should update from child or external nodes without making components subscribe broadly.
+-   [`useSelect`](#useselect-hook) subscribes to a selected value or ordered dependency list and re-renders only when it changes. Use it for counts, totals, booleans, labels, and other narrow projections.
+-   [`@select`](https://github.com/ryanbliss/retree/tree/main/packages/retree-core#reactive-dependencies) decorates a getter with an ordered dependency list. Use it when VM logic should stay in the `ReactiveNode` while `useNode(node)` stays selective.
+-   [`ReactiveNode.dependencies`](#reactivenode) can make a node emit `nodeChanged` from narrow dependencies. Return raw reactive nodes/primitives directly, or wrap one slot with `this.dependency(node, comparisons)`.
 -   [`memo`, `@memo`, and `@fnMemo`](https://github.com/ryanbliss/retree/tree/main/packages/retree-core#memoize-computed-getters) cache expensive computed values. They do not trigger renders by themselves.
 -   [`@ignore`](https://github.com/ryanbliss/retree/tree/main/packages/retree-core#opt-fields-out-of-reactivity-with-ignore) stores non-rendered state on a `ReactiveNode`. Writes do not emit and therefore do not re-render React subscribers.
 
@@ -51,7 +52,7 @@ function CounterPanel() {
 
 ### useSelect hook
 
-Use `useSelect` when a component needs a derived value from a Retree node but should only re-render when that derived value changes. It accepts any Retree-managed node, not only a root.
+Use `useSelect` when a component needs a selected value or dependency list from a Retree node but should only re-render when that selection changes. It accepts any Retree-managed node, not only a root.
 
 ```tsx
 import { Retree } from "@retreejs/core";
@@ -92,6 +93,20 @@ function DoneCount() {
 
 project.tasks[0].done = true; // ✅ re-renders DoneCount: 1 -> 2
 project.tasks[0].title = "Better docs"; // ❌ no re-render: doneCount stayed 2
+```
+
+Selectors can return an ordered dependency list. Reactive entries are subscribed to; primitive entries are compared. This lets a component listen broadly enough to stay fresh without re-rendering for unrelated changes.
+
+```tsx
+function AttributeLabel({ row }: { row: AttributeRow }) {
+    const [, , attribute] = useSelect(row, (self) => [
+        self.attributes,
+        self.attributeId,
+        self.attribute,
+    ]);
+
+    return <span>{attribute?.label}</span>;
+}
 ```
 
 `useSelect` listens with `nodeChanged` by default. This is best for selecting direct values owned by that exact node, including `ReactiveNode` values that emit when their dependencies change. Pass `listenerType: "treeChanged"` when the selector intentionally reads descendant nodes.
@@ -382,7 +397,7 @@ function TodoCount({ todos }: { todos: Todo[] }) {
 
 `useTree` maps to broad descendant invalidation. It is still useful, especially for small local subtrees, but it should not be the default for large app-level roots. If a `useTree` component reads deeply on every render, the render itself becomes part of the benchmark cost.
 
-`ReactiveNode.dependencies` is often a better bridge than `useTree` when one node needs to update from another node. Keep dependency lists stable in length and order, use comparison values to suppress irrelevant changes, and keep setup work in `onObserved()` instead of inside the `dependencies` getter.
+`ReactiveNode.dependencies` and `@select` are often better bridges than `useTree` when one node needs to update from another node. Keep dependency lists stable in length and order. Return raw reactive nodes/primitives directly for simple slots, and use `this.dependency(node, comparisons)` when one slot needs custom comparison values. Keep setup work in `onObserved()` instead of inside the `dependencies` getter.
 
 Plain object and array fields on `ReactiveNode` are prepared lazily. This reduces initial proxy/setup time, but the first nested read pays the preparation cost. If you want to pay that cost during a loading state, call `node.prepareTree({ depth })` or opt into `super({ prepare: { autoPrepare: true, depth } })`.
 
@@ -406,13 +421,7 @@ class EvenCounter extends ReactiveNode {
     }
 
     get dependencies() {
-        return [
-            this.dependency(
-                this.numbers,
-                // Only emit when the derived value changes.
-                [this.evenNumberCount]
-            ),
-        ];
+        return [this.dependency(this.numbers, [this.evenNumberCount])];
     }
 }
 

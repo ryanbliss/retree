@@ -66,6 +66,17 @@ export interface IReactiveDependency<TNode extends TreeNode = TreeNode> {
     comparisons?: any[];
 }
 
+export type ReactiveNodeDependency =
+    | IReactiveDependency
+    | TreeNode
+    | null
+    | undefined
+    | string
+    | number
+    | boolean
+    | symbol
+    | bigint;
+
 export interface IRetreePrepareTreeOptions {
     /**
      * Maximum nested object depth to prepare.
@@ -101,12 +112,23 @@ export const RUN_CHANGED_EFFECT_SYMBOL = "RETREE_RUN_CHANGED_EFFECT_SYMBOL";
 export const RUN_OBSERVED_EFFECT_SYMBOL = "RETREE_RUN_OBSERVED_EFFECT_SYMBOL";
 export const RUN_UNOBSERVED_EFFECT_SYMBOL =
     "RETREE_RUN_UNOBSERVED_EFFECT_SYMBOL";
+export const SELECT_GETTERS_SYMBOL = "RETREE_SELECT_GETTERS_SYMBOL";
+
+export interface IReactiveSelectGetter<
+    This extends ReactiveNode = ReactiveNode,
+    Dependencies = unknown
+> {
+    getDependencies: (self: This) => Dependencies;
+}
 
 /**
  * Declare dependencies for other nodes in the tree to conditionally emit changes for the node.
  * @remarks
- * Build dependencies with {@link ReactiveNode.dependency}. Keep dependency
- * arrays stable in length and order while the node is observed.
+ * Return Retree-managed nodes directly when any change to that node should
+ * emit. Return primitive values directly when they should be compared only.
+ * Use {@link ReactiveNode.dependency} when a reactive dependency needs
+ * explicit comparison cells. Keep dependency arrays stable in length and order
+ * while the node is observed.
  * 
  * @example
  ```ts
@@ -145,6 +167,10 @@ export abstract class ReactiveNode {
     public [LINKED_KEYS_SYMBOL]: Set<string | symbol> = new Set<
         string | symbol
     >();
+    public [SELECT_GETTERS_SYMBOL]: Map<
+        string | symbol,
+        IReactiveSelectGetter
+    > = new Map();
 
     /**
      * Runtime options for this Retree node.
@@ -157,6 +183,7 @@ export abstract class ReactiveNode {
     constructor(options?: IRetreeNodeOptions) {
         this[COLLECTED_KEYS_SYMBOL].add("options");
         this[COLLECTED_KEYS_SYMBOL].add(LINKED_KEYS_SYMBOL);
+        this[COLLECTED_KEYS_SYMBOL].add(SELECT_GETTERS_SYMBOL);
         if (options !== undefined) {
             this.options = options;
         }
@@ -274,7 +301,7 @@ export abstract class ReactiveNode {
      * }
      * ```
      */
-    abstract get dependencies(): IReactiveDependency[];
+    abstract get dependencies(): ReactiveNodeDependency[];
 
     /**
      * Runs when this {@link ReactiveNode} gets its first active
@@ -364,10 +391,11 @@ export abstract class ReactiveNode {
      * Creates a new {@link IReactiveDependency} instance.
      *
      * @remarks
-     * Use this inside the {@link ReactiveNode.dependencies} getter. The
-     * dependency `node` is observed with `nodeChanged`; optional comparison
-     * values decide whether this `ReactiveNode` should emit after that
-     * dependency changes.
+     * Use this inside the {@link ReactiveNode.dependencies} getter or an
+     * `@select` dependency selector when one slot needs explicit comparison
+     * cells. If `node` is a Retree-managed object, it is observed with
+     * `nodeChanged`. If `node` is a primitive or unproxied value, Retree
+     * treats it as a comparison-only dependency.
      *
      * Comparisons should be stable in length and order. If no comparisons are
      * provided, every `nodeChanged` event from the dependency emits for this
@@ -381,19 +409,37 @@ export abstract class ReactiveNode {
      * ```ts
      * get dependencies() {
      *     return [
-     *         this.dependency(this.items, [this.items.length]),
-     *         this.dependency(this.selectedItem ?? null),
+     *         this.items,
+     *         this.searchText,
+     *         this.dependency(this.selectedItem ?? null, [this.selectedId]),
      *     ];
      * }
      * ```
      */
-    protected dependency<TNode extends TreeNode = TreeNode>(
+    public dependency<TNode extends TreeNode = TreeNode>(
         node: OptionalNode<TNode>,
         comparisons?: any[]
-    ): IReactiveDependency<TNode> {
+    ): IReactiveDependency<TNode>;
+    public dependency<TValue>(value: TValue): IReactiveDependency;
+    public dependency(node: unknown, comparisons?: any[]): IReactiveDependency {
+        if (
+            comparisons === undefined &&
+            (node === null || typeof node !== "object")
+        ) {
+            return {
+                node: undefined,
+                comparisons: [node],
+            };
+        }
+        if (node === undefined || node === null || typeof node === "object") {
+            return {
+                node,
+                comparisons,
+            };
+        }
         return {
-            node,
-            comparisons,
+            node: undefined,
+            comparisons: [node, ...(comparisons ?? [])],
         };
     }
 

@@ -181,6 +181,22 @@ class CountingComparisonDependencyNode extends ReactiveNode {
     }
 }
 
+class DirectDependencySyntaxNode extends ReactiveNode {
+    public threshold = 0;
+
+    constructor(public target: SharedDependencyTargetNode) {
+        super();
+    }
+
+    get dependencies() {
+        return [
+            this.target.values,
+            this.threshold,
+            this.dependency(this.threshold),
+        ];
+    }
+}
+
 class ReplacingDependencyNode extends ReactiveNode {
     public useSecond = false;
 
@@ -235,6 +251,31 @@ describe("ReactiveNode", () => {
         expect(() => {
             root.numbers.push(1);
         }).toThrow(/comparisons/i);
+    });
+
+    it("accepts direct reactive and primitive dependency values", () => {
+        const target = trackRoot(Retree.root(new SharedDependencyTargetNode()));
+        const root = trackRoot(
+            Retree.root(new DirectDependencySyntaxNode(target))
+        );
+        const nodeChanged = vi.fn();
+
+        Retree.on(root, "nodeChanged", nodeChanged);
+        target.values.push(1);
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+
+        const rawRoot = getUnproxiedNode(root);
+        if (!rawRoot) {
+            throw new Error("Expected root to be Retree managed.");
+        }
+        const activeDependencies = getReactiveDependencies(rawRoot);
+
+        expect(activeDependencies?.[0]?.node).toBe(root.target.values);
+        expect(activeDependencies?.[1]?.node).toBeUndefined();
+        expect(activeDependencies?.[1]?.comparisons).toEqual([0]);
+        expect(activeDependencies?.[2]?.node).toBeUndefined();
+        expect(activeDependencies?.[2]?.comparisons).toEqual([0]);
     });
 
     it("does not run changed effects when the node is first observed", () => {

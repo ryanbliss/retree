@@ -5,7 +5,11 @@
 "use no memo";
 
 import { RetreeSelectOptions, TreeNode } from "@retreejs/core";
-import { getBaseProxy, getReproxyNode } from "@retreejs/core/internal";
+import {
+    createRetreeSelectionObserver,
+    getBaseProxy,
+    getReproxyNode,
+} from "@retreejs/core/internal";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { subscribeToNode } from "./internals/subscriptionHub";
 import { NodeFactory } from "./types";
@@ -23,22 +27,25 @@ function getNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>) {
  * Subscribe to a selected value from any Retree-managed node.
  *
  * @remarks
- * `useSelect` narrows React updates to changes in the selected value. It is
- * a subscription primitive, not a memo cache: use `memo` / `fnMemo` for
- * caching computation and `useSelect` for reducing re-renders.
+ * `useSelect` narrows React updates to changes in the selected value or
+ * ordered dependency list. Reactive entries in a dependency list are
+ * subscribed to; primitive and plain entries are compared by identity. It is a
+ * subscription primitive, not a memo cache: use `memo` / `fnMemo` for caching
+ * computation and `useSelect` for reducing re-renders.
  *
  * By default `useSelect` listens to `nodeChanged`, which is best when the
  * selector reads fields directly owned by the node. Pass
- * `listenerType: "treeChanged"` when the selector reads descendants. Pass
- * `equals` when the selector returns a new object or array that should be
- * compared structurally.
+ * `listenerType: "treeChanged"` when the selector reads descendants that are
+ * not included as reactive entries in a dependency list. Pass `equals` when
+ * the selected value or tuple should be compared structurally.
  *
  * Do not use `useSelect` to cache expensive computation for reuse elsewhere.
  * Put that work behind `memo`, `@memo`, or `@fnMemo`, then select the cached
  * value.
  *
  * @param node Retree-managed node or node factory to observe.
- * @param selector Function that reads a selected value from the latest reproxy.
+ * @param selector Function that reads a selected value or dependency list from
+ * the latest reproxy.
  * @param options Optional listener type and equality comparison.
  * @returns The latest selected value.
  *
@@ -67,6 +74,15 @@ function getNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>) {
  * project.tasks[0].done = true; // ✅ re-renders DoneCount
  * project.tasks[0].title = "Better docs"; // ❌ no re-render
  * ```
+ *
+ * @example
+ * ```tsx
+ * const [, , attribute] = useSelect(row, (self) => [
+ *     self.attributes,
+ *     self.attributeId,
+ *     self.attribute,
+ * ]);
+ * ```
  */
 export function useSelect<TNode extends TreeNode, TSelected>(
     node: TNode | NodeFactory<TNode>,
@@ -78,7 +94,7 @@ export function useSelect<TNode extends TreeNode, TSelected>(
     }, [node]);
     const baseProxy = getBaseProxy<TNode>(memoNode);
     const listenerType = options?.listenerType ?? "nodeChanged";
-    const equals = options?.equals ?? Object.is;
+    const equals = options?.equals;
     const selectorRef = useRef(selector);
     const equalsRef = useRef(equals);
     selectorRef.current = selector;
@@ -98,22 +114,20 @@ export function useSelect<TNode extends TreeNode, TSelected>(
     }
 
     useEffect(() => {
-        let previous = selectorRef.current(getReproxyNode(baseProxy));
-        return subscribeToNode<TNode>(baseProxy, listenerType, (reproxy) => {
-            const next = selectorRef.current(reproxy);
-            if (equalsRef.current(previous, next)) {
-                return;
-            }
-            previous = next;
-            setSelectedState((previousState) => {
-                if (equalsRef.current(previousState.selected, next)) {
-                    return previousState;
-                }
-                return {
-                    baseProxy,
-                    selected: next,
-                };
-            });
+        return createRetreeSelectionObserver({
+            node: baseProxy,
+            selector: (reproxy) => selectorRef.current(reproxy),
+            equals: equalsRef.current,
+            listenerType,
+            subscribeToNode,
+            onChange: (next) => {
+                setSelectedState(() => {
+                    return {
+                        baseProxy,
+                        selected: next,
+                    };
+                });
+            },
         });
     }, [baseProxy, listenerType]);
 

@@ -2,6 +2,7 @@ import {
     COLLECTED_KEYS_SYMBOL,
     LINKED_KEYS_SYMBOL,
     ReactiveNode,
+    SELECT_GETTERS_SYMBOL,
 } from "./ReactiveNode";
 import { runFnMemo, runMemo } from "./internals/memo";
 
@@ -157,6 +158,74 @@ export function memo<This extends ReactiveNode, Value>(
                 () => target.call(this),
                 comparisons
             );
+        };
+    };
+}
+
+/**
+ * Decorator that makes a getter's owning {@link ReactiveNode} react to an
+ * ordered dependency list.
+ *
+ * @remarks
+ * `@select` is the class-side companion to {@link Retree.select} and
+ * `useSelect`. Use it when a getter exposes a narrow value but depends on
+ * broader reactive sources. Reactive dependencies in the returned list are
+ * subscribed to; primitive and plain-object dependencies are compared by
+ * identity. Wrap a slot with `self.dependency(node, comparisons)` when that
+ * slot needs custom comparison cells. When a selected slot changes, Retree
+ * reproxies the owning node and emits `nodeChanged` for that owner.
+ *
+ * The dependency list is ordered and should keep a stable length while the
+ * node is observed. Put every value that can change the getter result in the
+ * list. Use {@link memo} for expensive intermediate getters, then select the
+ * memoized value here.
+ *
+ * @example
+ * ```ts
+ * class AttributeView extends ReactiveNode {
+ *     public attributeId!: string;
+ *
+ *     @memo((self: AttributeView) => [self.attributes, self.attributeId])
+ *     private get _attribute() {
+ *         return this.attributes.find((check) => check.id === this.attributeId);
+ *     }
+ *
+ *     @select((self) => [
+ *         self.attributes,
+ *         self.attributeId,
+ *         self.dependency(self._attribute, [self._attribute?.id]),
+ *     ])
+ *     get attribute() {
+ *         return this._attribute;
+ *     }
+ * }
+ * ```
+ */
+export function select<This extends ReactiveNode, Dependencies>(
+    getDependencies: (self: This) => Dependencies
+) {
+    return function <Value>(
+        target: (this: This) => Value,
+        context: ClassGetterDecoratorContext<This, Value>
+    ): (this: This) => Value {
+        if (context.kind !== "getter") {
+            // @retree-throws
+            throw new Error(
+                "@select can only be applied to a getter on a ReactiveNode subclass. This is expected when @select is placed on a field, method, setter, or non-ReactiveNode class. Fix: move @select to a getter on a class that extends ReactiveNode."
+            );
+        }
+        context.addInitializer(function () {
+            if (!(this instanceof ReactiveNode)) {
+                return;
+            }
+            this[SELECT_GETTERS_SYMBOL].set(context.name, {
+                getDependencies: getDependencies as (
+                    self: ReactiveNode
+                ) => unknown,
+            });
+        });
+        return function selectedGetter(this: This): Value {
+            return target.call(this);
         };
     };
 }

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
-import { ignore, link } from "./decorators";
+import { ignore, link, memo, select } from "./decorators";
 import { Transactions } from "./internals/transactions";
 
 class IgnoredNode extends ReactiveNode {
@@ -39,6 +39,65 @@ class LinkedPointerNode extends ReactiveNode {
 
     @link
     public selected: { value: number } | null = null;
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class AttributeViewNode extends ReactiveNode {
+    public attributeId = "a";
+    public attributes = [
+        { id: "a", value: 0 },
+        { id: "b", value: 0 },
+    ];
+
+    @memo((self: AttributeViewNode) => [self.attributes, self.attributeId])
+    private get _attribute() {
+        return this.attributes.find(
+            (attribute) => attribute.id === this.attributeId
+        );
+    }
+
+    @select((self: AttributeViewNode) => [
+        self.attributes,
+        self.attributeId,
+        self._attribute,
+    ])
+    get attribute() {
+        return this._attribute;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class AttributeViewCustomSelectNode extends ReactiveNode {
+    public attributeId = "a";
+    public attributes = [
+        { id: "a", value: 0 },
+        { id: "b", value: 0 },
+    ];
+
+    @memo((self: AttributeViewCustomSelectNode) => [
+        self.attributes,
+        self.attributeId,
+    ])
+    private get _attribute() {
+        return this.attributes.find(
+            (attribute) => attribute.id === this.attributeId
+        );
+    }
+
+    @select((self: AttributeViewCustomSelectNode) => [
+        self.attributes,
+        self.attributeId,
+        self.dependency(self._attribute, [self._attribute?.id]),
+    ])
+    get attribute() {
+        return this._attribute;
+    }
 
     get dependencies() {
         return [];
@@ -169,5 +228,41 @@ describe("link", () => {
         }
         expect(selectedAfterChange).not.toBe(selectedBeforeChange);
         expect(selectedAfterChange.value).toBe(1);
+    });
+});
+
+describe("select", () => {
+    it("emits the owner node when selected dependencies change", () => {
+        const root = trackRoot(Retree.root(new AttributeViewNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        root.attributes.push({ id: "c", value: 0 });
+        root.attributes[1].value = 1;
+
+        expect(nodeChanged).not.toHaveBeenCalled();
+
+        root.attributes[0].value = 1;
+        root.attributeId = "b";
+
+        expect(nodeChanged).toHaveBeenCalledTimes(2);
+        expect(root.attribute?.id).toBe("b");
+    });
+
+    it("accepts explicit dependency slots for custom @select comparisons", () => {
+        const root = trackRoot(
+            Retree.root(new AttributeViewCustomSelectNode())
+        );
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        root.attributes[0].value = 1;
+
+        expect(nodeChanged).not.toHaveBeenCalled();
+
+        root.attributeId = "b";
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(root.attribute?.id).toBe("b");
     });
 });

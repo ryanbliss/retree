@@ -22,12 +22,13 @@ Use this as a quick map before choosing an API:
 
 -   [`Retree.root`](#how-to-use) makes one object the root of a Retree-managed tree. Use it once at the boundary where plain state enters Retree.
 -   [`Retree.on`](#listen-to-nodechanged-treechanged-and-noderemoved) subscribes to `nodeChanged`, `treeChanged`, or `nodeRemoved`. Use it outside React or inside lower-level integrations.
--   [`Retree.select`](#select-derived-values) subscribes to one derived value and only calls back when that selected value changes. Use it to narrow notifications; it is not a cache.
+-   [`Retree.select`](#select-derived-values) subscribes to a selected value or ordered dependency list. Use it to narrow notifications; it is not a cache.
 -   [`Retree.parent`](#find-a-parent) returns the structural parent of a node. Use it for tree-local actions like deleting yourself from an array.
 -   [`Retree.move`](#move-link-or-clone-existing-nodes) transfers an existing node to a new structural parent. Use it when ownership should change.
 -   [`Retree.link` and `@link`](#move-link-or-clone-existing-nodes) store a reactive pointer to a node without reparenting it. Use it for selected items and cross-references.
 -   [`Retree.clone`](#move-link-or-clone-existing-nodes) creates a detached copy. Use it when two places need independent state.
--   [`ReactiveNode.dependencies`](#reactive-dependencies) makes one node emit when another node changes. Use it as a narrow bridge instead of broad `treeChanged` subscriptions.
+-   [`@select`](#reactive-dependencies) makes a getter's owning `ReactiveNode` emit from an ordered dependency list. Use it when VM logic should stay in the node while renders stay narrow.
+-   [`ReactiveNode.dependencies`](#reactive-dependencies) makes one node emit when another node changes. Use raw reactive nodes/primitives for simple slots, or `this.dependency(node, comparisons)` for custom comparison cells.
 -   [`memo`, `@memo`, and `@fnMemo`](#memoize-computed-getters) cache computed values. Use them to skip recomputation; they do not emit changes by themselves.
 -   [`@ignore`](#opt-fields-out-of-reactivity-with-ignore) keeps a `ReactiveNode` field out of Retree emissions. Use it for caches, subscriptions, framework handles, and non-rendered state.
 -   [`Retree.runTransaction`](#transactions) batches synchronous mutations into one listener flush per changed node. Use it for one logical update made of several writes.
@@ -107,7 +108,7 @@ Retree.clearListeners(board.cards, false); // clear the list and child listeners
 
 ## Select derived values
 
-`Retree.select` subscribes to a derived value from any Retree-managed node and only calls your callback when that selected value changes. This is different from `memo` and `fnMemo`: memoization caches computation, while `select` narrows notifications.
+`Retree.select` subscribes to a selected value or ordered dependency list from any Retree-managed node and only calls your callback when that selection changes. This is different from `memo` and `fnMemo`: memoization caches computation, while `select` narrows notifications.
 
 ```ts
 const root = Retree.root({
@@ -146,7 +147,19 @@ project.tasks[0].done = true; // ✅ emits: selected count changed 1 -> 2
 project.tasks[0].title = "Better docs"; // ❌ no emit: selected count stayed 2
 ```
 
-By default, `select` listens to `nodeChanged` on the node you pass. This is best for selecting direct values owned by that exact node, including `ReactiveNode` values that emit when their dependencies change. Pass `listenerType: "treeChanged"` when the selector intentionally reads descendant nodes, and pass `equals` when the selected value is a new object or array that should be compared structurally.
+Selectors can also return an ordered dependency list. Reactive entries are subscribed to; primitive and plain entries are compared. This is useful when a broad source can change often, but only a narrowed selected value should notify.
+
+```ts
+const unsubscribeAttribute = Retree.select(
+    row,
+    (self) => [self.attributes, self.attributeId, self.attribute],
+    ([, , nextAttribute], [, , previousAttribute]) => {
+        console.log({ nextAttribute, previousAttribute });
+    }
+);
+```
+
+By default, `select` listens to `nodeChanged` on the node you pass. This is best for selecting direct values owned by that exact node, including `ReactiveNode` values that emit when their dependencies change. Pass `listenerType: "treeChanged"` when the selector intentionally reads descendants, and pass `equals` when you need custom comparison for the entire selected value or tuple.
 
 `select` does not cache expensive work for later reads. If the selector is expensive and reused from multiple places, put the expensive part behind `memo`, `@memo`, or `@fnMemo`, then select the cached value.
 
@@ -248,6 +261,8 @@ Links are not structural parents: if `editor.selectedTask` is a `@link` field po
 
 `ReactiveNode.dependencies` lets one node emit `nodeChanged` when another node changes. Use it when a node exposes derived state but you do not want broad `treeChanged` subscriptions.
 
+Return raw Retree-managed nodes directly when any change to that node should emit. Return primitives directly when they should be compared only. Wrap one slot with `this.dependency(node, comparisons)` when a reactive dependency needs custom comparison cells.
+
 ```ts
 class ProjectSummary extends ReactiveNode {
     public tasks: { done: boolean }[] = [];
@@ -269,6 +284,46 @@ summary.tasks[0].done = true; //       ✅ emits: doneCount changed 0 -> 1
 ```
 
 Keep dependency arrays stable in length and order. Use `null` as the dependency node for an inactive slot instead of adding or removing array entries.
+
+For simple cases, no wrapper is needed:
+
+```ts
+class FilterState extends ReactiveNode {
+    public tasks: { done: boolean }[] = [];
+    public searchText = "";
+
+    get dependencies() {
+        return [this.tasks, this.searchText];
+    }
+}
+```
+
+Use `@select` when the dependency list belongs to one getter and you want `useNode(node)` to re-render only when those selected dependencies change:
+
+```ts
+import { ReactiveNode, memo, select } from "@retreejs/core";
+
+class AttributeRow extends ReactiveNode {
+    public attributes: { id: string; label: string }[] = [];
+    public attributeId!: string;
+
+    @memo((self: AttributeRow) => [self.attributes, self.attributeId])
+    private get _attribute() {
+        return this.attributes.find((check) => check.id === this.attributeId);
+    }
+
+    @select((self) => [
+        self.attributes,
+        self.attributeId,
+        self.dependency(self._attribute, [self._attribute?.id]),
+    ])
+    get attribute() {
+        return this._attribute;
+    }
+}
+```
+
+In `@select`, raw reactive values subscribe, primitive values compare, and `self.dependency(...)` customizes one slot's comparison behavior.
 
 ## Memoize computed getters
 
@@ -501,7 +556,7 @@ Retree.on(todoList, "treeChanged", (nextList) => {
 });
 ```
 
-`treeChanged` is most expensive when a listener also performs deep reads across the subtree, because the listener is asking Retree to propagate the ancestor change and then traverse the changed graph. If a selector or component only needs one derived value, prefer `Retree.select(...)` on the narrowest node that owns that value.
+`treeChanged` is most expensive when a listener also performs deep reads across the subtree, because the listener is asking Retree to propagate the ancestor change and then traverse the changed graph. If a selector or component only needs one selected value or dependency list, prefer `Retree.select(...)` on the narrowest node that owns that value.
 
 ### Use `ReactiveNode.dependencies` as a narrow bridge
 

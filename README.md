@@ -24,14 +24,15 @@ The generated static site is written to `docs/` and ignored by Git. The docs bui
 -   [`useRoot`](#useroot-hook) creates one Retree root for a React component lifetime. Use it when state belongs to a React subtree.
 -   [`useNode`](#usenode-hook) re-renders a React component for direct `nodeChanged` events on one node. Use it for rows, panels, forms, and focused child components.
 -   [`useTree`](#usetree-hook) re-renders for `treeChanged` events from a node or any descendant. Use it sparingly for small subtrees that truly need broad invalidation.
--   [`useSelect`](#useselect-hook) re-renders only when a selected derived value changes. Use it for counts, totals, booleans, and other narrow projections.
+-   [`useSelect`](#useselect-hook) re-renders only when a selected value or ordered dependency list changes. Use it for counts, totals, booleans, and other narrow projections.
 -   [`Retree.on`](#core-api-examples) subscribes to `nodeChanged`, `treeChanged`, or `nodeRemoved`. Use it outside React and inside integrations.
 -   [`Retree.select`](#core-api-examples) is the non-React version of `useSelect`. Use it to narrow notifications; it is not a cache.
 -   [`Retree.parent`](#core-api-examples) returns the structural parent of a node. Use it for tree-local operations like deleting yourself from a list.
 -   [`Retree.move`](#core-api-examples) transfers an existing node to a new structural parent. Use it when ownership should change.
 -   [`Retree.link` and `@link`](#core-api-examples) store a reactive pointer without reparenting. Use them for selected items and cross-references.
 -   [`Retree.clone`](#core-api-examples) makes a detached copy. Use it when two places need independent state.
--   [`ReactiveNode.dependencies`](#reactivenode) makes one node emit when another node changes. Use it as a narrow bridge instead of a broad `treeChanged` subscription.
+-   [`@select`](#reactivenode) decorates a getter with an ordered dependency list so VM logic can stay in the node while `useNode(node)` stays selective.
+-   [`ReactiveNode.dependencies`](#reactivenode) makes one node emit when another node changes. Return raw reactive nodes/primitives directly, or wrap one slot with `this.dependency(node, comparisons)`.
 -   [`memo`, `@memo`, and `@fnMemo`](#memoize-computed-getters) cache computed values. Use them to avoid recomputation; they do not emit changes by themselves.
 -   [`@ignore`](#opt-fields-out-of-reactivity-with-ignore) keeps a field out of Retree emissions. Use it for caches, subscriptions, framework handles, and non-rendered state.
 -   [`Retree.runTransaction`](#transactions) batches synchronous writes into one listener flush per changed node.
@@ -208,7 +209,7 @@ This is ideal in cases when you want to use child nodes as props into other chil
 
 #### useSelect hook
 
-Use `useSelect` when a component needs one derived value from a Retree node and should only re-render when that value changes. It listens to `nodeChanged` by default; pass `listenerType: "treeChanged"` when the selector reads descendants.
+Use `useSelect` when a component needs a selected value or ordered dependency list from a Retree node and should only re-render when that selection changes. It listens to `nodeChanged` by default; pass `listenerType: "treeChanged"` when the selector reads descendants.
 
 ```tsx
 import { Retree } from "@retreejs/core";
@@ -233,6 +234,16 @@ function DoneCount() {
 
 project.tasks[0].done = true; // ✅ re-renders DoneCount: 1 -> 2
 project.tasks[0].title = "Better docs"; // ❌ no re-render: doneCount stayed 2
+```
+
+Selectors can also return ordered dependency lists. Reactive entries subscribe; primitive entries compare:
+
+```tsx
+const [, , attribute] = useSelect(row, (self) => [
+    self.attributes,
+    self.attributeId,
+    self.attribute,
+]);
 ```
 
 `useSelect` is a subscription primitive, not a memo cache. Use `memo`, `@memo`, or `@fnMemo` for expensive computation you want to cache, then select the cached value when you want narrower renders.
@@ -370,7 +381,7 @@ While `useTree` is powerful and can make things a lot easier, it is important to
 Retree performs best when components subscribe to the narrowest node or value they need:
 
 -   Prefer `useNode(child)` for item rows and focused panels.
--   Prefer `useSelect(node, selector)` for derived values that should only re-render when the selected result changes.
+-   Prefer `useSelect(node, selector)` for selected values or dependency lists that should only re-render when the selection changes.
 -   Treat `useTree` / `treeChanged` as broad subtree invalidation, especially in hot paths.
 -   Keep `ReactiveNode.dependencies` stable in length and order, with comparison values when only some dependency changes should emit.
 -   Avoid constructing large Retree roots or `ReactiveNode` graphs during React render; create them once, or initialize them through `useMemo` / `useState`.
@@ -387,8 +398,10 @@ Recent stable medium benchmark runs show the main direction of the architecture 
 
 The `ReactiveNode` class allows nodes in your tree to reactively update when their declared dependencies change. This offers a middleground between `useTree` and `useNode` that can be extremely powerful for minimizing re-renders in your application.
 
+Dependency arrays accept raw reactive nodes and primitives. Reactive nodes subscribe; primitives compare. Use `this.dependency(node, comparisons)` when one slot needs custom comparison values.
+
 ```tsx
-import { Retree, ReactiveNode } from "@retreejs/core";
+import { Retree, ReactiveNode, memo, select } from "@retreejs/core";
 import { useNode } from "@retreejs/react";
 
 class EvenCounter extends ReactiveNode {
@@ -399,13 +412,7 @@ class EvenCounter extends ReactiveNode {
     }
 
     get dependencies() {
-        return [
-            this.dependency(
-                this.numbers,
-                // Only emit when the derived value changes.
-                [this.evenNumberCount]
-            ),
-        ];
+        return [this.dependency(this.numbers, [this.evenNumberCount])];
     }
 }
 
@@ -418,6 +425,31 @@ function EvenBadge() {
 
 counter.numbers.push(2); // ✅ re-renders: evenNumberCount 0 -> 1
 counter.numbers.push(3); // ❌ no re-render: evenNumberCount stayed 1
+```
+
+Use `@select` when the dependency list belongs to a getter and `useNode(node)` should update only for that getter's selected dependencies:
+
+```ts
+import { ReactiveNode, memo, select } from "@retreejs/core";
+
+class AttributeRow extends ReactiveNode {
+    public attributes: { id: string; label: string }[] = [];
+    public attributeId!: string;
+
+    @memo((self: AttributeRow) => [self.attributes, self.attributeId])
+    private get _attribute() {
+        return this.attributes.find((check) => check.id === this.attributeId);
+    }
+
+    @select((self) => [
+        self.attributes,
+        self.attributeId,
+        self.dependency(self._attribute, [self._attribute?.id]),
+    ])
+    get attribute() {
+        return this._attribute;
+    }
+}
 ```
 
 ##### ReactiveNode lifecycle hooks
@@ -776,7 +808,7 @@ tree.todos.push(new Todo()); // ✅ nodeChanged, ✅ treeChanged
 tree.todos[0].toggle(); //    ❌ nodeChanged on list, ✅ treeChanged on list
 ```
 
-Use `Retree.select` when only one derived value matters:
+Use `Retree.select` when only one selected value or dependency list matters:
 
 ```ts
 const unsubscribeDoneCount = Retree.select(
@@ -789,6 +821,16 @@ const unsubscribeDoneCount = Retree.select(
 tree.todos[0].toggle(); // ✅ emits if done count changes
 tree.todos[0].text = "Docs"; // ❌ no emit if done count is unchanged
 unsubscribeDoneCount();
+```
+
+`Retree.select` also accepts ordered dependency lists. Reactive entries subscribe; primitive entries compare:
+
+```ts
+Retree.select(
+    row,
+    (self) => [self.attributes, self.attributeId, self.attribute],
+    ([, , attribute]) => console.log(attribute)
+);
 ```
 
 Use `Retree.move`, `Retree.link`, and `Retree.clone` to make ownership explicit:

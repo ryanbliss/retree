@@ -175,6 +175,92 @@ describe("Retree", () => {
         expect(selected).toHaveBeenCalledWith(13, 11);
     });
 
+    it("selects dependency tuples and uses reactive entries as ordered subscriptions", () => {
+        const root = trackRoot(
+            Retree.root({
+                attributeId: "a",
+                attributes: [
+                    { id: "a", value: 0 },
+                    { id: "b", value: 0 },
+                ],
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(
+            root,
+            (node) =>
+                [
+                    node.attributes,
+                    node.attributeId,
+                    node.attributes.find(
+                        (attribute) => attribute.id === node.attributeId
+                    ),
+                ] as const,
+            selected
+        );
+
+        root.attributes.push({ id: "c", value: 0 });
+        root.attributes[1].value = 1;
+
+        expect(selected).not.toHaveBeenCalled();
+
+        root.attributes[0].value = 1;
+        root.attributeId = "b";
+
+        expect(selected).toHaveBeenCalledTimes(2);
+        expect(selected.mock.calls[0]?.[0][2]?.value).toBe(1);
+        expect(selected.mock.calls[1]?.[0][2]?.id).toBe("b");
+    });
+
+    it("handles duplicate reactive dependencies by preserving every dependency slot", () => {
+        const root = trackRoot(
+            Retree.root({
+                child: { value: 1 },
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(
+            root,
+            (node) => [node.child, node.child] as const,
+            selected
+        );
+
+        root.child.value = 2;
+
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(selected.mock.calls[0]?.[0][1].value).toBe(2);
+    });
+
+    it("infers tuple select values for callbacks and equality", () => {
+        const root = trackRoot(
+            Retree.root({
+                count: 1,
+                label: "one",
+            })
+        );
+        Retree.select(
+            root,
+            (node) => [node.count, node.label] as const,
+            (next, previous) => {
+                expectTypeOf(next).toEqualTypeOf<readonly [number, string]>();
+                expectTypeOf(previous).toEqualTypeOf<
+                    readonly [number, string]
+                >();
+            },
+            {
+                equals: (previous, next) => {
+                    expectTypeOf(previous).toEqualTypeOf<
+                        readonly [number, string]
+                    >();
+                    expectTypeOf(next).toEqualTypeOf<
+                        readonly [number, string]
+                    >();
+                    return previous[0] === next[0] && previous[1] === next[1];
+                },
+            }
+        );
+    });
+
     it("tracks parent relationships for nested objects and array items", () => {
         const root = trackRoot(
             Retree.root({

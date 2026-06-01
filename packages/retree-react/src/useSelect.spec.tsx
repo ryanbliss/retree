@@ -1,5 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Retree } from "@retreejs/core";
 import { useSelect } from "./useSelect";
 
@@ -155,6 +155,87 @@ describe("useSelect", () => {
         });
 
         expect(screen.getByTestId("value").textContent).toBe("1");
+    });
+
+    it("selects dependency tuples without rerendering for broad source churn", () => {
+        const root = trackRoot(
+            Retree.root({
+                attributeId: "a",
+                attributes: [
+                    { id: "a", value: 0 },
+                    { id: "b", value: 0 },
+                ],
+            })
+        );
+        let renderCount = 0;
+
+        function Probe() {
+            renderCount += 1;
+            const selection = useSelect(
+                root,
+                (node) =>
+                    [
+                        node.attributes,
+                        node.attributeId,
+                        node.attributes.find(
+                            (attribute) => attribute.id === node.attributeId
+                        ),
+                    ] as const
+            );
+            return (
+                <div data-testid="value">{selection[2]?.value ?? "none"}</div>
+            );
+        }
+
+        render(<Probe />);
+
+        act(() => {
+            root.attributes.push({ id: "c", value: 0 });
+            root.attributes[1].value = 1;
+        });
+
+        expect(screen.getByTestId("value").textContent).toBe("0");
+        expect(renderCount).toBe(1);
+
+        act(() => {
+            root.attributes[0].value = 2;
+        });
+
+        expect(screen.getByTestId("value").textContent).toBe("2");
+        expect(renderCount).toBe(2);
+    });
+
+    it("infers tuple select values for equality", () => {
+        const root = trackRoot(
+            Retree.root({
+                count: 1,
+                label: "one",
+            })
+        );
+
+        function Probe() {
+            const selection = useSelect(
+                root,
+                (node) => [node.count, node.label] as const,
+                {
+                    equals: (previous, next) => {
+                        expectTypeOf(previous).toEqualTypeOf<
+                            readonly [number, string]
+                        >();
+                        expectTypeOf(next).toEqualTypeOf<
+                            readonly [number, string]
+                        >();
+                        return (
+                            previous[0] === next[0] && previous[1] === next[1]
+                        );
+                    },
+                }
+            );
+            return <div data-testid="value">{selection[1]}</div>;
+        }
+
+        render(<Probe />);
+        expect(screen.getByTestId("value").textContent).toBe("one");
     });
 
     it("shares one Retree listener for multiple selectors on the same node", () => {

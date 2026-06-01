@@ -27,13 +27,22 @@ import {
     getReproxyNodeForUnproxiedNode,
     updateReproxyNode,
 } from "./internals/reproxy";
+import {
+    createRetreeSelectionObserver,
+    isRetreeManagedDependency,
+    normalizeSelectDependencies,
+    RetreeSelectEquals,
+    RetreeSelectSelector,
+} from "./internals/select";
 import { Transactions } from "./internals/transactions";
 import {
     LINKED_KEYS_SYMBOL,
+    IReactiveDependency,
     ReactiveNode,
     RUN_CHANGED_EFFECT_SYMBOL,
     RUN_OBSERVED_EFFECT_SYMBOL,
     RUN_UNOBSERVED_EFFECT_SYMBOL,
+    SELECT_GETTERS_SYMBOL,
     setReactiveNodeLinkImplementation,
     setReactiveNodeMoveImplementation,
 } from "./ReactiveNode";
@@ -47,7 +56,7 @@ import {
 } from "./types";
 
 export interface RetreeSelectOptions<TSelected = unknown> {
-    equals?: (previous: TSelected, next: TSelected) => boolean;
+    equals?: RetreeSelectEquals<TSelected>;
     listenerType?: TRetreeChangedEvents;
 }
 
@@ -413,20 +422,27 @@ export class Retree {
      * Subscribe to a derived value from any Retree-managed node.
      *
      * @remarks
-     * `select` recomputes the selected value when the observed node emits,
-     * then calls `callback` only when the selected value changes.
+     * `select` recomputes the selected value when the observed node or selected
+     * reactive dependencies emit, then calls `callback` only when the selection
+     * changes. Selectors may return one value or an ordered dependency list.
+     * Reactive entries in a dependency list are subscribed to; primitive and
+     * plain entries are compared by identity.
      * This is a subscription primitive, not a memo cache: use `memo` /
      * `fnMemo` to cache computation, and `select` to narrow notifications.
      *
      * By default `select` listens to `nodeChanged`, which is correct when the
      * selector reads fields directly owned by `node`. Pass
-     * `listenerType: "treeChanged"` when the selector reads descendants.
+     * `listenerType: "treeChanged"` when the selector intentionally reads
+     * descendants that are not included as reactive entries in a dependency
+     * list.
      *
      * @param node Retree-managed node to observe.
-     * @param selector Function that reads a derived value from the latest
-     * reproxy.
-     * @param callback Called only when the selected value changes.
-     * @param options Optional listener type and equality comparison.
+     * @param selector Function that reads a selected value or dependency list
+     * from the latest reproxy.
+     * @param callback Called only when the selected value or dependency list
+     * changes.
+     * @param options Optional listener type and equality comparison for the
+     * whole selected value or tuple.
      * @returns Unsubscribe function.
      *
      * @example
@@ -446,30 +462,32 @@ export class Retree {
      * project.tasks[0].done = true; // ❌ selected value did not change
      * unsubscribe();
      * ```
+     *
+     * @example
+     * ```ts
+     * Retree.select(
+     *     row,
+     *     (self) => [self.attributes, self.attributeId, self.attribute],
+     *     ([, , attribute]) => console.log(attribute)
+     * );
+     * ```
      */
     static select<TNode extends TreeNode, TSelected>(
         node: TNode,
-        selector: (node: TNode) => TSelected,
+        selector: RetreeSelectSelector<TNode, TSelected>,
         callback: (next: TSelected, previous: TSelected) => void,
         options: RetreeSelectOptions<TSelected> = {}
     ): () => void {
-        const equals = options.equals ?? Object.is;
         const listenerType = options.listenerType ?? "nodeChanged";
-        let previous = selector(getReproxyNode(node));
-
-        return this.on<TNode, TRetreeChangedEvents>(
+        return createRetreeSelectionObserver({
             node,
+            selector,
+            equals: options.equals,
             listenerType,
-            (reproxy) => {
-                const next = selector(reproxy);
-                if (equals(previous, next)) {
-                    return;
-                }
-                const previousToEmit = previous;
-                previous = next;
-                callback(next, previousToEmit);
-            }
-        );
+            subscribeToNode: (selectedNode, selectedListenerType, listener) =>
+                this.on(selectedNode, selectedListenerType, listener),
+            onChange: callback,
+        });
     }
 
     /**
@@ -1168,7 +1186,8 @@ export class Retree {
         proxiedDependentNode: ReactiveNode,
         unproxiedDependentNode: TreeNode
     ) {
-        const currentDependencies = proxiedDependentNode.dependencies;
+        const currentDependencies =
+            this.getReactiveNodeDependencies(proxiedDependentNode);
         const previousDependencies = getReactiveDependencies(
             unproxiedDependentNode
         );
@@ -1292,6 +1311,135 @@ export class Retree {
         setReactiveDependencies(unproxiedDependentNode, newActiveDependencies);
     }
 
+    private static getReactiveSelectDependencies(
+        proxiedDependentNode: ReactiveNode
+    ): IActiveReactiveDependency[] {
+        const selectGetters = proxiedDependentNode[SELECT_GETTERS_SYMBOL];
+        const dependencies: IActiveReactiveDependency[] = [];
+        for (const [getterName, selectGetter] of selectGetters.entries()) {
+            const selected = selectGetter.getDependencies(proxiedDependentNode);
+            const selectedDependencies = normalizeSelectDependencies(selected);
+            if (selectedDependencies.length === 0) {
+                // @retree-throws
+                throw new Error(
+                    `@select dependency list for getter '${String(
+                        getterName
+                    )}' was empty. This is a ReactiveNode implementation error because @select needs at least one stable dependency slot to observe or compare. Fix: return one or more dependencies, or remove @select from this getter.`
+                );
+            }
+            for (
+                let dependencyIndex = 0;
+                dependencyIndex < selectedDependencies.length;
+                dependencyIndex++
+            ) {
+                const selectedDependency =
+                    selectedDependencies[dependencyIndex];
+                const laterComparisons =
+                    this.getReactiveDependencyComparisonValues(
+                        selectedDependencies.slice(dependencyIndex + 1)
+                    );
+                const explicitDependency =
+                    this.isExplicitReactiveDependency(selectedDependency);
+                const normalizedDependency =
+                    this.normalizeReactiveNodeDependency(selectedDependency);
+                dependencies.push({
+                    node: normalizedDependency.node,
+                    comparisons:
+                        explicitDependency || laterComparisons.length === 0
+                            ? normalizedDependency.comparisons
+                            : laterComparisons,
+                    unsubscribeListener: undefined,
+                    unproxiedNode: undefined,
+                });
+            }
+        }
+        return dependencies;
+    }
+
+    private static getReactiveNodeDependencies(
+        proxiedDependentNode: ReactiveNode
+    ) {
+        return [
+            ...proxiedDependentNode.dependencies.map((dependency) =>
+                this.normalizeReactiveNodeDependency(dependency)
+            ),
+            ...this.getReactiveSelectDependencies(proxiedDependentNode),
+        ];
+    }
+
+    private static normalizeReactiveNodeDependency(
+        dependency: unknown
+    ): IReactiveDependency {
+        if (this.isExplicitReactiveDependency(dependency)) {
+            if (isRetreeManagedDependency(dependency.node)) {
+                return dependency;
+            }
+            return {
+                node: undefined,
+                comparisons:
+                    dependency.comparisons === undefined
+                        ? [dependency.node]
+                        : dependency.comparisons,
+            };
+        }
+        if (isRetreeManagedDependency(dependency)) {
+            return {
+                node: dependency,
+            };
+        }
+        return {
+            node: undefined,
+            comparisons: [dependency],
+        };
+    }
+
+    private static getReactiveDependencyComparisonValues(
+        dependencies: unknown[]
+    ) {
+        const comparisonValues: unknown[] = [];
+        for (const dependency of dependencies) {
+            if (this.isExplicitReactiveDependency(dependency)) {
+                const normalizedDependency =
+                    this.normalizeReactiveNodeDependency(dependency);
+                comparisonValues.push(
+                    normalizedDependency.node ?? dependency.node
+                );
+                if (normalizedDependency.comparisons !== undefined) {
+                    comparisonValues.push(...normalizedDependency.comparisons);
+                }
+                continue;
+            }
+            comparisonValues.push(dependency);
+        }
+        return comparisonValues;
+    }
+
+    private static isExplicitReactiveDependency(
+        dependency: unknown
+    ): dependency is IReactiveDependency {
+        if (
+            dependency === null ||
+            typeof dependency !== "object" ||
+            isRetreeManagedDependency(dependency)
+        ) {
+            return false;
+        }
+        if (!("node" in dependency)) {
+            return false;
+        }
+        if (!this.hasComparisonsProperty(dependency)) {
+            return true;
+        }
+        const comparisons = dependency.comparisons;
+        return comparisons === undefined || Array.isArray(comparisons);
+    }
+
+    private static hasComparisonsProperty(
+        dependency: object
+    ): dependency is { comparisons: unknown } {
+        return "comparisons" in dependency;
+    }
+
     private static stopReactiveNode(
         proxiedNode: ReactiveNode,
         unproxiedNode: TreeNode
@@ -1342,8 +1490,15 @@ export class Retree {
             // If our comparisons exist, we check to see if any changed
             if (!shouldNotify) {
                 // Need to get the latest dependency values for our comparison
-                const latest =
-                    dependent.reactiveNode.dependencies[dependent.index];
+                const latest = this.getReactiveNodeDependencies(
+                    dependent.reactiveNode
+                )[dependent.index];
+                if (latest === undefined) {
+                    // @retree-throws
+                    throw new Error(
+                        "ReactiveNode dependency slot disappeared while handling a dependency change. This is a ReactiveNode implementation error. Fix: keep ReactiveNode.dependencies and @select dependency arrays stable in length and order while the node is observed."
+                    );
+                }
                 const latestComparisons = latest.comparisons;
                 if (
                     latestComparisons === undefined ||
