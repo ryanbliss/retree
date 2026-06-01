@@ -468,11 +468,18 @@ describe("ReactiveNode", () => {
         target.values.push(1);
         target.values.push(2);
 
+        const targetValuesRaw = getUnproxiedNode(target.values);
+        if (targetValuesRaw === undefined) {
+            throw new Error(
+                "ReactiveNode comparison dependency test expected target.values to be proxied."
+            );
+        }
         expect(nodeChanged).toHaveBeenCalledTimes(2);
         expect(
             onSpy.mock.calls.filter(
                 ([node, listenerType]) =>
-                    node === target.values && listenerType === "nodeChanged"
+                    getUnproxiedNode(node) === targetValuesRaw &&
+                    listenerType === "nodeChanged"
             )
         ).toHaveLength(1);
         expect(root.dependenciesReadCount).toBe(5);

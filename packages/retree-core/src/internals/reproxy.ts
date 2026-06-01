@@ -79,7 +79,9 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                     prop === COLLECTED_KEYS_SYMBOL ||
                     target[COLLECTED_KEYS_SYMBOL].has(prop)
                 ) {
-                    return Reflect.get(target, prop, target);
+                    return getLatestIgnoredValue(
+                        Reflect.get(target, prop, target)
+                    );
                 }
             }
             if (
@@ -147,4 +149,11 @@ function buildReproxy<T extends TreeNode = TreeNode>(
     };
     const proxy = new Proxy(object, proxyHandler);
     return proxy as TCustomProxy<T>;
+}
+
+function getLatestIgnoredValue(value: unknown) {
+    if (isCustomProxy(value)) {
+        return getReproxyNode(value);
+    }
+    return value;
 }

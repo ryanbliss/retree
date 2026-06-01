@@ -18,7 +18,11 @@ import {
     unproxiedBaseNodeKey,
 } from "./proxy-types";
 import { getReactiveNodeGetter, popMemoGetter, pushMemoGetter } from "./memo";
-import { getReproxyNodeForUnproxiedNode, updateReproxyNode } from "./reproxy";
+import {
+    getReproxyNode,
+    getReproxyNodeForUnproxiedNode,
+    updateReproxyNode,
+} from "./reproxy";
 import { Transactions } from "./transactions";
 
 export const FUNCTION_NAMES_BIND_TO_RAW: (string | symbol)[] = [
@@ -83,6 +87,13 @@ function isDateMutatingMethod(prop: string): prop is DateMutatingMethodName {
     return Object.prototype.hasOwnProperty.call(DATE_MUTATING_METHODS, prop);
 }
 
+function getLatestIgnoredValue(value: unknown) {
+    if (isCustomProxy(value)) {
+        return getReproxyNode(value);
+    }
+    return value;
+}
+
 /**
  * @internal
  * Builds a proxied object that emits changes when any value changes.
@@ -119,7 +130,9 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     propString === COLLECTED_KEYS_SYMBOL ||
                     target[COLLECTED_KEYS_SYMBOL].has(propString)
                 ) {
-                    return Reflect.get(target, prop, target);
+                    return getLatestIgnoredValue(
+                        Reflect.get(target, prop, target)
+                    );
                 }
             }
             if (
