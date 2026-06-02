@@ -1688,9 +1688,14 @@ export class Retree {
         if (selectGetter === undefined) {
             return true;
         }
-        return !defaultSelectEquals(
-            dependent.selectValue,
-            selectGetter.getValue(dependent.reactiveNode)
-        );
+        const latestValue = selectGetter.getValue(dependent.reactiveNode);
+        if (selectGetter.equals !== undefined) {
+            return !selectGetter.equals(
+                dependent.reactiveNode,
+                dependent.selectValue,
+                latestValue
+            );
+        }
+        return !defaultSelectEquals(dependent.selectValue, latestValue);
     }
 }

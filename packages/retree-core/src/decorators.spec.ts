@@ -135,6 +135,52 @@ class BroadSelectNode extends ReactiveNode {
     }
 }
 
+class SelectOptionsNode extends ReactiveNode {
+    public output = { foo: "same", bar: 0 };
+
+    @select({
+        equals: (self, previous, next) => {
+            expect(self).toBeInstanceOf(SelectOptionsNode);
+            const previousFoo: string = previous.foo;
+            const nextFoo: string = next.foo;
+            return previousFoo === nextFoo;
+        },
+    })
+    get selectedOutput() {
+        return {
+            foo: this.output.foo,
+            bar: this.output.bar,
+        };
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class SelectOptionsWithDependenciesNode extends ReactiveNode {
+    public output = { foo: "same", bar: 0 };
+
+    @select((self: SelectOptionsWithDependenciesNode) => self.output, {
+        equals: (self, previous, next) => {
+            expect(self).toBeInstanceOf(SelectOptionsWithDependenciesNode);
+            const previousFoo: string = previous.foo;
+            const nextFoo: string = next.foo;
+            return previousFoo === nextFoo;
+        },
+    })
+    get selectedOutput() {
+        return {
+            foo: this.output.foo,
+            bar: this.output.bar,
+        };
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
 class AutoSelectTotalNode extends ReactiveNode {
     public price = { value: 2 };
     public amount = { value: 3 };
@@ -396,6 +442,50 @@ describe("select", () => {
         root.child.label = "updated";
 
         expect(getReproxyNode(root)).not.toBe(beforeChange);
+    });
+
+    it("uses custom equals for automatic @select output comparisons", () => {
+        const root = trackRoot(Retree.root(new SelectOptionsNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+        const beforeBarChange = getReproxyNode(root);
+
+        expect(root.selectedOutput).toEqual({ foo: "same", bar: 0 });
+
+        root.output.bar = 1;
+
+        expect(nodeChanged).not.toHaveBeenCalled();
+        expect(getReproxyNode(root)).toBe(beforeBarChange);
+        expect(root.selectedOutput).toEqual({ foo: "same", bar: 1 });
+
+        root.output.foo = "changed";
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(getReproxyNode(root)).not.toBe(beforeBarChange);
+        expect(root.selectedOutput).toEqual({ foo: "changed", bar: 1 });
+    });
+
+    it("uses custom equals with explicit @select dependencies", () => {
+        const root = trackRoot(
+            Retree.root(new SelectOptionsWithDependenciesNode())
+        );
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+        const beforeBarChange = getReproxyNode(root);
+
+        expect(root.selectedOutput).toEqual({ foo: "same", bar: 0 });
+
+        root.output.bar = 1;
+
+        expect(nodeChanged).not.toHaveBeenCalled();
+        expect(getReproxyNode(root)).toBe(beforeBarChange);
+        expect(root.selectedOutput).toEqual({ foo: "same", bar: 1 });
+
+        root.output.foo = "changed";
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(getReproxyNode(root)).not.toBe(beforeBarChange);
+        expect(root.selectedOutput).toEqual({ foo: "changed", bar: 1 });
     });
 
     it("captures accessed Retree nodes when @select is called without a selector", () => {

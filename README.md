@@ -482,6 +482,23 @@ class AttributeRow extends ReactiveNode {
 }
 ```
 
+Pass an options object when the getter output needs custom equality. `equals` receives `(self, previous, next)` and returns `true` when the outputs are equivalent, so the owner should not emit or reproxy:
+
+```ts
+class VisibleTaskList extends ReactiveNode {
+    public tasks: { id: string; isArchived: boolean }[] = [];
+
+    @select({
+        equals: (_self, previous, next) =>
+            previous.length === next.length &&
+            previous.every((task, index) => task.id === next[index].id),
+    })
+    get visibleTasks() {
+        return this.tasks.filter((task) => !task.isArchived);
+    }
+}
+```
+
 ##### ReactiveNode lifecycle hooks
 
 `ReactiveNode` also exposes lifecycle hooks for setup, cleanup, and post-change synchronization:

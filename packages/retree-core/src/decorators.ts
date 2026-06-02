@@ -242,6 +242,9 @@ function decorateMemoGetter<This extends ReactiveNode, Value>(
  * slots yourself. Wrap a slot with `self.dependency(node, comparisons)` when
  * that slot needs custom comparison cells. When a selected slot changes,
  * Retree reproxies the owning node and emits `nodeChanged` for that owner.
+ * Pass `{ equals }` to customize the final getter-output comparison. The
+ * function receives `(self, previous, next)` and should return `true` when the
+ * outputs are equivalent, meaning the owner should not emit or reproxy.
  *
  * The dependency list is ordered and may change length at runtime. Retree
  * treats additions, removals, and reordering as invalidation and refreshes the
@@ -285,12 +288,35 @@ function decorateMemoGetter<This extends ReactiveNode, Value>(
  *     }
  * }
  * ```
+ *
+ * @example
+ * ```ts
+ * class VisibleTaskList extends ReactiveNode {
+ *     public tasks: Task[] = [];
+ *
+ *     @select({
+ *         equals: (self, previous, next) =>
+ *             previous.length === next.length &&
+ *             previous.every((task, index) => task.id === next[index].id),
+ *     })
+ *     get visibleTasks() {
+ *         return this.tasks.filter((task) => !task.isArchived);
+ *     }
+ * }
+ * ```
  */
 
 export function select<This extends ReactiveNode, Value>(
     target: (this: This) => Value,
     context: ClassGetterDecoratorContext<This, Value>
 ): (this: This) => Value;
+// eslint-disable-next-line no-redeclare
+export function select<This extends ReactiveNode, Value>(
+    options: ISelectOptions<This, Value>
+): (
+    target: (this: This) => Value,
+    context: ClassGetterDecoratorContext<This, Value>
+) => (this: This) => Value;
 // eslint-disable-next-line no-redeclare
 export function select<This extends ReactiveNode, Dependencies>(
     getDependencies?: (self: This) => Dependencies
@@ -299,38 +325,84 @@ export function select<This extends ReactiveNode, Dependencies>(
     context: ClassGetterDecoratorContext<This, Value>
 ) => (this: This) => Value;
 // eslint-disable-next-line no-redeclare
+export function select<This extends ReactiveNode, Dependencies, Value>(
+    getDependencies: (self: This) => Dependencies,
+    options: ISelectOptions<This, Value>
+): (
+    target: (this: This) => Value,
+    context: ClassGetterDecoratorContext<This, Value>
+) => (this: This) => Value;
+// eslint-disable-next-line no-redeclare
 export function select(
     targetOrGetDependencies?: unknown,
-    context?: ClassGetterDecoratorContext<ReactiveNode, unknown>
+    contextOrOptions?:
+        | ClassGetterDecoratorContext<ReactiveNode, unknown>
+        | ISelectOptions<ReactiveNode, unknown>
 ) {
-    if (context !== undefined) {
+    if (isDecoratorContext(contextOrOptions)) {
         if (!isDecoratorFunction(targetOrGetDependencies)) {
             // @retree-throws
             throw new Error(
                 "@select could not find the decorated getter function. This is unexpected and is likely a Retree bug. Fix: report this error with the decorated getter name and TypeScript version."
             );
         }
-        return decorateSelectGetter(targetOrGetDependencies, context);
+        return decorateSelectGetter(targetOrGetDependencies, contextOrOptions);
+    }
+    if (contextOrOptions !== undefined && !isSelectOptions(contextOrOptions)) {
+        // @retree-throws
+        throw new Error(
+            "@select options must be an object when the second argument is provided. This is expected when @select receives an invalid options argument. Fix: pass @select((self) => [self.items], { equals: (self, previous, next) => previous.id === next.id }) or remove the second argument."
+        );
+    }
+    const options = contextOrOptions;
+    if (isSelectOptions(targetOrGetDependencies)) {
+        return function selectedGetterDecorator(
+            target: (this: ReactiveNode) => unknown,
+            decoratorContext: ClassGetterDecoratorContext<ReactiveNode, unknown>
+        ): (this: ReactiveNode) => unknown {
+            return decorateSelectGetter(
+                target,
+                decoratorContext,
+                undefined,
+                targetOrGetDependencies
+            );
+        };
     }
     return function selectedGetterDecorator(
         target: (this: ReactiveNode) => unknown,
         decoratorContext: ClassGetterDecoratorContext<ReactiveNode, unknown>
     ): (this: ReactiveNode) => unknown {
         if (targetOrGetDependencies === undefined) {
-            return decorateSelectGetter(target, decoratorContext);
+            return decorateSelectGetter(
+                target,
+                decoratorContext,
+                undefined,
+                options
+            );
         }
         if (!isDependencyFunction(targetOrGetDependencies)) {
             // @retree-throws
             throw new Error(
-                "@select dependencies must be a function when @select is called as @select(...). This is expected when a non-function value is passed to @select. Fix: pass a selector like @select((self) => [self.items]) or use @select with no arguments for automatic dependency trapping."
+                "@select dependencies must be a function or options object when @select is called as @select(...). This is expected when a non-function value is passed to @select. Fix: pass a selector like @select((self) => [self.items]), pass options like @select({ equals }), or use @select with no arguments for automatic dependency trapping."
             );
         }
         return decorateSelectGetter(
             target,
             decoratorContext,
-            targetOrGetDependencies
+            targetOrGetDependencies,
+            options
         );
     };
+}
+
+export interface ISelectOptions<This extends ReactiveNode, Value> {
+    equals?: (self: This, previous: Value, next: Value) => boolean;
+}
+
+function isDecoratorContext(
+    value: unknown
+): value is ClassGetterDecoratorContext<ReactiveNode, unknown> {
+    return typeof value === "object" && value !== null && "kind" in value;
 }
 
 function isDecoratorFunction(
@@ -351,10 +423,23 @@ function isComparisonFunction(
     return typeof value === "function";
 }
 
+function isSelectOptions(
+    value: unknown
+): value is ISelectOptions<ReactiveNode, unknown> {
+    if (typeof value !== "object" || value === null) {
+        return false;
+    }
+    if (!("equals" in value)) {
+        return true;
+    }
+    return value.equals === undefined || typeof value.equals === "function";
+}
+
 function decorateSelectGetter<This extends ReactiveNode, Value, Dependencies>(
     target: ((this: This) => Value) | undefined,
     context: ClassGetterDecoratorContext<This, Value>,
-    getDependencies?: (self: This) => Dependencies
+    getDependencies?: (self: This) => Dependencies,
+    options?: ISelectOptions<This, Value>
 ): (this: This) => Value {
     if (target === undefined) {
         // @retree-throws
@@ -382,6 +467,13 @@ function decorateSelectGetter<This extends ReactiveNode, Value, Dependencies>(
                       getValue: (self: ReactiveNode) =>
                           target.call(self as This),
                       compareValueBeforeNotify: true,
+                      equals: options?.equals as
+                          | ((
+                                self: ReactiveNode,
+                                previous: unknown,
+                                next: unknown
+                            ) => boolean)
+                          | undefined,
                   }
                 : {
                       getDependencies: getDependencies as (
@@ -389,7 +481,14 @@ function decorateSelectGetter<This extends ReactiveNode, Value, Dependencies>(
                       ) => unknown,
                       getValue: (self: ReactiveNode) =>
                           target.call(self as This),
-                      compareValueBeforeNotify: false,
+                      compareValueBeforeNotify: options?.equals !== undefined,
+                      equals: options?.equals as
+                          | ((
+                                self: ReactiveNode,
+                                previous: unknown,
+                                next: unknown
+                            ) => boolean)
+                          | undefined,
                   };
         this[SELECT_GETTERS_SYMBOL].set(context.name, selectGetter);
     });
