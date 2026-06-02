@@ -8,6 +8,7 @@ import { TreeNode } from "../types";
 import {
     DependencyComparisonAccessor,
     collectDependencyComparisonAccesses,
+    replayDependencyComparisonAccesses,
 } from "./dependency-tracking";
 import { getDependencyComparisonValues } from "./dependencies";
 import { getUnproxiedNode } from "./proxy";
@@ -162,6 +163,7 @@ export function runTrappedMemo<T>(
         if (shallowEqualArrays(prev.comparisons ?? [], latest.values)) {
             prev.comparisons = latest.values;
             prev.comparisonSnapshots = latest.snapshots;
+            replayDependencyComparisonAccesses(prev.comparisonAccessors);
             return prev.value as T;
         }
     }
@@ -261,6 +263,7 @@ export function runTrappedFnMemo<T>(
         if (shallowEqualArrays(prev.comparisons ?? [], latest.values)) {
             prev.comparisons = latest.values;
             prev.comparisonSnapshots = latest.snapshots;
+            replayDependencyComparisonAccesses(prev.comparisonAccessors);
             return prev.value as T;
         }
     }

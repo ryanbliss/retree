@@ -19,6 +19,7 @@ interface DependencyPropertyWrite {
 
 export interface DependencyComparisonAccessor {
     readonly kind: "retree-dependency-comparison-accessor";
+    readonly dependencyNode?: TreeNode;
     readonly sourceUnproxiedNode?: TreeNode;
     getValues(): unknown[];
 }
@@ -104,6 +105,7 @@ export function collectDependencyComparisonAccesses<T>(callback: () => T): {
                 return [
                     createComparisonAccessor(
                         () => [entry.value],
+                        entry.value,
                         entry.unproxiedNode
                     ),
                 ];
@@ -206,6 +208,7 @@ export function trackDependencyPropertyAccess<T>(
                       )
                     : Reflect.get(owner, propertyKey),
             ],
+            owner,
             getComparisonAccessorSource(ownerUnproxiedNode, propertyKey)
         ),
         ownerUnproxiedNode,
@@ -220,6 +223,32 @@ export function trackDependencyPropertyAccess<T>(
         return value;
     }
     return trackDependencyAccess(value);
+}
+
+export function replayDependencyComparisonAccesses(
+    comparisons: unknown[]
+): void {
+    const currentFrame =
+        dependencyAccessStack[dependencyAccessStack.length - 1];
+    if (currentFrame === undefined || currentFrame.mode !== "dependencies") {
+        return;
+    }
+    for (const comparison of comparisons) {
+        if (!isDependencyComparisonAccessor(comparison)) {
+            continue;
+        }
+        const dependencyNode = comparison.dependencyNode;
+        if (dependencyNode === undefined) {
+            continue;
+        }
+        currentFrame.entries.push({
+            kind: "dependency",
+            value: {
+                node: dependencyNode,
+                comparisons: comparison.getValues(),
+            } satisfies IReactiveDependency,
+        });
+    }
 }
 
 export function trackDependencyPropertyWrite(
@@ -254,13 +283,26 @@ function isRetreeInternalProperty(propertyKey: string | symbol): boolean {
 
 function createComparisonAccessor(
     getValues: () => unknown[],
+    dependencyNode?: TreeNode,
     sourceUnproxiedNode?: TreeNode
 ): DependencyComparisonAccessor {
     return {
         kind: "retree-dependency-comparison-accessor",
+        dependencyNode,
         sourceUnproxiedNode,
         getValues,
     };
+}
+
+function isDependencyComparisonAccessor(
+    value: unknown
+): value is DependencyComparisonAccessor {
+    if (value === null || typeof value !== "object") {
+        return false;
+    }
+    return (
+        Reflect.get(value, "kind") === "retree-dependency-comparison-accessor"
+    );
 }
 
 function getComparisonAccessorSource(

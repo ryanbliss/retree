@@ -750,6 +750,46 @@ describe("automatic dependency trapping through array lookup", () => {
         expect(changed).toHaveBeenCalled();
     });
 
+    it("recomputes across multiple separate field edits to the resolved row", () => {
+        const root = buildLookupTree();
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        const row = root.store.byId("a");
+        if (row === null) {
+            // @retree-throws
+            throw new Error(
+                "Test setup failed: expected buildLookupTree() to create row 'a'."
+            );
+        }
+
+        row.value = "Grace";
+        expect(root.consumer.result).toBe("Grace");
+        expect(changed).toHaveBeenCalledTimes(1);
+
+        row.value = "Hopper";
+        expect(root.consumer.result).toBe("Hopper");
+        expect(changed).toHaveBeenCalledTimes(2);
+    });
+
+    it("recomputes across multiple separate splice replacements of the resolved row", () => {
+        const root = buildLookupTree();
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        root.store.replaceRow({ id: "a", value: "Grace" });
+        expect(root.consumer.result).toBe("Grace");
+        expect(changed).toHaveBeenCalledTimes(1);
+
+        root.store.replaceRow({ id: "a", value: "Hopper" });
+        expect(root.consumer.result).toBe("Hopper");
+        expect(changed).toHaveBeenCalledTimes(2);
+    });
+
     it("does not emit when an unmatched row field changes before the resolved row", () => {
         const root = buildLookupTree([
             { id: "b", value: "Babbage" },
