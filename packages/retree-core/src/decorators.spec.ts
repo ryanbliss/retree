@@ -181,6 +181,30 @@ class SelectOptionsWithDependenciesNode extends ReactiveNode {
     }
 }
 
+class SelectSkipsOutputWhenDependenciesAreUnchangedNode extends ReactiveNode {
+    @ignore
+    public outputReadCount = 0;
+    public source = { flag: true, noise: 0 };
+
+    @select(
+        (self: SelectSkipsOutputWhenDependenciesAreUnchangedNode) =>
+            self.dependency(self.source, [self.source.flag]),
+        {
+            equals: (_self, previous, next) => previous.flag === next.flag,
+        }
+    )
+    get selectedOutput() {
+        this.outputReadCount++;
+        return {
+            flag: this.source.flag,
+        };
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
 class AutoSelectTotalNode extends ReactiveNode {
     public price = { value: 2 };
     public amount = { value: 3 };
@@ -486,6 +510,25 @@ describe("select", () => {
         expect(nodeChanged).toHaveBeenCalledTimes(1);
         expect(getReproxyNode(root)).not.toBe(beforeBarChange);
         expect(root.selectedOutput).toEqual({ foo: "changed", bar: 1 });
+    });
+
+    it("does not run select output equality when dependency comparisons are unchanged", () => {
+        const root = trackRoot(
+            Retree.root(new SelectSkipsOutputWhenDependenciesAreUnchangedNode())
+        );
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+        root.outputReadCount = 0;
+
+        root.source.noise = 1;
+
+        expect(root.outputReadCount).toBe(0);
+        expect(nodeChanged).not.toHaveBeenCalled();
+
+        root.source.flag = false;
+
+        expect(root.outputReadCount).toBe(1);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
     });
 
     it("captures accessed Retree nodes when @select is called without a selector", () => {

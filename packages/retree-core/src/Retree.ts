@@ -46,7 +46,7 @@ import {
 import { Transactions } from "./internals/transactions";
 import {
     LINKED_KEYS_SYMBOL,
-    IReactiveDependency,
+    IReactiveSelectGetter,
     ReactiveNode,
     RUN_CHANGED_EFFECT_SYMBOL,
     RUN_OBSERVED_EFFECT_SYMBOL,
@@ -137,6 +137,10 @@ export class Retree {
         null;
     private static nodeRemovedListener: TInternalNodeChangedListener | null =
         null;
+    private static pendingReactiveSelectValueMap = new WeakMap<
+        ReactiveNode,
+        Map<string | symbol, unknown>
+    >();
 
     private static treeChangedListeners: Map<TreeNode, TNodeChangedListener[]> =
         new Map();
@@ -1416,14 +1420,21 @@ export class Retree {
     }
 
     private static getReactiveSelectDependencies(
-        proxiedDependentNode: ReactiveNode
+        proxiedDependentNode: ReactiveNode,
+        includeSelectValues: boolean
     ): IActiveReactiveDependency[] {
         const selectGetters = proxiedDependentNode[SELECT_GETTERS_SYMBOL];
         const dependencies: IActiveReactiveDependency[] = [];
         const unproxiedDependentNode = getUnproxiedNode(proxiedDependentNode);
         for (const [getterName, selectGetter] of selectGetters.entries()) {
             const selected = selectGetter.getDependencies(proxiedDependentNode);
-            const selectedValue = selectGetter.getValue(proxiedDependentNode);
+            const selectedValue = includeSelectValues
+                ? this.getReactiveSelectValue(
+                      proxiedDependentNode,
+                      getterName,
+                      selectGetter
+                  )
+                : undefined;
             const selectedDependencies = normalizeSelectDependencies(selected);
             if (selectedDependencies.length === 0) {
                 continue;
@@ -1472,8 +1483,44 @@ export class Retree {
         return dependencies;
     }
 
+    private static getReactiveSelectValue(
+        proxiedDependentNode: ReactiveNode,
+        getterName: string | symbol,
+        selectGetter: IReactiveSelectGetter
+    ) {
+        const pendingValues =
+            this.pendingReactiveSelectValueMap.get(proxiedDependentNode);
+        if (pendingValues !== undefined && pendingValues.has(getterName)) {
+            const value = pendingValues.get(getterName);
+            pendingValues.delete(getterName);
+            if (pendingValues.size === 0) {
+                this.pendingReactiveSelectValueMap.delete(proxiedDependentNode);
+            }
+            return value;
+        }
+        return selectGetter.getValue(proxiedDependentNode);
+    }
+
+    private static setPendingReactiveSelectValue(
+        proxiedDependentNode: ReactiveNode,
+        getterName: string | symbol,
+        value: unknown
+    ) {
+        const existingValues =
+            this.pendingReactiveSelectValueMap.get(proxiedDependentNode);
+        if (existingValues !== undefined) {
+            existingValues.set(getterName, value);
+            return;
+        }
+        this.pendingReactiveSelectValueMap.set(
+            proxiedDependentNode,
+            new Map([[getterName, value]])
+        );
+    }
+
     private static getReactiveNodeDependencies(
-        proxiedDependentNode: ReactiveNode
+        proxiedDependentNode: ReactiveNode,
+        includeSelectValues = true
     ) {
         return this.runWithoutEmitting(() => [
             ...proxiedDependentNode.dependencies.map((dependency, index) =>
@@ -1482,7 +1529,10 @@ export class Retree {
                     `dependencies:${index}`
                 )
             ),
-            ...this.getReactiveSelectDependencies(proxiedDependentNode),
+            ...this.getReactiveSelectDependencies(
+                proxiedDependentNode,
+                includeSelectValues
+            ),
         ]);
     }
 
@@ -1633,17 +1683,32 @@ export class Retree {
         dependent: IPreviousReactiveDependent,
         changedUnproxiedNode: TreeNode
     ) {
+        const dependencyChanged = this.hasReactiveDependencyChanged(
+            dependent,
+            changedUnproxiedNode
+        );
+        if (!dependencyChanged) {
+            return false;
+        }
         const selectValueChanged =
             this.hasReactiveSelectValueChanged(dependent);
         if (selectValueChanged !== undefined) {
             return selectValueChanged;
         }
+        return true;
+    }
+
+    private static hasReactiveDependencyChanged(
+        dependent: IPreviousReactiveDependent,
+        changedUnproxiedNode: TreeNode
+    ) {
         const previousComparisons = dependent.comparisons;
         if (previousComparisons === undefined) {
             return true;
         }
         const latest = this.getReactiveNodeDependencies(
-            dependent.reactiveNode
+            dependent.reactiveNode,
+            false
         ).find((dependency) => dependency.key === dependent.key);
         if (latest === undefined) {
             return true;
@@ -1689,13 +1754,21 @@ export class Retree {
             return true;
         }
         const latestValue = selectGetter.getValue(dependent.reactiveNode);
-        if (selectGetter.equals !== undefined) {
-            return !selectGetter.equals(
+        const changed =
+            selectGetter.equals !== undefined
+                ? !selectGetter.equals(
+                      dependent.reactiveNode,
+                      dependent.selectValue,
+                      latestValue
+                  )
+                : !defaultSelectEquals(dependent.selectValue, latestValue);
+        if (changed) {
+            this.setPendingReactiveSelectValue(
                 dependent.reactiveNode,
-                dependent.selectValue,
+                selectGetterName,
                 latestValue
             );
         }
-        return !defaultSelectEquals(dependent.selectValue, latestValue);
+        return changed;
     }
 }
