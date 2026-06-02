@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/benchmark-cli",
-    "version": "0.4.0",
+    "version": "0.4.1",
     "description": "Benchmark Retree listener emission performance across deterministic tree scenarios.",
     "author": "Ryan Bliss",
     "license": "MIT",
@@ -18,7 +18,7 @@
     },
     "dependencies": {
         "@inquirer/prompts": "^7.0.0",
-        "@retreejs/core": "0.4.0"
+        "@retreejs/core": "0.4.1"
     },
     "devDependencies": {
         "@types/node": "^20.2.3",
