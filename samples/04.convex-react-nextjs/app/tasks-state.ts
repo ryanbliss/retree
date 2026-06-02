@@ -82,11 +82,13 @@ export class TasksState extends ConvexNode {
     private _tasks: ConvexQueryNode<typeof api.tasks.get>;
     public readonly filter = new TaskFilterNode();
 
-    @select() public get status() {
+    @select
+    public get status() {
         return this._tasks.result?.status;
     }
 
-    @select() public get tasks(): Doc<"tasks">[] | undefined {
+    @select
+    public get tasks(): Doc<"tasks">[] | undefined {
         return this._tasks.state?.filter(
             (task) =>
                 this.filter.isCompleted === null ||

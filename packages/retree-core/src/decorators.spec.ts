@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
 import { ignore, link, memo, select } from "./decorators";
+import { getReproxyNode } from "./internals/reproxy";
 import { Transactions } from "./internals/transactions";
 
 class IgnoredNode extends ReactiveNode {
@@ -121,12 +122,40 @@ class DynamicSelectNode extends ReactiveNode {
     }
 }
 
+class BroadSelectNode extends ReactiveNode {
+    public child = { value: 0, label: "initial" };
+
+    @select((self: BroadSelectNode) => self.child)
+    get selectedChild() {
+        return this.child;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
 class AutoSelectTotalNode extends ReactiveNode {
     public price = { value: 2 };
     public amount = { value: 3 };
     public note = { value: "ignored" };
 
     @select()
+    get total() {
+        return this.price.value * this.amount.value;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class BareAutoSelectTotalNode extends ReactiveNode {
+    public price = { value: 2 };
+    public amount = { value: 3 };
+    public note = { value: "ignored" };
+
+    @select
     get total() {
         return this.price.value * this.amount.value;
     }
@@ -359,8 +388,37 @@ describe("select", () => {
         expect(nodeChanged).toHaveBeenCalledTimes(2);
     });
 
+    it("reproxies the owner when an explicit @select dependency changes", () => {
+        const root = trackRoot(Retree.root(new BroadSelectNode()));
+        Retree.on(root, "nodeChanged", vi.fn());
+        const beforeChange = getReproxyNode(root);
+
+        root.child.label = "updated";
+
+        expect(getReproxyNode(root)).not.toBe(beforeChange);
+    });
+
     it("captures accessed Retree nodes when @select is called without a selector", () => {
         const root = trackRoot(Retree.root(new AutoSelectTotalNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+        const beforeChange = getReproxyNode(root);
+
+        root.note.value = "still ignored";
+        expect(nodeChanged).not.toHaveBeenCalled();
+
+        root.price.value = 4;
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(getReproxyNode(root)).not.toBe(beforeChange);
+        expect(root.total).toBe(12);
+
+        root.amount.value = 5;
+        expect(nodeChanged).toHaveBeenCalledTimes(2);
+        expect(root.total).toBe(20);
+    });
+
+    it("captures accessed Retree nodes when @select is used without parentheses", () => {
+        const root = trackRoot(Retree.root(new BareAutoSelectTotalNode()));
         const nodeChanged = vi.fn();
         Retree.on(root, "nodeChanged", nodeChanged);
 
@@ -390,12 +448,14 @@ describe("select", () => {
         );
         const nodeChanged = vi.fn();
         Retree.on(row, "nodeChanged", nodeChanged);
+        const beforeChange = getReproxyNode(row);
 
         source.task.text = "Write better docs";
         expect(nodeChanged).not.toHaveBeenCalled();
 
         source.task.isCompleted = true;
         expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(getReproxyNode(row)).not.toBe(beforeChange);
         expect(row.isVisible).toBe(false);
     });
 

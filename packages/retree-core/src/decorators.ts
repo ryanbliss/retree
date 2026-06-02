@@ -172,13 +172,13 @@ export function memo<This extends ReactiveNode, Value>(
  * @remarks
  * `@select` is the class-side companion to {@link Retree.select} and
  * `useSelect`. Use it when a getter exposes a narrow value but depends on
- * broader reactive sources. When called with no selector, `@select()` runs the
- * getter under a dependency trapper. Whole Retree-managed values read by the
- * getter are subscribed to broadly. Property reads subscribe to the owner node
- * but compare the specific property value, so `task.isCompleted` can update
- * when the task slot is replaced or `isCompleted` changes without reacting to
- * unrelated `task.text` changes. Primitive values read by the getter are
- * compared.
+ * broader reactive sources. When called with no selector, `@select` and
+ * `@select()` are interchangeable. Both run the getter under a dependency
+ * trapper. Whole Retree-managed values read by the getter are subscribed to
+ * broadly. Property reads subscribe to the owner node but compare the specific
+ * property value, so `task.isCompleted` can update when the task slot is
+ * replaced or `isCompleted` changes without reacting to unrelated `task.text`
+ * changes. Primitive values read by the getter are compared.
  * Pass an explicit selector when you want to choose or customize the dependency
  * slots yourself. Wrap a slot with `self.dependency(node, comparisons)` when
  * that slot needs custom comparison cells. When a selected slot changes,
@@ -217,7 +217,7 @@ export function memo<This extends ReactiveNode, Value>(
  *     @link public task!: Task;
  *     @link public filter!: TaskFilter;
  *
- *     @select()
+ *     @select
  *     get isVisible() {
  *         return (
  *             this.filter.isComplete === null ||
@@ -227,41 +227,103 @@ export function memo<This extends ReactiveNode, Value>(
  * }
  * ```
  */
+
+export function select<This extends ReactiveNode, Value>(
+    target: (this: This) => Value,
+    context: ClassGetterDecoratorContext<This, Value>
+): (this: This) => Value;
+// eslint-disable-next-line no-redeclare
 export function select<This extends ReactiveNode, Dependencies>(
     getDependencies?: (self: This) => Dependencies
+): <Value>(
+    target: (this: This) => Value,
+    context: ClassGetterDecoratorContext<This, Value>
+) => (this: This) => Value;
+// eslint-disable-next-line no-redeclare
+export function select(
+    targetOrGetDependencies?: unknown,
+    context?: ClassGetterDecoratorContext<ReactiveNode, unknown>
 ) {
-    return function <Value>(
-        target: (this: This) => Value,
-        context: ClassGetterDecoratorContext<This, Value>
-    ): (this: This) => Value {
-        if (context.kind !== "getter") {
+    if (context !== undefined) {
+        if (!isDecoratorFunction(targetOrGetDependencies)) {
             // @retree-throws
             throw new Error(
-                "@select can only be applied to a getter on a ReactiveNode subclass. This is expected when @select is placed on a field, method, setter, or non-ReactiveNode class. Fix: move @select to a getter on a class that extends ReactiveNode."
+                "@select could not find the decorated getter function. This is unexpected and is likely a Retree bug. Fix: report this error with the decorated getter name and TypeScript version."
             );
         }
-        context.addInitializer(function () {
-            if (!(this instanceof ReactiveNode)) {
-                return;
-            }
-            const selectGetter: IReactiveSelectGetter =
-                getDependencies === undefined
-                    ? {
-                          getDependencies: (self: ReactiveNode) =>
-                              collectDependencyAccesses(() =>
-                                  target.call(self as This)
-                              ),
-                      }
-                    : {
-                          getDependencies: getDependencies as (
-                              self: ReactiveNode
-                          ) => unknown,
-                      };
-            this[SELECT_GETTERS_SYMBOL].set(context.name, selectGetter);
-        });
-        return function selectedGetter(this: This): Value {
-            return target.call(this);
-        };
+        return decorateSelectGetter(targetOrGetDependencies, context);
+    }
+    return function selectedGetterDecorator(
+        target: (this: ReactiveNode) => unknown,
+        decoratorContext: ClassGetterDecoratorContext<ReactiveNode, unknown>
+    ): (this: ReactiveNode) => unknown {
+        if (targetOrGetDependencies === undefined) {
+            return decorateSelectGetter(target, decoratorContext);
+        }
+        if (!isDependencyFunction(targetOrGetDependencies)) {
+            // @retree-throws
+            throw new Error(
+                "@select dependencies must be a function when @select is called as @select(...). This is expected when a non-function value is passed to @select. Fix: pass a selector like @select((self) => [self.items]) or use @select with no arguments for automatic dependency trapping."
+            );
+        }
+        return decorateSelectGetter(
+            target,
+            decoratorContext,
+            targetOrGetDependencies
+        );
+    };
+}
+
+function isDecoratorFunction(
+    value: unknown
+): value is (this: ReactiveNode) => unknown {
+    return typeof value === "function";
+}
+
+function isDependencyFunction(
+    value: unknown
+): value is (self: ReactiveNode) => unknown {
+    return typeof value === "function";
+}
+
+function decorateSelectGetter<This extends ReactiveNode, Value, Dependencies>(
+    target: ((this: This) => Value) | undefined,
+    context: ClassGetterDecoratorContext<This, Value>,
+    getDependencies?: (self: This) => Dependencies
+): (this: This) => Value {
+    if (target === undefined) {
+        // @retree-throws
+        throw new Error(
+            "@select could not find the decorated getter function. This is unexpected and is likely a Retree bug. Fix: report this error with the decorated getter name and TypeScript version."
+        );
+    }
+    if (context.kind !== "getter") {
+        // @retree-throws
+        throw new Error(
+            "@select can only be applied to a getter on a ReactiveNode subclass. This is expected when @select is placed on a field, method, setter, or non-ReactiveNode class. Fix: move @select to a getter on a class that extends ReactiveNode."
+        );
+    }
+    context.addInitializer(function () {
+        if (!(this instanceof ReactiveNode)) {
+            return;
+        }
+        const selectGetter: IReactiveSelectGetter =
+            getDependencies === undefined
+                ? {
+                      getDependencies: (self: ReactiveNode) =>
+                          collectDependencyAccesses(() =>
+                              target.call(self as This)
+                          ),
+                  }
+                : {
+                      getDependencies: getDependencies as (
+                          self: ReactiveNode
+                      ) => unknown,
+                  };
+        this[SELECT_GETTERS_SYMBOL].set(context.name, selectGetter);
+    });
+    return function selectedGetter(this: This): Value {
+        return target.call(this);
     };
 }
 

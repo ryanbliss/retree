@@ -1,8 +1,21 @@
 import React from "react";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Retree } from "@retreejs/core";
+import { ReactiveNode, Retree, select } from "@retreejs/core";
 import { useNode } from "./useNode";
+
+class SelectedOwnerNode extends ReactiveNode {
+    public child = { value: 1 };
+
+    @select
+    get selectedValue() {
+        return this.child.value;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
 
 const rootsToCleanup: object[] = [];
 
@@ -69,6 +82,27 @@ describe("useNode", () => {
 
         expect(screen.getByTestId("value").textContent).toBe("1");
         expect(renderCount).toBe(1);
+    });
+
+    it("rerenders the attached node when @select dependencies change", () => {
+        const root = trackRoot(Retree.root(new SelectedOwnerNode()));
+        let renderCount = 0;
+
+        function Probe() {
+            renderCount += 1;
+            const state = useNode(root);
+            return <div data-testid="value">{state.selectedValue}</div>;
+        }
+
+        render(<Probe />);
+        expect(screen.getByTestId("value").textContent).toBe("1");
+
+        act(() => {
+            root.child.value = 2;
+        });
+
+        expect(screen.getByTestId("value").textContent).toBe("2");
+        expect(renderCount).toBe(2);
     });
 
     it("supports the node factory form and switches immediately when the node prop changes", () => {

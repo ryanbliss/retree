@@ -18,15 +18,12 @@ const filterOptions: { label: string; value: TaskFilterValue }[] = [
 ];
 
 export default function Home() {
-    const root = useRoot(() => new TasksState());
-    const [tasks, filter, queryStatus] = useSelect(() => {
-        const tasks = root.tasks ?? [];
-        return [tasks, root.filter, root.status] as const;
-    });
+    const _root = useRoot(() => new TasksState());
+    const root = useNode(_root);
 
     useEffect(() => {
-        return () => root.dispose();
-    }, [root]);
+        return () => _root.dispose();
+    }, [_root]);
 
     return (
         <main className="min-h-screen bg-zinc-50 px-5 py-8 text-zinc-950 sm:px-8">
@@ -40,18 +37,18 @@ export default function Home() {
                             Tasks
                         </h1>
                     </div>
-                    <FilterControls filter={filter} />
+                    <FilterControls filter={root.filter} />
                 </header>
 
                 <AddTaskForm />
 
                 <section className="flex flex-col gap-3">
-                    {queryStatus === "pending" ? (
+                    {root.status === "pending" ? (
                         <div className="rounded-md border border-dashed border-zinc-300 bg-white px-4 py-8 text-center text-sm text-zinc-500">
                             Loading tasks
                         </div>
                     ) : null}
-                    {tasks.map((task) => (
+                    {root.tasks?.map((task) => (
                         <TaskCard
                             key={task._id}
                             task={task}
@@ -59,7 +56,7 @@ export default function Home() {
                             onRename={root.renameTask}
                         />
                     ))}
-                    {queryStatus !== "pending" && tasks.length === 0 ? (
+                    {root.status !== "pending" && root.tasks?.length === 0 ? (
                         <div className="rounded-md border border-dashed border-zinc-300 bg-white px-4 py-8 text-center text-sm text-zinc-500">
                             No tasks yet
                         </div>

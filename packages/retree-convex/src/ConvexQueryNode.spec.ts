@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Retree } from "@retreejs/core";
+import { ReactiveNode, Retree, select } from "@retreejs/core";
 import type {
     FunctionArgs,
     FunctionReference,
@@ -304,6 +304,27 @@ class TestConvexNode extends ConvexNode {
     }
 }
 
+class SelectedTasksNode extends ReactiveNode {
+    public readonly tasksQuery: ConvexQueryNode<ConvexTasksQuery>;
+
+    constructor(client: FakeConvexClient) {
+        super();
+        this.tasksQuery = new ConvexQueryNode(client, convexTasksQuery, {
+            args: { listId: "today" },
+            initialState: [],
+        });
+    }
+
+    @select
+    public get tasks() {
+        return this.tasksQuery.state?.filter(() => true) ?? [];
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
 describe("ConvexQueryNode", () => {
     it("writes query updates into state through Retree", () => {
         const client = new FakeConvexClient();
@@ -323,6 +344,32 @@ describe("ConvexQueryNode", () => {
             { id: "task-1", text: "Buy groceries", isCompleted: false },
         ]);
         expect(nodeChanged).toHaveBeenCalled();
+    });
+
+    it("reproxies a parent @select owner when a reconciled document array gains an item", () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(new SelectedTasksNode(client));
+        const nodeChanged = vi.fn();
+
+        Retree.on(node, "nodeChanged", nodeChanged);
+        expect(node.tasks).toEqual([]);
+
+        client.subscriptions[0].callback([
+            {
+                _id: "task-1",
+                text: "Buy groceries",
+                isCompleted: false,
+            },
+        ]);
+
+        expect(nodeChanged).toHaveBeenCalled();
+        expect(node.tasks).toEqual([
+            {
+                _id: "task-1",
+                text: "Buy groceries",
+                isCompleted: false,
+            },
+        ]);
     });
 
     it("resubscribes when args change", () => {
