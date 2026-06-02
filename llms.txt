@@ -23,7 +23,7 @@ Read the full [Retree Docs Home](https://ryanbliss.github.io/retree/) or the [Re
 - DO keep `ReactiveNode.dependencies` and `@select` arrays deterministic when possible. Length/order may change at runtime; Retree treats that as an invalidation and refreshes subscriptions.
 - DO return raw reactive nodes and primitives directly from `ReactiveNode.dependencies`; wrap a slot with `this.dependency(node, comparisons)` when you need custom comparison cells.
 - DO prefer `@select` for hot filtered lists where one getter should listen to a broad collection but only emit when selected items or selected order changes.
-- DO use `memo`, `@memo`, or `@fnMemo` to cache expensive computation, then use `select` / `useSelect` to narrow notifications.
+- DO prefer bare `@memo` / `@fnMemo` for cached computed getters and deterministic methods; pass comparison functions only when you need finer cache-key control.
 - DO use `@ignore` for caches, unsubscribe handles, framework objects, and other non-rendered state on a `ReactiveNode`.
 - DO use `Retree.runTransaction(...)` for several synchronous writes that represent one logical update.
 - DO use `Retree.runSilent(...)` for synchronous writes that should skip emitting change events.
@@ -63,7 +63,7 @@ Read the full [Retree Docs Home](https://ryanbliss.github.io/retree/) or the [Re
 - `Retree.clone`: Creates a detached copy. Use it when two places need independent state.
 - `@select`: Decorates a `ReactiveNode` getter with an ordered dependency list. Use `@select()` with no selector for MobX-style dependency trapping: whole Retree-managed values read by the getter subscribe broadly, property reads subscribe to the owner and compare that property value, and primitive values read by the getter compare. Pass `@select((self) => [...])` when you want explicit dependency slots.
 - `ReactiveNode.dependencies`: Makes one node emit when another node changes. Return raw reactive nodes/primitives directly, or use `this.dependency(node, comparisons)` for custom comparison cells. Dynamic dependency arrays are allowed; shape changes emit and refresh subscriptions.
-- `ReactiveNode.memo`, `@memo`, and `@fnMemo`: Cache computed values. They do not emit `nodeChanged` or trigger React renders by themselves.
+- `ReactiveNode.memo`, `@memo`, `@memo()`, `@fnMemo`, and `@fnMemo()`: Cache computed values. Prefer bare/empty decorator forms for automatic dependency trapping; pass comparison functions for finer cache-key control. They do not emit `nodeChanged` or trigger React renders by themselves.
 - `@ignore`: Keeps a `ReactiveNode` field out of Retree emissions. Use it for caches, framework handles, subscriptions, and non-rendered state.
 - `Retree.runTransaction`: Batches synchronous writes into one listener flush per changed node.
 - `Retree.runSilent`: Performs writes without emitting listeners. Use it for non-rendered bookkeeping.

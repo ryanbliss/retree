@@ -5,6 +5,11 @@
 
 import { ReactiveNode } from "../ReactiveNode";
 import { TreeNode } from "../types";
+import {
+    DependencyComparisonAccessor,
+    collectDependencyComparisonAccesses,
+} from "./dependency-tracking";
+import { getDependencyComparisonValues } from "./dependencies";
 import { getUnproxiedNode } from "./proxy";
 import { getReproxyNodeForUnproxiedNode } from "./reproxy";
 
@@ -20,6 +25,12 @@ interface IMemoCacheEntry {
      * `undefined` means "no comparisons; invalidate when the ReactiveNode reproxies."
      */
     comparisons: unknown[] | undefined;
+    /**
+     * Original comparison cells used for automatic dependency trapping. These
+     * cells can refresh their current comparison values without recomputing the
+     * memoized getter or method body.
+     */
+    comparisonAccessors: unknown[] | undefined;
     /**
      * Reproxy reference at the time of caching. Used to detect "the ReactiveNode
      * has reproxied since this entry was made" for the `undefined` comparisons case.
@@ -113,10 +124,46 @@ export function runMemo<T>(
     cache.set(key, {
         value,
         comparisons: normalized,
+        comparisonAccessors: undefined,
         reproxy: getReproxyNodeForUnproxiedNode(unproxied) ?? currentReproxy,
         args: undefined,
     });
     return value;
+}
+
+export function runTrappedMemo<T>(
+    instance: ReactiveNode,
+    key: string | symbol,
+    fn: () => T
+): T {
+    const unproxied = getUnproxiedNode(instance) as ReactiveNode | undefined;
+    if (!unproxied) {
+        return fn();
+    }
+    const cache = getOrCreateMemoCache(unproxied);
+    const prev = cache.get(key);
+    if (
+        prev !== undefined &&
+        prev.args === undefined &&
+        prev.comparisonAccessors !== undefined
+    ) {
+        const latestComparisons = normalizeComparisons(
+            prev.comparisonAccessors
+        );
+        if (shallowEqualArrays(prev.comparisons ?? [], latestComparisons)) {
+            return prev.value as T;
+        }
+    }
+
+    const result = collectDependencyComparisonAccesses(fn);
+    cache.set(key, {
+        value: result.value,
+        comparisons: normalizeComparisons(result.comparisons),
+        comparisonAccessors: result.comparisons,
+        reproxy: getReproxyNodeForUnproxiedNode(unproxied),
+        args: undefined,
+    });
+    return result.value;
 }
 
 /**
@@ -167,10 +214,49 @@ export function runFnMemo<T>(
     cache.set(key, {
         value,
         comparisons: normalizedComparisons,
+        comparisonAccessors: undefined,
         reproxy: getReproxyNodeForUnproxiedNode(unproxied) ?? currentReproxy,
         args: normalizedArgs,
     });
     return value;
+}
+
+export function runTrappedFnMemo<T>(
+    instance: ReactiveNode,
+    key: string | symbol,
+    fn: () => T,
+    args: unknown[]
+): T {
+    const unproxied = getUnproxiedNode(instance) as ReactiveNode | undefined;
+    if (!unproxied) {
+        return fn();
+    }
+    const cache = getOrCreateMemoCache(unproxied);
+    const normalizedArgs = normalizeComparisons(args);
+    const prev = cache.get(key);
+    if (
+        prev !== undefined &&
+        prev.args !== undefined &&
+        prev.comparisonAccessors !== undefined &&
+        shallowEqualArrays(prev.args, normalizedArgs)
+    ) {
+        const latestComparisons = normalizeComparisons(
+            prev.comparisonAccessors
+        );
+        if (shallowEqualArrays(prev.comparisons ?? [], latestComparisons)) {
+            return prev.value as T;
+        }
+    }
+
+    const result = collectDependencyComparisonAccesses(fn);
+    cache.set(key, {
+        value: result.value,
+        comparisons: normalizeComparisons(result.comparisons),
+        comparisonAccessors: result.comparisons,
+        reproxy: getReproxyNodeForUnproxiedNode(unproxied),
+        args: normalizedArgs,
+    });
+    return result.value;
 }
 
 /**
@@ -179,22 +265,46 @@ export function runFnMemo<T>(
  * never change identity, but the reproxy bumps every time the node mutates.
  */
 function normalizeComparisons(comparisons: unknown[]): unknown[] {
-    const out = new Array(comparisons.length);
+    const out: unknown[] = [];
     for (let i = 0; i < comparisons.length; i++) {
-        const cell = comparisons[i];
-        if (cell !== null && typeof cell === "object") {
-            const unproxy = getUnproxiedNode(cell as TreeNode);
-            if (unproxy) {
-                const reproxy = getReproxyNodeForUnproxiedNode(unproxy);
-                if (reproxy) {
-                    out[i] = reproxy;
-                    continue;
-                }
-            }
+        const comparison = comparisons[i];
+        const cells = getComparisonCells(comparison);
+        for (const cell of cells) {
+            out.push(normalizeComparisonCell(cell));
         }
-        out[i] = cell;
     }
     return out;
+}
+
+function getComparisonCells(comparison: unknown): unknown[] {
+    if (!isDependencyComparisonAccessor(comparison)) {
+        return [comparison];
+    }
+    return getDependencyComparisonValues(comparison.getValues());
+}
+
+function normalizeComparisonCell(cell: unknown): unknown {
+    if (cell !== null && typeof cell === "object") {
+        const unproxy = getUnproxiedNode(cell as TreeNode);
+        if (unproxy) {
+            const reproxy = getReproxyNodeForUnproxiedNode(unproxy);
+            if (reproxy) {
+                return reproxy;
+            }
+        }
+    }
+    return cell;
+}
+
+function isDependencyComparisonAccessor(
+    value: unknown
+): value is DependencyComparisonAccessor {
+    if (value === null || typeof value !== "object") {
+        return false;
+    }
+    return (
+        Reflect.get(value, "kind") === "retree-dependency-comparison-accessor"
+    );
 }
 
 /**

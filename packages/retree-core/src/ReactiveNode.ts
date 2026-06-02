@@ -1,4 +1,8 @@
-import { consumeCurrentMemoGetter, runMemo } from "./internals/memo";
+import {
+    consumeCurrentMemoGetter,
+    runMemo,
+    runTrappedMemo,
+} from "./internals/memo";
 import type { RetreeLink } from "./Retree";
 import { OptionalNode, RetreeObjectMoveKey, TreeNode } from "./types";
 
@@ -498,8 +502,8 @@ export abstract class ReactiveNode {
      *   stacking multiple memo cells in one getter, or memoizing inside a method.
      *
      * Cache semantics for `comparisons`:
-     * - `undefined`: recompute whenever this {@link ReactiveNode} reproxies (a dependency
-     *   changed or a property was set on it). Useful as a "compute once per render" cache.
+     * - Omitted/`undefined`: run `fn` under automatic dependency trapping and
+     *   recompute when one of the trapped reads changes.
      * - `[]`: compute once and cache forever for this instance.
      * - `[a, b, ...]`: recompute when any cell shallow-changes using `Object.is`.
      *   Tree-node cells are compared by their latest reproxy identity, so passing
@@ -551,6 +555,9 @@ export abstract class ReactiveNode {
             key = args[0];
             fn = args[1] as () => T;
             comparisons = args[2];
+        }
+        if (comparisons === undefined) {
+            return runTrappedMemo(this, key, fn);
         }
         return runMemo(this, key, fn, comparisons);
     }

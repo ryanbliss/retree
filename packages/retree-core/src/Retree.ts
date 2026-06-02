@@ -36,6 +36,7 @@ import {
     RetreeSelectSelector,
     RetreeTrackedSelectSelector,
 } from "./internals/select";
+import { runWithIsolatedDependencyTracking } from "./internals/dependency-tracking";
 import {
     areDependencyValuesEqual,
     getDependencyComparisonValues,
@@ -958,48 +959,54 @@ export class Retree {
         proxyNode: TCustomProxy<TreeNode>,
         reproxyNode: TreeNode
     ) {
-        const isReactiveNode = proxyNode instanceof ReactiveNode;
-        if (isReactiveNode) {
-            this.handleReactiveNode(proxyNode, unproxiedNode);
-        }
-
-        const emitNodeChangedListeners = () => {
-            const nodeChangedListnersToNotify =
-                this.nodeChangedListeners.get(unproxiedNode) ?? [];
-            // We copy the list because it could get changed if the first callback triggers an unsubscribe
-            [...nodeChangedListnersToNotify].forEach((callback) => {
-                callback(reproxyNode);
-            });
-        };
-
-        const scheduleNodeChangedListeners = () => {
-            // If running a transaction, schedule this to emit later.
-            // That way if this same node gets changed later, we can only emit once for that node.
-            if (Transactions.runningTransaction) {
-                Transactions.upsertPendingTransaction(unproxiedNode, {
-                    emitNodeChanged: emitNodeChangedListeners,
-                });
-                return;
+        return runWithIsolatedDependencyTracking(() => {
+            const isReactiveNode = proxyNode instanceof ReactiveNode;
+            if (isReactiveNode) {
+                this.handleReactiveNode(proxyNode, unproxiedNode);
             }
 
-            // emit immediately
-            emitNodeChangedListeners();
-        };
+            const emitNodeChangedListeners = () => {
+                const nodeChangedListnersToNotify =
+                    this.nodeChangedListeners.get(unproxiedNode) ?? [];
+                // We copy the list because it could get changed if the first callback triggers an unsubscribe
+                [...nodeChangedListnersToNotify].forEach((callback) => {
+                    callback(reproxyNode);
+                });
+            };
 
-        if (!Transactions.skipEmit) {
-            scheduleNodeChangedListeners();
-        }
+            const scheduleNodeChangedListeners = () => {
+                // If running a transaction, schedule this to emit later.
+                // That way if this same node gets changed later, we can only emit once for that node.
+                if (Transactions.runningTransaction) {
+                    Transactions.upsertPendingTransaction(unproxiedNode, {
+                        emitNodeChanged: emitNodeChangedListeners,
+                    });
+                    return;
+                }
 
-        // Still handle here so we reproxy parents, despite skipping emit later in biz logic.
-        // If no treeChanged listeners exist, no parent can observe this work.
-        // Note that we should never have gotten this far if skipReproxy is true, so we skip checking again.
-        if (this.treeChangedListeners.size > 0) {
-            this.handleNotifyTreeChanged(unproxiedNode, proxyNode, proxyNode);
-        }
+                // emit immediately
+                emitNodeChangedListeners();
+            };
 
-        if (isReactiveNode) {
-            ReactiveNode[RUN_CHANGED_EFFECT_SYMBOL](proxyNode);
-        }
+            if (!Transactions.skipEmit) {
+                scheduleNodeChangedListeners();
+            }
+
+            // Still handle here so we reproxy parents, despite skipping emit later in biz logic.
+            // If no treeChanged listeners exist, no parent can observe this work.
+            // Note that we should never have gotten this far if skipReproxy is true, so we skip checking again.
+            if (this.treeChangedListeners.size > 0) {
+                this.handleNotifyTreeChanged(
+                    unproxiedNode,
+                    proxyNode,
+                    proxyNode
+                );
+            }
+
+            if (isReactiveNode) {
+                ReactiveNode[RUN_CHANGED_EFFECT_SYMBOL](proxyNode);
+            }
+        });
     }
 
     private static stopListening() {

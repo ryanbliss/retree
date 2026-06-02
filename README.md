@@ -33,7 +33,7 @@ The generated static site is written to `docs/` and ignored by Git. The docs bui
 -   [`Retree.clone`](#core-api-examples) makes a detached copy. Use it when two places need independent state.
 -   [`@select`](#reactivenode) decorates a getter with an ordered dependency list so VM logic can stay in the node while `useNode(node)` stays selective.
 -   [`ReactiveNode.dependencies`](#reactivenode) makes one node emit when another node changes. Return raw reactive nodes/primitives directly, or wrap one slot with `this.dependency(node, comparisons)`.
--   [`memo`, `@memo`, and `@fnMemo`](#memoize-computed-getters) cache computed values. Use them to avoid recomputation; they do not emit changes by themselves.
+-   [`memo`, `@memo`, and `@fnMemo`](#memoize-computed-getters) cache computed values. Prefer bare decorators for automatic dependency trapping; pass comparison functions for finer cache-key control.
 -   [`@ignore`](#opt-fields-out-of-reactivity-with-ignore) keeps a field out of Retree emissions. Use it for caches, subscriptions, framework handles, and non-rendered state.
 -   [`Retree.runTransaction`](#transactions) batches synchronous writes into one listener flush per changed node.
 -   [`Retree.runSilent`](#skip-re-rendering-changes) performs writes without emitting listeners.
@@ -466,7 +466,7 @@ class AttributeRow extends ReactiveNode {
     public attributes: { id: string; label: string }[] = [];
     public attributeId!: string;
 
-    @memo((self: AttributeRow) => [self.attributes, self.attributeId])
+    @memo
     private get _attribute() {
         return this.attributes.find((check) => check.id === this.attributeId);
     }
@@ -546,14 +546,16 @@ class SearchNode extends ReactiveNode {
 
 `ReactiveNode` provides `memo` to cache the result of a getter, similar in spirit to React's `useMemo`. Use it to skip expensive recomputation when the values it depends on haven't changed.
 
-There are four ways to memoize: a keyless `this.memo(fn, deps?)` form (cleanest, when you want one cache per getter), an explicit-key `this.memo(key, fn, deps?)` form (for stacking multiple memos in one getter or memoizing inside a method), a `@memo` getter decorator form, and a `@fnMemo` method decorator form.
+The simplest path is to decorate computed getters and deterministic methods with `@memo` / `@fnMemo`. With no arguments, the decorator automatically traps the Retree reads inside the getter or method and invalidates the cache when those values change.
 
-##### `this.memo(fn, deps?)` (keyless, inside a getter)
+Pass a comparison function only when you want finer control over the cache keys, such as depending on a cheaper primitive instead of every value read by the computation. The method forms (`this.memo(fn, deps?)` and `this.memo(key, fn, deps?)`) are still available when a decorator does not fit the shape of the code.
 
-The cache key is derived from the active getter's name automatically. Throws if called outside a getter, or more than once in the same getter without an explicit key.
+##### `@memo` decorator (recommended for computed getters)
+
+The cache key is the getter's property name. Use `@memo` or `@memo()` with no comparisons for automatic dependency trapping.
 
 ```ts
-import { Retree, ReactiveNode } from "@retreejs/core";
+import { Retree, ReactiveNode, memo } from "@retreejs/core";
 
 interface Card {
     text: string;
@@ -563,11 +565,9 @@ class ListFilter extends ReactiveNode {
     public list: Card[] = [];
     public searchText = "";
 
+    @memo
     get filteredList(): Card[] {
-        return this.memo(
-            () => this.list.filter((c) => c.text === this.searchText),
-            [this.list, this.searchText]
-        );
+        return this.list.filter((c) => c.text === this.searchText);
     }
 
     get dependencies() {
@@ -576,18 +576,14 @@ class ListFilter extends ReactiveNode {
 }
 ```
 
-##### `@memo` decorator (one memo per getter, no body wrapping)
-
-The cache key is the getter's property name. Pass a function that returns the comparisons array — it's invoked with the current instance on every read, so the values are always live.
+Pass a comparison function when the automatic trapper is broader than you want:
 
 ```ts
-import { Retree, ReactiveNode } from "@retreejs/core";
-import { memo } from "@retreejs/core";
-
 class ListFilter extends ReactiveNode {
     public list: Card[] = [];
     public searchText = "";
 
+    // Only invalidate when the list identity/reproxy or search text changes.
     @memo((self: ListFilter) => [self.list, self.searchText])
     get filteredList(): Card[] {
         return this.list.filter((c) => c.text === this.searchText);
@@ -599,9 +595,9 @@ class ListFilter extends ReactiveNode {
 }
 ```
 
-##### `@fnMemo` decorator (one memo per method return value)
+##### `@fnMemo` decorator (recommended for deterministic methods)
 
-Use this when a method is deterministic for a given argument list plus optional dependencies. Method arguments are always shallow-compared, in addition to the `deps` function result. The `deps` function receives the current instance followed by the method arguments.
+Use this when a method is deterministic for a given argument list plus the Retree values it reads. Method arguments are always shallow-compared. Use `@fnMemo` or `@fnMemo()` with no comparisons for automatic dependency trapping.
 
 ```ts
 import { Retree, ReactiveNode, fnMemo } from "@retreejs/core";
@@ -610,11 +606,56 @@ class ListFilter extends ReactiveNode {
     public list: Card[] = [];
     public searchText = "";
 
-    @fnMemo((self: ListFilter) => [self.list, self.searchText])
+    @fnMemo
     public filteredList(limit: number): Card[] {
         return this.list
             .filter((c) => c.text === this.searchText)
             .slice(0, limit);
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
+Pass a comparison function when you want to manually choose the cache keys. The function receives the current instance followed by the method arguments:
+
+```ts
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    @fnMemo((self: ListFilter, limit: number) => [
+        self.list,
+        self.searchText,
+        limit,
+    ])
+    public filteredList(limit: number): Card[] {
+        return this.list
+            .filter((c) => c.text === this.searchText)
+            .slice(0, limit);
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
+##### `this.memo(fn, deps?)` (keyless, inside a getter)
+
+Use this when you want decorator-like cache behavior but need to wrap only part of a getter body. The cache key is derived from the active getter's name automatically. Throws if called outside a getter, or more than once in the same getter without an explicit key.
+
+```ts
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    get filteredList(): Card[] {
+        return this.memo(() =>
+            this.list.filter((c) => c.text === this.searchText)
+        );
     }
 
     get dependencies() {
@@ -648,15 +689,16 @@ class ListFilter extends ReactiveNode {
 }
 ```
 
-##### Cache semantics
+##### Cache Semantics
 
-The same `deps` rules apply to all forms. For `@fnMemo`, the method arguments are also compared every call:
+The same comparison rules apply to all forms. For `@fnMemo`, the method arguments are also compared every call:
 
-| `deps` argument | Behavior                                                                                                                                              |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `undefined`     | Recompute whenever the `ReactiveNode` reproxies (a property was set on it or one of its dependencies changed). Useful as a "compute once per render." |
-| `[]`            | Compute once and cache forever for that instance.                                                                                                     |
-| `[a, b, ...]`   | Recompute when any cell shallow-changes (compared with `Object.is`).                                                                                  |
+| Form / comparisons                                                             | Behavior                                                                                                                                              |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@memo`, `@memo()`, `@fnMemo`, `@fnMemo()`, or omitted `this.memo` comparisons | Automatically trap Retree reads and recompute when a trapped value changes.                                                                           |
+| Function returns `undefined`                                                   | Recompute whenever the `ReactiveNode` reproxies (a property was set on it or one of its dependencies changed). Useful as a "compute once per render." |
+| Function returns `[]`                                                          | Compute once and cache forever for that instance.                                                                                                     |
+| Function returns `[a, b, ...]`                                                 | Recompute when any cell shallow-changes (compared with `Object.is`).                                                                                  |
 
 **Tree-node cells in `deps` are compared by their latest reproxy identity, not by the stable buildProxy reference.** That's why `[this.list, this.searchText]` correctly invalidates when `list` mutates — without this, `this.list` would always look unchanged because Retree returns the same buildProxy for the lifetime of the tree.
 

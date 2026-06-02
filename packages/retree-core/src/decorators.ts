@@ -6,7 +6,12 @@ import {
     SELECT_GETTERS_SYMBOL,
 } from "./ReactiveNode";
 import { collectDependencyAccesses } from "./internals/dependency-tracking";
-import { runFnMemo, runMemo } from "./internals/memo";
+import {
+    runFnMemo,
+    runMemo,
+    runTrappedFnMemo,
+    runTrappedMemo,
+} from "./internals/memo";
 import { Retree } from "./Retree";
 
 /**
@@ -106,11 +111,15 @@ export function link(
 /**
  * Decorator that memoizes a getter on a {@link ReactiveNode}.
  * @remarks
- * Pass a function that returns the comparisons array — the function captures `this`
+ * Use `@memo` or `@memo()` for automatic dependency trapping. Pass a function
+ * only when you want finer cache-key control; the function captures `this`
  * lazily, so the values are read fresh each time the getter is accessed.
  *
  * Cache semantics (matches {@link ReactiveNode.memo}):
- * - No argument or returns `undefined`: recompute on every reproxy of the ReactiveNode.
+ * - No argument: `@memo` and `@memo()` are interchangeable. Both run the
+ *   getter under automatic dependency trapping and recompute when one of the
+ *   trapped reads changes.
+ * - Returns `undefined`: recompute on every reproxy of the ReactiveNode.
  * - Returns `[]`: compute once, cache forever for this instance.
  * - Returns `[a, b, ...]`: recompute on shallow-change.
  *
@@ -130,7 +139,7 @@ export function link(
     list: Card[] = [];
     searchText = "";
 
-    @memo((self: ListFilter) => [self.list, self.searchText])
+    @memo
     get filteredList() {
         return this.list.filter((c) => c.text === this.searchText);
     }
@@ -138,30 +147,80 @@ export function link(
     get dependencies() { return [this.dependency(this.list)]; }
  }
  ```
+ *
+ * Pass explicit comparisons when the automatic trapper is broader than you want:
+ *
+ ```ts
+    @memo((self: ListFilter) => [self.list, self.searchText])
+    get filteredListWithExplicitComparisons() {
+        return this.list.filter((c) => c.text === this.searchText);
+    }
+ ```
  */
 export function memo<This extends ReactiveNode, Value>(
+    target: (this: This) => Value,
+    context: ClassGetterDecoratorContext<This, Value>
+): (this: This) => Value;
+// eslint-disable-next-line no-redeclare
+export function memo<This extends ReactiveNode>(
     getComparisons?: (self: This) => unknown[] | undefined
+): <Value>(
+    target: (this: This) => Value,
+    context: ClassGetterDecoratorContext<This, Value>
+) => (this: This) => Value;
+// eslint-disable-next-line no-redeclare
+export function memo(
+    targetOrGetComparisons?: unknown,
+    context?: ClassGetterDecoratorContext<ReactiveNode, unknown>
 ) {
-    return function (
-        target: (this: This) => Value,
-        context: ClassGetterDecoratorContext<This, Value>
-    ): (this: This) => Value {
-        if (context.kind !== "getter") {
+    if (context !== undefined) {
+        if (!isDecoratorFunction(targetOrGetComparisons)) {
             // @retree-throws
             throw new Error(
-                "@memo can only be applied to a getter on a ReactiveNode subclass. This is expected when @memo is placed on a field, method, setter, or non-ReactiveNode class. Fix: move @memo to a getter on a class that extends ReactiveNode, or use this.memo('key', fn, deps) for method-local caching."
+                "@memo could not find the decorated getter function. This is unexpected and is likely a Retree bug. Fix: report this error with the decorated getter name and TypeScript version."
             );
         }
-        const cacheKey = context.name;
-        return function memoizedGetter(this: This): Value {
-            const comparisons = getComparisons?.(this);
-            return runMemo(
-                this,
-                cacheKey,
-                () => target.call(this),
-                comparisons
+        return decorateMemoGetter(targetOrGetComparisons, context);
+    }
+    return function (
+        target: (this: ReactiveNode) => unknown,
+        decoratorContext: ClassGetterDecoratorContext<ReactiveNode, unknown>
+    ): (this: ReactiveNode) => unknown {
+        if (targetOrGetComparisons === undefined) {
+            return decorateMemoGetter(target, decoratorContext);
+        }
+        if (!isComparisonFunction(targetOrGetComparisons)) {
+            // @retree-throws
+            throw new Error(
+                "@memo dependencies must be a function when @memo is called as @memo(...). This is expected when a non-function value is passed to @memo. Fix: pass a selector like @memo((self) => [self.items]) or use @memo with no arguments for automatic dependency trapping."
             );
-        };
+        }
+        return decorateMemoGetter(
+            target,
+            decoratorContext,
+            targetOrGetComparisons
+        );
+    };
+}
+
+function decorateMemoGetter<This extends ReactiveNode, Value>(
+    target: (this: This) => Value,
+    context: ClassGetterDecoratorContext<This, Value>,
+    getComparisons?: (self: This) => unknown[] | undefined
+): (this: This) => Value {
+    if (context.kind !== "getter") {
+        // @retree-throws
+        throw new Error(
+            "@memo can only be applied to a getter on a ReactiveNode subclass. This is expected when @memo is placed on a field, method, setter, or non-ReactiveNode class. Fix: move @memo to a getter on a class that extends ReactiveNode, or use this.memo('key', fn, deps) for method-local caching."
+        );
+    }
+    const cacheKey = context.name;
+    return function memoizedGetter(this: This): Value {
+        if (getComparisons === undefined) {
+            return runTrappedMemo(this, cacheKey, () => target.call(this));
+        }
+        const comparisons = getComparisons(this);
+        return runMemo(this, cacheKey, () => target.call(this), comparisons);
     };
 }
 
@@ -195,7 +254,7 @@ export function memo<This extends ReactiveNode, Value>(
  * class AttributeView extends ReactiveNode {
  *     public attributeId!: string;
  *
- *     @memo((self: AttributeView) => [self.attributes, self.attributeId])
+ *     @memo
  *     private get _attribute() {
  *         return this.attributes.find((check) => check.id === this.attributeId);
  *     }
@@ -286,6 +345,12 @@ function isDependencyFunction(
     return typeof value === "function";
 }
 
+function isComparisonFunction(
+    value: unknown
+): value is (self: ReactiveNode, ...args: unknown[]) => unknown[] | undefined {
+    return typeof value === "function";
+}
+
 function decorateSelectGetter<This extends ReactiveNode, Value, Dependencies>(
     target: ((this: This) => Value) | undefined,
     context: ClassGetterDecoratorContext<This, Value>,
@@ -339,14 +404,17 @@ type FnMemoComparisonArgs<Args extends unknown[]> = Args extends []
 /**
  * Decorator that memoizes a method return value on a {@link ReactiveNode}.
  * @remarks
- * Pass a function that returns the comparisons array — the function receives the
- * current instance and method arguments, so the values are read fresh each time
- * the method is called. The method arguments are always shallow-compared in
- * addition to the dependency comparisons.
+ * Use `@fnMemo` or `@fnMemo()` for automatic dependency trapping. Pass a
+ * function only when you want finer cache-key control; the function receives
+ * the current instance and method arguments, so the values are read fresh each
+ * time the method is called. The method arguments are always shallow-compared.
  *
  * Cache semantics:
- * - No argument or returns `undefined`: recompute when the arguments change, or on
- *   every reproxy of the ReactiveNode.
+ * - No argument: `@fnMemo` and `@fnMemo()` are interchangeable. Both run the
+ *   method under automatic dependency trapping and recompute when the arguments
+ *   or one of the trapped reads changes.
+ * - Returns `undefined`: recompute when the arguments change, or on every
+ *   reproxy of the ReactiveNode.
  * - Returns `[]`: recompute only when the arguments change.
  * - Returns `[a, b, ...]`: recompute when the arguments or comparisons shallow-change.
  *
@@ -366,7 +434,7 @@ type FnMemoComparisonArgs<Args extends unknown[]> = Args extends []
     list: Card[] = [];
     searchText = "";
 
-    @fnMemo((self: ListFilter) => [self.searchText])
+    @fnMemo
     filterBy(limit: number) {
         return this.list
             .filter((c) => c.text === this.searchText)
@@ -376,7 +444,34 @@ type FnMemoComparisonArgs<Args extends unknown[]> = Args extends []
     get dependencies() { return [this.dependency(this.list)]; }
  }
  ```
+ *
+ * Pass explicit comparisons when the automatic trapper is broader than you want:
+ *
+ ```ts
+    @fnMemo((self: ListFilter, limit: number) => [
+        self.list,
+        self.searchText,
+        limit,
+    ])
+    filterByWithExplicitComparisons(limit: number) {
+        return this.list
+            .filter((c) => c.text === this.searchText)
+            .slice(0, limit);
+    }
+ ```
  */
+export function fnMemo<
+    This extends ReactiveNode,
+    MethodArgs extends unknown[],
+    Value
+>(
+    target: FnMemoMethod<This, MethodArgs, Value>,
+    context: ClassMethodDecoratorContext<
+        This,
+        FnMemoMethod<This, MethodArgs, Value>
+    >
+): FnMemoMethod<This, MethodArgs, Value>;
+// eslint-disable-next-line no-redeclare
 export function fnMemo<
     This extends ReactiveNode,
     ComparisonArgs extends unknown[] = []
@@ -385,39 +480,91 @@ export function fnMemo<
         self: This,
         ...args: FnMemoComparisonArgs<ComparisonArgs>
     ) => unknown[] | undefined
+): <MethodArgs extends FnMemoComparisonArgs<ComparisonArgs>, Value>(
+    target: FnMemoMethod<This, MethodArgs, Value>,
+    context: ClassMethodDecoratorContext<
+        This,
+        FnMemoMethod<This, MethodArgs, Value>
+    >
+) => FnMemoMethod<This, MethodArgs, Value>;
+// eslint-disable-next-line no-redeclare
+export function fnMemo(
+    targetOrGetComparisons?: unknown,
+    context?: ClassMethodDecoratorContext<
+        ReactiveNode,
+        FnMemoMethod<ReactiveNode, unknown[], unknown>
+    >
 ) {
-    return function <
-        MethodArgs extends FnMemoComparisonArgs<ComparisonArgs>,
-        Value
-    >(
-        target: FnMemoMethod<This, MethodArgs, Value>,
+    if (context !== undefined) {
+        if (!isDecoratorFunction(targetOrGetComparisons)) {
+            // @retree-throws
+            throw new Error(
+                "@fnMemo could not find the decorated method function. This is unexpected and is likely a Retree bug. Fix: report this error with the decorated method name and TypeScript version."
+            );
+        }
+        return decorateFnMemoMethod(targetOrGetComparisons, context);
+    }
+    return function <MethodArgs extends unknown[], Value>(
+        target: FnMemoMethod<ReactiveNode, MethodArgs, Value>,
         context: ClassMethodDecoratorContext<
-            This,
-            FnMemoMethod<This, MethodArgs, Value>
+            ReactiveNode,
+            FnMemoMethod<ReactiveNode, MethodArgs, Value>
         >
-    ): FnMemoMethod<This, MethodArgs, Value> {
-        if (context.kind !== "method") {
+    ): FnMemoMethod<ReactiveNode, MethodArgs, Value> {
+        if (targetOrGetComparisons === undefined) {
+            return decorateFnMemoMethod(target, context);
+        }
+        if (!isComparisonFunction(targetOrGetComparisons)) {
             // @retree-throws
             throw new Error(
-                "@fnMemo can only be applied to a method on a ReactiveNode subclass. This is expected when @fnMemo is placed on a field, getter, setter, or non-ReactiveNode class. Fix: move @fnMemo to an instance method on a class that extends ReactiveNode."
+                "@fnMemo dependencies must be a function when @fnMemo is called as @fnMemo(...). This is expected when a non-function value is passed to @fnMemo. Fix: pass a selector like @fnMemo((self, arg) => [self.items, arg]) or use @fnMemo with no arguments for automatic dependency trapping."
             );
         }
-        if (context.static) {
-            // @retree-throws
-            throw new Error(
-                "@fnMemo cannot be applied to a static method. This is a decorator usage error because @fnMemo memoizes return values per ReactiveNode instance. Fix: make the method an instance method, or use your own static cache outside Retree."
-            );
-        }
-        const cacheKey = Symbol(`fnMemo:${String(context.name)}`);
-        return function memoizedMethod(this: This, ...args: MethodArgs): Value {
-            const comparisons = getComparisons?.(this, ...args);
-            return runFnMemo(
+        return decorateFnMemoMethod(target, context, targetOrGetComparisons);
+    };
+}
+
+function decorateFnMemoMethod<
+    This extends ReactiveNode,
+    MethodArgs extends unknown[],
+    Value
+>(
+    target: FnMemoMethod<This, MethodArgs, Value>,
+    context: ClassMethodDecoratorContext<
+        This,
+        FnMemoMethod<This, MethodArgs, Value>
+    >,
+    getComparisons?: (self: This, ...args: MethodArgs) => unknown[] | undefined
+): FnMemoMethod<This, MethodArgs, Value> {
+    if (context.kind !== "method") {
+        // @retree-throws
+        throw new Error(
+            "@fnMemo can only be applied to a method on a ReactiveNode subclass. This is expected when @fnMemo is placed on a field, getter, setter, or non-ReactiveNode class. Fix: move @fnMemo to an instance method on a class that extends ReactiveNode."
+        );
+    }
+    if (context.static) {
+        // @retree-throws
+        throw new Error(
+            "@fnMemo cannot be applied to a static method. This is a decorator usage error because @fnMemo memoizes return values per ReactiveNode instance. Fix: make the method an instance method, or use your own static cache outside Retree."
+        );
+    }
+    const cacheKey = Symbol(`fnMemo:${String(context.name)}`);
+    return function memoizedMethod(this: This, ...args: MethodArgs): Value {
+        if (getComparisons === undefined) {
+            return runTrappedFnMemo(
                 this,
                 cacheKey,
                 () => target.call(this, ...args),
-                args,
-                comparisons
+                args
             );
-        };
+        }
+        const comparisons = getComparisons(this, ...args);
+        return runFnMemo(
+            this,
+            cacheKey,
+            () => target.call(this, ...args),
+            args,
+            comparisons
+        );
     };
 }

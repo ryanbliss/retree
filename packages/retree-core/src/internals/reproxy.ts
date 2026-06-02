@@ -97,10 +97,10 @@ function buildReproxy<T extends TreeNode = TreeNode>(
             }
             if (target instanceof ReactiveNode) {
                 // Check for ignore keys
-                if (
-                    prop === COLLECTED_KEYS_SYMBOL ||
-                    target[COLLECTED_KEYS_SYMBOL].has(prop)
-                ) {
+                if (typeof prop === "string" && prop.startsWith("RETREE_")) {
+                    return Reflect.get(target, prop, target);
+                }
+                if (target[COLLECTED_KEYS_SYMBOL].has(prop)) {
                     return getLatestIgnoredValue(
                         Reflect.get(target, prop, target)
                     );

@@ -30,6 +30,7 @@ import {
 import {
     trackDependencyAccess,
     trackDependencyPropertyAccess,
+    trackDependencyPropertyWrite,
 } from "./dependency-tracking";
 import { Transactions } from "./transactions";
 
@@ -117,9 +118,9 @@ function isDateMutatingMethod(prop: string): prop is DateMutatingMethodName {
 
 function getLatestIgnoredValue(value: unknown) {
     if (isCustomProxy(value)) {
-        return trackDependencyAccess(getReproxyNode(value));
+        return getReproxyNode(value);
     }
-    return trackDependencyAccess(value);
+    return value;
 }
 
 function assertValidLinkedValue(prop: string | symbol, value: unknown) {
@@ -176,17 +177,21 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             if (target instanceof ReactiveNode) {
                 const propString = String(prop);
                 // Check for ignore keys
-                if (
-                    propString === COLLECTED_KEYS_SYMBOL ||
-                    target[COLLECTED_KEYS_SYMBOL].has(propString)
-                ) {
-                    return getLatestIgnoredValue(
-                        Reflect.get(target, prop, target)
+                if (propString.startsWith("RETREE_")) {
+                    return Reflect.get(target, prop, target);
+                }
+                if (target[COLLECTED_KEYS_SYMBOL].has(propString)) {
+                    return trackDependencyPropertyAccess(
+                        getBaseProxy(receiver),
+                        prop,
+                        getLatestIgnoredValue(Reflect.get(target, prop, target))
                     );
                 }
                 if (target[LINKED_KEYS_SYMBOL].has(prop)) {
-                    return getLatestIgnoredValue(
-                        Reflect.get(target, prop, target)
+                    return trackDependencyPropertyAccess(
+                        getBaseProxy(receiver),
+                        prop,
+                        getLatestIgnoredValue(Reflect.get(target, prop, target))
                     );
                 }
             }
@@ -336,6 +341,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             return trackDependencyPropertyAccess(baseProxy, prop, value);
         },
         set(target, prop, newValue, receiver) {
+            trackDependencyPropertyWrite(getBaseProxy<T>(receiver), prop);
             if (target instanceof ReactiveNode) {
                 const propString = String(prop);
                 if (target[LINKED_KEYS_SYMBOL].has(prop)) {
@@ -443,6 +449,15 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             return true;
         },
         defineProperty(target, prop, descriptor) {
+            const currentProxyForWrite = isCustomProxy(target)
+                ? target
+                : getReproxyNodeForUnproxiedNode(target);
+            const baseProxyForWrite = currentProxyForWrite
+                ? getBaseProxy(currentProxyForWrite)
+                : undefined;
+            if (baseProxyForWrite !== undefined) {
+                trackDependencyPropertyWrite(baseProxyForWrite, prop);
+            }
             if (target instanceof ReactiveNode) {
                 const propString = String(prop);
                 // Check for ignore keys
@@ -456,9 +471,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             if (isApplyingSet) {
                 return Reflect.defineProperty(target, prop, descriptor);
             }
-            const currentProxy = isCustomProxy(target)
-                ? target
-                : getReproxyNodeForUnproxiedNode(target);
+            const currentProxy = currentProxyForWrite;
             const baseProxy = currentProxy
                 ? getBaseProxy(currentProxy)
                 : currentProxy;

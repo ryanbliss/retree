@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactiveNode, link, select } from "@retreejs/core";
+import { ReactiveNode, fnMemo, link, memo, select } from "@retreejs/core";
 import { BaseConvexNode, ConvexNode, ConvexQueryNode } from "@retreejs/convex";
 import { ConvexClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
@@ -27,8 +27,8 @@ export class TaskRowState extends ReactiveNode {
         this.task = task;
     }
 
+    @fnMemo
     public updateTask(task: Doc<"tasks">) {
-        if (this.task === task) return;
         this.task = task;
     }
 
@@ -50,10 +50,12 @@ export class AddTaskState extends BaseConvexNode {
         return [];
     }
 
+    @memo
     get canSubmit() {
         return this.text.length > 0 && !this.isSaving;
     }
 
+    @fnMemo
     public setText(text: string): void {
         this.text = text;
     }
