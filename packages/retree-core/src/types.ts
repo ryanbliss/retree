@@ -10,6 +10,13 @@ export type OptionalNode<T extends TreeNode = TreeNode> =
     | (undefined | T)
     | (null | T);
 
+export type RetreeObjectMoveKey<
+    TDestination extends TreeNode,
+    TNode extends TreeNode
+> = {
+    [K in keyof TDestination]-?: TNode extends TDestination[K] ? K : never;
+}[keyof TDestination];
+
 /**
  * Listener types for {@link Retree.on} that return a reproxied node.
  */

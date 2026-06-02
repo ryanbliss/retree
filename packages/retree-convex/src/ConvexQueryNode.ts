@@ -24,6 +24,27 @@ import {
 /**
  * Reactive query node that subscribes to a Convex query and writes emitted
  * values into Retree state.
+ *
+ * @remarks
+ * Use this directly or through {@link ConvexNode.query} when query results
+ * should be live Retree state. Convex emissions update `state`, `result`, and
+ * `error`, which can emit `nodeChanged` and re-render React subscribers.
+ *
+ * Dispose query nodes when their owner is torn down. Use `"skip"` when the
+ * query should be temporarily disabled. Prefer reconciled arrays so unchanged
+ * child objects keep identity for `useNode(item)` components.
+ *
+ * @example
+ * ```ts
+ * const tasks = new ConvexQueryNode(client, api.tasks.byProject, {
+ *     args: { projectId: "p1" },
+ *     initialState: [],
+ * });
+ *
+ * Retree.on(tasks, "nodeChanged", (next) => {
+ *     console.log(next.result.status);
+ * });
+ * ```
  */
 export class ConvexQueryNode<
     Query extends QueryReference
@@ -51,17 +72,60 @@ export class ConvexQueryNode<
      * Latest subscription or mutation rollback error.
      */
     public error: Error | null = null;
+    /**
+     * Last state emitted by the Convex subscription that Retree accepted as a
+     * clean server baseline. During overlapping optimistic updates this may
+     * advance even when `state` intentionally keeps the newer optimistic value.
+     */
     private lastEmittedState: ConvexQueryNodeState<Query>;
+    /**
+     * True while local optimistic state differs from the last clean server
+     * baseline and may still need confirmation or rollback.
+     */
     private isOptimisticDirty = false;
+    /**
+     * Monotonic id assigned to each optimistic update. Promise handlers compare
+     * against this so an older mutation cannot rollback or confirm over newer
+     * local state.
+     */
     private optimisticGeneration = 0;
+    /**
+     * Generation that opened the current dirty window. If a later generation is
+     * still pending, server emissions are treated as older confirmations and do
+     * not overwrite the newer optimistic state.
+     */
+    private dirtyWindowStartGeneration: number | undefined;
+    /**
+     * Snapshot captured before the current dirty window began. Used for default
+     * rollback when the latest optimistic mutation rejects.
+     */
     private optimisticRollbackState: ConvexQueryNodeState<Query>;
+    /**
+     * Newest optimistic mutation promise that has not resolved successfully yet.
+     * Only this generation is allowed to clear the pending marker.
+     */
+    private pendingOptimisticGeneration: number | undefined;
 
     /**
      * Create a node for a Convex query subscription.
      *
+     * @remarks
+     * The subscription starts when the node is observed by Retree. This avoids
+     * opening Convex subscriptions for state nobody is currently rendering or
+     * listening to.
+     *
      * @param client Convex client used for the subscription.
      * @param query Convex query function reference.
      * @param options Query arguments, optional initial state, and optional reconciler.
+     *
+     * @example
+     * ```ts
+     * const tasks = Retree.root(
+     *     new ConvexQueryNode(client, api.tasks.list, {
+     *         initialState: [],
+     *     })
+     * );
+     * ```
      */
     constructor(
         client: IConvexClient,
@@ -95,7 +159,20 @@ export class ConvexQueryNode<
      * Update the query arguments and resubscribe when the shallow argument
      * comparison changes.
      *
+     * @remarks
+     * Use this when query args are controlled by Retree state, routing, or user
+     * input. Passing `"skip"` disables the active subscription and sets
+     * `result.status` to `"skipped"`.
+     *
+     * Updating args can emit because `state`, `result`, and `error` may change.
+     *
      * @param args Next query arguments, or `"skip"` to disable the subscription.
+     *
+     * @example
+     * ```ts
+     * tasks.updateArgs({ projectId: "p2" }); // ✅ may emit pending/success
+     * tasks.updateArgs("skip"); // ✅ emits skipped state and unsubscribes
+     * ```
      */
     public updateArgs(args: ConvexQueryArgs<Query>): void {
         this.args = args;
@@ -169,18 +246,64 @@ export class ConvexQueryNode<
      * when its promise rejects unless a newer server value resolves the dirty
      * state first.
      *
+     * @remarks
+     * Use this from a mutation's `withOptimisticUpdate` callback when the UI
+     * should update immediately before Convex confirms the write. The transform
+     * mutates the existing query state in place and emits through Retree.
+     *
+     * Prefer small, targeted transforms. Provide `revert(...)` when the default
+     * rollback to the last clean server value is not specific enough.
+     *
      * @param transform Optimistic transform and optional mutation context.
+     *
+     * @example
+     * ```ts
+     * const toggle = this.mutation(api.tasks.toggleCompleted);
+     * return toggle(
+     *     { taskId },
+     *     {
+     *         withOptimisticUpdate: (ctx) => {
+     *             this.tasks.optimisticUpdate({
+     *                 ctx,
+     *                 apply(tasks) {
+     *                     const task = tasks.find((item) => item._id === taskId);
+     *                     if (task) task.isCompleted = !task.isCompleted;
+     *                 },
+     *             });
+     *         },
+     *     }
+     * );
+     * ```
      */
     public optimisticUpdate<Mutation extends MutationReference>(
         transform: IOptimisticTransform<FunctionReturnType<Query>, Mutation>
     ): void {
         const generation = this.markOptimisticDirty();
+        if (transform.ctx !== undefined) {
+            this.pendingOptimisticGeneration = generation;
+            transform.ctx.promise.then(
+                () => {
+                    // A newer optimistic mutation may have started while this
+                    // one was in flight. In that case, this confirmation is too
+                    // old to mark the optimistic state as no longer pending.
+                    if (this.pendingOptimisticGeneration !== generation) {
+                        return;
+                    }
+                    this.pendingOptimisticGeneration = undefined;
+                },
+                () => {
+                    return;
+                }
+            );
+        }
         if (this.state !== undefined) {
             transform.apply(this.state);
         }
 
         transform.ctx?.promise.catch((error: unknown) => {
             Retree.runTransaction(() => {
+                // Rejecting an older mutation should not rollback a newer local
+                // edit. The newest generation owns rollback for the dirty window.
                 if (
                     !this.isOptimisticDirty ||
                     this.optimisticGeneration !== generation
@@ -230,6 +353,21 @@ export class ConvexQueryNode<
     }
 
     private setEmittedState(next: FunctionReturnType<Query>): void {
+        // Convex can confirm an older mutation while a newer optimistic edit is
+        // still pending. Keep that server value as the latest baseline, but do
+        // not restore it into `state` because that would make the UI rubber-band
+        // back to the older value.
+        if (
+            this.isOptimisticDirty &&
+            this.hasPendingSupersedingOptimisticMutation()
+        ) {
+            this.lastEmittedState = this.cloneState(next);
+            return;
+        }
+
+        // When Convex re-emits the baseline that existed before the optimistic
+        // write, the write has not been confirmed yet. Keep the optimistic state
+        // visible and keep waiting for either confirmation or rollback.
         if (
             this.isOptimisticDirty &&
             this.stateEquals(next, this.lastEmittedState)
@@ -284,6 +422,26 @@ export class ConvexQueryNode<
 
     /**
      * Stop the active Convex query subscription.
+     *
+     * @remarks
+     * Call this when the owner of the query node is torn down. Disposing stops
+     * future Convex updates; it does not clear `state`, `result`, or `error`.
+     *
+     * @example
+     * ```ts
+     * class TasksState extends ConvexNode {
+     *     public readonly tasks: ConvexQueryNode<typeof api.tasks.list>;
+     *
+     *     constructor(client: IConvexClient) {
+     *         super(client);
+     *         this.tasks = this.query(api.tasks.list);
+     *     }
+     *
+     *     public dispose() {
+     *         this.tasks.dispose();
+     *     }
+     * }
+     * ```
      */
     public dispose(): void {
         if (this.unsubscribe === null) {
@@ -322,18 +480,40 @@ export class ConvexQueryNode<
     private markOptimisticDirty(): number {
         if (!this.isOptimisticDirty) {
             this.isOptimisticDirty = true;
-            this.optimisticGeneration++;
             this.optimisticRollbackState = this.cloneState(
                 this.lastEmittedState
             );
         }
 
+        this.optimisticGeneration++;
+        // The first generation in a dirty window is the oldest optimistic write
+        // whose server confirmation could still arrive before newer writes.
+        if (this.dirtyWindowStartGeneration === undefined) {
+            this.dirtyWindowStartGeneration = this.optimisticGeneration;
+        }
         return this.optimisticGeneration;
     }
 
     private clearOptimisticDirty(): void {
         this.isOptimisticDirty = false;
+        this.dirtyWindowStartGeneration = undefined;
         this.optimisticRollbackState = undefined;
+        this.pendingOptimisticGeneration = undefined;
+    }
+
+    private hasPendingSupersedingOptimisticMutation(): boolean {
+        if (this.pendingOptimisticGeneration === undefined) {
+            return false;
+        }
+        if (this.dirtyWindowStartGeneration === undefined) {
+            return false;
+        }
+        // A pending generation after the window start means at least one newer
+        // optimistic write is still in flight, so incoming server state may only
+        // be confirming an older write in the same dirty window.
+        return (
+            this.pendingOptimisticGeneration > this.dirtyWindowStartGeneration
+        );
     }
 
     private stateEquals(

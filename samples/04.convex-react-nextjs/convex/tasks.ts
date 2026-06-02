@@ -4,7 +4,23 @@ import { mutation, query } from "./_generated/server";
 export const get = query({
     args: {},
     handler: async (ctx) => {
-        return await ctx.db.query("tasks").collect();
+        return await ctx.db.query("tasks").order("desc").collect();
+    },
+});
+
+export const create = mutation({
+    args: {
+        text: v.string(),
+    },
+    handler: async (ctx, { text }) => {
+        if (text.length === 0) {
+            throw new Error("Task text is required.");
+        }
+
+        return await ctx.db.insert("tasks", {
+            text,
+            isCompleted: false,
+        });
     },
 });
 
@@ -20,6 +36,23 @@ export const toggleCompleted = mutation({
 
         await ctx.db.patch(taskId, {
             isCompleted: !task.isCompleted,
+        });
+    },
+});
+
+export const updateText = mutation({
+    args: {
+        taskId: v.id("tasks"),
+        text: v.string(),
+    },
+    handler: async (ctx, { taskId, text }) => {
+        const task = await ctx.db.get(taskId);
+        if (task === null) {
+            throw new Error(`Task not found for id ${taskId}`);
+        }
+
+        await ctx.db.patch(taskId, {
+            text,
         });
     },
 });

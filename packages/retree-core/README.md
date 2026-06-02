@@ -6,10 +6,8 @@ Retree is a lightweight and simple state management library, specifically design
 
 Install with `npm`:
 
-xretree
-
 ```bash
-npm i @evergreen/core
+npm i @retreejs/core
 ```
 
 Install with `yarn`:
@@ -17,6 +15,25 @@ Install with `yarn`:
 ```bash
 yarn add @retreejs/core
 ```
+
+## Feature glossary
+
+Use this as a quick map before choosing an API:
+
+-   [`Retree.root`](#how-to-use) makes one object the root of a Retree-managed tree. Use it once at the boundary where plain state enters Retree.
+-   [`Retree.on`](#listen-to-nodechanged-treechanged-and-noderemoved) subscribes to `nodeChanged`, `treeChanged`, or `nodeRemoved`. Use it outside React or inside lower-level integrations.
+-   [`Retree.select`](#select-derived-values) subscribes to a selected value or ordered dependency list. Use it to narrow notifications; it is not a cache.
+-   [`Retree.parent`](#find-a-parent) returns the structural parent of a node. Use it for tree-local actions like deleting yourself from an array.
+-   [`Retree.move`](#move-link-or-clone-existing-nodes) transfers an existing node to a new structural parent. Use it when ownership should change.
+-   [`Retree.link` and `@link`](#move-link-or-clone-existing-nodes) store a reactive pointer to a node without reparenting it. Use it for selected items and cross-references.
+-   [`Retree.clone`](#move-link-or-clone-existing-nodes) creates a detached copy. Use it when two places need independent state.
+-   [`@select`](#reactive-dependencies) makes a getter's owning `ReactiveNode` emit from an ordered dependency list. Use it when VM logic should stay in the node while renders stay narrow.
+-   [`ReactiveNode.dependencies`](#reactive-dependencies) makes one node emit when another node changes. Use raw reactive nodes/primitives for simple slots, or `this.dependency(node, comparisons)` for custom comparison cells.
+-   [`memo`, `@memo`, and `@fnMemo`](#memoize-computed-getters) cache computed values. Prefer bare decorators for automatic dependency trapping; pass comparison functions for finer cache-key control.
+-   [`@ignore`](#opt-fields-out-of-reactivity-with-ignore) keeps a `ReactiveNode` field out of Retree emissions. Use it for caches, subscriptions, framework handles, and non-rendered state.
+-   [`Retree.runTransaction`](#transactions) batches synchronous mutations into one listener flush per changed node. Use it for one logical update made of several writes.
+-   [`Retree.runSilent`](#skip-emitting-changes) performs writes without emitting listeners. Use it for non-rendered bookkeeping.
+-   [`ReactiveNode.prepareTree`](#prepare-lazy-reactivenode-fields) warms lazy child proxies. Use it when first-touch proxy cost should happen during a controlled loading phase.
 
 ## How to use
 
@@ -55,15 +72,43 @@ const tree = Retree.root(new TodoList());
 const unsubscribe = Retree.on(tree.todos, "treeChanged", (todos) => {
     console.log("list updated", todos);
 });
-tree.todos.add();
+tree.add();
 tree.todos[0].toggle();
 tree.todos[0].delete();
 unsubscribe();
 ```
 
+## Listen to nodeChanged, treeChanged, and nodeRemoved
+
+`Retree.on` is the core subscription primitive. `nodeChanged` fires for direct changes to that node. `treeChanged` fires for the node and descendant changes. `nodeRemoved` fires when that node is detached from its parent.
+
+```ts
+const board = Retree.root({
+    title: "Roadmap",
+    cards: [{ text: "Ship docs", done: false }],
+});
+
+Retree.on(board, "nodeChanged", () => console.log("board changed"));
+Retree.on(board, "treeChanged", () => console.log("board subtree changed"));
+Retree.on(board.cards[0], "nodeRemoved", () => console.log("card removed"));
+
+board.title = "Q2 Roadmap"; // ✅ nodeChanged(board), ✅ treeChanged(board)
+board.cards[0].done = true; // ❌ nodeChanged(board), ✅ treeChanged(board)
+board.cards.splice(0, 1); // ✅ nodeRemoved(card), ✅ treeChanged(board)
+```
+
+Call the unsubscribe returned by `Retree.on(...)` when you only want to remove one listener. Use `Retree.clearListeners(node)` when you own all listeners for a node and want to remove them at once.
+
+```ts
+const unsubscribe = Retree.on(board, "nodeChanged", () => {});
+unsubscribe();
+
+Retree.clearListeners(board.cards, false); // clear the list and child listeners
+```
+
 ## Select derived values
 
-`Retree.select` subscribes to a derived value from any Retree-managed node and only calls your callback when that selected value changes. This is different from `memo` and `fnMemo`: memoization caches computation, while `select` narrows notifications.
+`Retree.select` subscribes to a selected value or ordered dependency list from any Retree-managed node and only calls your callback when that selection changes. This is different from `memo` and `fnMemo`: memoization caches computation, while `select` narrows notifications.
 
 ```ts
 const root = Retree.root({
@@ -83,11 +128,257 @@ root.total = 25;
 unsubscribe();
 ```
 
-By default, `select` listens to `nodeChanged` on the node you pass. This is best for selecting direct values owned by that exact node, including `ReactiveNode` values that emit when their dependencies change. Pass `listenerType: "treeChanged"` when the selector intentionally reads descendant nodes, and pass `equals` when the selected value is a new object or array that should be compared structurally.
+```ts
+const project = Retree.root({
+    tasks: [
+        { title: "Docs", done: false },
+        { title: "Tests", done: true },
+    ],
+});
+
+Retree.select(
+    project.tasks,
+    (tasks) => tasks.filter((task) => task.done).length,
+    (doneCount) => console.log(doneCount),
+    { listenerType: "treeChanged" }
+);
+
+project.tasks[0].done = true; // ✅ emits: selected count changed 1 -> 2
+project.tasks[0].title = "Better docs"; // ❌ no emit: selected count stayed 2
+```
+
+`Retree.select` can also infer its own dependencies when you pass only a selector function and a callback. Whole Retree-managed values read by the selector subscribe automatically. Property reads subscribe to the owner node but compare the specific property value, so `task.done` reacts to task replacement or `done` changes without reacting to unrelated task fields. Primitive reads compare.
+
+```ts
+const unsubscribeDoneCount = Retree.select(
+    () => project.tasks.filter((task) => task.done).length,
+    (doneCount) => console.log(doneCount)
+);
+
+project.tasks[0].done = true; // ✅ emits: trapped task read changed the count
+project.tasks[0].title = "Better docs"; // ❌ no emit: selected count stayed 2
+unsubscribeDoneCount();
+```
+
+Selectors can also return an ordered dependency list. Reactive entries are subscribed to; primitive and plain entries are compared. This is useful when a broad source can change often, but only a narrowed selected value should notify.
+
+```ts
+const unsubscribeAttribute = Retree.select(
+    row,
+    (self) => [self.attributes, self.attributeId, self.attribute],
+    ([, , nextAttribute], [, , previousAttribute]) => {
+        console.log({ nextAttribute, previousAttribute });
+    }
+);
+```
+
+By default, `select` listens to `nodeChanged` on the node you pass. This is best for selecting direct values owned by that exact node, including `ReactiveNode` values that emit when their dependencies change. Pass `listenerType: "treeChanged"` when the selector intentionally reads descendants, and pass `equals` when you need custom comparison for the entire selected value or tuple.
+
+Dependency-list subscriptions in `Retree.select` are observational. If `self.attributes` or `self.attribute` changes in the example above, the callback can run, but the `row` node passed to `Retree.select` is not forced to receive a fresh reproxy. Use `@select` when a `ReactiveNode` owner should emit `nodeChanged`.
+
+`select` does not cache expensive work for later reads. If the selector is expensive and reused from multiple places, put the expensive part behind `memo`, `@memo`, or `@fnMemo`, then select the cached value.
+
+## Move, link, or clone existing nodes
+
+Retree keeps a pure ownership tree: a node can have one structural parent. If you need to put an existing node somewhere else, choose the operation that matches your intent.
+
+Use `Retree.move(node, destination, key?)` when ownership should move. Arrays accept a numeric `key` as the insertion index, or omit it to append. Maps and objects require a key. Sets ignore the key.
+
+```ts
+const task = projectA.tasks[0];
+Retree.move(task, projectB.tasks); // append to projectB.tasks
+Retree.move(task, tasksById, task.id); // Map key or object key
+```
+
+`ReactiveNode` also has `moveTo(destination, key?)`, which wraps `Retree.move(this, destination, key)`.
+
+```ts
+class Task extends ReactiveNode {
+    public title = "";
+
+    get dependencies() {
+        return [];
+    }
+
+    public archive(archiveList: Task[]) {
+        this.moveTo(archiveList); // same as Retree.move(this, archiveList)
+    }
+}
+```
+
+Use `Retree.link(node)` or `@link` when one part of your state should point at a node that remains owned somewhere else. Replacing the link emits on the owner, but the target keeps its original parent. Reads return the latest reproxy for the linked node.
+
+```ts
+import { Retree, ReactiveNode, link } from "@retreejs/core";
+
+const root = Retree.root({
+    tasks: [{ title: "Write docs" }],
+    selectedTask: null as null | ReturnType<typeof Retree.link>,
+});
+
+root.selectedTask = Retree.link(root.tasks[0]);
+root.selectedTask.current.title = "Write better docs";
+
+class EditorState extends ReactiveNode {
+    @link public selectedTask: { title: string } | null = null;
+
+    public select(task: { title: string }) {
+        this.selectedTask = task;
+    }
+
+    public selectedTaskLink(task: { title: string }) {
+        return this.link(task); // same as Retree.link(task)
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+```
+
+```ts
+const state = Retree.root(new EditorState());
+state.selectedTask = root.tasks[0]; // ✅ emits on state, ❌ does not reparent task
+state.selectedTask.title = "Renamed"; // ✅ emits where the task is structurally owned
+state.selectedTask = root.tasks[0]; // ❌ no emit if the field already points there
+```
+
+Use `Retree.clone(node)` when you want a detached copy that can become a new child somewhere else.
+
+```ts
+const copy = Retree.clone(root.tasks[0]);
+root.tasks.push(copy); // ✅ emits for root.tasks; copy is a new structural child
+```
+
+## Find a parent
+
+`Retree.parent(node)` returns the node's structural parent, or `null` for a root.
+
+```ts
+class Task {
+    public title = "";
+
+    public removeSelf() {
+        const parent = Retree.parent(this);
+        if (!Array.isArray(parent)) return;
+
+        const index = parent.indexOf(this);
+        if (index >= 0) {
+            parent.splice(index, 1); // ✅ emits on the parent list
+        }
+    }
+}
+```
+
+Links are not structural parents: if `editor.selectedTask` is a `@link` field pointing at `project.tasks[0]`, `Retree.parent(editor.selectedTask)` still returns `project.tasks`.
+
+## Reactive dependencies
+
+`ReactiveNode.dependencies` lets one node emit `nodeChanged` when another node changes. Use it when a node exposes derived state but you do not want broad `treeChanged` subscriptions.
+
+Return raw Retree-managed nodes directly when any change to that node should emit. Return primitives directly when they should be compared only. Wrap one slot with `this.dependency(node, comparisons)` when a reactive dependency needs custom comparison cells.
+
+```ts
+class ProjectSummary extends ReactiveNode {
+    public tasks: { done: boolean }[] = [];
+
+    get doneCount() {
+        return this.tasks.filter((task) => task.done).length;
+    }
+
+    get dependencies() {
+        return [this.dependency(this.tasks, [this.doneCount])];
+    }
+}
+
+const summary = Retree.root(new ProjectSummary());
+Retree.on(summary, "nodeChanged", () => console.log(summary.doneCount));
+
+summary.tasks.push({ done: false }); // ❌ no emit: doneCount stayed 0
+summary.tasks[0].done = true; //       ✅ emits: doneCount changed 0 -> 1
+```
+
+Dependency arrays should be deterministic, but they may change length or order at runtime. Retree treats added, removed, or reordered entries as invalidation and refreshes subscriptions. Use `null` when you want an inactive slot to keep its position, but it is not required for correctness.
+
+For simple cases, no wrapper is needed:
+
+```ts
+import { ReactiveNode, link } from "@retreejs/core";
+
+class AuthStore extends ReactiveNode {
+    public session: { userId: string; role: string } | null = null;
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class HeaderState extends ReactiveNode {
+    @link
+    public auth: AuthStore;
+
+    constructor(auth: AuthStore) {
+        super();
+        this.auth = auth;
+    }
+
+    get dependencies() {
+        return [this.auth, this.auth.session?.userId];
+    }
+}
+```
+
+Use `@select` when the dependency list belongs to one getter and you want `useNode(node)` to re-render only when those selected dependencies change:
+
+```ts
+import { ReactiveNode, link, memo, select } from "@retreejs/core";
+
+class TaskRow extends ReactiveNode {
+    @link public task!: { isCompleted: boolean };
+    @link public filter!: { isComplete: boolean | null };
+
+    @select()
+    get isVisible() {
+        return (
+            this.filter.isComplete === null ||
+            this.task.isCompleted === this.filter.isComplete
+        );
+    }
+}
+```
+
+`@select()` without a selector traps dependencies while the getter runs. Whole Retree-managed values read by the getter subscribe; property reads subscribe to the owner node but compare the specific property value; primitive values read by the getter compare. Pass an explicit selector when you want to choose or customize dependency slots:
+
+```ts
+import { ReactiveNode, memo, select } from "@retreejs/core";
+
+class AttributeRow extends ReactiveNode {
+    public attributes: { id: string; label: string }[] = [];
+    public attributeId!: string;
+
+    @memo
+    private get _attribute() {
+        return this.attributes.find((check) => check.id === this.attributeId);
+    }
+
+    @select((self) => [
+        self.attributes,
+        self.attributeId,
+        self.dependency(self._attribute, [self._attribute?.id]),
+    ])
+    get attribute() {
+        return this._attribute;
+    }
+}
+```
+
+In explicit `@select` lists, raw reactive values subscribe, primitive values compare, and `self.dependency(...)` customizes one slot's comparison behavior.
 
 ## Memoize computed getters
 
-`ReactiveNode` exposes a `memo` helper for caching the result of a computed getter, similar in spirit to React's `useMemo`. It also exposes `@fnMemo` for caching deterministic method return values. Four forms are supported:
+`ReactiveNode` exposes `@memo` for caching computed getters and `@fnMemo` for caching deterministic method return values. With no arguments, both decorators automatically trap the Retree reads inside the getter or method and invalidate the cache when those values change.
+
+Pass a comparison function only when you want finer control over the cache keys. The method forms (`this.memo(fn, deps?)` and `this.memo(key, fn, deps?)`) are still available when you need to memoize part of a getter or maintain multiple cache cells.
 
 ```ts
 import { Retree, ReactiveNode, fnMemo, memo } from "@retreejs/core";
@@ -100,35 +391,14 @@ class ListFilter extends ReactiveNode {
     public list: Card[] = [];
     public searchText = "";
 
-    // 1) Keyless method form — cache key is the getter's name.
+    // Recommended: @memo traps the Retree reads in this getter automatically.
+    @memo
     get filteredList(): Card[] {
-        return this.memo(
-            () => this.list.filter((c) => c.text === this.searchText),
-            [this.list, this.searchText]
-        );
-    }
-
-    // 2) Decorator form — same cache-key behavior; pass a function that
-    //    returns deps so they're read live on every access.
-    @memo((self: ListFilter) => [self.list, self.searchText])
-    get filteredListDecorated(): Card[] {
         return this.list.filter((c) => c.text === this.searchText);
     }
 
-    // 3) Explicit-key method form — required for multiple memos in one
-    //    getter, or memoizing inside a method.
-    get pair() {
-        const filtered = this.memo(
-            "filtered",
-            () => this.list.filter((c) => c.text === this.searchText),
-            [this.list, this.searchText]
-        );
-        const count = this.memo("count", () => filtered.length, [filtered]);
-        return { filtered, count };
-    }
-
-    // 4) Function decorator form — compares method arguments plus deps.
-    @fnMemo((self: ListFilter) => [self.list, self.searchText])
+    // Recommended: @fnMemo traps Retree reads and also compares method args.
+    @fnMemo
     filteredListLimited(limit: number): Card[] {
         return this.list
             .filter((c) => c.text === this.searchText)
@@ -141,9 +411,66 @@ class ListFilter extends ReactiveNode {
 }
 ```
 
-`deps` semantics (same for all forms; `@fnMemo` also compares method arguments and passes them to the `deps` function):
+Pass a comparison function when the automatic trapper is broader than you want:
 
--   `undefined` → recompute whenever the `ReactiveNode` reproxies (any dependency changes or a property is set).
+```ts
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    @memo((self: ListFilter) => [self.list, self.searchText])
+    get filteredList(): Card[] {
+        return this.list.filter((c) => c.text === this.searchText);
+    }
+
+    @fnMemo((self: ListFilter, limit: number) => [
+        self.list,
+        self.searchText,
+        limit,
+    ])
+    filteredListLimited(limit: number): Card[] {
+        return this.list
+            .filter((c) => c.text === this.searchText)
+            .slice(0, limit);
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
+Use the method forms when a decorator does not fit:
+
+```ts
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    get filteredList(): Card[] {
+        return this.memo(() =>
+            this.list.filter((c) => c.text === this.searchText)
+        );
+    }
+
+    get pair() {
+        const filtered = this.memo("filtered", () =>
+            this.list.filter((c) => c.text === this.searchText)
+        );
+        const count = this.memo("count", () => filtered.length, [filtered]);
+        return { filtered, count };
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
+Comparison semantics (same for all forms; `@fnMemo` also compares method arguments):
+
+-   Bare/empty decorators, or omitted `this.memo` comparisons → trap Retree reads automatically and recompute when a trapped value changes.
+-   Function returns `undefined` → recompute whenever the `ReactiveNode` reproxies (any dependency changes or a property is set).
 -   `[]` → compute once and cache forever for that instance.
 -   `[a, b, ...]` → recompute when any cell shallow-changes (compared with `Object.is`). Tree-node cells are compared by their latest reproxy identity, so passing `this.list` correctly invalidates when `list` mutates.
 
@@ -250,6 +577,54 @@ class EagerNode extends ReactiveNode {
 }
 ```
 
+## Transactions
+
+Use `Retree.runTransaction(...)` when several synchronous writes are one logical update. Retree still updates every changed node, but listener callbacks flush once per changed node after the transaction finishes.
+
+```ts
+const counter = Retree.root({ count: 0 });
+let emits = 0;
+
+Retree.on(counter, "nodeChanged", () => {
+    emits += 1;
+});
+
+Retree.runTransaction(() => {
+    counter.count += 1;
+    counter.count *= 2;
+});
+
+console.log(counter.count); // 2
+console.log(emits); // ✅ 1 emit, not 2
+```
+
+## Skip emitting changes
+
+Use `Retree.runSilent(...)` for writes that should update state without notifying listeners. By default it also skips reproxying, which means old and new object identities remain equal for comparison checks.
+
+```ts
+const settings = Retree.root({
+    renderedCount: 0,
+    telemetryCount: 0,
+});
+
+Retree.on(settings, "nodeChanged", () => console.log("render"));
+
+Retree.runSilent(() => {
+    settings.telemetryCount += 1;
+}); // ❌ no emit
+
+settings.renderedCount += 1; // ✅ emits
+```
+
+Pass `false` as the second argument when you want to suppress listener emission but still refresh reproxy identities for later comparisons:
+
+```ts
+Retree.runSilent(() => {
+    settings.telemetryCount += 1;
+}, false);
+```
+
 ## Performance model
 
 Retree is built on JavaScript proxies plus stable "base" proxies and fresh reproxy identities after changes. That model is ergonomic, but the cost is not uniform. The main rule of thumb is to subscribe and read as narrowly as your UI or workflow allows.
@@ -268,14 +643,15 @@ Retree.on(todoList, "treeChanged", (nextList) => {
 });
 ```
 
-`treeChanged` is most expensive when a listener also performs deep reads across the subtree, because the listener is asking Retree to propagate the ancestor change and then traverse the changed graph. If a selector or component only needs one derived value, prefer `Retree.select(...)` on the narrowest node that owns that value.
+`treeChanged` is most expensive when a listener also performs deep reads across the subtree, because the listener is asking Retree to propagate the ancestor change and then traverse the changed graph. If a selector or component only needs one selected value or dependency list, prefer `Retree.select(...)` on the narrowest node that owns that value.
 
 ### Use `ReactiveNode.dependencies` as a narrow bridge
 
-`ReactiveNode.dependencies` is a good way to make one node react to another node without subscribing a broad tree. Keep the getter deterministic and stable:
+`ReactiveNode.dependencies` is a good way to make one node react to another node without subscribing a broad tree. Keep the getter deterministic:
 
--   Keep dependency list length and order stable.
+-   Dependency list length/order can change; Retree treats shape changes as invalidation and refreshes subscriptions.
 -   Use comparison values when only some changes should emit.
+-   Prefer `@select` for hot filtered lists where one getter should listen to a broad collection but only emit when the selected items or selected order changes.
 -   Avoid doing setup, network subscriptions, or synchronization inside `dependencies`; use `onObserved()`, `onUnobserved()`, and `onChanged()` for lifecycle work.
 -   Prefer one dependency on a narrow child node over a dependency on a broad parent.
 
@@ -334,7 +710,7 @@ node.cache.something = 1; // ❌ no log
 node.count = 1; //            ✅ logs "changed"
 ```
 
-**Caveat:** because the field's value isn't wrapped, you also lose `Retree.parent(...)` for objects stored under it, and they won't appear in `treeChanged` notifications. Treat ignored fields as opaque from Retree's perspective.
+**Caveat:** because the field's value isn't wrapped, plain objects stored under it lose `Retree.parent(...)` and won't appear in `treeChanged` notifications. If you store an existing Retree-managed node in an ignored field, Retree does not reparent it, but reads still return that node's latest reproxy.
 
 ## Core samples
 

@@ -18,6 +18,7 @@ import {
     getReactiveDependencies,
     getReactiveDependents,
     IActiveReactiveDependency,
+    IPreviousReactiveDependent,
     retainReactiveDependencySubscription,
     setReactiveDependencies,
     setReactiveDependents,
@@ -27,14 +28,34 @@ import {
     getReproxyNodeForUnproxiedNode,
     updateReproxyNode,
 } from "./internals/reproxy";
+import {
+    createRetreeSelectionObserver,
+    createRetreeTrackedSelectionObserver,
+    normalizeSelectDependencies,
+    RetreeSelectEquals,
+    RetreeSelectSelector,
+    RetreeTrackedSelectSelector,
+} from "./internals/select";
+import { runWithIsolatedDependencyTracking } from "./internals/dependency-tracking";
+import {
+    areDependencyValuesEqual,
+    getDependencyComparisonValues,
+    normalizeDependencyEntry,
+} from "./internals/dependencies";
 import { Transactions } from "./internals/transactions";
 import {
+    LINKED_KEYS_SYMBOL,
+    IReactiveDependency,
     ReactiveNode,
     RUN_CHANGED_EFFECT_SYMBOL,
     RUN_OBSERVED_EFFECT_SYMBOL,
     RUN_UNOBSERVED_EFFECT_SYMBOL,
+    SELECT_GETTERS_SYMBOL,
+    setReactiveNodeLinkImplementation,
+    setReactiveNodeMoveImplementation,
 } from "./ReactiveNode";
 import {
+    RetreeObjectMoveKey,
     TRetreeEvents,
     TNodeChangedListener,
     TRetreeListeners,
@@ -43,7 +64,7 @@ import {
 } from "./types";
 
 export interface RetreeSelectOptions<TSelected = unknown> {
-    equals?: (previous: TSelected, next: TSelected) => boolean;
+    equals?: RetreeSelectEquals<TSelected>;
     listenerType?: TRetreeChangedEvents;
 }
 
@@ -54,10 +75,63 @@ type TInternalNodeChangedListener = (
 ) => void;
 
 /**
+ * Reactive pointer to a Retree-managed node owned somewhere else.
+ *
+ * @remarks
+ * `RetreeLink` is created by {@link Retree.link}. Store it in a Retree tree
+ * when one part of state needs to point at another node without becoming that
+ * node's structural parent. Replacing {@link RetreeLink.current} emits for the
+ * link. Mutating `current` emits from the target's structural location.
+ *
+ * Most code should call {@link Retree.link} instead of constructing this class
+ * directly.
+ *
+ * @example
+ * ```ts
+ * const root = Retree.root({
+ *     tasks: [{ title: "Docs" }],
+ *     selected: null as RetreeLink<{ title: string }> | null,
+ * });
+ *
+ * root.selected = Retree.link(root.tasks[0]);
+ * root.selected.current.title = "Better docs";
+ * ```
+ */
+export class RetreeLink<
+    TNode extends TreeNode = TreeNode
+> extends ReactiveNode {
+    /**
+     * The linked Retree-managed node.
+     *
+     * @remarks
+     * Replacing `current` emits for the link node. Mutating the target emits
+     * where that target is structurally owned.
+     */
+    public current: TNode;
+
+    constructor(node: TNode) {
+        super();
+        this[LINKED_KEYS_SYMBOL].add("current");
+        this.current = node;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+/**
  * Main entry point for use with Retree package.
  * Exposes utility functions for observing to changes to an object and its children.
  */
 export class Retree {
+    static {
+        setReactiveNodeLinkImplementation((node) => Retree.link(node));
+        setReactiveNodeMoveImplementation((node, destination, key) =>
+            Retree.moveInternal(node, destination, key)
+        );
+    }
+
     private static nodeChangeListener: TInternalNodeChangedListener | null =
         null;
     private static nodeRemovedListener: TInternalNodeChangedListener | null =
@@ -79,6 +153,12 @@ export class Retree {
     /**
      * @deprecated
      * Use {@link root} instead.
+     *
+     * @example
+     * ```ts
+     * const state = Retree.use({ count: 0 }); // deprecated
+     * const state = Retree.root({ count: 0 }); // preferred
+     * ```
      */
     static use<T extends TreeNode = TreeNode>(object: T): T {
         return this.root(object);
@@ -87,40 +167,201 @@ export class Retree {
     /**
      * Builds a Retree compatible root node for the root object of your tree.
      * @remarks
-     * Use this function only for a root object.
-     * This will make the object compatible with {@link Retree.on}, {@link Retree.parent}, etc.
-     * For child objects of this root node, simply set values to them like you normally would in JS/TS.
+     * Use this once where plain state enters Retree. The returned proxy is
+     * compatible with {@link Retree.on}, {@link Retree.parent},
+     * {@link Retree.move}, {@link Retree.link}, and React hooks from
+     * `@retreejs/react`.
+     *
+     * Do mutate the returned tree directly with normal JavaScript assignment
+     * and collection methods. Do not call `Retree.root(...)` on every child
+     * you assign into the tree; Retree prepares children as they are attached
+     * or read.
      *
      * @param object a root TreeNode for your tree
      * @returns a Retree compatible object of type T
      * 
      * @example
+     * ```ts
      const counter = Retree.root({ count: 0 });
-     Retree.on(counter, "valueChanged", () => console.log(counter.count));
+     Retree.on(counter, "nodeChanged", () => console.log(counter.count));
      counter.count = counter.count + 1;
+     ```
      */
     static root<T extends TreeNode = TreeNode>(object: T): T {
         return buildProxy<T>(object, this.nodeChangeEmitter);
     }
 
     /**
+     * Create a reactive pointer to an existing Retree-managed node.
+     *
+     * @remarks
+     * The returned link can be stored in a Retree tree without reparenting the
+     * linked target. Replacing `link.current` emits for the link; mutating the
+     * linked target emits from its structural location.
+     *
+     * Use this for selected items, cross-references, and pointers into another
+     * part of the same tree. Do not use a link when ownership should move; use
+     * {@link Retree.move} instead. Do not use a link when the two locations
+     * should diverge independently; use {@link Retree.clone} instead.
+     *
+     * @param node Existing Retree-managed node to point at.
+     * @returns A Retree-managed link object whose `current` points at `node`.
+     *
+     * @example
+     * ```ts
+     * const root = Retree.root({
+     *     tasks: [{ title: "Docs" }],
+     *     selected: null as RetreeLink<{ title: string }> | null,
+     * });
+     *
+     * root.selected = Retree.link(root.tasks[0]); // ✅ emits on root
+     * root.selected.current.title = "Better docs"; // ✅ emits where task is owned
+     * Retree.parent(root.selected.current) === root.tasks; // true
+     * ```
+     */
+    static link<TNode extends TreeNode>(node: TNode): RetreeLink<TNode> {
+        this.assertRetreeManagedNode(node, "Retree.link");
+        return this.root(new RetreeLink(node));
+    }
+
+    /**
+     * Clone a Retree-managed node into a detached object that can be assigned
+     * somewhere else as a new structural child.
+     *
+     * @remarks
+     * Use this when two places need independent state initialized from the
+     * same current data. The clone is detached until you assign it into a
+     * Retree tree. Mutating the clone after assignment emits for the clone's
+     * new structural location, not the source node.
+     *
+     * Do not use `clone` when the original object should simply move; use
+     * {@link Retree.move}. Do not use `clone` for a selected-item pointer; use
+     * {@link Retree.link} or `@link`.
+     *
+     * @param node Existing Retree-managed node to copy.
+     * @returns A detached copy of the node's current raw data.
+     *
+     * @example
+     * ```ts
+     * const project = Retree.root({ tasks: [{ title: "Draft" }] });
+     * const copy = Retree.clone(project.tasks[0]);
+     *
+     * project.tasks.push(copy); // ✅ copy becomes a new child
+     * project.tasks[1].title = "Published"; // source task is unchanged
+     * ```
+     */
+    static clone<TNode extends TreeNode>(node: TNode): TNode {
+        this.assertRetreeManagedNode(node, "Retree.clone");
+        return this.cloneValue(getUnproxiedNode(node), new WeakMap()) as TNode;
+    }
+
+    /**
+     * Move an existing Retree-managed node from its current parent to a new parent.
+     *
+     * @remarks
+     * Retree is a pure tree: each node has one structural parent. Use `move`
+     * when ownership should transfer from the old parent to the destination.
+     * Retree finds the current parent with {@link Retree.parent} and removes
+     * the node safely before inserting it into the destination.
+     *
+     * Arrays accept an optional numeric insertion index. Maps and plain
+     * objects require a key. Sets ignore the key. Do not manually delete the
+     * node from its old parent before calling `move`.
+     *
+     * @param node Existing Retree-managed node to move.
+     * @param destination Retree-managed array, map, set, or object destination.
+     * @param key Insertion index for arrays, map key for maps, or property key
+     * for objects.
+     * @returns The latest reproxy for the moved node.
+     *
+     * @example
+     * ```ts
+     * const workspace = Retree.root({
+     *     todo: [{ title: "Docs" }],
+     *     done: [] as { title: string }[],
+     * });
+     *
+     * const moved = Retree.move(workspace.todo[0], workspace.done);
+     * workspace.todo.length; // 0
+     * workspace.done[0] === moved; // true
+     * ```
+     */
+    static move<TNode extends TreeNode, TValue extends TreeNode = TNode>(
+        node: TNode extends TValue ? TNode : never,
+        destination: TValue[],
+        key?: number
+    ): TNode;
+    static move<
+        TNode extends TreeNode,
+        TKey = unknown,
+        TValue extends TreeNode = TNode
+    >(
+        node: TNode extends TValue ? TNode : never,
+        destination: Map<TKey, TValue>,
+        key: TKey
+    ): TNode;
+    static move<TNode extends TreeNode, TValue extends TreeNode = TNode>(
+        node: TNode extends TValue ? TNode : never,
+        destination: Set<TValue>
+    ): TNode;
+    static move<
+        TNode extends TreeNode,
+        TDestination extends TreeNode = TreeNode
+    >(
+        node: TNode,
+        destination: TDestination,
+        key: RetreeObjectMoveKey<TDestination, TNode>
+    ): TNode;
+    static move<TNode extends TreeNode>(
+        node: TNode,
+        destination: TreeNode,
+        key?: unknown
+    ): TNode {
+        return this.moveInternal(node, destination, key);
+    }
+
+    private static moveInternal<TNode extends TreeNode>(
+        node: TNode,
+        destination: TreeNode,
+        key?: unknown
+    ): TNode {
+        this.assertRetreeManagedNode(node, "Retree.move");
+        this.assertRetreeManagedNode(destination, "Retree.move");
+
+        const parent = this.getParentInternal(node);
+        if (!parent) {
+            // @retree-throws
+            throw new Error(
+                "Retree.move: cannot move a root node because it does not have a parent. This is expected when the node was created directly with Retree.root(...). Fix: move one of the root's children, assign the root into another tree as a cloned value with Retree.clone(...), or create the root under the desired parent first."
+            );
+        }
+
+        const nodeToMove = getBaseProxy(node);
+        Retree.runTransaction(() => {
+            this.removeNodeFromParent(nodeToMove, parent.proxyNode);
+            this.insertNodeIntoDestination(nodeToMove, destination, key);
+        });
+        return getReproxyNode(nodeToMove) as TNode;
+    }
+
+    /**
      * Listen for changes to a node.
      * @remarks
-     * Use listener {@link TRetreeEvents"nodeChanged"} for changes to any leaf child of the node.
-     * Use listener {@link TRetreeEvents"treeChanged"} for changes to any leaf child of the node or its child nodes.
-     * Use listener {@link TRetreeEvents"nodeRemoved"} for when this node was removed from its parent.
+     * Use `nodeChanged` for changes directly owned by the node.
+     * Use `treeChanged` for changes to the node or descendants.
+     * Use `nodeRemoved` for when this node is removed from its parent.
      *
      * @param node the object to listen for changes to.
      * @param listenerType the type of {@link TRetreeEvents} change events to listen to.
      * @param callback the callback function for your listener.
-     * @returns an unsubscribe function to cleanup your listners.
+     * @returns an unsubscribe function to clean up your listeners.
      * 
      * @example
      ```ts
      // Create the root node
      const counter = Retree.root({ count: 0 });
      // Listen for changes to values of the node
-     const unsubscribe = Retree.on(counter, "valueChanged", (reproxy) => {
+     const unsubscribe = Retree.on(counter, "nodeChanged", (reproxy) => {
         console.log(reproxy !== counter); // output: false
         console.log(reproxy.count === counter.count); // output: true
      });
@@ -146,8 +387,9 @@ export class Retree {
 
         const unproxiedNode = getUnproxiedNode(node);
         if (!unproxiedNode) {
+            // @retree-throws
             throw new Error(
-                "Retree.on: must use an object that is a proxied node. Pass object to Retree.root first, or get value from another child object."
+                "Retree.on: expected a Retree-managed node but received an unproxied value. This is expected when listening to a plain object. Fix: pass the object to Retree.root(...) first, or listen to a child value read from an existing Retree tree."
             );
         }
         const relevantListenerMap =
@@ -188,34 +430,136 @@ export class Retree {
      * Subscribe to a derived value from any Retree-managed node.
      *
      * @remarks
-     * `select` recomputes the selected value when the observed node emits,
-     * then calls `callback` only when the selected value changes.
+     * `select` recomputes the selected value when the observed node or selected
+     * reactive dependencies emit, then calls `callback` only when the selection
+     * changes. Selectors may return one value or an ordered dependency list.
+     * Reactive entries in a dependency list are subscribed to; primitive and
+     * plain entries are compared by identity.
+     *
+     * Dependency-list subscriptions are observational: if a selected dependency
+     * emits, `select` calls your callback when the selection changes, but it
+     * does not force the node passed to `select` to receive a fresh reproxy.
+     * Use `@select` when a `ReactiveNode` owner should emit `nodeChanged`.
      * This is a subscription primitive, not a memo cache: use `memo` /
      * `fnMemo` to cache computation, and `select` to narrow notifications.
+     *
+     * By default `select` listens to `nodeChanged`, which is correct when the
+     * selector reads fields directly owned by `node`. Pass
+     * `listenerType: "treeChanged"` when the selector intentionally reads
+     * descendants that are not included as reactive entries in a dependency
+     * list.
+     *
+     * You can also call `Retree.select(() => value, callback)` without a node.
+     * That form traps reads automatically. Whole Retree-managed values are
+     * subscribed to broadly. Property reads subscribe to the owner node but
+     * compare the specific property value, so `task.done` can react to task
+     * replacement or `done` changes without reacting to unrelated task fields.
+     * Primitive reads are kept as comparison values, so the callback only runs
+     * when the trapped reads make the selected value or dependency set change.
+     *
+     * @param node Retree-managed node to observe.
+     * @param selector Function that reads a selected value or dependency list
+     * from the latest reproxy.
+     * @param callback Called only when the selected value or dependency list
+     * changes.
+     * @param options Optional listener type and equality comparison for the
+     * whole selected value or tuple.
+     * @returns Unsubscribe function.
+     *
+     * @example
+     * ```ts
+     * const project = Retree.root({
+     *     tasks: [{ done: false }, { done: true }],
+     * });
+     *
+     * const unsubscribe = Retree.select(
+     *     project.tasks,
+     *     (tasks) => tasks.filter((task) => task.done).length,
+     *     (next, previous) => console.log({ next, previous }),
+     *     { listenerType: "treeChanged" }
+     * );
+     *
+     * project.tasks[0].done = true; // ✅ callback: 1 -> 2
+     * project.tasks[0].done = true; // ❌ selected value did not change
+     * unsubscribe();
+     * ```
+     *
+     * @example
+     * ```ts
+     * Retree.select(
+     *     row,
+     *     (self) => [self.attributes, self.attributeId, self.attribute],
+     *     ([, , attribute]) => console.log(attribute)
+     * );
+     * ```
+     *
+     * @example
+     * ```ts
+     * Retree.select(
+     *     () => project.tasks.filter((task) => task.done).length,
+     *     (doneCount) => console.log(doneCount)
+     * );
+     * ```
      */
     static select<TNode extends TreeNode, TSelected>(
         node: TNode,
-        selector: (node: TNode) => TSelected,
+        selector: RetreeSelectSelector<TNode, TSelected>,
         callback: (next: TSelected, previous: TSelected) => void,
+        options?: RetreeSelectOptions<TSelected>
+    ): () => void;
+    static select<TSelector extends RetreeTrackedSelectSelector<unknown>>(
+        selector: TSelector,
+        callback: (
+            next: ReturnType<TSelector>,
+            previous: ReturnType<TSelector>
+        ) => void,
+        options?: RetreeSelectOptions<ReturnType<TSelector>>
+    ): () => void;
+    static select<TNode extends TreeNode, TSelected>(
+        nodeOrSelector: TNode | RetreeTrackedSelectSelector<TSelected>,
+        selectorOrCallback:
+            | RetreeSelectSelector<TNode, TSelected>
+            | ((next: TSelected, previous: TSelected) => void),
+        callbackOrOptions?:
+            | ((next: TSelected, previous: TSelected) => void)
+            | RetreeSelectOptions<TSelected>,
         options: RetreeSelectOptions<TSelected> = {}
     ): () => void {
-        const equals = options.equals ?? Object.is;
+        if (typeof nodeOrSelector === "function") {
+            return createRetreeTrackedSelectionObserver({
+                selector: nodeOrSelector,
+                equals: (callbackOrOptions as RetreeSelectOptions<TSelected>)
+                    ?.equals,
+                subscribeToNode: (
+                    selectedNode,
+                    selectedListenerType,
+                    listener
+                ) => this.on(selectedNode, selectedListenerType, listener),
+                onChange: selectorOrCallback as (
+                    next: TSelected,
+                    previous: TSelected
+                ) => void,
+            });
+        }
+        const node = nodeOrSelector;
+        const selector = selectorOrCallback as RetreeSelectSelector<
+            TNode,
+            TSelected
+        >;
+        const callback = callbackOrOptions as (
+            next: TSelected,
+            previous: TSelected
+        ) => void;
         const listenerType = options.listenerType ?? "nodeChanged";
-        let previous = selector(getReproxyNode(node));
-
-        return this.on<TNode, TRetreeChangedEvents>(
+        return createRetreeSelectionObserver({
             node,
+            selector,
+            equals: options.equals,
             listenerType,
-            (reproxy) => {
-                const next = selector(reproxy);
-                if (equals(previous, next)) {
-                    return;
-                }
-                const previousToEmit = previous;
-                previous = next;
-                callback(next, previousToEmit);
-            }
-        );
+            subscribeToNode: (selectedNode, selectedListenerType, listener) =>
+                this.on(selectedNode, selectedListenerType, listener),
+            onChange: callback,
+        });
     }
 
     /**
@@ -256,9 +600,30 @@ export class Retree {
     /**
      * Run a synchronous transaction that will not cause `{@link Retree.on} listeners to emit.
      *
+     * @remarks
+     * Use `runSilent` for non-rendered bookkeeping or integration state that
+     * should update without notifying Retree listeners. By default it also
+     * skips reproxying, so old and new object identities stay equal for later
+     * comparison checks.
+     *
+     * Pass `skipReproxy = false` when you want to suppress listener emission
+     * but still refresh reproxy identities.
+     *
      * @param transaction transaction function to run
      * @param skipReproxy skip reproxying nodes such that subsequent comparisons are equal.
      * defaults to true.
+     *
+     * @example
+     * ```ts
+     * const state = Retree.root({ rendered: 0, telemetry: 0 });
+     * Retree.on(state, "nodeChanged", () => console.log("render"));
+     *
+     * Retree.runSilent(() => {
+     *     state.telemetry += 1;
+     * }); // ❌ no listener emit
+     *
+     * state.rendered += 1; // ✅ emits
+     * ```
      */
     static runSilent(transaction: () => void, skipReproxy = true) {
         Transactions.skipEmit = true;
@@ -284,8 +649,8 @@ export class Retree {
      * @example
      ```ts
      const counter = Retree.root({ count: 0 });
-     Retree.on(counter, "valueChanged", () => console.log(counter.count));
-     // Will only emit "valueChanged" once
+     Retree.on(counter, "nodeChanged", () => console.log(counter.count));
+     // Will only emit "nodeChanged" once
      Retree.runTransaction(() => {
         counter.count = counter.count + 1;
         counter.count = counter.count * 2;
@@ -317,13 +682,30 @@ export class Retree {
      * @remarks
      * Equivalent to calling each `unsubscribe` function returned by {@link Retree.on}.
      *
+     * Prefer storing and calling the unsubscribe returned from
+     * {@link Retree.on} when you own a single subscription. Use
+     * `clearListeners` when you own every listener for a node, such as during
+     * teardown of a Retree-managed integration.
+     *
      * @param node node to clear all listeners for
      * @param shallow when false, will unsubscribe to all child nodes as well.
+     *
+     * @example
+     * ```ts
+     * const root = Retree.root({ child: { count: 0 } });
+     * Retree.on(root, "nodeChanged", () => {});
+     * Retree.on(root.child, "nodeChanged", () => {});
+     *
+     * Retree.clearListeners(root, false); // clears root and child listeners
+     * ```
      */
     public static clearListeners(node: TreeNode, shallow: boolean = true) {
         const rawNode = getUnproxiedNode(node);
         if (!rawNode) {
-            throw new Error("Cannot clear listeners for an unproxied `node`");
+            // @retree-throws
+            throw new Error(
+                "Retree.clearListeners: expected a Retree-managed node but received an unproxied value. This is expected when clearing listeners for a plain object. Fix: pass the same Retree.root(...) result or Retree child proxy that was used with Retree.on(...), or call the unsubscribe function returned by Retree.on(...)."
+            );
         }
         const shouldStopReactiveNode =
             node instanceof ReactiveNode &&
@@ -455,8 +837,9 @@ export class Retree {
                     const unproxiedNode =
                         getUnproxiedNode(proxyNodeThatChanged);
                     if (!unproxiedNode) {
+                        // @retree-throws
                         throw new Error(
-                            "Retree.handleNotifyTreeChanged: Unexpected to not find unproxied node for proxyNodeThatChanged"
+                            "Retree internal invariant failed in handleNotifyTreeChanged: could not find the raw node for proxyNodeThatChanged while scheduling a treeChanged event. This is unexpected and likely a Retree bug. Please file an issue with the mutation that triggered this and whether it happened inside Retree.runTransaction(...)."
                         );
                     }
                     Transactions.upsertPendingTransaction(unproxiedNode, {
@@ -489,8 +872,9 @@ export class Retree {
                     if (Transactions.runningTransaction) {
                         const unproxiedPNode = getUnproxiedNode(pNode);
                         if (!unproxiedPNode) {
+                            // @retree-throws
                             throw new Error(
-                                "Retree.handleNotifyTreeChanged: Unexpected to not find unproxied node for proxyNodeThatChanged"
+                                "Retree internal invariant failed in handleNotifyTreeChanged: could not find the raw node for a parent proxy while scheduling a treeChanged event. This is unexpected and likely a Retree bug. Please file an issue with the mutation that triggered this and whether it happened inside Retree.runTransaction(...)."
                             );
                         }
                         Transactions.upsertPendingTransaction(unproxiedPNode, {
@@ -547,10 +931,10 @@ export class Retree {
             // If in a skipEmit transaction state, skip emitting
             if (Transactions.skipEmit) return;
             const emitNodeRemovedListeners = () => {
-                const listnersToNotify =
+                const listenersToNotify =
                     this.nodeRemovedListeners.get(node) ?? [];
                 // We copy the list because it could get changed if the first callback triggers an unsubscribe
-                [...listnersToNotify].forEach((callback) => {
+                [...listenersToNotify].forEach((callback) => {
                     callback();
                 });
             };
@@ -575,48 +959,54 @@ export class Retree {
         proxyNode: TCustomProxy<TreeNode>,
         reproxyNode: TreeNode
     ) {
-        const isReactiveNode = proxyNode instanceof ReactiveNode;
-        if (isReactiveNode) {
-            this.handleReactiveNode(proxyNode, unproxiedNode);
-        }
-
-        const emitNodeChangedListeners = () => {
-            const nodeChangedListnersToNotify =
-                this.nodeChangedListeners.get(unproxiedNode) ?? [];
-            // We copy the list because it could get changed if the first callback triggers an unsubscribe
-            [...nodeChangedListnersToNotify].forEach((callback) => {
-                callback(reproxyNode);
-            });
-        };
-
-        const scheduleNodeChangedListeners = () => {
-            // If running a transaction, schedule this to emit later.
-            // That way if this same node gets changed later, we can only emit once for that node.
-            if (Transactions.runningTransaction) {
-                Transactions.upsertPendingTransaction(unproxiedNode, {
-                    emitNodeChanged: emitNodeChangedListeners,
-                });
-                return;
+        return runWithIsolatedDependencyTracking(() => {
+            const isReactiveNode = proxyNode instanceof ReactiveNode;
+            if (isReactiveNode) {
+                this.handleReactiveNode(proxyNode, unproxiedNode);
             }
 
-            // emit immediately
-            emitNodeChangedListeners();
-        };
+            const emitNodeChangedListeners = () => {
+                const nodeChangedListnersToNotify =
+                    this.nodeChangedListeners.get(unproxiedNode) ?? [];
+                // We copy the list because it could get changed if the first callback triggers an unsubscribe
+                [...nodeChangedListnersToNotify].forEach((callback) => {
+                    callback(reproxyNode);
+                });
+            };
 
-        if (!Transactions.skipEmit) {
-            scheduleNodeChangedListeners();
-        }
+            const scheduleNodeChangedListeners = () => {
+                // If running a transaction, schedule this to emit later.
+                // That way if this same node gets changed later, we can only emit once for that node.
+                if (Transactions.runningTransaction) {
+                    Transactions.upsertPendingTransaction(unproxiedNode, {
+                        emitNodeChanged: emitNodeChangedListeners,
+                    });
+                    return;
+                }
 
-        // Still handle here so we reproxy parents, despite skipping emit later in biz logic.
-        // If no treeChanged listeners exist, no parent can observe this work.
-        // Note that we should never have gotten this far if skipReproxy is true, so we skip checking again.
-        if (this.treeChangedListeners.size > 0) {
-            this.handleNotifyTreeChanged(unproxiedNode, proxyNode, proxyNode);
-        }
+                // emit immediately
+                emitNodeChangedListeners();
+            };
 
-        if (isReactiveNode) {
-            ReactiveNode[RUN_CHANGED_EFFECT_SYMBOL](proxyNode);
-        }
+            if (!Transactions.skipEmit) {
+                scheduleNodeChangedListeners();
+            }
+
+            // Still handle here so we reproxy parents, despite skipping emit later in biz logic.
+            // If no treeChanged listeners exist, no parent can observe this work.
+            // Note that we should never have gotten this far if skipReproxy is true, so we skip checking again.
+            if (this.treeChangedListeners.size > 0) {
+                this.handleNotifyTreeChanged(
+                    unproxiedNode,
+                    proxyNode,
+                    proxyNode
+                );
+            }
+
+            if (isReactiveNode) {
+                ReactiveNode[RUN_CHANGED_EFFECT_SYMBOL](proxyNode);
+            }
+        });
     }
 
     private static stopListening() {
@@ -633,65 +1023,278 @@ export class Retree {
         this.treeChangedListeners.clear();
     }
 
-    private static getParentInternal(
-        node: TreeNode
-    ): { rawNode: TreeNode; proxyNode: TCustomProxy<TreeNode> } | null {
+    private static getParentInternal(node: TreeNode): {
+        propName: string | symbol | null;
+        rawNode: TreeNode;
+        proxyNode: TCustomProxy<TreeNode>;
+    } | null {
         const oldHandler = getCustomProxyHandler(node);
         if (oldHandler) {
             const parent = oldHandler[proxiedParentKey];
             if (!parent || !parent.proxyNode) return null;
             const rawNode = getUnproxiedNode(parent.proxyNode);
             if (!rawNode) {
+                // @retree-throws
                 throw new Error(
-                    "Retree.getParentInternal: cannot get parent from an unproxied parent node"
+                    "Retree internal invariant failed in Retree.parent: the child has parent metadata, but the parent is not a Retree-managed proxy. This is unexpected and likely a Retree bug. Please file an issue with how the child was assigned, moved, or deleted."
                 );
             }
             return {
+                propName: parent.propName,
                 proxyNode: getBaseProxy(parent.proxyNode),
                 rawNode,
             };
         }
-        throw new Error("Node must be a valid TreeNode");
+        // @retree-throws
+        throw new Error(
+            "Retree.parent: expected a Retree-managed node but received a value without Retree proxy metadata. This is expected when calling Retree.parent(...) with a plain object, primitive, or object not read from a Retree tree. Fix: pass an object returned by Retree.root(...) or a child read from that tree."
+        );
+    }
+
+    private static assertRetreeManagedNode(node: TreeNode, apiName: string) {
+        if (!getCustomProxyHandler(node)) {
+            // @retree-throws
+            throw new Error(
+                `${apiName}: expected a Retree-managed node but received a value without Retree proxy metadata. This is expected when passing a plain object. Fix: pass an object returned by Retree.root(...) or read a child from an existing Retree tree.`
+            );
+        }
+    }
+
+    private static removeNodeFromParent(
+        node: TreeNode,
+        parent: TCustomProxy<TreeNode>
+    ) {
+        if (Array.isArray(parent)) {
+            const index = this.findArrayChildIndex(parent, node);
+            if (index === -1) {
+                // @retree-throws
+                throw new Error(
+                    "Retree.move: could not find the node in its array parent while removing it. This is unexpected if the node was not manually deleted or reassigned before Retree.move(...) ran. Fix: call Retree.move(node, destination, key) without first mutating the old parent; if that is already true, file a Retree issue with the source and destination."
+                );
+            }
+            parent.splice(index, 1);
+            return;
+        }
+
+        if (parent instanceof Map) {
+            const key = this.findMapChildKey(parent, node);
+            if (!key.found) {
+                // @retree-throws
+                throw new Error(
+                    "Retree.move: could not find the node in its Map parent while removing it. This is unexpected if the node was not manually deleted or reassigned before Retree.move(...) ran. Fix: call Retree.move(node, destination, key) without first mutating the old parent; if that is already true, file a Retree issue with the source and destination."
+                );
+            }
+            parent.delete(key.value);
+            return;
+        }
+
+        if (parent instanceof Set) {
+            if (!parent.delete(node)) {
+                // @retree-throws
+                throw new Error(
+                    "Retree.move: could not find the node in its Set parent while removing it. This is unexpected if the node was not manually deleted or reassigned before Retree.move(...) ran. Fix: call Retree.move(node, destination) without first mutating the old parent; if that is already true, file a Retree issue with the source and destination."
+                );
+            }
+            return;
+        }
+
+        const parentInfo = this.getParentInternal(node);
+        if (!parentInfo || parentInfo.propName === null) {
+            // @retree-throws
+            throw new Error(
+                "Retree.move: could not determine the object property that currently owns this node. This is unexpected for object parents and can happen if parent metadata was detached before the move. Fix: call Retree.move(...) before manually deleting/reassigning the old property; if that is already true, file a Retree issue with the source and destination."
+            );
+        }
+        if (!this.isSameTreeNode((parent as any)[parentInfo.propName], node)) {
+            // @retree-throws
+            throw new Error(
+                `Retree.move: parent property ${String(
+                    parentInfo.propName
+                )} no longer points to the node being moved. This is unexpected if the old parent was not manually mutated before Retree.move(...) ran. Fix: call Retree.move(...) before deleting or overwriting the old property; if that is already true, file a Retree issue with the source and destination.`
+            );
+        }
+        delete (parent as any)[parentInfo.propName];
+    }
+
+    private static insertNodeIntoDestination(
+        node: TreeNode,
+        destination: TreeNode,
+        key: unknown
+    ) {
+        if (Array.isArray(destination)) {
+            if (key === undefined) {
+                destination.push(node);
+                return;
+            }
+            if (typeof key !== "number") {
+                // @retree-throws
+                throw new Error(
+                    "Retree.move: array destinations require a numeric key, or no key to append. This is a caller argument error that TypeScript should usually catch. Fix: pass a number index, or omit the key to append to the array."
+                );
+            }
+            destination.splice(key, 0, node);
+            return;
+        }
+
+        if (destination instanceof Map) {
+            if (key === undefined) {
+                // @retree-throws
+                throw new Error(
+                    "Retree.move: Map destinations require a key. This is a caller argument error that TypeScript should usually catch. Fix: pass the Map key as the third argument."
+                );
+            }
+            destination.set(key, node);
+            return;
+        }
+
+        if (destination instanceof Set) {
+            destination.add(node);
+            return;
+        }
+
+        if (typeof key !== "string" && typeof key !== "symbol") {
+            // @retree-throws
+            throw new Error(
+                "Retree.move: object destinations require a string or symbol key. This is a caller argument error that TypeScript should usually catch. Fix: pass the destination property name as the third argument."
+            );
+        }
+        (destination as any)[key] = node;
+    }
+
+    private static findArrayChildIndex(parent: TreeNode[], node: TreeNode) {
+        for (let index = 0; index < parent.length; index++) {
+            if (this.isSameTreeNode(parent[index], node)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private static findMapChildKey(
+        parent: Map<unknown, unknown>,
+        node: TreeNode
+    ): { found: true; value: unknown } | { found: false } {
+        for (const [key, value] of parent.entries()) {
+            if (this.isSameTreeNode(value, node)) {
+                return { found: true, value: key };
+            }
+        }
+        return { found: false };
+    }
+
+    private static isSameTreeNode(value: unknown, node: TreeNode) {
+        if (value !== null && typeof value === "object") {
+            return getUnproxiedNode(value) === getUnproxiedNode(node);
+        }
+        return false;
+    }
+
+    private static cloneValue(
+        value: unknown,
+        seen: WeakMap<object, object>
+    ): unknown {
+        if (value === null || typeof value !== "object") {
+            return value;
+        }
+
+        const rawValue = getUnproxiedNode(value);
+        if (!rawValue) {
+            // @retree-throws
+            throw new Error(
+                "Retree.clone: expected object values to be cloneable Retree nodes while walking the source tree. This is unexpected if the source came from Retree.root(...) and was only mutated through Retree-managed proxies. Fix: avoid storing raw unmanaged objects inside managed nodes except in @ignore fields; if the value is managed, file a Retree issue with the value shape."
+            );
+        }
+        if (seen.has(rawValue)) {
+            return seen.get(rawValue);
+        }
+
+        if (rawValue instanceof Date) {
+            const clonedDate = new Date(rawValue.getTime());
+            seen.set(rawValue, clonedDate);
+            return clonedDate;
+        }
+
+        if (rawValue instanceof Map) {
+            const clonedMap = new Map();
+            seen.set(rawValue, clonedMap);
+            for (const [mapKey, mapValue] of rawValue.entries()) {
+                clonedMap.set(mapKey, this.cloneValue(mapValue, seen));
+            }
+            return clonedMap;
+        }
+
+        if (rawValue instanceof Set) {
+            const clonedSet = new Set();
+            seen.set(rawValue, clonedSet);
+            for (const setValue of rawValue.values()) {
+                clonedSet.add(this.cloneValue(setValue, seen));
+            }
+            return clonedSet;
+        }
+
+        if (Array.isArray(rawValue)) {
+            const clonedArray: unknown[] = [];
+            seen.set(rawValue, clonedArray);
+            rawValue.forEach((item, index) => {
+                clonedArray[index] = this.cloneValue(item, seen);
+            });
+            return clonedArray;
+        }
+
+        const clonedObject = Object.create(Object.getPrototypeOf(rawValue));
+        seen.set(rawValue, clonedObject);
+        for (const key of Reflect.ownKeys(rawValue)) {
+            const descriptor = Reflect.getOwnPropertyDescriptor(rawValue, key);
+            if (!descriptor) {
+                continue;
+            }
+            if ("value" in descriptor) {
+                Reflect.defineProperty(clonedObject, key, {
+                    ...descriptor,
+                    value: this.cloneValue(descriptor.value, seen),
+                });
+                continue;
+            }
+            Reflect.defineProperty(clonedObject, key, descriptor);
+        }
+        return clonedObject;
     }
 
     private static handleReactiveNode(
         proxiedDependentNode: ReactiveNode,
         unproxiedDependentNode: TreeNode
     ) {
-        const currentDependencies = proxiedDependentNode.dependencies;
+        const currentDependencies =
+            this.getReactiveNodeDependencies(proxiedDependentNode);
         const previousDependencies = getReactiveDependencies(
             unproxiedDependentNode
         );
         if (currentDependencies.length === 0) {
-            if (
-                previousDependencies !== undefined &&
-                previousDependencies.length !== 0
-            ) {
-                throw new Error(
-                    "ReactiveNode length of dependencies does not equal previous value. Please ensure your dependencies list is consistent in its length and ordering."
-                );
-            }
             if (previousDependencies !== undefined) {
+                this.unsubscribeReactiveDependencies(
+                    previousDependencies,
+                    unproxiedDependentNode
+                );
                 deleteReactiveDependencies(unproxiedDependentNode);
             }
             return;
         }
-        if (
-            previousDependencies &&
-            previousDependencies.length !== currentDependencies.length
-        ) {
-            throw new Error(
-                "ReactiveNode length of dependencies does not equal previous value. Please ensure your dependencies list is consistent in its length and ordering."
-            );
-        }
+        const previousDependenciesByKey = new Map(
+            previousDependencies?.map((dependency) => [
+                dependency.key,
+                dependency,
+            ]) ?? []
+        );
         const newActiveDependencies: IActiveReactiveDependency[] = [];
         for (
             let depIndex = 0;
             depIndex < currentDependencies.length;
             depIndex++
         ) {
-            const previousDependency = previousDependencies?.[depIndex];
             const currentDependency = currentDependencies[depIndex];
+            const previousDependency = previousDependenciesByKey.get(
+                currentDependency.key
+            );
             const newDependencyNode = currentDependency.node;
             let unsubscribe: (() => void) | undefined;
             const previousUnproxiedDependencyNode =
@@ -703,8 +1306,9 @@ export class Retree {
                 previousDependency.node !== null &&
                 previousUnproxiedDependencyNode === undefined
             ) {
+                // @retree-throws
                 throw new Error(
-                    "Unexpected missing cached unproxied node for previous dependent reactive node"
+                    "Retree internal invariant failed: a previous ReactiveNode dependency had a node but no cached raw node. This is unexpected and likely a Retree bug. Please file an issue with the ReactiveNode.dependencies implementation and the mutation that triggered this."
                 );
             }
             if (
@@ -717,8 +1321,9 @@ export class Retree {
                 const unproxiedDependencyNode =
                     getUnproxiedNode(newDependencyNode);
                 if (!unproxiedDependencyNode) {
+                    // @retree-throws
                     throw new Error(
-                        "Unexpected unproxied node for current dependent reactive node"
+                        "ReactiveNode.dependencies returned an object that is not Retree-managed. This is expected when a dependency points at a plain object. Fix: return null/undefined for inactive dependencies, or return a node created by Retree.root(...) or read from an existing Retree tree."
                     );
                 }
                 currentUnproxiedDependencyNode = unproxiedDependencyNode;
@@ -733,7 +1338,7 @@ export class Retree {
                     reactiveNode: proxiedDependentNode,
                     unproxiedReactiveNode: unproxiedDependentNode,
                     comparisons: currentDependency.comparisons,
-                    index: depIndex,
+                    key: currentDependency.key,
                 });
                 unsubscribe = previousDependency?.unsubscribeListener;
             } else {
@@ -742,7 +1347,7 @@ export class Retree {
                     deleteReactiveDependent(
                         previousUnproxiedDependencyNode,
                         unproxiedDependentNode,
-                        depIndex
+                        currentDependency.key
                     );
                 }
                 if (currentUnproxiedDependencyNode !== undefined) {
@@ -750,7 +1355,7 @@ export class Retree {
                         reactiveNode: proxiedDependentNode,
                         unproxiedReactiveNode: unproxiedDependentNode,
                         comparisons: currentDependency.comparisons,
-                        index: depIndex,
+                        key: currentDependency.key,
                     });
                     if (newDependencyNode) {
                         unsubscribe = retainReactiveDependencySubscription(
@@ -768,14 +1373,130 @@ export class Retree {
             }
 
             newActiveDependencies.push({
+                key: currentDependency.key,
                 node: currentDependency.node,
                 comparisons: currentDependency.comparisons,
                 unsubscribeListener: unsubscribe,
                 unproxiedNode: currentUnproxiedDependencyNode,
             });
         }
+        for (const previousDependency of previousDependencies ?? []) {
+            if (
+                !currentDependencies.some(
+                    (dependency) => dependency.key === previousDependency.key
+                )
+            ) {
+                previousDependency.unsubscribeListener?.();
+                const previousUnproxiedDependencyNode =
+                    previousDependency.unproxiedNode;
+                if (previousUnproxiedDependencyNode !== undefined) {
+                    deleteReactiveDependent(
+                        previousUnproxiedDependencyNode,
+                        unproxiedDependentNode,
+                        previousDependency.key
+                    );
+                }
+            }
+        }
         // Set reactive dependencies
         setReactiveDependencies(unproxiedDependentNode, newActiveDependencies);
+    }
+
+    private static getReactiveSelectDependencies(
+        proxiedDependentNode: ReactiveNode
+    ): IActiveReactiveDependency[] {
+        const selectGetters = proxiedDependentNode[SELECT_GETTERS_SYMBOL];
+        const dependencies: IActiveReactiveDependency[] = [];
+        const unproxiedDependentNode = getUnproxiedNode(proxiedDependentNode);
+        for (const [getterName, selectGetter] of selectGetters.entries()) {
+            const selected = selectGetter.getDependencies(proxiedDependentNode);
+            const selectedDependencies = normalizeSelectDependencies(selected);
+            if (selectedDependencies.length === 0) {
+                continue;
+            }
+            for (
+                let dependencyIndex = 0;
+                dependencyIndex < selectedDependencies.length;
+                dependencyIndex++
+            ) {
+                const selectedDependency =
+                    selectedDependencies[dependencyIndex];
+                const key = `select:${String(getterName)}:${dependencyIndex}`;
+                const normalizedDependency =
+                    this.normalizeReactiveNodeDependency(
+                        selectedDependency,
+                        key
+                    );
+                if (
+                    normalizedDependency.node !== undefined &&
+                    normalizedDependency.node !== null &&
+                    getUnproxiedNode(normalizedDependency.node) ===
+                        unproxiedDependentNode
+                ) {
+                    continue;
+                }
+                const laterComparisons = getDependencyComparisonValues(
+                    selectedDependencies.slice(dependencyIndex + 1)
+                );
+                dependencies.push({
+                    key,
+                    node: normalizedDependency.node,
+                    comparisons:
+                        normalizeDependencyEntry(selectedDependency).explicit ||
+                        laterComparisons.length === 0
+                            ? normalizedDependency.comparisons
+                            : laterComparisons,
+                    unsubscribeListener: undefined,
+                    unproxiedNode: undefined,
+                });
+            }
+        }
+        return dependencies;
+    }
+
+    private static getReactiveNodeDependencies(
+        proxiedDependentNode: ReactiveNode
+    ) {
+        return [
+            ...proxiedDependentNode.dependencies.map((dependency, index) =>
+                this.normalizeReactiveNodeDependency(
+                    dependency,
+                    `dependencies:${index}`
+                )
+            ),
+            ...this.getReactiveSelectDependencies(proxiedDependentNode),
+        ];
+    }
+
+    private static normalizeReactiveNodeDependency(
+        dependency: unknown,
+        key: string
+    ): IActiveReactiveDependency {
+        const normalizedDependency = normalizeDependencyEntry(dependency);
+        return {
+            key,
+            node: normalizedDependency.node,
+            comparisons: normalizedDependency.comparisons,
+            unsubscribeListener: undefined,
+            unproxiedNode: undefined,
+        };
+    }
+
+    private static unsubscribeReactiveDependencies(
+        dependencies: IActiveReactiveDependency[],
+        unproxiedNode: TreeNode
+    ) {
+        for (const dependency of dependencies) {
+            dependency.unsubscribeListener?.();
+            const unproxiedDependencyNode = dependency.unproxiedNode;
+            if (unproxiedDependencyNode !== undefined) {
+                deleteReactiveDependent(
+                    unproxiedDependencyNode,
+                    unproxiedNode,
+                    dependency.key
+                );
+            }
+        }
     }
 
     private static stopReactiveNode(
@@ -796,7 +1517,7 @@ export class Retree {
                 deleteReactiveDependent(
                     prevUnproxiedDependentNode,
                     unproxiedNode,
-                    depIndex
+                    depPrevious.key
                 );
             }
         }
@@ -813,50 +1534,35 @@ export class Retree {
         // It's cheap to get unproxied node, so doing that for now
         const _unproxy = getUnproxiedNode(reproxy);
         if (!_unproxy) {
+            // @retree-throws
             throw new Error(
-                "Unexpected unproxied node for current dependent reactive node on nodeChanged"
+                "Retree internal invariant failed: a ReactiveNode dependency change arrived with an unproxied node. This is unexpected and likely a Retree bug. Please file an issue with the dependency node and mutation that triggered this."
             );
         }
         const dependents = getReactiveDependents(_unproxy);
         if (!dependents) {
             return;
         }
-        dependents.forEach((dependent) => {
-            const previousComparisons = dependent.comparisons;
-            let shouldNotify = previousComparisons === undefined;
-            // If our comparisons exist, we check to see if any changed
-            if (!shouldNotify) {
-                // Need to get the latest dependency values for our comparison
-                const latest =
-                    dependent.reactiveNode.dependencies[dependent.index];
-                const latestComparisons = latest.comparisons;
-                if (
-                    latestComparisons === undefined ||
-                    !previousComparisons ||
-                    latestComparisons.length !== previousComparisons.length
-                ) {
-                    throw new Error(
-                        "Unexpected comparisons value for ReactiveNode. Ensure your comparisons have a consistent length and ordering for each ReactiveNode instance."
-                    );
-                }
-                for (let i = 0; i < latestComparisons.length; i++) {
-                    if (latestComparisons[i] !== previousComparisons[i]) {
-                        shouldNotify = true;
-                        continue;
-                    }
-                }
+        const groupedDependents = this.groupReactiveDependents(dependents);
+        groupedDependents.forEach((group) => {
+            if (
+                !group.dependents.some((dependent) =>
+                    this.shouldNotifyReactiveDependent(dependent, _unproxy)
+                )
+            ) {
+                return;
             }
-            if (!shouldNotify) return;
             // Reproxy node and emit listener
-            const dependentBaseProxy = getBaseProxy(dependent.reactiveNode);
+            const dependentBaseProxy = getBaseProxy(group.reactiveNode);
             const dependentUnproxied =
                 getUnproxiedNodeFromProxy(dependentBaseProxy);
             const dependentReproxy = Transactions.skipReproxy
                 ? getReproxyNodeForUnproxiedNode(dependentUnproxied)
                 : updateReproxyNode(dependentBaseProxy);
             if (!dependentReproxy) {
+                // @retree-throws
                 throw new Error(
-                    "Unexpectely found no existing reproxy value for dependent node."
+                    "Retree internal invariant failed: unexpectedly found no reproxy value for a dependent ReactiveNode. This is unexpected and likely a Retree bug. Please file an issue with the ReactiveNode.dependencies implementation and whether the mutation happened inside Retree.runSilent(...)."
                 );
             }
             this.nodeChangeListener?.(
@@ -865,5 +1571,69 @@ export class Retree {
                 dependentReproxy
             );
         });
+    }
+
+    private static groupReactiveDependents(
+        dependents: IPreviousReactiveDependent[]
+    ) {
+        const groups = new Map<
+            TreeNode,
+            {
+                reactiveNode: ReactiveNode;
+                dependents: IPreviousReactiveDependent[];
+            }
+        >();
+        for (const dependent of dependents) {
+            const group = groups.get(dependent.unproxiedReactiveNode);
+            if (group !== undefined) {
+                group.reactiveNode = dependent.reactiveNode;
+                group.dependents.push(dependent);
+                continue;
+            }
+            groups.set(dependent.unproxiedReactiveNode, {
+                reactiveNode: dependent.reactiveNode,
+                dependents: [dependent],
+            });
+        }
+        return Array.from(groups.values());
+    }
+
+    private static shouldNotifyReactiveDependent(
+        dependent: IPreviousReactiveDependent,
+        changedUnproxiedNode: TreeNode
+    ) {
+        const previousComparisons = dependent.comparisons;
+        if (previousComparisons === undefined) {
+            return true;
+        }
+        const latest = this.getReactiveNodeDependencies(
+            dependent.reactiveNode
+        ).find((dependency) => dependency.key === dependent.key);
+        if (latest === undefined) {
+            return true;
+        }
+        if (latest.node !== undefined && latest.node !== null) {
+            if (getUnproxiedNode(latest.node) !== changedUnproxiedNode) {
+                return true;
+            }
+        }
+        const latestComparisons = latest.comparisons;
+        if (latestComparisons === undefined) {
+            return true;
+        }
+        if (latestComparisons.length !== previousComparisons.length) {
+            return true;
+        }
+        for (let i = 0; i < latestComparisons.length; i++) {
+            if (
+                !areDependencyValuesEqual(
+                    previousComparisons[i],
+                    latestComparisons[i]
+                )
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 }

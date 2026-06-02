@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Retree } from "@retreejs/core";
+import { ReactiveNode, Retree, select } from "@retreejs/core";
 import type {
     FunctionArgs,
     FunctionReference,
@@ -20,6 +20,7 @@ import {
     OptimisticUpdateContext,
     reconcileArrayById,
 } from "./index";
+import { reconcileArray } from "./internals/reconcile";
 
 type TasksQuery = FunctionReference<
     "query",
@@ -303,6 +304,27 @@ class TestConvexNode extends ConvexNode {
     }
 }
 
+class SelectedTasksNode extends ReactiveNode {
+    public readonly tasksQuery: ConvexQueryNode<ConvexTasksQuery>;
+
+    constructor(client: FakeConvexClient) {
+        super();
+        this.tasksQuery = new ConvexQueryNode(client, convexTasksQuery, {
+            args: { listId: "today" },
+            initialState: [],
+        });
+    }
+
+    @select
+    public get tasks() {
+        return this.tasksQuery.state?.filter(() => true) ?? [];
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
 describe("ConvexQueryNode", () => {
     it("writes query updates into state through Retree", () => {
         const client = new FakeConvexClient();
@@ -322,6 +344,32 @@ describe("ConvexQueryNode", () => {
             { id: "task-1", text: "Buy groceries", isCompleted: false },
         ]);
         expect(nodeChanged).toHaveBeenCalled();
+    });
+
+    it("reproxies a parent @select owner when a reconciled document array gains an item", () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(new SelectedTasksNode(client));
+        const nodeChanged = vi.fn();
+
+        Retree.on(node, "nodeChanged", nodeChanged);
+        expect(node.tasks).toEqual([]);
+
+        client.subscriptions[0].callback([
+            {
+                _id: "task-1",
+                text: "Buy groceries",
+                isCompleted: false,
+            },
+        ]);
+
+        expect(nodeChanged).toHaveBeenCalled();
+        expect(node.tasks).toEqual([
+            {
+                _id: "task-1",
+                text: "Buy groceries",
+                isCompleted: false,
+            },
+        ]);
     });
 
     it("resubscribes when args change", () => {
@@ -764,6 +812,68 @@ describe("ConvexQueryNode", () => {
         expect(node.error).toBeNull();
     });
 
+    it("keeps newer optimistic state while a newer optimistic mutation is pending", async () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(
+            new ConvexQueryNode(client, tasksQuery, {
+                args: { listId: "today" },
+            })
+        );
+        Retree.on(node, "nodeChanged", () => undefined);
+        client.subscriptions[0].callback([
+            { id: "task-1", text: "Buy groceries", isCompleted: false },
+        ]);
+        let resolveFirstMutation!: () => void;
+        const firstMutation = new Promise<null>((resolve) => {
+            resolveFirstMutation = () => resolve(null);
+        });
+        let resolveSecondMutation!: () => void;
+        const secondMutation = new Promise<null>((resolve) => {
+            resolveSecondMutation = () => resolve(null);
+        });
+
+        node.optimisticUpdate({
+            ctx: {
+                args: { taskId: "task-1" },
+                promise: firstMutation,
+            },
+            apply(tasks) {
+                tasks[0].text = "Buy groceries A";
+            },
+        });
+        node.optimisticUpdate({
+            ctx: {
+                args: { taskId: "task-1" },
+                promise: secondMutation,
+            },
+            apply(tasks) {
+                tasks[0].text = "Buy groceries B";
+            },
+        });
+
+        resolveFirstMutation();
+        await firstMutation;
+        await Promise.resolve();
+        client.subscriptions[0].callback([
+            { id: "task-1", text: "Buy groceries A", isCompleted: false },
+        ]);
+
+        expect(node.state).toEqual([
+            { id: "task-1", text: "Buy groceries B", isCompleted: false },
+        ]);
+
+        resolveSecondMutation();
+        await secondMutation;
+        await Promise.resolve();
+        client.subscriptions[0].callback([
+            { id: "task-1", text: "Buy groceries B", isCompleted: false },
+        ]);
+
+        expect(node.state).toEqual([
+            { id: "task-1", text: "Buy groceries B", isCompleted: false },
+        ]);
+    });
+
     it("rolls dirty optimistic state back when a later mutation fails first", async () => {
         const client = new FakeConvexClient();
         const node = Retree.root(
@@ -870,5 +980,31 @@ describe("ConvexQueryNode", () => {
 
         expect(node.state?.[0]?.isCompleted).toBe(true);
         expect(node.state?.[1]).toBe(unchangedTask);
+    });
+
+    it("reconciles arrays with sparse current slots", () => {
+        const current: { id: string; text: string }[] = [];
+        current.length = 2;
+        current[1] = { id: "task-2", text: "Read docs" };
+        const preservedTask = current[1];
+
+        reconcileArray(
+            current,
+            [
+                { id: "task-1", text: "Buy groceries" },
+                { id: "task-2", text: "Read better docs" },
+            ],
+            (task) => task.id
+        );
+
+        expect(current[0]).toEqual({
+            id: "task-1",
+            text: "Buy groceries",
+        });
+        expect(current[1]).toBe(preservedTask);
+        expect(current[1]).toEqual({
+            id: "task-2",
+            text: "Read better docs",
+        });
     });
 });

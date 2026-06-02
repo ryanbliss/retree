@@ -1,50 +1,190 @@
 "use client";
 
-import { useNode, useRoot } from "@retreejs/react";
-import { useEffect } from "react";
+import { useNode, useRoot, useSelect } from "@retreejs/react";
+import { FormEvent, memo, useEffect } from "react";
 import { Doc, Id } from "../convex/_generated/dataModel";
-import { TasksState } from "./tasks-state";
+import {
+    AddTaskState,
+    TaskFilterNode,
+    TaskFilterValue,
+    TaskRowState,
+    TasksState,
+} from "./tasks-state";
+
+const filterOptions: { label: string; value: TaskFilterValue }[] = [
+    { label: "No filter", value: null },
+    { label: "Completed tasks", value: true },
+    { label: "Incomplete tasks", value: false },
+];
 
 export default function Home() {
-    const root = useRoot(
-        () => new TasksState(process.env.NEXT_PUBLIC_CONVEX_URL!)
-    );
-    const tasks = useNode(root.tasks);
+    const _root = useRoot(() => new TasksState());
+    const root = useNode(_root);
 
     useEffect(() => {
-        return () => root.dispose();
-    }, [root]);
+        return () => _root.dispose();
+    }, [_root]);
 
     return (
-        <main className="flex min-h-screen flex-col items-center justify-between p-24">
-            {tasks.state?.map((task) => (
-                <TaskRow
-                    key={task._id}
-                    task={task}
-                    onToggle={(taskId) => void root.toggleCompleted(taskId)}
-                />
-            ))}
+        <main className="min-h-screen bg-zinc-50 px-5 py-8 text-zinc-950 sm:px-8">
+            <section className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+                <header className="flex flex-col gap-4 border-b border-zinc-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                        <p className="text-sm font-medium text-zinc-500">
+                            Retree + Convex
+                        </p>
+                        <h1 className="text-3xl font-semibold tracking-normal">
+                            Tasks
+                        </h1>
+                    </div>
+                    <FilterControls filter={root.filter} />
+                </header>
+
+                <AddTaskForm />
+
+                <section className="flex flex-col gap-3">
+                    {root.status === "pending" ? (
+                        <div className="rounded-md border border-dashed border-zinc-300 bg-white px-4 py-8 text-center text-sm text-zinc-500">
+                            Loading tasks
+                        </div>
+                    ) : null}
+                    {root.tasks?.map((task) => (
+                        <TaskCard
+                            key={task._id}
+                            task={task}
+                            onToggle={root.toggleCompleted}
+                            onRename={root.renameTask}
+                        />
+                    ))}
+                    {root.status !== "pending" && root.tasks?.length === 0 ? (
+                        <div className="rounded-md border border-dashed border-zinc-300 bg-white px-4 py-8 text-center text-sm text-zinc-500">
+                            No tasks yet
+                        </div>
+                    ) : null}
+                </section>
+            </section>
         </main>
     );
 }
 
-function TaskRow({
-    task: taskNode,
+const FilterControls = memo(function FilterControls({
+    filter: filterNode,
+}: {
+    filter: TaskFilterNode;
+}) {
+    const filter = useNode(filterNode);
+
+    useEffect(() => {
+        console.log("FilterControls render");
+    });
+
+    return (
+        <div className="inline-flex rounded-md border border-zinc-200 bg-white p-1 shadow-sm">
+            {filterOptions.map((option) => {
+                const isSelected = filter.isCompleted === option.value;
+                return (
+                    <button
+                        key={option.label}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => (filter.isCompleted = option.value)}
+                        className={[
+                            "rounded-sm px-3 py-2 text-sm font-medium transition",
+                            isSelected
+                                ? "bg-zinc-900 text-white"
+                                : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950",
+                        ].join(" ")}
+                    >
+                        {option.label}
+                    </button>
+                );
+            })}
+        </div>
+    );
+});
+
+const AddTaskForm = memo(function AddTaskForm() {
+    const addTaskNode = useRoot(() => new AddTaskState());
+    const addTask = useNode(addTaskNode);
+
+    async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault();
+        await addTask.submit();
+    }
+
+    return (
+        <form
+            onSubmit={(event) => void handleSubmit(event)}
+            className="rounded-md border border-zinc-200 bg-white p-3 shadow-sm"
+        >
+            <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                    value={addTask.text}
+                    onChange={(event) => addTask.setText(event.target.value)}
+                    placeholder="Add a task"
+                    className="min-h-11 flex-1 rounded-sm border border-zinc-200 px-3 text-base outline-none transition placeholder:text-zinc-400 focus:border-zinc-500"
+                />
+                <button
+                    type="submit"
+                    disabled={!addTask.canSubmit}
+                    className="min-h-11 rounded-sm bg-zinc-900 px-4 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                >
+                    {addTask.isSaving ? "Adding" : "Add task"}
+                </button>
+            </div>
+            {addTask.error ? (
+                <p className="mt-2 text-sm text-red-600">{addTask.error}</p>
+            ) : null}
+        </form>
+    );
+});
+
+const TaskCard = memo(function TaskCard({
+    task,
     onToggle,
+    onRename,
 }: {
     task: Doc<"tasks">;
     onToggle: (taskId: Id<"tasks">) => void;
+    onRename: (taskId: Id<"tasks">, text: string) => Promise<null>;
 }) {
-    const task = useNode(taskNode);
+    const taskRowNode = useRoot(() => new TaskRowState(task));
+    const taskId = useSelect(() => taskRowNode.task._id);
+    const taskText = useSelect(() => taskRowNode.task.text);
+    const isCompleted = useSelect(() => taskRowNode.task.isCompleted);
+
+    useEffect(() => {
+        if (taskRowNode.task === task) return;
+        taskRowNode.updateTask(task);
+    }, [task, taskRowNode]);
 
     return (
-        <div>
+        <article className="flex items-start gap-3 rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
             <input
                 type="checkbox"
-                checked={task.isCompleted}
-                onChange={() => onToggle(task._id)}
+                checked={isCompleted}
+                onChange={() => onToggle(taskId)}
+                className="mt-1 size-4 accent-zinc-900"
+                aria-label={`Toggle ${taskText}`}
             />
-            {task.text}
-        </div>
+            <div className="min-w-0 flex-1">
+                <input
+                    value={taskText}
+                    onChange={(event) =>
+                        void onRename(taskId, event.target.value)
+                    }
+                    className={[
+                        "w-full rounded-sm border border-transparent bg-transparent px-0 py-0 text-base font-medium outline-none transition focus:border-zinc-300 focus:bg-white focus:px-2 focus:py-1",
+                        isCompleted
+                            ? "text-zinc-500 line-through"
+                            : "text-zinc-950",
+                    ].join(" ")}
+                    aria-label={`Edit ${taskText}`}
+                />
+                <p className="mt-1 text-sm text-zinc-500">
+                    {isCompleted ? "Completed" : "Incomplete"}
+                </p>
+            </div>
+        </article>
     );
-}
+});

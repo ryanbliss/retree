@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
-import { fnMemo, memo } from "./decorators";
+import { fnMemo, ignore, memo } from "./decorators";
+import { getReproxyNode } from "./internals/reproxy";
 import { Transactions } from "./internals/transactions";
 
 const rootsToCleanup: object[] = [];
@@ -130,9 +131,10 @@ describe("memo (method form)", () => {
         expect(root.computeCount).toBe(1);
     });
 
-    it("with undefined comparisons, recomputes once per reproxy", () => {
+    it("with omitted comparisons, traps getter reads as comparisons", () => {
         class UndefinedDepsNode extends ReactiveNode {
             public counter = 0;
+            public unrelated = 0;
             public computeCount = 0;
 
             get cached(): number {
@@ -156,12 +158,11 @@ describe("memo (method form)", () => {
         expect(root.cached).toBe(0);
         expect(root.computeCount).toBe(1);
 
-        // A property set reproxies the ReactiveNode → next read recomputes.
         root.counter = 1;
         expect(root.cached).toBe(1);
         expect(root.computeCount).toBe(2);
 
-        // Repeated reads are cached again until the next reproxy.
+        root.unrelated = 1;
         expect(root.cached).toBe(1);
         expect(root.computeCount).toBe(2);
     });
@@ -349,9 +350,10 @@ describe("@memo decorator", () => {
         expect(root.computeCount).toBe(2);
     });
 
-    it("with no deps function (undefined comparisons), recomputes once per reproxy", () => {
+    it("with no deps function, traps getter reads as comparisons", () => {
         class UndefDeps extends ReactiveNode {
             public counter = 0;
+            public unrelated = 0;
             public computeCount = 0;
 
             @memo()
@@ -375,6 +377,103 @@ describe("@memo decorator", () => {
         root.counter = 1;
         expect(root.cached).toBe(1);
         expect(root.computeCount).toBe(2);
+
+        root.unrelated = 1;
+        expect(root.cached).toBe(1);
+        expect(root.computeCount).toBe(2);
+    });
+
+    it("supports @memo without parentheses as automatic dependency trapping", () => {
+        class BareMemoNode extends ReactiveNode {
+            public counter = 0;
+            public unrelated = 0;
+            public computeCount = 0;
+
+            @memo
+            get cached(): number {
+                this.computeCount += 1;
+                return this.counter;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new BareMemoNode()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.cached).toBe(0);
+        expect(root.cached).toBe(0);
+        expect(root.computeCount).toBe(1);
+
+        root.unrelated = 1;
+        expect(root.cached).toBe(0);
+        expect(root.computeCount).toBe(1);
+
+        root.counter = 1;
+        expect(root.cached).toBe(1);
+        expect(root.computeCount).toBe(2);
+    });
+
+    it("with no deps function, narrows trapped child property reads", () => {
+        class ChildPropertyNode extends ReactiveNode {
+            public child = { value: 1, label: "initial" };
+            public computeCount = 0;
+
+            @memo()
+            get doubled(): number {
+                this.computeCount += 1;
+                return this.child.value * 2;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new ChildPropertyNode()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.doubled).toBe(2);
+        expect(root.doubled).toBe(2);
+        expect(root.computeCount).toBe(1);
+
+        root.child.label = "updated";
+        expect(root.doubled).toBe(2);
+        expect(root.computeCount).toBe(1);
+
+        root.child.value = 2;
+        expect(root.doubled).toBe(4);
+        expect(root.computeCount).toBe(2);
+    });
+
+    it("still emits and reproxies when a @memo getter writes a non-ignored field", () => {
+        class SideEffectMemoNode extends ReactiveNode {
+            public source = 1;
+            public sideEffectCount = 0;
+
+            @memo()
+            get doubled(): number {
+                this.sideEffectCount += 1;
+                return this.source * 2;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new SideEffectMemoNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+        const beforeRead = getReproxyNode(root);
+
+        expect(root.doubled).toBe(2);
+
+        expect(root.sideEffectCount).toBe(1);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(getReproxyNode(root)).not.toBe(beforeRead);
     });
 
     it("returns []-style 'cache forever' when the deps function returns []", () => {
@@ -530,9 +629,10 @@ describe("@fnMemo decorator", () => {
         expect(root.computeCount).toBe(3);
     });
 
-    it("with undefined comparisons, reuses same-argument calls until the node reproxies", () => {
+    it("with no deps function, traps method reads and method arguments as comparisons", () => {
         class Formatter extends ReactiveNode {
             public suffix = "a";
+            public unrelated = 0;
             public computeCount = 0;
 
             @fnMemo()
@@ -558,9 +658,182 @@ describe("@fnMemo decorator", () => {
         expect(root.format(2)).toBe("2:a");
         expect(root.computeCount).toBe(2);
 
+        root.unrelated = 1;
+        expect(root.format(2)).toBe("2:a");
+        expect(root.computeCount).toBe(2);
+
         root.suffix = "b";
         expect(root.format(2)).toBe("2:b");
         expect(root.computeCount).toBe(3);
+    });
+
+    it("supports @fnMemo without parentheses as automatic dependency trapping", () => {
+        class BareFnMemoNode extends ReactiveNode {
+            public suffix = "a";
+            public unrelated = 0;
+            public computeCount = 0;
+
+            @fnMemo
+            public format(value: number): string {
+                this.computeCount += 1;
+                return `${value}:${this.suffix}`;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new BareFnMemoNode()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.format(1)).toBe("1:a");
+        expect(root.format(1)).toBe("1:a");
+        expect(root.computeCount).toBe(1);
+
+        root.unrelated = 1;
+        expect(root.format(1)).toBe("1:a");
+        expect(root.computeCount).toBe(1);
+
+        expect(root.format(2)).toBe("2:a");
+        expect(root.computeCount).toBe(2);
+
+        root.suffix = "b";
+        expect(root.format(2)).toBe("2:b");
+        expect(root.computeCount).toBe(3);
+    });
+
+    it("with no deps function, narrows trapped method child property reads", () => {
+        class ChildFormatter extends ReactiveNode {
+            public child = { suffix: "a", label: "initial" };
+            public computeCount = 0;
+
+            @fnMemo()
+            public format(value: number): string {
+                this.computeCount += 1;
+                return `${value}:${this.child.suffix}`;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new ChildFormatter()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.format(1)).toBe("1:a");
+        expect(root.format(1)).toBe("1:a");
+        expect(root.computeCount).toBe(1);
+
+        root.child.label = "updated";
+        expect(root.format(1)).toBe("1:a");
+        expect(root.computeCount).toBe(1);
+
+        expect(root.format(2)).toBe("2:a");
+        expect(root.computeCount).toBe(2);
+
+        root.child.suffix = "b";
+        expect(root.format(2)).toBe("2:b");
+        expect(root.computeCount).toBe(3);
+    });
+
+    it("still emits and reproxies when a @fnMemo method writes a non-ignored field", () => {
+        class SideEffectFnMemoNode extends ReactiveNode {
+            public suffix = "a";
+            public sideEffectCount = 0;
+
+            @fnMemo()
+            public format(value: number): string {
+                this.sideEffectCount += 1;
+                return `${value}:${this.suffix}`;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new SideEffectFnMemoNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+        const beforeCall = getReproxyNode(root);
+
+        expect(root.format(1)).toBe("1:a");
+
+        expect(root.sideEffectCount).toBe(1);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(getReproxyNode(root)).not.toBe(beforeCall);
+    });
+
+    it("traps nested memo reads while keeping fnMemo writes out of the cache dependencies", () => {
+        class MixedSideEffectNode extends ReactiveNode {
+            public count1 = 0;
+            @ignore
+            public count2 = 0;
+            @ignore
+            public count3ComputeCount = 0;
+            @ignore
+            public incrementComputeCount = 0;
+
+            @memo()
+            get count3(): number {
+                this.count3ComputeCount += 1;
+                return this.count1 + this.count2;
+            }
+
+            @fnMemo()
+            public increment(label: string): number {
+                this.incrementComputeCount += 1;
+                this.count1 += 1;
+                this.count2 += 1;
+                return this.count3;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new MixedSideEffectNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        expect(root.increment("same")).toBe(2);
+        expect(root.count1).toBe(1);
+        expect(root.count2).toBe(1);
+        expect(root.incrementComputeCount).toBe(1);
+        expect(root.count3ComputeCount).toBe(1);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+
+        expect(root.increment("same")).toBe(2);
+        expect(root.count1).toBe(1);
+        expect(root.count2).toBe(1);
+        expect(root.incrementComputeCount).toBe(1);
+        expect(root.count3ComputeCount).toBe(1);
+
+        root.count1 = 10;
+        expect(root.increment("same")).toBe(13);
+        expect(root.count1).toBe(11);
+        expect(root.count2).toBe(2);
+        expect(root.incrementComputeCount).toBe(2);
+        expect(root.count3ComputeCount).toBe(3);
+        expect(nodeChanged).toHaveBeenCalledTimes(3);
+
+        root.count2 = 20;
+        expect(root.increment("same")).toBe(33);
+        expect(root.count1).toBe(12);
+        expect(root.count2).toBe(21);
+        expect(root.incrementComputeCount).toBe(3);
+        expect(root.count3ComputeCount).toBe(5);
+        expect(nodeChanged).toHaveBeenCalledTimes(4);
+
+        expect(root.increment("other")).toBe(35);
+        expect(root.count1).toBe(13);
+        expect(root.count2).toBe(22);
+        expect(root.incrementComputeCount).toBe(4);
+        expect(root.count3ComputeCount).toBe(6);
+        expect(nodeChanged).toHaveBeenCalledTimes(5);
     });
 
     it("with empty comparisons, recomputes only when arguments change", () => {
@@ -689,9 +962,10 @@ describe("memo (keyless method form)", () => {
         expect(root.computeCount).toBe(3);
     });
 
-    it("supports the undefined-deps form (recompute once per reproxy)", () => {
+    it("supports omitted comparisons by trapping getter reads", () => {
         class Undef extends ReactiveNode {
             public counter = 0;
+            public unrelated = 0;
             public computeCount = 0;
 
             get cached(): number {
@@ -715,6 +989,10 @@ describe("memo (keyless method form)", () => {
         expect(root.computeCount).toBe(1);
 
         root.counter = 1;
+        expect(root.cached).toBe(1);
+        expect(root.computeCount).toBe(2);
+
+        root.unrelated = 1;
         expect(root.cached).toBe(1);
         expect(root.computeCount).toBe(2);
     });

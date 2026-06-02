@@ -3,7 +3,11 @@
  * Licensed under the MIT License.
  */
 
-import { COLLECTED_KEYS_SYMBOL, ReactiveNode } from "../ReactiveNode";
+import {
+    COLLECTED_KEYS_SYMBOL,
+    LINKED_KEYS_SYMBOL,
+    ReactiveNode,
+} from "../ReactiveNode";
 import { TreeNode } from "../types";
 import { TreeChangeEmitter } from "./NodeChangeEmitter";
 import {
@@ -18,7 +22,16 @@ import {
     unproxiedBaseNodeKey,
 } from "./proxy-types";
 import { getReactiveNodeGetter, popMemoGetter, pushMemoGetter } from "./memo";
-import { getReproxyNodeForUnproxiedNode, updateReproxyNode } from "./reproxy";
+import {
+    getReproxyNode,
+    getReproxyNodeForUnproxiedNode,
+    updateReproxyNode,
+} from "./reproxy";
+import {
+    trackDependencyAccess,
+    trackDependencyPropertyAccess,
+    trackDependencyPropertyWrite,
+} from "./dependency-tracking";
 import { Transactions } from "./transactions";
 
 export const FUNCTION_NAMES_BIND_TO_RAW: (string | symbol)[] = [
@@ -66,6 +79,26 @@ const DATE_MUTATING_METHODS: Record<
     setUTCSeconds: Date.prototype.setUTCSeconds,
 };
 
+interface BoundFunctionCacheEntry {
+    source: Function;
+    bound: Function;
+}
+
+export function getCachedBoundFunction<TFunction extends Function>(
+    cache: Map<string | symbol, BoundFunctionCacheEntry>,
+    prop: string | symbol,
+    source: TFunction,
+    thisArg: unknown
+): TFunction {
+    const cached = cache.get(prop);
+    if (cached !== undefined && cached.source === source) {
+        return cached.bound as TFunction;
+    }
+    const bound = source.bind(thisArg);
+    cache.set(prop, { source, bound });
+    return bound as TFunction;
+}
+
 /**
  * Built-ins like {@link Date}, {@link Map}, and {@link Set} rely on internal slots, so calling their methods
  * with a Proxy as the `this` value throws "incompatible receiver". For those instances we bind
@@ -81,6 +114,31 @@ export function isInternalSlotInstance(
 
 function isDateMutatingMethod(prop: string): prop is DateMutatingMethodName {
     return Object.prototype.hasOwnProperty.call(DATE_MUTATING_METHODS, prop);
+}
+
+function getLatestIgnoredValue(value: unknown) {
+    if (isCustomProxy(value)) {
+        return getReproxyNode(value);
+    }
+    return value;
+}
+
+function assertValidLinkedValue(prop: string | symbol, value: unknown) {
+    if (value === null || value === undefined) {
+        return;
+    }
+    if (typeof value !== "object") {
+        return;
+    }
+    if (isCustomProxy(value)) {
+        return;
+    }
+    // @retree-throws
+    throw new Error(
+        `@link field ${String(
+            prop
+        )} can only store a Retree-managed node, null, undefined, or a non-object leaf value. This is expected when assigning a plain object to @link. Fix: pass the object through Retree.root(...) or read it from an existing Retree tree first; use @ignore for non-reactive objects that should not be managed by Retree.`
+    );
 }
 
 /**
@@ -99,6 +157,10 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     parent?: IProxyParent<any>
 ): T {
     let isApplyingSet = false;
+    const boundFunctionCache = new Map<
+        string | symbol,
+        BoundFunctionCacheEntry
+    >();
     const proxyHandler: ProxyHandler<T> & ICustomProxyHandler<T> = {
         // Add some extra stuff into the handler so we can store the original TreeNode and access it later
         // Without overriding the rest of the getters in the object.
@@ -115,11 +177,22 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             if (target instanceof ReactiveNode) {
                 const propString = String(prop);
                 // Check for ignore keys
-                if (
-                    propString === COLLECTED_KEYS_SYMBOL ||
-                    target[COLLECTED_KEYS_SYMBOL].has(propString)
-                ) {
+                if (propString.startsWith("RETREE_")) {
                     return Reflect.get(target, prop, target);
+                }
+                if (target[COLLECTED_KEYS_SYMBOL].has(propString)) {
+                    return trackDependencyPropertyAccess(
+                        getBaseProxy(receiver),
+                        prop,
+                        getLatestIgnoredValue(Reflect.get(target, prop, target))
+                    );
+                }
+                if (target[LINKED_KEYS_SYMBOL].has(prop)) {
+                    return trackDependencyPropertyAccess(
+                        getBaseProxy(receiver),
+                        prop,
+                        getLatestIgnoredValue(Reflect.get(target, prop, target))
+                    );
                 }
             }
             if (
@@ -128,7 +201,12 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             ) {
                 const value = proxyHandler[proxiedChildrenKey][prop];
                 if (typeof value !== "function") {
-                    return value;
+                    const baseProxy = getBaseProxy(receiver);
+                    return trackDependencyPropertyAccess(
+                        baseProxy,
+                        prop,
+                        value
+                    );
                 }
             }
             const baseProxy = getBaseProxy(receiver);
@@ -186,9 +264,16 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                             emitter
                         );
                     }
-                    return value.bind(target);
+                    return trackDependencyAccess(
+                        getCachedBoundFunction(
+                            boundFunctionCache,
+                            prop,
+                            value,
+                            target
+                        )
+                    );
                 }
-                return value;
+                return trackDependencyPropertyAccess(baseProxy, prop, value);
             }
             let value: any;
             if (
@@ -209,9 +294,23 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             }
             if (typeof value === "function") {
                 if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
-                    return value.bind(target);
+                    return trackDependencyAccess(
+                        getCachedBoundFunction(
+                            boundFunctionCache,
+                            prop,
+                            value,
+                            target
+                        )
+                    );
                 }
-                return value.bind(baseProxy);
+                return trackDependencyAccess(
+                    getCachedBoundFunction(
+                        boundFunctionCache,
+                        prop,
+                        value,
+                        baseProxy
+                    )
+                );
             }
             if (shouldLazilyProxyProperty(target, prop, value)) {
                 const descriptor = Reflect.getOwnPropertyDescriptor(
@@ -219,23 +318,62 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     prop
                 );
                 if (!descriptor || !descriptorHasValue(descriptor)) {
-                    return value;
+                    return trackDependencyPropertyAccess(
+                        baseProxy,
+                        prop,
+                        value
+                    );
                 }
                 if (!shouldKeepRawPropertyValue(descriptor, value)) {
-                    return getOrCreateProxiedChild(
-                        proxyHandler,
-                        prop,
-                        value,
+                    return trackDependencyPropertyAccess(
                         baseProxy,
-                        emitter
+                        prop,
+                        getOrCreateProxiedChild(
+                            proxyHandler,
+                            prop,
+                            value,
+                            baseProxy,
+                            emitter
+                        )
                     );
                 }
             }
-            return value;
+            return trackDependencyPropertyAccess(baseProxy, prop, value);
         },
         set(target, prop, newValue, receiver) {
+            trackDependencyPropertyWrite(getBaseProxy<T>(receiver), prop);
             if (target instanceof ReactiveNode) {
                 const propString = String(prop);
+                if (target[LINKED_KEYS_SYMBOL].has(prop)) {
+                    assertValidLinkedValue(prop, newValue);
+                    const prev = Reflect.get(target, prop, target);
+                    if (prev === newValue) {
+                        return true;
+                    }
+                    const baseProxy = getBaseProxy<T>(receiver);
+                    let returnValue: boolean;
+                    isApplyingSet = true;
+                    try {
+                        returnValue = Reflect.set(
+                            target,
+                            prop,
+                            newValue,
+                            target
+                        );
+                    } finally {
+                        isApplyingSet = false;
+                    }
+                    if (!Transactions.skipReproxy) {
+                        const reproxy = updateReproxyNode(baseProxy);
+                        emitter.emit(
+                            "nodeChanged",
+                            proxyHandler[unproxiedBaseNodeKey],
+                            baseProxy,
+                            reproxy
+                        );
+                    }
+                    return returnValue;
+                }
                 // Check for ignore keys
                 if (
                     propString === COLLECTED_KEYS_SYMBOL ||
@@ -311,6 +449,15 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             return true;
         },
         defineProperty(target, prop, descriptor) {
+            const currentProxyForWrite = isCustomProxy(target)
+                ? target
+                : getReproxyNodeForUnproxiedNode(target);
+            const baseProxyForWrite = currentProxyForWrite
+                ? getBaseProxy(currentProxyForWrite)
+                : undefined;
+            if (baseProxyForWrite !== undefined) {
+                trackDependencyPropertyWrite(baseProxyForWrite, prop);
+            }
             if (target instanceof ReactiveNode) {
                 const propString = String(prop);
                 // Check for ignore keys
@@ -324,9 +471,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             if (isApplyingSet) {
                 return Reflect.defineProperty(target, prop, descriptor);
             }
-            const currentProxy = isCustomProxy(target)
-                ? target
-                : getReproxyNodeForUnproxiedNode(target);
+            const currentProxy = currentProxyForWrite;
             const baseProxy = currentProxy
                 ? getBaseProxy(currentProxy)
                 : currentProxy;
@@ -500,7 +645,8 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 value === null ||
                 (object instanceof ReactiveNode &&
                     (propString === COLLECTED_KEYS_SYMBOL ||
-                        object[COLLECTED_KEYS_SYMBOL].has(propString)))
+                        object[COLLECTED_KEYS_SYMBOL].has(propString) ||
+                        object[LINKED_KEYS_SYMBOL].has(prop)))
             ) {
                 proxyHandler[proxiedChildrenKey][prop] = value;
             } else if (typeof value === "object") {
@@ -883,7 +1029,10 @@ function wrapMapMutation(
             emitCollectionChange(target, baseProxy, emitter, removedNodes);
         };
     }
-    throw new Error(`Unsupported Map mutation: ${prop}`);
+    // @retree-throws
+    throw new Error(
+        `Retree internal invariant failed: unsupported Map mutation '${prop}'. This is unexpected and likely a Retree bug because this wrapper should only receive set, delete, or clear. Please file a Retree issue with the Map operation that triggered this.`
+    );
 }
 
 function wrapSetRead(
@@ -1037,7 +1186,10 @@ function wrapSetMutation(
             emitCollectionChange(target, baseProxy, emitter, removedNodes);
         };
     }
-    throw new Error(`Unsupported Set mutation: ${prop}`);
+    // @retree-throws
+    throw new Error(
+        `Retree internal invariant failed: unsupported Set mutation '${prop}'. This is unexpected and likely a Retree bug because this wrapper should only receive add, delete, or clear. Please file a Retree issue with the Set operation that triggered this.`
+    );
 }
 
 function wrapSetHas(target: Set<any>) {
@@ -1155,14 +1307,41 @@ function reparentProxy<T extends TreeNode = TreeNode>(
             // Such a case is usually temporary, but it doesn't have to be.
             currentParent.proxyNode !== newParent.proxyNode
         ) {
+            // @retree-throws
             throw new Error(
-                "A node can only have a single parent. To move the node to a new parent, first remove it from the previous parent and then set it to the new object."
+                [
+                    "Retree cannot assign this node because it already has a structural parent.",
+                    "This is expected when the same object is inserted into two different places in the tree.",
+                    `Current parent: ${describeParentEdge(currentParent)}.`,
+                    `Requested parent: ${describeParentEdge(newParent)}.`,
+                    "Fix: choose one explicit ownership operation: move it with Retree.move(node, destination, key), store a reactive pointer with Retree.link(node) or @link, ignore it via @ignore, or duplicate it with Retree.clone(node).",
+                ].join(" ")
             );
         }
         currentParent.propName = newParent.propName;
         currentParent.proxyNode = newParent.proxyNode;
+    } else {
+        proxy["[[Handler]]"][proxiedParentKey] = newParent;
     }
     return proxy;
+}
+
+function describeParentEdge(parent: IProxyParent<any>) {
+    const parentNode =
+        parent.proxyNode === null ? null : getUnproxiedNode(parent.proxyNode);
+    const parentKind =
+        parent.proxyNode === null
+            ? "none"
+            : Array.isArray(parent.proxyNode)
+            ? "Array"
+            : parent.proxyNode instanceof Map
+            ? "Map"
+            : parent.proxyNode instanceof Set
+            ? "Set"
+            : parentNode?.constructor?.name || "Object";
+    const propName =
+        parent.propName === null ? "unknown" : String(parent.propName);
+    return `${parentKind} at key ${propName}`;
 }
 
 /**
@@ -1247,5 +1426,8 @@ export function getBaseProxy<T extends TreeNode = TreeNode>(
         }
         return node;
     }
-    throw new Error("Unproxied object");
+    // @retree-throws
+    throw new Error(
+        "Retree internal invariant failed: expected a Retree-managed proxy but received an unproxied object. This is unexpected if it came from a public Retree API. Fix: pass objects returned by Retree.root(...) or children read from a Retree tree; if that is already true, file a Retree issue with the operation that triggered this."
+    );
 }

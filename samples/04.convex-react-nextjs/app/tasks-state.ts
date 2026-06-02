@@ -1,17 +1,106 @@
 "use client";
 
-import { ConvexNode, ConvexQueryNode } from "@retreejs/convex";
+import { ReactiveNode, fnMemo, link, memo, select } from "@retreejs/core";
+import { BaseConvexNode, ConvexNode, ConvexQueryNode } from "@retreejs/convex";
 import { ConvexClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
-import { Id } from "../convex/_generated/dataModel";
+import type { Doc, Id } from "../convex/_generated/dataModel";
+
+const convexClient = new ConvexClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+
+export type TaskFilterValue = boolean | null;
+
+export class TaskFilterNode extends ReactiveNode {
+    public isCompleted: boolean | null = null;
+
+    get dependencies() {
+        return [];
+    }
+}
+
+export class TaskRowState extends ReactiveNode {
+    @link
+    public task: Doc<"tasks">;
+
+    constructor(task: Doc<"tasks">) {
+        super();
+        this.task = task;
+    }
+
+    @fnMemo
+    public updateTask(task: Doc<"tasks">) {
+        this.task = task;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+export class AddTaskState extends BaseConvexNode {
+    public text = "";
+    public isSaving = false;
+    public error: string | null = null;
+
+    constructor() {
+        super(convexClient);
+    }
+
+    get dependencies() {
+        return [];
+    }
+
+    @memo
+    get canSubmit() {
+        return this.text.length > 0 && !this.isSaving;
+    }
+
+    @fnMemo
+    public setText(text: string): void {
+        this.text = text;
+    }
+
+    public async submit(): Promise<void> {
+        if (this.text.length === 0) return;
+
+        this.isSaving = true;
+        this.error = null;
+        try {
+            const createTask = this.mutation(api.tasks.create);
+            await createTask({ text: this.text });
+            this.text = "";
+        } catch (unknownError) {
+            this.error =
+                unknownError instanceof Error
+                    ? unknownError.message
+                    : String(unknownError);
+        } finally {
+            this.isSaving = false;
+        }
+    }
+}
 
 export class TasksState extends ConvexNode {
-    public readonly tasks: ConvexQueryNode<typeof api.tasks.get>;
+    private _tasks: ConvexQueryNode<typeof api.tasks.get>;
+    public readonly filter = new TaskFilterNode();
 
-    constructor(convexUrl: string) {
-        const client = new ConvexClient(convexUrl);
-        super(client);
-        this.tasks = this.query(api.tasks.get);
+    @select
+    public get status() {
+        return this._tasks.result?.status;
+    }
+
+    @select
+    public get tasks(): Doc<"tasks">[] | undefined {
+        return this._tasks.state?.filter(
+            (task) =>
+                this.filter.isCompleted === null ||
+                task.isCompleted === this.filter.isCompleted
+        );
+    }
+
+    constructor() {
+        super(convexClient);
+        this._tasks = this.query(api.tasks.get, { initialState: [] });
     }
 
     get dependencies() {
@@ -19,8 +108,7 @@ export class TasksState extends ConvexNode {
     }
 
     public dispose(): void {
-        this.tasks.dispose();
-        void this.client.close();
+        this._tasks.dispose();
     }
 
     public toggleCompleted(taskId: Id<"tasks">): Promise<null> {
@@ -31,7 +119,7 @@ export class TasksState extends ConvexNode {
             { taskId },
             {
                 withOptimisticUpdate: (ctx) => {
-                    this.tasks.optimisticUpdate({
+                    this._tasks.optimisticUpdate({
                         ctx,
                         apply(tasks) {
                             const task = tasks.find(
@@ -39,6 +127,27 @@ export class TasksState extends ConvexNode {
                             );
                             if (!task) return;
                             task.isCompleted = !task.isCompleted;
+                        },
+                    });
+                },
+            }
+        );
+    }
+
+    public renameTask(taskId: Id<"tasks">, text: string): Promise<null> {
+        const updateTextMutation = this.mutation(api.tasks.updateText);
+        return updateTextMutation(
+            { taskId, text },
+            {
+                withOptimisticUpdate: (ctx) => {
+                    this._tasks.optimisticUpdate({
+                        ctx,
+                        apply(tasks) {
+                            const task = tasks.find(
+                                (candidateTask) => candidateTask._id === taskId
+                            );
+                            if (!task) return;
+                            task.text = text;
                         },
                     });
                 },

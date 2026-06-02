@@ -14,9 +14,26 @@ import {
  * Create a typed Retree Convex action function from a Convex client and action
  * reference.
  *
+ * @remarks
+ * Use this when you need a typed action helper outside a
+ * {@link BaseConvexNode}. Actions are imperative calls and do not emit Retree
+ * changes by themselves. Assign the action result into Retree state if the UI
+ * should update from it.
+ *
  * @param client Convex client used to run the action.
  * @param action Convex action function reference.
  * @returns A typed action function.
+ *
+ * @example
+ * ```ts
+ * const generateSummary = createRetreeConvexAction(
+ *     client,
+ *     api.ai.generateSummary
+ * );
+ *
+ * const summary = await generateSummary({ taskId });
+ * state.summary = summary; // ✅ emits if `state` is Retree-managed
+ * ```
  */
 export function createRetreeConvexAction<Action extends ActionReference>(
     client: IConvexActionClient,

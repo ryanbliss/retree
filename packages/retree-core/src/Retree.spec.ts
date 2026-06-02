@@ -1,8 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { Retree } from "./Retree";
+import { ReactiveNode } from "./ReactiveNode";
 import { Transactions } from "./internals/transactions";
 import { getReproxyNode } from "./internals/reproxy";
-import { getBaseProxy, getCustomProxyHandler } from "./internals/proxy";
+import {
+    getBaseProxy,
+    getCustomProxyHandler,
+    getUnproxiedNode,
+} from "./internals/proxy";
 import { proxiedChildrenKey } from "./internals/proxy-types";
 
 const rootsToCleanup: object[] = [];
@@ -168,6 +173,178 @@ describe("Retree", () => {
 
         expect(selected).toHaveBeenCalledTimes(1);
         expect(selected).toHaveBeenCalledWith(13, 11);
+    });
+
+    it("selects with trapped dependencies when only a selector function is passed", () => {
+        const root = trackRoot(
+            Retree.root({
+                count: 1,
+                label: "one",
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(() => root.count, selected);
+
+        root.label = "two";
+        expect(selected).not.toHaveBeenCalled();
+
+        root.count = 2;
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(selected).toHaveBeenCalledWith(2, 1);
+    });
+
+    it("trapped select subscriptions follow reproxy child reads", () => {
+        const root = trackRoot(
+            Retree.root({
+                child: {
+                    count: 1,
+                    label: "one",
+                },
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(() => root.child.count, selected);
+
+        root.child.label = "two";
+        expect(selected).not.toHaveBeenCalled();
+
+        root.child.count = 2;
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(selected).toHaveBeenCalledWith(2, 1);
+    });
+
+    it("trapped select compares primitive reads even when the selected value is equal", () => {
+        const root = trackRoot(
+            Retree.root({
+                count: 1,
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(() => root.count > 0, selected);
+
+        root.count = 2;
+
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(selected).toHaveBeenCalledWith(true, true);
+    });
+
+    it("infers selector-only select callback values from the selector return type", () => {
+        type Task = {
+            id: string;
+            text: string;
+        };
+        type QueryStatus = "pending" | "success";
+        const root = trackRoot(
+            Retree.root({
+                tasks: {
+                    state: undefined as Task[] | undefined,
+                    result: {
+                        status: "pending" as QueryStatus,
+                    },
+                },
+                filter: {
+                    isComplete: null as boolean | null,
+                },
+            })
+        );
+
+        Retree.select(
+            () => {
+                const tasks = root.tasks.state ?? [];
+                return [tasks, root.filter, root.tasks.result.status] as const;
+            },
+            ([tasks, filter, queryStatus]) => {
+                expectTypeOf(tasks).toEqualTypeOf<Task[]>();
+                expectTypeOf(filter).toEqualTypeOf<typeof root.filter>();
+                expectTypeOf(queryStatus).toEqualTypeOf<QueryStatus>();
+            }
+        );
+    });
+
+    it("selects dependency tuples and uses reactive entries as ordered subscriptions", () => {
+        const root = trackRoot(
+            Retree.root({
+                attributeId: "a",
+                attributes: [
+                    { id: "a", value: 0 },
+                    { id: "b", value: 0 },
+                ],
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(
+            root,
+            (node) =>
+                [
+                    node.attributes,
+                    node.attributeId,
+                    node.attributes.find(
+                        (attribute) => attribute.id === node.attributeId
+                    ),
+                ] as const,
+            selected
+        );
+
+        root.attributes.push({ id: "c", value: 0 });
+        root.attributes[1].value = 1;
+
+        expect(selected).not.toHaveBeenCalled();
+
+        root.attributes[0].value = 1;
+        root.attributeId = "b";
+
+        expect(selected).toHaveBeenCalledTimes(2);
+        expect(selected.mock.calls[0]?.[0][2]?.value).toBe(1);
+        expect(selected.mock.calls[1]?.[0][2]?.id).toBe("b");
+    });
+
+    it("handles duplicate reactive dependencies by preserving every dependency slot", () => {
+        const root = trackRoot(
+            Retree.root({
+                child: { value: 1 },
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(
+            root,
+            (node) => [node.child, node.child] as const,
+            selected
+        );
+
+        root.child.value = 2;
+
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(selected.mock.calls[0]?.[0][1].value).toBe(2);
+    });
+
+    it("infers tuple select values for callbacks and equality", () => {
+        const root = trackRoot(
+            Retree.root({
+                count: 1,
+                label: "one",
+            })
+        );
+        Retree.select(
+            root,
+            (node) => [node.count, node.label] as const,
+            (next, previous) => {
+                expectTypeOf(next).toEqualTypeOf<readonly [number, string]>();
+                expectTypeOf(previous).toEqualTypeOf<
+                    readonly [number, string]
+                >();
+            },
+            {
+                equals: (previous, next) => {
+                    expectTypeOf(previous).toEqualTypeOf<
+                        readonly [number, string]
+                    >();
+                    expectTypeOf(next).toEqualTypeOf<
+                        readonly [number, string]
+                    >();
+                    return previous[0] === next[0] && previous[1] === next[1];
+                },
+            }
+        );
     });
 
     it("tracks parent relationships for nested objects and array items", () => {
@@ -654,7 +831,276 @@ describe("Retree", () => {
 
         expect(() => {
             root2.other = root1.child;
-        }).toThrow(/single parent/i);
+        }).toThrow(/already has a structural parent/i);
+        expect(() => {
+            root2.other = root1.child;
+        }).toThrow(/Current parent: Object at key child/i);
+        expect(() => {
+            root2.other = root1.child;
+        }).toThrow(/Retree.move/);
+    });
+
+    it("stores a Retree.link without reparenting the linked target", () => {
+        const source = trackRoot(Retree.root({ child: { value: 1 } }));
+        const owner = trackRoot(
+            Retree.root({
+                selected: null as null | ReturnType<typeof Retree.link>,
+            })
+        );
+        const nodeChanged = vi.fn();
+        Retree.on(owner, "nodeChanged", nodeChanged);
+
+        owner.selected = Retree.link(source.child);
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        if (!owner.selected) {
+            throw new Error("Expected Retree.link to create a selected link.");
+        }
+        expect(Retree.parent(owner.selected)).toBe(owner);
+        expect(Retree.parent(owner.selected.current)).toBe(source);
+    });
+
+    it("returns the latest linked current reproxy", () => {
+        const source = trackRoot(Retree.root({ child: { value: 1 } }));
+        const link = trackRoot(Retree.root(Retree.link(source.child)));
+        const beforeChange = link.current;
+
+        source.child.value = 2;
+
+        expect(link.current).not.toBe(beforeChange);
+        expect(link.current.value).toBe(2);
+    });
+
+    it("creates links from ReactiveNode.link", () => {
+        class LinkOwnerNode extends ReactiveNode {
+            public selected: ReturnType<
+                typeof Retree.link<{ value: number }>
+            > | null = null;
+
+            get dependencies() {
+                return [];
+            }
+
+            select(node: { value: number }) {
+                this.selected = this.link(node);
+                return this.selected;
+            }
+        }
+
+        const source = trackRoot(Retree.root({ child: { value: 1 } }));
+        const owner = trackRoot(Retree.root(new LinkOwnerNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(owner, "nodeChanged", nodeChanged);
+
+        const selected = owner.select(source.child);
+        expectTypeOf(selected.current).toEqualTypeOf<{ value: number }>();
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(owner.selected).toBe(selected);
+        expect(Retree.parent(selected)).toBe(owner);
+        expect(Retree.parent(selected.current)).toBe(source);
+
+        const beforeChange = selected.current;
+        source.child.value = 2;
+
+        expect(selected.current).not.toBe(beforeChange);
+        expect(selected.current.value).toBe(2);
+    });
+
+    it("moves a node from one array parent to another array parent", () => {
+        interface Task {
+            title: string;
+        }
+        interface Note {
+            body: string;
+        }
+        const root = trackRoot(
+            Retree.root({
+                projectA: { tasks: [{ title: "a" }] as Task[] },
+                projectB: { tasks: [] as Task[] },
+            })
+        );
+        const task = root.projectA.tasks[0];
+        if (!task) {
+            throw new Error("Expected source task to exist before move.");
+        }
+
+        const moved = Retree.move(task, root.projectB.tasks, 0);
+        expectTypeOf(moved).toEqualTypeOf<Task>();
+
+        expect(root.projectA.tasks).toHaveLength(0);
+        expect(root.projectB.tasks).toHaveLength(1);
+        expect(getUnproxiedNode(root.projectB.tasks[0]!)).toBe(
+            getUnproxiedNode(moved)
+        );
+        expect(Retree.parent(moved)).toBe(root.projectB.tasks);
+
+        expect(() => {
+            // @ts-expect-error Array move keys must be numbers.
+            Retree.move(moved, root.projectA.tasks, "first");
+        }).toThrow(/array destinations require a numeric key/i);
+
+        if (false) {
+            const noteRoot = Retree.root({ note: { body: "note" } as Note });
+            // @ts-expect-error Node must be assignable to the array element type.
+            Retree.move(noteRoot.note, root.projectA.tasks);
+        }
+    });
+
+    it("moves a node from an object parent to a Map parent", () => {
+        interface Task {
+            title: string;
+        }
+        interface Note {
+            body: string;
+        }
+        const root = trackRoot(
+            Retree.root({
+                task: { title: "a" } as Task,
+                tasks: new Map<string, Task>(),
+            })
+        );
+        const task = root.task;
+
+        const moved = Retree.move(task, root.tasks, "task-a");
+        expectTypeOf(moved).toEqualTypeOf<Task>();
+
+        expect("task" in root).toBe(false);
+        expect(getUnproxiedNode(root.tasks.get("task-a")!)).toBe(
+            getUnproxiedNode(moved)
+        );
+        expect(Retree.parent(moved)).toBe(root.tasks);
+
+        if (false) {
+            const noteRoot = Retree.root({ note: { body: "note" } as Note });
+            // @ts-expect-error Map key must match the destination Map key type.
+            Retree.move(moved, root.tasks, 1);
+            // @ts-expect-error Node must be assignable to the Map value type.
+            Retree.move(noteRoot.note, root.tasks, "note-id");
+        }
+    });
+
+    it("moves a node into typed object keys", () => {
+        interface Task {
+            title: string;
+        }
+        interface Note {
+            body: string;
+        }
+        const taskKey = Symbol("task");
+        const root = trackRoot(
+            Retree.root({
+                source: { task: { title: "a" } as Task },
+                destinations: {
+                    task: null as Task | null,
+                    note: null as Note | null,
+                    optionalTask: undefined as Task | undefined,
+                    [taskKey]: null as Task | null,
+                },
+            })
+        );
+
+        const moved = Retree.move(root.source.task, root.destinations, taskKey);
+        expectTypeOf(moved).toEqualTypeOf<Task>();
+
+        expect("task" in root.source).toBe(false);
+        expect(getUnproxiedNode(root.destinations[taskKey]!)).toBe(
+            getUnproxiedNode(moved)
+        );
+        expect(Retree.parent(moved)).toBe(root.destinations);
+
+        if (false) {
+            // @ts-expect-error Object key must point to a compatible value slot.
+            Retree.move(moved, root.destinations, "note");
+            // @ts-expect-error Object key must exist on the destination.
+            Retree.move(moved, root.destinations, "missing");
+        }
+    });
+
+    it("moves a ReactiveNode with moveTo", () => {
+        class TaskNode extends ReactiveNode {
+            public value = 1;
+            public taskTitle = "";
+
+            get dependencies() {
+                return [];
+            }
+        }
+        class NoteNode extends ReactiveNode {
+            public noteBody = "";
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(
+            Retree.root({
+                a: [new TaskNode()],
+                b: [] as TaskNode[],
+                byId: new Map<string, TaskNode>(),
+                selected: {
+                    task: null as TaskNode | null,
+                    note: null as NoteNode | null,
+                },
+            })
+        );
+        const task = root.a[0];
+        if (!task) {
+            throw new Error("Expected reactive task to exist before move.");
+        }
+
+        task.moveTo(root.b);
+
+        expect(root.a).toHaveLength(0);
+        expect(root.b[0]).toBe(task);
+        expect(Retree.parent(task)).toBe(root.b);
+
+        const movedToMap = task.moveTo(root.byId, "task-id");
+        expectTypeOf(movedToMap).toEqualTypeOf<TaskNode>();
+        expect(root.b).toHaveLength(0);
+        expect(root.byId.get("task-id")).toBe(task);
+        expect(Retree.parent(task)).toBe(root.byId);
+
+        const movedToObject = task.moveTo(root.selected, "task");
+        expectTypeOf(movedToObject).toEqualTypeOf<TaskNode>();
+        expect(root.byId.size).toBe(0);
+        expect(root.selected.task).toBe(task);
+        expect(Retree.parent(task)).toBe(root.selected);
+
+        expect(() => {
+            // @ts-expect-error Array move keys must be numbers.
+            task.moveTo(root.b, "first");
+        }).toThrow(/array destinations require a numeric key/i);
+
+        if (false) {
+            // @ts-expect-error Node must be assignable to the array element type.
+            task.moveTo([] as NoteNode[]);
+            // @ts-expect-error Map key must match the destination Map key type.
+            task.moveTo(root.byId, 1);
+            // @ts-expect-error Object key must point to a compatible value slot.
+            task.moveTo(root.selected, "note");
+        }
+    });
+
+    it("clones a node into a detached value that can be assigned elsewhere", () => {
+        const root = trackRoot(
+            Retree.root({
+                source: { nested: { value: 1 } },
+                copy: null as null | { nested: { value: number } },
+            })
+        );
+
+        root.copy = Retree.clone(root.source);
+
+        if (!root.copy) {
+            throw new Error("Expected cloned value to be assigned.");
+        }
+        expect(root.copy).not.toBe(root.source);
+        expect(root.copy.nested).not.toBe(root.source.nested);
+        expect(root.copy.nested.value).toBe(1);
+        expect(Retree.parent(root.copy)).toBe(root);
+        expect(Retree.parent(root.copy.nested)).toBe(root.copy);
     });
 
     it("batches transaction notifications per node", () => {

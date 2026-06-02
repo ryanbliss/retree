@@ -23,6 +23,22 @@ import {
 /**
  * Reactive paginated query node that subscribes to a Convex paginated query and
  * exposes the loaded pages as Retree state.
+ *
+ * @remarks
+ * Use this directly or through {@link ConvexNode.paginatedQuery} for live
+ * paginated lists. New pages update `state`, `result`, and `error`, which can
+ * emit Retree changes and re-render React subscribers.
+ *
+ * Dispose the node when its owner is torn down. Use `"skip"` when the query
+ * should be temporarily disabled.
+ *
+ * @example
+ * ```ts
+ * const messages = new ConvexPaginatedQueryNode(client, api.messages.list, {
+ *     args: { channelId: "general" },
+ *     initialNumItems: 20,
+ * });
+ * ```
  */
 export class ConvexPaginatedQueryNode<
     Query extends PaginatedQueryReference
@@ -51,9 +67,24 @@ export class ConvexPaginatedQueryNode<
     /**
      * Create a node for a Convex paginated query subscription.
      *
+     * @remarks
+     * The subscription starts when the node is observed by Retree. This avoids
+     * opening Convex subscriptions for paginated state nobody is currently
+     * rendering or listening to.
+     *
      * @param client Convex client used for the subscription.
      * @param query Convex paginated query function reference.
      * @param options Query arguments, initial page size, and optional initial state.
+     *
+     * @example
+     * ```ts
+     * const messages = Retree.root(
+     *     new ConvexPaginatedQueryNode(client, api.messages.list, {
+     *         args: { channelId: "general" },
+     *         initialNumItems: 20,
+     *     })
+     * );
+     * ```
      */
     constructor(
         client: IConvexClient,
@@ -86,7 +117,18 @@ export class ConvexPaginatedQueryNode<
      * Update the query arguments and resubscribe when the shallow argument
      * comparison changes. Pass `"skip"` to disable the subscription.
      *
+     * @remarks
+     * Updating args can emit because `state`, `result`, and `error` may change.
+     * Passing `"skip"` disables the active subscription and sets
+     * `result.status` to `"skipped"`.
+     *
      * @param args Next query arguments, or `"skip"`.
+     *
+     * @example
+     * ```ts
+     * messages.updateArgs({ channelId: "random" }); // ✅ may emit
+     * messages.updateArgs("skip"); // ✅ emits skipped state and unsubscribes
+     * ```
      */
     public updateArgs(args: ConvexPaginatedQueryArgs<Query>): void {
         this.args = args;
@@ -151,8 +193,21 @@ export class ConvexPaginatedQueryNode<
     /**
      * Request more items for the active paginated query.
      *
+     * @remarks
+     * Use this from UI actions such as "Load more" buttons or infinite scroll.
+     * It returns `false` when there is no active paginated state to extend.
+     * Passing a non-positive number throws.
+     *
      * @param numItems Number of additional items to load.
      * @returns Whether Convex started a load-more request.
+     *
+     * @example
+     * ```ts
+     * const requested = messages.loadMore(20);
+     * if (!requested) {
+     *     console.log("No active page to extend");
+     * }
+     * ```
      */
     public loadMore(numItems: number): boolean {
         if (numItems <= 0) {
@@ -170,6 +225,18 @@ export class ConvexPaginatedQueryNode<
 
     /**
      * Stop the active Convex paginated query subscription.
+     *
+     * @remarks
+     * Call this when the owner of the paginated query node is torn down.
+     * Disposing stops future Convex updates; it does not clear `state`,
+     * `result`, or `error`.
+     *
+     * @example
+     * ```ts
+     * public dispose() {
+     *     this.messages.dispose();
+     * }
+     * ```
      */
     public dispose(): void {
         if (this.unsubscribe === null) {
