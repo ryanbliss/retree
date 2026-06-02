@@ -27,6 +27,10 @@ import {
     getReproxyNodeForUnproxiedNode,
     updateReproxyNode,
 } from "./reproxy";
+import {
+    trackDependencyAccess,
+    trackDependencyPropertyAccess,
+} from "./dependency-tracking";
 import { Transactions } from "./transactions";
 
 export const FUNCTION_NAMES_BIND_TO_RAW: (string | symbol)[] = [
@@ -74,6 +78,26 @@ const DATE_MUTATING_METHODS: Record<
     setUTCSeconds: Date.prototype.setUTCSeconds,
 };
 
+interface BoundFunctionCacheEntry {
+    source: Function;
+    bound: Function;
+}
+
+export function getCachedBoundFunction<TFunction extends Function>(
+    cache: Map<string | symbol, BoundFunctionCacheEntry>,
+    prop: string | symbol,
+    source: TFunction,
+    thisArg: unknown
+): TFunction {
+    const cached = cache.get(prop);
+    if (cached !== undefined && cached.source === source) {
+        return cached.bound as TFunction;
+    }
+    const bound = source.bind(thisArg);
+    cache.set(prop, { source, bound });
+    return bound as TFunction;
+}
+
 /**
  * Built-ins like {@link Date}, {@link Map}, and {@link Set} rely on internal slots, so calling their methods
  * with a Proxy as the `this` value throws "incompatible receiver". For those instances we bind
@@ -93,9 +117,9 @@ function isDateMutatingMethod(prop: string): prop is DateMutatingMethodName {
 
 function getLatestIgnoredValue(value: unknown) {
     if (isCustomProxy(value)) {
-        return getReproxyNode(value);
+        return trackDependencyAccess(getReproxyNode(value));
     }
-    return value;
+    return trackDependencyAccess(value);
 }
 
 function assertValidLinkedValue(prop: string | symbol, value: unknown) {
@@ -132,6 +156,10 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     parent?: IProxyParent<any>
 ): T {
     let isApplyingSet = false;
+    const boundFunctionCache = new Map<
+        string | symbol,
+        BoundFunctionCacheEntry
+    >();
     const proxyHandler: ProxyHandler<T> & ICustomProxyHandler<T> = {
         // Add some extra stuff into the handler so we can store the original TreeNode and access it later
         // Without overriding the rest of the getters in the object.
@@ -168,7 +196,12 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             ) {
                 const value = proxyHandler[proxiedChildrenKey][prop];
                 if (typeof value !== "function") {
-                    return value;
+                    const baseProxy = getBaseProxy(receiver);
+                    return trackDependencyPropertyAccess(
+                        baseProxy,
+                        prop,
+                        value
+                    );
                 }
             }
             const baseProxy = getBaseProxy(receiver);
@@ -226,9 +259,16 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                             emitter
                         );
                     }
-                    return value.bind(target);
+                    return trackDependencyAccess(
+                        getCachedBoundFunction(
+                            boundFunctionCache,
+                            prop,
+                            value,
+                            target
+                        )
+                    );
                 }
-                return value;
+                return trackDependencyPropertyAccess(baseProxy, prop, value);
             }
             let value: any;
             if (
@@ -249,9 +289,23 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             }
             if (typeof value === "function") {
                 if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
-                    return value.bind(target);
+                    return trackDependencyAccess(
+                        getCachedBoundFunction(
+                            boundFunctionCache,
+                            prop,
+                            value,
+                            target
+                        )
+                    );
                 }
-                return value.bind(baseProxy);
+                return trackDependencyAccess(
+                    getCachedBoundFunction(
+                        boundFunctionCache,
+                        prop,
+                        value,
+                        baseProxy
+                    )
+                );
             }
             if (shouldLazilyProxyProperty(target, prop, value)) {
                 const descriptor = Reflect.getOwnPropertyDescriptor(
@@ -259,19 +313,27 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     prop
                 );
                 if (!descriptor || !descriptorHasValue(descriptor)) {
-                    return value;
+                    return trackDependencyPropertyAccess(
+                        baseProxy,
+                        prop,
+                        value
+                    );
                 }
                 if (!shouldKeepRawPropertyValue(descriptor, value)) {
-                    return getOrCreateProxiedChild(
-                        proxyHandler,
-                        prop,
-                        value,
+                    return trackDependencyPropertyAccess(
                         baseProxy,
-                        emitter
+                        prop,
+                        getOrCreateProxiedChild(
+                            proxyHandler,
+                            prop,
+                            value,
+                            baseProxy,
+                            emitter
+                        )
                     );
                 }
             }
-            return value;
+            return trackDependencyPropertyAccess(baseProxy, prop, value);
         },
         set(target, prop, newValue, receiver) {
             if (target instanceof ReactiveNode) {

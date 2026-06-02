@@ -121,6 +121,66 @@ class DynamicSelectNode extends ReactiveNode {
     }
 }
 
+class AutoSelectTotalNode extends ReactiveNode {
+    public price = { value: 2 };
+    public amount = { value: 3 };
+    public note = { value: "ignored" };
+
+    @select()
+    get total() {
+        return this.price.value * this.amount.value;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class AutoSelectTaskRowNode extends ReactiveNode {
+    @link
+    public task: { isCompleted: boolean; text: string };
+
+    constructor(task: { isCompleted: boolean; text: string }) {
+        super();
+        this.task = task;
+    }
+
+    @select()
+    get isVisible() {
+        return !this.task.isCompleted;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+interface FilteredTask {
+    isCompleted: boolean;
+    text: string;
+}
+
+class AutoSelectTaskListNode extends ReactiveNode {
+    public filters = { isCompleted: null as boolean | null };
+    public allTasks: FilteredTask[] = [
+        { isCompleted: false, text: "Write docs" },
+        { isCompleted: true, text: "Ship release" },
+    ];
+
+    @select()
+    public get tasks(): FilteredTask[] {
+        return this.allTasks.filter(
+            (task) =>
+                this.filters.isCompleted === null ||
+                task.isCompleted === this.filters.isCompleted
+        );
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
 const rootsToCleanup: object[] = [];
 
 function trackRoot<T extends object>(node: T): T {
@@ -297,5 +357,89 @@ describe("select", () => {
 
         root.second.value = 2;
         expect(nodeChanged).toHaveBeenCalledTimes(2);
+    });
+
+    it("captures accessed Retree nodes when @select is called without a selector", () => {
+        const root = trackRoot(Retree.root(new AutoSelectTotalNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        root.note.value = "still ignored";
+        expect(nodeChanged).not.toHaveBeenCalled();
+
+        root.price.value = 4;
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(root.total).toBe(12);
+
+        root.amount.value = 5;
+        expect(nodeChanged).toHaveBeenCalledTimes(2);
+        expect(root.total).toBe(20);
+    });
+
+    it("captures primitive reads as comparisons for @select without a selector", () => {
+        const source = trackRoot(
+            Retree.root({
+                task: {
+                    isCompleted: false,
+                    text: "Write docs",
+                },
+            })
+        );
+        const row = trackRoot(
+            Retree.root(new AutoSelectTaskRowNode(source.task))
+        );
+        const nodeChanged = vi.fn();
+        Retree.on(row, "nodeChanged", nodeChanged);
+
+        source.task.text = "Write better docs";
+        expect(nodeChanged).not.toHaveBeenCalled();
+
+        source.task.isCompleted = true;
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(row.isVisible).toBe(false);
+    });
+
+    it("narrows trapped object reads to accessed fields while preserving list slot identity", () => {
+        const root = trackRoot(Retree.root(new AutoSelectTaskListNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        root.allTasks[0].text = "Write even better docs";
+        expect(nodeChanged).not.toHaveBeenCalled();
+
+        root.allTasks[0].isCompleted = true;
+        expect(nodeChanged).not.toHaveBeenCalled();
+
+        root.allTasks[0] = {
+            isCompleted: false,
+            text: "Fresh task object",
+        };
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(root.tasks.map((task) => task.text)).toEqual([
+            "Fresh task object",
+            "Ship release",
+        ]);
+
+        root.filters.isCompleted = false;
+        expect(nodeChanged).toHaveBeenCalledTimes(2);
+        expect(root.tasks.map((task) => task.text)).toEqual([
+            "Fresh task object",
+        ]);
+
+        root.allTasks[0].text = "Write best docs";
+        expect(nodeChanged).toHaveBeenCalledTimes(2);
+
+        root.allTasks[0].isCompleted = true;
+        expect(nodeChanged).toHaveBeenCalledTimes(3);
+        expect(root.tasks).toEqual([]);
+
+        root.allTasks[0] = {
+            isCompleted: false,
+            text: "Fresh task object",
+        };
+        expect(nodeChanged).toHaveBeenCalledTimes(4);
+        expect(root.tasks.map((task) => task.text)).toEqual([
+            "Fresh task object",
+        ]);
     });
 });

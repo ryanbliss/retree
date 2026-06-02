@@ -147,6 +147,19 @@ project.tasks[0].done = true; // ✅ emits: selected count changed 1 -> 2
 project.tasks[0].title = "Better docs"; // ❌ no emit: selected count stayed 2
 ```
 
+`Retree.select` can also infer its own dependencies when you pass only a selector function and a callback. Whole Retree-managed values read by the selector subscribe automatically. Property reads subscribe to the owner node but compare the specific property value, so `task.done` reacts to task replacement or `done` changes without reacting to unrelated task fields. Primitive reads compare.
+
+```ts
+const unsubscribeDoneCount = Retree.select(
+    () => project.tasks.filter((task) => task.done).length,
+    (doneCount) => console.log(doneCount)
+);
+
+project.tasks[0].done = true; // ✅ emits: trapped task read changed the count
+project.tasks[0].title = "Better docs"; // ❌ no emit: selected count stayed 2
+unsubscribeDoneCount();
+```
+
 Selectors can also return an ordered dependency list. Reactive entries are subscribed to; primitive and plain entries are compared. This is useful when a broad source can change often, but only a narrowed selected value should notify.
 
 ```ts
@@ -318,6 +331,25 @@ class HeaderState extends ReactiveNode {
 Use `@select` when the dependency list belongs to one getter and you want `useNode(node)` to re-render only when those selected dependencies change:
 
 ```ts
+import { ReactiveNode, link, memo, select } from "@retreejs/core";
+
+class TaskRow extends ReactiveNode {
+    @link public task!: { isCompleted: boolean };
+    @link public filter!: { isComplete: boolean | null };
+
+    @select()
+    get isVisible() {
+        return (
+            this.filter.isComplete === null ||
+            this.task.isCompleted === this.filter.isComplete
+        );
+    }
+}
+```
+
+`@select()` without a selector traps dependencies while the getter runs. Whole Retree-managed values read by the getter subscribe; property reads subscribe to the owner node but compare the specific property value; primitive values read by the getter compare. Pass an explicit selector when you want to choose or customize dependency slots:
+
+```ts
 import { ReactiveNode, memo, select } from "@retreejs/core";
 
 class AttributeRow extends ReactiveNode {
@@ -340,7 +372,7 @@ class AttributeRow extends ReactiveNode {
 }
 ```
 
-In `@select`, raw reactive values subscribe, primitive values compare, and `self.dependency(...)` customizes one slot's comparison behavior.
+In explicit `@select` lists, raw reactive values subscribe, primitive values compare, and `self.dependency(...)` customizes one slot's comparison behavior.
 
 ## Memoize computed getters
 

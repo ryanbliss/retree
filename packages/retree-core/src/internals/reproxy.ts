@@ -14,8 +14,13 @@ import {
     getBaseProxy,
     getUnproxiedNode,
     FUNCTION_NAMES_BIND_TO_RAW,
+    getCachedBoundFunction,
     isInternalSlotInstance,
 } from "./proxy";
+import {
+    trackDependencyAccess,
+    trackDependencyPropertyAccess,
+} from "./dependency-tracking";
 import { getReactiveNodeGetter, popMemoGetter, pushMemoGetter } from "./memo";
 import {
     ICustomProxyHandler,
@@ -73,6 +78,10 @@ function buildReproxy<T extends TreeNode = TreeNode>(
             "Retree internal invariant failed: cannot build a reproxy for an unproxied node. This is unexpected and likely a Retree bug if it came from a public Retree API. Fix: make sure callers pass Retree-managed proxies from Retree.root(...) or tree children; otherwise file a Retree issue with the operation that triggered this."
         );
     }
+    const boundFunctionCache = new Map<
+        string | symbol,
+        { source: Function; bound: Function }
+    >();
     const proxyHandler: ProxyHandler<T> &
         Omit<ICustomProxyHandler<T>, typeof proxiedChildrenKey> = {
         // Add some extra stuff into the handler so we can store the original TreeNode and access it later
@@ -110,7 +119,12 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                 const childProxy = handler[proxiedChildrenKey][prop];
                 if (typeof childProxy !== "function") {
                     const reproxy = getReproxyNode(childProxy);
-                    return reproxy ?? childProxy;
+                    const baseProxy: TCustomProxy<T> = getBaseProxy(receiver);
+                    return trackDependencyPropertyAccess(
+                        baseProxy,
+                        prop,
+                        reproxy ?? childProxy
+                    );
                 }
             }
             const baseProxy: TCustomProxy<T> = getBaseProxy(receiver);
@@ -118,7 +132,11 @@ function buildReproxy<T extends TreeNode = TreeNode>(
             // Some built-in methods need internal slots on `this`. Delegate property access to the
             // base proxy so the bind/wrap logic in buildProxy is reused (and mutations emit).
             if (isInternalSlotInstance(rawNode)) {
-                return Reflect.get(baseProxy, prop, baseProxy);
+                return trackDependencyPropertyAccess(
+                    baseProxy,
+                    prop,
+                    Reflect.get(baseProxy, prop, baseProxy)
+                );
             }
             const reproxy = getReproxyNode(baseProxy);
             const evalTarget = rawNode ?? target;
@@ -141,17 +159,35 @@ function buildReproxy<T extends TreeNode = TreeNode>(
 
             if (typeof value === "function") {
                 if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
-                    return value.bind(rawNode);
+                    return trackDependencyAccess(
+                        getCachedBoundFunction(
+                            boundFunctionCache,
+                            prop,
+                            value,
+                            rawNode
+                        )
+                    );
                 }
-                return value.bind(reproxy);
+                return trackDependencyAccess(
+                    getCachedBoundFunction(
+                        boundFunctionCache,
+                        prop,
+                        value,
+                        reproxy
+                    )
+                );
             }
             if (value !== null && typeof value === "object") {
                 const baseValue = Reflect.get(baseProxy, prop, baseProxy);
                 if (isCustomProxy(baseValue)) {
-                    return getReproxyNode(baseValue) ?? baseValue;
+                    return trackDependencyPropertyAccess(
+                        baseProxy,
+                        prop,
+                        getReproxyNode(baseValue) ?? baseValue
+                    );
                 }
             }
-            return value;
+            return trackDependencyPropertyAccess(baseProxy, prop, value);
         },
         set(target, prop, newValue, receiver) {
             if (target instanceof ReactiveNode) {
@@ -171,7 +207,7 @@ function buildReproxy<T extends TreeNode = TreeNode>(
 
 function getLatestIgnoredValue(value: unknown) {
     if (isCustomProxy(value)) {
-        return getReproxyNode(value);
+        return trackDependencyAccess(getReproxyNode(value));
     }
-    return value;
+    return trackDependencyAccess(value);
 }

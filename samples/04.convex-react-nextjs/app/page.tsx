@@ -1,9 +1,10 @@
 "use client";
 
 import { useNode, useRoot, useSelect } from "@retreejs/react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, memo, useEffect } from "react";
 import { Doc, Id } from "../convex/_generated/dataModel";
 import {
+    AddTaskState,
     TaskFilterNode,
     TaskFilterValue,
     TaskRowState,
@@ -17,16 +18,10 @@ const filterOptions: { label: string; value: TaskFilterValue }[] = [
 ];
 
 export default function Home() {
-    const root = useRoot(
-        () => new TasksState(process.env.NEXT_PUBLIC_CONVEX_URL!)
-    );
-    const [tasks, queryStatus] = useSelect(root.tasks, (query) => {
-        const tasks = query.state ?? [];
-        return [
-            tasks,
-            query.result.status,
-            tasks.map((task) => task._id).join("|"),
-        ];
+    const root = useRoot(() => new TasksState());
+    const [tasks, filter, queryStatus] = useSelect(() => {
+        const tasks = root.tasks ?? [];
+        return [tasks, root.filter, root.status] as const;
     });
 
     useEffect(() => {
@@ -45,10 +40,10 @@ export default function Home() {
                             Tasks
                         </h1>
                     </div>
-                    <FilterControls root={root} />
+                    <FilterControls filter={filter} />
                 </header>
 
-                <AddTaskForm root={root} />
+                <AddTaskForm />
 
                 <section className="flex flex-col gap-3">
                     {queryStatus === "pending" ? (
@@ -60,10 +55,8 @@ export default function Home() {
                         <TaskCard
                             key={task._id}
                             task={task}
-                            filter={root.filter}
-                            onToggle={(taskId) =>
-                                void root.toggleCompleted(taskId)
-                            }
+                            onToggle={root.toggleCompleted}
+                            onRename={root.renameTask}
                         />
                     ))}
                     {queryStatus !== "pending" && tasks.length === 0 ? (
@@ -77,19 +70,27 @@ export default function Home() {
     );
 }
 
-function FilterControls({ root }: { root: TasksState }) {
-    const filter = useNode(root.filter);
+const FilterControls = memo(function FilterControls({
+    filter: filterNode,
+}: {
+    filter: TaskFilterNode;
+}) {
+    const filter = useNode(filterNode);
+
+    useEffect(() => {
+        console.log("FilterControls render");
+    });
 
     return (
         <div className="inline-flex rounded-md border border-zinc-200 bg-white p-1 shadow-sm">
             {filterOptions.map((option) => {
-                const isSelected = filter.isComplete === option.value;
+                const isSelected = filter.isCompleted === option.value;
                 return (
                     <button
                         key={option.label}
                         type="button"
                         aria-pressed={isSelected}
-                        onClick={() => root.setFilter(option.value)}
+                        onClick={() => (filter.isCompleted = option.value)}
                         className={[
                             "rounded-sm px-3 py-2 text-sm font-medium transition",
                             isSelected
@@ -103,34 +104,15 @@ function FilterControls({ root }: { root: TasksState }) {
             })}
         </div>
     );
-}
+});
 
-function AddTaskForm({ root }: { root: TasksState }) {
-    const [text, setText] = useState("");
-    const [isSaving, setIsSaving] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+const AddTaskForm = memo(function AddTaskForm() {
+    const addTaskNode = useRoot(() => new AddTaskState());
+    const addTask = useNode(addTaskNode);
 
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
-        const trimmedText = text.trim();
-        if (trimmedText.length === 0) {
-            return;
-        }
-
-        setIsSaving(true);
-        setError(null);
-        try {
-            await root.addTask(trimmedText);
-            setText("");
-        } catch (unknownError) {
-            const message =
-                unknownError instanceof Error
-                    ? unknownError.message
-                    : String(unknownError);
-            setError(message);
-        } finally {
-            setIsSaving(false);
-        }
+        await addTask.submit();
     }
 
     return (
@@ -140,66 +122,72 @@ function AddTaskForm({ root }: { root: TasksState }) {
         >
             <div className="flex flex-col gap-2 sm:flex-row">
                 <input
-                    value={text}
-                    onChange={(event) => setText(event.target.value)}
+                    value={addTask.text}
+                    onChange={(event) => addTask.setText(event.target.value)}
                     placeholder="Add a task"
                     className="min-h-11 flex-1 rounded-sm border border-zinc-200 px-3 text-base outline-none transition placeholder:text-zinc-400 focus:border-zinc-500"
                 />
                 <button
                     type="submit"
-                    disabled={isSaving || text.trim().length === 0}
+                    disabled={!addTask.canSubmit}
                     className="min-h-11 rounded-sm bg-zinc-900 px-4 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
                 >
-                    {isSaving ? "Adding" : "Add task"}
+                    {addTask.isSaving ? "Adding" : "Add task"}
                 </button>
             </div>
-            {error ? (
-                <p className="mt-2 text-sm text-red-600">{error}</p>
+            {addTask.error ? (
+                <p className="mt-2 text-sm text-red-600">{addTask.error}</p>
             ) : null}
         </form>
     );
-}
+});
 
-function TaskCard({
+const TaskCard = memo(function TaskCard({
     task,
-    filter,
     onToggle,
+    onRename,
 }: {
     task: Doc<"tasks">;
-    filter: TaskFilterNode;
     onToggle: (taskId: Id<"tasks">) => void;
+    onRename: (taskId: Id<"tasks">, text: string) => Promise<null>;
 }) {
-    const taskRowNode = useRoot(() => new TaskRowState(task, filter));
-    const taskRow = useNode(taskRowNode);
+    const taskRowNode = useRoot(() => new TaskRowState(task));
+    const taskId = useSelect(() => taskRowNode.task._id);
+    const taskText = useSelect(() => taskRowNode.task.text);
+    const isCompleted = useSelect(() => taskRowNode.task.isCompleted);
 
-    if (!taskRow.isVisible) {
-        return null;
-    }
+    useEffect(() => {
+        if (taskRowNode.task === task) return;
+        taskRowNode.updateTask(task);
+    }, [task, taskRowNode]);
 
     return (
         <article className="flex items-start gap-3 rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
             <input
                 type="checkbox"
-                checked={taskRow.task.isCompleted}
-                onChange={() => onToggle(taskRow.task._id)}
+                checked={isCompleted}
+                onChange={() => onToggle(taskId)}
                 className="mt-1 size-4 accent-zinc-900"
-                aria-label={`Toggle ${taskRow.task.text}`}
+                aria-label={`Toggle ${taskText}`}
             />
             <div className="min-w-0 flex-1">
-                <p
+                <input
+                    value={taskText}
+                    onChange={(event) =>
+                        void onRename(taskId, event.target.value)
+                    }
                     className={[
-                        "break-words text-base font-medium",
-                        taskRow.task.isCompleted
+                        "w-full rounded-sm border border-transparent bg-transparent px-0 py-0 text-base font-medium outline-none transition focus:border-zinc-300 focus:bg-white focus:px-2 focus:py-1",
+                        isCompleted
                             ? "text-zinc-500 line-through"
                             : "text-zinc-950",
                     ].join(" ")}
-                >
-                    {taskRow.task.text}
-                </p>
+                    aria-label={`Edit ${taskText}`}
+                />
                 <p className="mt-1 text-sm text-zinc-500">
-                    {taskRow.task.isCompleted ? "Completed" : "Incomplete"}
+                    {isCompleted ? "Completed" : "Incomplete"}
                 </p>
             </div>
         </article>
     );
-}
+});

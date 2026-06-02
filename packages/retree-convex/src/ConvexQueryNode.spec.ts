@@ -765,6 +765,68 @@ describe("ConvexQueryNode", () => {
         expect(node.error).toBeNull();
     });
 
+    it("keeps newer optimistic state while a newer optimistic mutation is pending", async () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(
+            new ConvexQueryNode(client, tasksQuery, {
+                args: { listId: "today" },
+            })
+        );
+        Retree.on(node, "nodeChanged", () => undefined);
+        client.subscriptions[0].callback([
+            { id: "task-1", text: "Buy groceries", isCompleted: false },
+        ]);
+        let resolveFirstMutation!: () => void;
+        const firstMutation = new Promise<null>((resolve) => {
+            resolveFirstMutation = () => resolve(null);
+        });
+        let resolveSecondMutation!: () => void;
+        const secondMutation = new Promise<null>((resolve) => {
+            resolveSecondMutation = () => resolve(null);
+        });
+
+        node.optimisticUpdate({
+            ctx: {
+                args: { taskId: "task-1" },
+                promise: firstMutation,
+            },
+            apply(tasks) {
+                tasks[0].text = "Buy groceries A";
+            },
+        });
+        node.optimisticUpdate({
+            ctx: {
+                args: { taskId: "task-1" },
+                promise: secondMutation,
+            },
+            apply(tasks) {
+                tasks[0].text = "Buy groceries B";
+            },
+        });
+
+        resolveFirstMutation();
+        await firstMutation;
+        await Promise.resolve();
+        client.subscriptions[0].callback([
+            { id: "task-1", text: "Buy groceries A", isCompleted: false },
+        ]);
+
+        expect(node.state).toEqual([
+            { id: "task-1", text: "Buy groceries B", isCompleted: false },
+        ]);
+
+        resolveSecondMutation();
+        await secondMutation;
+        await Promise.resolve();
+        client.subscriptions[0].callback([
+            { id: "task-1", text: "Buy groceries B", isCompleted: false },
+        ]);
+
+        expect(node.state).toEqual([
+            { id: "task-1", text: "Buy groceries B", isCompleted: false },
+        ]);
+    });
+
     it("rolls dirty optimistic state back when a later mutation fails first", async () => {
         const client = new FakeConvexClient();
         const node = Retree.root(

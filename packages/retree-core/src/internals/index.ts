@@ -5,6 +5,7 @@
 
 export * from "./TypedEventEmitter";
 export * from "./dependencies";
+export * from "./dependency-tracking";
 export * from "./proxy";
 export * from "./reproxy";
 export * from "./select";

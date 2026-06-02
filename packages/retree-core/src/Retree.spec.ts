@@ -175,6 +175,92 @@ describe("Retree", () => {
         expect(selected).toHaveBeenCalledWith(13, 11);
     });
 
+    it("selects with trapped dependencies when only a selector function is passed", () => {
+        const root = trackRoot(
+            Retree.root({
+                count: 1,
+                label: "one",
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(() => root.count, selected);
+
+        root.label = "two";
+        expect(selected).not.toHaveBeenCalled();
+
+        root.count = 2;
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(selected).toHaveBeenCalledWith(2, 1);
+    });
+
+    it("trapped select subscriptions follow reproxy child reads", () => {
+        const root = trackRoot(
+            Retree.root({
+                child: {
+                    count: 1,
+                    label: "one",
+                },
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(() => root.child.count, selected);
+
+        root.child.label = "two";
+        expect(selected).not.toHaveBeenCalled();
+
+        root.child.count = 2;
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(selected).toHaveBeenCalledWith(2, 1);
+    });
+
+    it("trapped select compares primitive reads even when the selected value is equal", () => {
+        const root = trackRoot(
+            Retree.root({
+                count: 1,
+            })
+        );
+        const selected = vi.fn();
+        Retree.select(() => root.count > 0, selected);
+
+        root.count = 2;
+
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(selected).toHaveBeenCalledWith(true, true);
+    });
+
+    it("infers selector-only select callback values from the selector return type", () => {
+        type Task = {
+            id: string;
+            text: string;
+        };
+        type QueryStatus = "pending" | "success";
+        const root = trackRoot(
+            Retree.root({
+                tasks: {
+                    state: undefined as Task[] | undefined,
+                    result: {
+                        status: "pending" as QueryStatus,
+                    },
+                },
+                filter: {
+                    isComplete: null as boolean | null,
+                },
+            })
+        );
+
+        Retree.select(
+            () => {
+                const tasks = root.tasks.state ?? [];
+                return [tasks, root.filter, root.tasks.result.status] as const;
+            },
+            ([tasks, filter, queryStatus]) => {
+                expectTypeOf(tasks).toEqualTypeOf<Task[]>();
+                expectTypeOf(filter).toEqualTypeOf<typeof root.filter>();
+                expectTypeOf(queryStatus).toEqualTypeOf<QueryStatus>();
+            }
+        );
+    });
+
     it("selects dependency tuples and uses reactive entries as ordered subscriptions", () => {
         const root = trackRoot(
             Retree.root({

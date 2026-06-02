@@ -6,15 +6,19 @@
 import { TRetreeChangedEvents, TreeNode } from "../types";
 import {
     areDependencyComparisonValuesEqual,
+    areDependencyValuesEqual,
     getDependencyComparisonValues,
     normalizeDependencyEntry,
 } from "./dependencies";
+import { collectDependencyAccesses } from "./dependency-tracking";
 import { getBaseProxy, getUnproxiedNode } from "./proxy";
 import { getReproxyNode } from "./reproxy";
 
 export type RetreeSelectSelector<TNode extends TreeNode, TSelected> = (
     node: TNode
 ) => TSelected;
+
+export type RetreeTrackedSelectSelector<TSelected> = () => TSelected;
 
 export type RetreeSelectEquals<TSelected> = (
     previous: TSelected,
@@ -34,6 +38,94 @@ interface ActiveSelectDependency {
     unsubscribe: () => void;
 }
 
+interface TrackedSelection<TSelected> {
+    selected: TSelected;
+    dependencies: readonly unknown[];
+}
+
+function getTrackedDependencyComparisonValue(dependency: unknown): unknown {
+    const normalizedDependency = normalizeDependencyEntry(dependency);
+    if (
+        normalizedDependency.node !== undefined &&
+        normalizedDependency.node !== null
+    ) {
+        return getUnproxiedNode(getBaseProxy(normalizedDependency.node));
+    }
+    return dependency;
+}
+
+function getTrackedDependencyComparisonValues(
+    dependencies: readonly unknown[]
+) {
+    const comparisonValues: unknown[] = [];
+    for (const dependency of dependencies) {
+        const comparisonValue = getTrackedDependencyComparisonValue(dependency);
+        const previousValue = comparisonValues[comparisonValues.length - 1];
+        if (Object.is(previousValue, comparisonValue)) {
+            continue;
+        }
+        comparisonValues.push(comparisonValue);
+    }
+    return comparisonValues;
+}
+
+function defaultTrackedDependenciesChanged(
+    previous: readonly unknown[],
+    next: readonly unknown[]
+): boolean {
+    const previousComparisonValues =
+        getTrackedDependencyComparisonValues(previous);
+    const nextComparisonValues = getTrackedDependencyComparisonValues(next);
+    if (previousComparisonValues.length !== nextComparisonValues.length) {
+        return true;
+    }
+    for (let index = 0; index < previousComparisonValues.length; index++) {
+        if (
+            !Object.is(
+                previousComparisonValues[index],
+                nextComparisonValues[index]
+            )
+        ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function defaultTrackedSelectedChanged<TSelected>(
+    previous: TSelected,
+    next: TSelected
+): boolean {
+    return !Object.is(previous, next);
+}
+
+function stabilizeSelectedRetreeReferences<TSelected>(
+    previous: TSelected,
+    next: TSelected
+): TSelected {
+    if (!Array.isArray(previous) || !Array.isArray(next)) {
+        if (areDependencyValuesEqual(previous, next)) {
+            return previous;
+        }
+        return next;
+    }
+    if (previous.length !== next.length) {
+        return next;
+    }
+    let didStabilizeSlot = false;
+    const stabilized = next.map((nextValue, index) => {
+        const previousValue = previous[index];
+        if (!areDependencyValuesEqual(previousValue, nextValue)) {
+            return nextValue;
+        }
+        if (previousValue !== nextValue) {
+            didStabilizeSlot = true;
+        }
+        return previousValue;
+    });
+    return (didStabilizeSlot ? stabilized : next) as TSelected;
+}
+
 export function normalizeSelectDependencies<TSelected>(
     selected: TSelected
 ): readonly unknown[] {
@@ -49,13 +141,13 @@ export function defaultSelectEquals<TSelected>(
             return false;
         }
         for (let index = 0; index < previous.length; index++) {
-            if (!Object.is(previous[index], next[index])) {
+            if (!areDependencyValuesEqual(previous[index], next[index])) {
                 return false;
             }
         }
         return true;
     }
-    return Object.is(previous, next);
+    return areDependencyValuesEqual(previous, next);
 }
 
 export function defaultSelectShouldNotify<TSelected>(
@@ -220,5 +312,139 @@ export function createRetreeSelectionObserver<
             activeDependency.unsubscribe();
         }
         activeDependencies = [];
+    };
+}
+
+export function createRetreeTrackedSelectionObserver<TSelected>(options: {
+    selector: RetreeTrackedSelectSelector<TSelected>;
+    equals?: RetreeSelectEquals<TSelected>;
+    subscribeToNode: SubscribeToNode;
+    onChange: (next: TSelected, previous: TSelected) => void;
+}): () => void {
+    let activeDependencies: ActiveSelectDependency[] = [];
+    let previous = runTrackedSelection(options.selector);
+
+    const updateDependencySubscriptions = (
+        trackedSelection: TrackedSelection<TSelected>
+    ) => {
+        const nextDependencies: ActiveSelectDependency[] = [];
+        const nextDependencySlots = new Map<
+            TreeNode,
+            { baseProxy: TreeNode; indices: number[] }
+        >();
+
+        for (
+            let index = 0;
+            index < trackedSelection.dependencies.length;
+            index++
+        ) {
+            const dependency = trackedSelection.dependencies[index];
+            const normalizedDependency = normalizeDependencyEntry(dependency);
+            if (normalizedDependency.node === undefined) {
+                continue;
+            }
+            const dependencyBaseProxy = getBaseProxy(normalizedDependency.node);
+            const rawNode = getUnproxiedNode(dependencyBaseProxy);
+            if (rawNode === undefined) {
+                continue;
+            }
+            const existingSlot = nextDependencySlots.get(rawNode);
+            if (existingSlot !== undefined) {
+                existingSlot.indices.push(index);
+                continue;
+            }
+            nextDependencySlots.set(rawNode, {
+                baseProxy: dependencyBaseProxy,
+                indices: [index],
+            });
+        }
+
+        for (const [rawNode, dependencySlot] of nextDependencySlots.entries()) {
+            const existing = activeDependencies.find(
+                (active) => active.rawNode === rawNode
+            );
+            if (existing !== undefined) {
+                existing.indices = dependencySlot.indices;
+                nextDependencies.push(existing);
+                continue;
+            }
+
+            nextDependencies.push({
+                rawNode,
+                indices: dependencySlot.indices,
+                unsubscribe: options.subscribeToNode(
+                    dependencySlot.baseProxy,
+                    "nodeChanged",
+                    evaluate
+                ),
+            });
+        }
+
+        for (const activeDependency of activeDependencies) {
+            if (
+                !nextDependencies.some(
+                    (dependency) =>
+                        dependency.rawNode === activeDependency.rawNode
+                )
+            ) {
+                activeDependency.unsubscribe();
+            }
+        }
+        activeDependencies = nextDependencies;
+    };
+
+    const evaluate = () => {
+        const next = runTrackedSelection(options.selector);
+        const nextSelected = stabilizeSelectedRetreeReferences(
+            previous.selected,
+            next.selected
+        );
+        updateDependencySubscriptions(next);
+        const selectedChanged =
+            options.equals !== undefined
+                ? !options.equals(previous.selected, nextSelected)
+                : defaultTrackedSelectedChanged(
+                      previous.selected,
+                      nextSelected
+                  );
+        const dependenciesChanged = defaultTrackedDependenciesChanged(
+            previous.dependencies,
+            next.dependencies
+        );
+        if (!selectedChanged && !dependenciesChanged) {
+            previous = {
+                selected: nextSelected,
+                dependencies: next.dependencies,
+            };
+            return;
+        }
+        const previousToEmit = previous;
+        previous = {
+            selected: nextSelected,
+            dependencies: next.dependencies,
+        };
+        options.onChange(nextSelected, previousToEmit.selected);
+    };
+
+    updateDependencySubscriptions(previous);
+
+    return () => {
+        for (const activeDependency of activeDependencies) {
+            activeDependency.unsubscribe();
+        }
+        activeDependencies = [];
+    };
+}
+
+export function runTrackedSelection<TSelected>(
+    selector: RetreeTrackedSelectSelector<TSelected>
+): TrackedSelection<TSelected> {
+    let selected: TSelected | undefined;
+    const dependencies = collectDependencyAccesses(() => {
+        selected = selector();
+    });
+    return {
+        selected: selected as TSelected,
+        dependencies,
     };
 }

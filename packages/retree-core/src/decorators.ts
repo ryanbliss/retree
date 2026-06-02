@@ -1,10 +1,13 @@
 import {
     COLLECTED_KEYS_SYMBOL,
     LINKED_KEYS_SYMBOL,
+    IReactiveSelectGetter,
     ReactiveNode,
     SELECT_GETTERS_SYMBOL,
 } from "./ReactiveNode";
+import { collectDependencyAccesses } from "./internals/dependency-tracking";
 import { runFnMemo, runMemo } from "./internals/memo";
+import { Retree } from "./Retree";
 
 /**
  * Field decorator that excludes a property of a {@link ReactiveNode} from Retree's
@@ -169,11 +172,17 @@ export function memo<This extends ReactiveNode, Value>(
  * @remarks
  * `@select` is the class-side companion to {@link Retree.select} and
  * `useSelect`. Use it when a getter exposes a narrow value but depends on
- * broader reactive sources. Reactive dependencies in the returned list are
- * subscribed to; primitive and plain-object dependencies are compared by
- * identity. Wrap a slot with `self.dependency(node, comparisons)` when that
- * slot needs custom comparison cells. When a selected slot changes, Retree
- * reproxies the owning node and emits `nodeChanged` for that owner.
+ * broader reactive sources. When called with no selector, `@select()` runs the
+ * getter under a dependency trapper. Whole Retree-managed values read by the
+ * getter are subscribed to broadly. Property reads subscribe to the owner node
+ * but compare the specific property value, so `task.isCompleted` can update
+ * when the task slot is replaced or `isCompleted` changes without reacting to
+ * unrelated `task.text` changes. Primitive values read by the getter are
+ * compared.
+ * Pass an explicit selector when you want to choose or customize the dependency
+ * slots yourself. Wrap a slot with `self.dependency(node, comparisons)` when
+ * that slot needs custom comparison cells. When a selected slot changes,
+ * Retree reproxies the owning node and emits `nodeChanged` for that owner.
  *
  * The dependency list is ordered and may change length at runtime. Retree
  * treats additions, removals, and reordering as invalidation and refreshes the
@@ -201,9 +210,25 @@ export function memo<This extends ReactiveNode, Value>(
  *     }
  * }
  * ```
+ *
+ * @example
+ * ```ts
+ * class TaskRow extends ReactiveNode {
+ *     @link public task!: Task;
+ *     @link public filter!: TaskFilter;
+ *
+ *     @select()
+ *     get isVisible() {
+ *         return (
+ *             this.filter.isComplete === null ||
+ *             this.task.isCompleted === this.filter.isComplete
+ *         );
+ *     }
+ * }
+ * ```
  */
 export function select<This extends ReactiveNode, Dependencies>(
-    getDependencies: (self: This) => Dependencies
+    getDependencies?: (self: This) => Dependencies
 ) {
     return function <Value>(
         target: (this: This) => Value,
@@ -219,11 +244,20 @@ export function select<This extends ReactiveNode, Dependencies>(
             if (!(this instanceof ReactiveNode)) {
                 return;
             }
-            this[SELECT_GETTERS_SYMBOL].set(context.name, {
-                getDependencies: getDependencies as (
-                    self: ReactiveNode
-                ) => unknown,
-            });
+            const selectGetter: IReactiveSelectGetter =
+                getDependencies === undefined
+                    ? {
+                          getDependencies: (self: ReactiveNode) =>
+                              collectDependencyAccesses(() =>
+                                  target.call(self as This)
+                              ),
+                      }
+                    : {
+                          getDependencies: getDependencies as (
+                              self: ReactiveNode
+                          ) => unknown,
+                      };
+            this[SELECT_GETTERS_SYMBOL].set(context.name, selectGetter);
         });
         return function selectedGetter(this: This): Value {
             return target.call(this);

@@ -95,6 +95,21 @@ project.tasks[0].done = true; // ✅ re-renders DoneCount: 1 -> 2
 project.tasks[0].title = "Better docs"; // ❌ no re-render: doneCount stayed 2
 ```
 
+`useSelect` can also infer dependencies when you pass only a selector function. Whole Retree-managed values read by the selector subscribe automatically. Property reads subscribe to the owner node but compare the specific property value, so `task.done` reacts to task replacement or `done` changes without reacting to unrelated task fields. Primitive reads compare.
+
+```tsx
+function DoneCount() {
+    const doneCount = useSelect(
+        () => project.tasks.filter((task) => task.done).length
+    );
+
+    return <span>{doneCount}</span>;
+}
+
+project.tasks[0].done = true; // ✅ re-renders DoneCount
+project.tasks[0].title = "Better docs"; // ❌ no re-render: doneCount stayed 2
+```
+
 Selectors can return an ordered dependency list. Reactive entries are subscribed to; primitive entries are compared. This lets a component listen broadly enough to stay fresh without re-rendering for unrelated changes.
 
 ```tsx
@@ -111,7 +126,7 @@ function AttributeLabel({ row }: { row: AttributeRow }) {
 
 `useSelect` listens with `nodeChanged` by default. This is best for selecting direct values owned by that exact node, including `ReactiveNode` values that emit when their dependencies change. Pass `listenerType: "treeChanged"` when the selector intentionally reads descendant nodes.
 
-Dependency-list subscriptions in `useSelect` are observational. If `self.attributes` or `self.attribute` changes in the example above, the component can re-render, but the `row` node passed to `useSelect` is not forced to receive a fresh reproxy. Use `@select` on a `ReactiveNode` getter when the owner node itself should emit `nodeChanged`.
+Dependency-list subscriptions in `useSelect` are observational. If `self.attributes` or `self.attribute` changes in the example above, the component can re-render, but the `row` node passed to `useSelect` is not forced to receive a fresh reproxy. Use `@select` on a `ReactiveNode` getter when the owner node itself should emit `nodeChanged`. Use `@select()` with no selector when the getter should trap reads automatically, including property-level reads like `task.done`.
 
 `useSelect` is a subscription primitive, not a memo cache. Use `memo` or `fnMemo` to cache expensive computation, and use `useSelect` to narrow React updates. If your selector returns a fresh object or array, pass `equals` to avoid re-rendering when the selected value is logically unchanged.
 

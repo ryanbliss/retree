@@ -30,11 +30,14 @@ import {
 } from "./internals/reproxy";
 import {
     createRetreeSelectionObserver,
+    createRetreeTrackedSelectionObserver,
     normalizeSelectDependencies,
     RetreeSelectEquals,
     RetreeSelectSelector,
+    RetreeTrackedSelectSelector,
 } from "./internals/select";
 import {
+    areDependencyValuesEqual,
     getDependencyComparisonValues,
     normalizeDependencyEntry,
 } from "./internals/dependencies";
@@ -445,6 +448,14 @@ export class Retree {
      * descendants that are not included as reactive entries in a dependency
      * list.
      *
+     * You can also call `Retree.select(() => value, callback)` without a node.
+     * That form traps reads automatically. Whole Retree-managed values are
+     * subscribed to broadly. Property reads subscribe to the owner node but
+     * compare the specific property value, so `task.done` can react to task
+     * replacement or `done` changes without reacting to unrelated task fields.
+     * Primitive reads are kept as comparison values, so the callback only runs
+     * when the trapped reads make the selected value or dependency set change.
+     *
      * @param node Retree-managed node to observe.
      * @param selector Function that reads a selected value or dependency list
      * from the latest reproxy.
@@ -480,13 +491,64 @@ export class Retree {
      *     ([, , attribute]) => console.log(attribute)
      * );
      * ```
+     *
+     * @example
+     * ```ts
+     * Retree.select(
+     *     () => project.tasks.filter((task) => task.done).length,
+     *     (doneCount) => console.log(doneCount)
+     * );
+     * ```
      */
     static select<TNode extends TreeNode, TSelected>(
         node: TNode,
         selector: RetreeSelectSelector<TNode, TSelected>,
         callback: (next: TSelected, previous: TSelected) => void,
+        options?: RetreeSelectOptions<TSelected>
+    ): () => void;
+    static select<TSelector extends RetreeTrackedSelectSelector<unknown>>(
+        selector: TSelector,
+        callback: (
+            next: ReturnType<TSelector>,
+            previous: ReturnType<TSelector>
+        ) => void,
+        options?: RetreeSelectOptions<ReturnType<TSelector>>
+    ): () => void;
+    static select<TNode extends TreeNode, TSelected>(
+        nodeOrSelector: TNode | RetreeTrackedSelectSelector<TSelected>,
+        selectorOrCallback:
+            | RetreeSelectSelector<TNode, TSelected>
+            | ((next: TSelected, previous: TSelected) => void),
+        callbackOrOptions?:
+            | ((next: TSelected, previous: TSelected) => void)
+            | RetreeSelectOptions<TSelected>,
         options: RetreeSelectOptions<TSelected> = {}
     ): () => void {
+        if (typeof nodeOrSelector === "function") {
+            return createRetreeTrackedSelectionObserver({
+                selector: nodeOrSelector,
+                equals: (callbackOrOptions as RetreeSelectOptions<TSelected>)
+                    ?.equals,
+                subscribeToNode: (
+                    selectedNode,
+                    selectedListenerType,
+                    listener
+                ) => this.on(selectedNode, selectedListenerType, listener),
+                onChange: selectorOrCallback as (
+                    next: TSelected,
+                    previous: TSelected
+                ) => void,
+            });
+        }
+        const node = nodeOrSelector;
+        const selector = selectorOrCallback as RetreeSelectSelector<
+            TNode,
+            TSelected
+        >;
+        const callback = callbackOrOptions as (
+            next: TSelected,
+            previous: TSelected
+        ) => void;
         const listenerType = options.listenerType ?? "nodeChanged";
         return createRetreeSelectionObserver({
             node,
@@ -1338,16 +1400,12 @@ export class Retree {
     ): IActiveReactiveDependency[] {
         const selectGetters = proxiedDependentNode[SELECT_GETTERS_SYMBOL];
         const dependencies: IActiveReactiveDependency[] = [];
+        const unproxiedDependentNode = getUnproxiedNode(proxiedDependentNode);
         for (const [getterName, selectGetter] of selectGetters.entries()) {
             const selected = selectGetter.getDependencies(proxiedDependentNode);
             const selectedDependencies = normalizeSelectDependencies(selected);
             if (selectedDependencies.length === 0) {
-                // @retree-throws
-                throw new Error(
-                    `@select dependency list for getter '${String(
-                        getterName
-                    )}' was empty. This is a ReactiveNode implementation error because @select needs at least one dependency slot to observe or compare. Fix: return one or more dependencies, or remove @select from this getter.`
-                );
+                continue;
             }
             for (
                 let dependencyIndex = 0;
@@ -1362,6 +1420,14 @@ export class Retree {
                         selectedDependency,
                         key
                     );
+                if (
+                    normalizedDependency.node !== undefined &&
+                    normalizedDependency.node !== null &&
+                    getUnproxiedNode(normalizedDependency.node) ===
+                        unproxiedDependentNode
+                ) {
+                    continue;
+                }
                 const laterComparisons = getDependencyComparisonValues(
                     selectedDependencies.slice(dependencyIndex + 1)
                 );
@@ -1552,7 +1618,12 @@ export class Retree {
             return true;
         }
         for (let i = 0; i < latestComparisons.length; i++) {
-            if (latestComparisons[i] !== previousComparisons[i]) {
+            if (
+                !areDependencyValuesEqual(
+                    previousComparisons[i],
+                    latestComparisons[i]
+                )
+            ) {
                 return true;
             }
         }

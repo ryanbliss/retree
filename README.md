@@ -236,6 +236,14 @@ project.tasks[0].done = true; // ✅ re-renders DoneCount: 1 -> 2
 project.tasks[0].title = "Better docs"; // ❌ no re-render: doneCount stayed 2
 ```
 
+`useSelect` can also infer dependencies when you pass only a selector function. Whole Retree-managed values read by the selector subscribe automatically. Property reads subscribe to the owner node but compare the specific property value, so `task.done` reacts to task replacement or `done` changes without reacting to unrelated task fields. Primitive reads compare.
+
+```tsx
+const doneCount = useSelect(
+    () => project.tasks.filter((task) => task.done).length
+);
+```
+
 Selectors can also return ordered dependency lists. Reactive entries subscribe; primitive entries compare:
 
 ```tsx
@@ -431,6 +439,25 @@ counter.numbers.push(3); // ❌ no re-render: evenNumberCount stayed 1
 ```
 
 Use `@select` when the dependency list belongs to a getter and `useNode(node)` should update only for that getter's selected dependencies:
+
+```ts
+import { ReactiveNode, link, memo, select } from "@retreejs/core";
+
+class TaskRow extends ReactiveNode {
+    @link public task!: { isCompleted: boolean };
+    @link public filter!: { isComplete: boolean | null };
+
+    @select()
+    get isVisible() {
+        return (
+            this.filter.isComplete === null ||
+            this.task.isCompleted === this.filter.isComplete
+        );
+    }
+}
+```
+
+`@select()` without a selector traps dependencies while the getter runs. Whole Retree-managed values read by the getter subscribe; property reads subscribe to the owner node but compare the specific property value; primitive values read by the getter compare. Pass an explicit selector when you want to choose or customize dependency slots:
 
 ```ts
 import { ReactiveNode, memo, select } from "@retreejs/core";
@@ -824,6 +851,15 @@ const unsubscribeDoneCount = Retree.select(
 tree.todos[0].toggle(); // ✅ emits if done count changes
 tree.todos[0].text = "Docs"; // ❌ no emit if done count is unchanged
 unsubscribeDoneCount();
+```
+
+`Retree.select` can also infer dependencies when you pass only a selector function and callback:
+
+```ts
+Retree.select(
+    () => tree.todos.filter((todo) => todo.checked).length,
+    (doneCount) => console.log(doneCount)
+);
 ```
 
 `Retree.select` also accepts ordered dependency lists. Reactive entries subscribe; primitive entries compare:
