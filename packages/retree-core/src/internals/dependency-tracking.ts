@@ -1,4 +1,4 @@
-import { IReactiveDependency } from "../ReactiveNode";
+import { IReactiveDependency, ReactiveNode } from "../ReactiveNode";
 import { TreeNode } from "../types";
 import {
     isCustomProxy,
@@ -19,6 +19,7 @@ interface DependencyPropertyWrite {
 
 export interface DependencyComparisonAccessor {
     readonly kind: "retree-dependency-comparison-accessor";
+    readonly sourceUnproxiedNode?: TreeNode;
     getValues(): unknown[];
 }
 
@@ -100,7 +101,12 @@ export function collectDependencyComparisonAccesses<T>(callback: () => T): {
                 return [];
             }
             if (entry.kind === "managed-value") {
-                return [createComparisonAccessor(() => [entry.value])];
+                return [
+                    createComparisonAccessor(
+                        () => [entry.value],
+                        entry.unproxiedNode
+                    ),
+                ];
             }
             if (entry.comparisonAccessor !== undefined) {
                 return [entry.comparisonAccessor];
@@ -192,13 +198,16 @@ export function trackDependencyPropertyAccess<T>(
             node: owner,
             comparisons: [comparisonValue],
         } satisfies IReactiveDependency,
-        comparisonAccessor: createComparisonAccessor(() => [
-            arrayElementRead
-                ? getArrayElementComparisonValue(
-                      Reflect.get(owner, propertyKey)
-                  )
-                : Reflect.get(owner, propertyKey),
-        ]),
+        comparisonAccessor: createComparisonAccessor(
+            () => [
+                arrayElementRead
+                    ? getArrayElementComparisonValue(
+                          Reflect.get(owner, propertyKey)
+                      )
+                    : Reflect.get(owner, propertyKey),
+            ],
+            getComparisonAccessorSource(ownerUnproxiedNode, propertyKey)
+        ),
         ownerUnproxiedNode,
         propertyKey,
         isArrayElementRead: arrayElementRead,
@@ -244,12 +253,24 @@ function isRetreeInternalProperty(propertyKey: string | symbol): boolean {
 }
 
 function createComparisonAccessor(
-    getValues: () => unknown[]
+    getValues: () => unknown[],
+    sourceUnproxiedNode?: TreeNode
 ): DependencyComparisonAccessor {
     return {
         kind: "retree-dependency-comparison-accessor",
+        sourceUnproxiedNode,
         getValues,
     };
+}
+
+function getComparisonAccessorSource(
+    ownerUnproxiedNode: TreeNode,
+    propertyKey: string | symbol
+): TreeNode | undefined {
+    if (ownerUnproxiedNode instanceof ReactiveNode) {
+        return undefined;
+    }
+    return ownerUnproxiedNode;
 }
 
 function removePendingPropertyAccess(

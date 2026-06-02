@@ -453,6 +453,51 @@ describe("@memo decorator", () => {
         expect(root.computeCount).toBe(2);
     });
 
+    it("does not re-read trapped memo property accessors when source reproxies are unchanged", () => {
+        let valueReadCount = 0;
+        class CountedMemoNode extends ReactiveNode {
+            public child = {
+                current: 1,
+                get value() {
+                    valueReadCount++;
+                    return this.current;
+                },
+            };
+            @ignore
+            public computeCount = 0;
+
+            @memo()
+            get doubled(): number {
+                this.computeCount++;
+                return this.child.value * 2;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new CountedMemoNode()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.doubled).toBe(2);
+        expect(root.doubled).toBe(2);
+        expect(root.doubled).toBe(2);
+        expect(root.doubled).toBe(2);
+        expect(root.computeCount).toBe(1);
+        expect(valueReadCount).toBe(3);
+
+        root.child.current = 2;
+
+        expect(root.doubled).toBe(4);
+        expect(root.computeCount).toBe(2);
+        expect(valueReadCount).toBe(6);
+
+        expect(root.doubled).toBe(4);
+        expect(root.doubled).toBe(4);
+        expect(valueReadCount).toBe(6);
+    });
+
     it("still emits and reproxies when a @memo getter writes a non-ignored field", () => {
         class SideEffectMemoNode extends ReactiveNode {
             public source = 1;
@@ -958,6 +1003,55 @@ describe("@fnMemo decorator", () => {
         root.child.suffix = "b";
         expect(root.format(2)).toBe("2:b");
         expect(root.computeCount).toBe(3);
+    });
+
+    it("does not re-read trapped fnMemo property accessors when source reproxies are unchanged", () => {
+        let suffixReadCount = 0;
+        class CountedFormatter extends ReactiveNode {
+            public child = {
+                current: "a",
+                get suffix() {
+                    suffixReadCount++;
+                    return this.current;
+                },
+            };
+            @ignore
+            public computeCount = 0;
+
+            @fnMemo()
+            public format(value: number): string {
+                this.computeCount++;
+                return `${value}:${this.child.suffix}`;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new CountedFormatter()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.format(1)).toBe("1:a");
+        expect(root.format(1)).toBe("1:a");
+        expect(root.format(1)).toBe("1:a");
+        expect(root.format(1)).toBe("1:a");
+        expect(root.computeCount).toBe(1);
+        expect(suffixReadCount).toBe(3);
+
+        expect(root.format(2)).toBe("2:a");
+        expect(root.computeCount).toBe(2);
+        expect(suffixReadCount).toBe(5);
+
+        expect(root.format(2)).toBe("2:a");
+        expect(root.format(2)).toBe("2:a");
+        expect(suffixReadCount).toBe(5);
+
+        root.child.current = "b";
+
+        expect(root.format(2)).toBe("2:b");
+        expect(root.computeCount).toBe(3);
+        expect(suffixReadCount).toBe(8);
     });
 
     it("still emits and reproxies when a @fnMemo method writes a non-ignored field", () => {
