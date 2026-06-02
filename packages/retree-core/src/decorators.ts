@@ -379,11 +379,17 @@ function decorateSelectGetter<This extends ReactiveNode, Value, Dependencies>(
                           collectDependencyAccesses(() =>
                               target.call(self as This)
                           ),
+                      getValue: (self: ReactiveNode) =>
+                          target.call(self as This),
+                      compareValueBeforeNotify: true,
                   }
                 : {
                       getDependencies: getDependencies as (
                           self: ReactiveNode
                       ) => unknown,
+                      getValue: (self: ReactiveNode) =>
+                          target.call(self as This),
+                      compareValueBeforeNotify: false,
                   };
         this[SELECT_GETTERS_SYMBOL].set(context.name, selectGetter);
     });

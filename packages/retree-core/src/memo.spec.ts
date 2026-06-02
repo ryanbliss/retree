@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
-import { fnMemo, ignore, memo } from "./decorators";
+import { fnMemo, ignore, link, memo, select } from "./decorators";
 import { getReproxyNode } from "./internals/reproxy";
 import { Transactions } from "./internals/transactions";
 
@@ -35,6 +35,11 @@ function clearListenersRecursively(node: unknown, seen = new Set<object>()) {
 
 interface Card {
     text: string;
+}
+
+interface Row {
+    id: string;
+    value: string;
 }
 
 class ListFilterMethod extends ReactiveNode {
@@ -592,6 +597,223 @@ describe("@memo decorator", () => {
         root.other;
         expect(root.baseCount).toBe(2);
         expect(root.derivedCount).toBe(1); // y didn't change
+    });
+});
+
+describe("automatic dependency trapping through array lookup", () => {
+    class Store extends ReactiveNode {
+        public rows: Row[] = [];
+
+        get dependencies() {
+            return [this.dependency(this.rows)];
+        }
+
+        public byId(id: string): Row | null {
+            return this.rows.find((row) => row.id === id) ?? null;
+        }
+
+        public replaceRow(next: Row): void {
+            const index = this.rows.findIndex((row) => row.id === next.id);
+            if (index === -1) {
+                this.rows.push(next);
+                return;
+            }
+            this.rows.splice(index, 1, next);
+        }
+
+        public removeRow(id: string): void {
+            const index = this.rows.findIndex((row) => row.id === id);
+            if (index === -1) {
+                return;
+            }
+            this.rows.splice(index, 1);
+        }
+
+        public moveRow(id: string, toIndex: number): void {
+            const index = this.rows.findIndex((row) => row.id === id);
+            if (index === -1) {
+                return;
+            }
+            const [row] = this.rows.splice(index, 1);
+            this.rows.splice(toIndex, 0, row);
+        }
+    }
+
+    class Consumer extends ReactiveNode {
+        @link
+        public store: Store | null = null;
+        public rowId = "";
+
+        get dependencies() {
+            return [];
+        }
+
+        @memo
+        private get _result(): string | null {
+            return this.store?.byId(this.rowId)?.value ?? null;
+        }
+
+        @select
+        public get result(): string | null {
+            return this._result;
+        }
+    }
+
+    function buildLookupTree(rows: Row[] = [{ id: "a", value: "Ada" }]) {
+        const root = trackRoot(
+            Retree.root({
+                store: new Store(),
+                consumer: new Consumer(),
+            })
+        );
+        root.store.rows.push(...rows);
+        root.consumer.store = root.store;
+        root.consumer.rowId = "a";
+        return root;
+    }
+
+    it("recomputes when the resolved row's field is mutated in place", () => {
+        const root = buildLookupTree();
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        const row = root.store.byId("a");
+        if (row === null) {
+            // @retree-throws
+            throw new Error(
+                "Test setup failed: expected buildLookupTree() to create row 'a'."
+            );
+        }
+        row.value = "Grace";
+
+        expect(root.consumer.result).toBe("Grace");
+        expect(changed).toHaveBeenCalled();
+    });
+
+    it("recomputes when the resolved row is replaced via splice", () => {
+        const root = buildLookupTree();
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        root.store.replaceRow({ id: "a", value: "Grace" });
+
+        expect(root.consumer.result).toBe("Grace");
+        expect(changed).toHaveBeenCalled();
+    });
+
+    it("does not emit when an unmatched row field changes before the resolved row", () => {
+        const root = buildLookupTree([
+            { id: "b", value: "Babbage" },
+            { id: "a", value: "Ada" },
+        ]);
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        const row = root.store.byId("b");
+        if (row === null) {
+            // @retree-throws
+            throw new Error(
+                "Test setup failed: expected buildLookupTree() to create row 'b'."
+            );
+        }
+        row.value = "Byron";
+
+        expect(root.consumer.result).toBe("Ada");
+        expect(changed).not.toHaveBeenCalled();
+    });
+
+    it("does not emit when an unmatched row field changes after the resolved row", () => {
+        const root = buildLookupTree([
+            { id: "a", value: "Ada" },
+            { id: "b", value: "Babbage" },
+        ]);
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        const row = root.store.byId("b");
+        if (row === null) {
+            // @retree-throws
+            throw new Error(
+                "Test setup failed: expected buildLookupTree() to create row 'b'."
+            );
+        }
+        row.value = "Byron";
+
+        expect(root.consumer.result).toBe("Ada");
+        expect(changed).not.toHaveBeenCalled();
+    });
+
+    it("does not emit when an unmatched row is replaced after the resolved row", () => {
+        const root = buildLookupTree([
+            { id: "a", value: "Ada" },
+            { id: "b", value: "Babbage" },
+        ]);
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        root.store.replaceRow({ id: "b", value: "Byron" });
+
+        expect(root.consumer.result).toBe("Ada");
+        expect(changed).not.toHaveBeenCalled();
+    });
+
+    it("does not emit when an unmatched row is replaced before the resolved row", () => {
+        const root = buildLookupTree([
+            { id: "b", value: "Babbage" },
+            { id: "a", value: "Ada" },
+        ]);
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        root.store.replaceRow({ id: "b", value: "Byron" });
+
+        expect(root.consumer.result).toBe("Ada");
+        expect(changed).not.toHaveBeenCalled();
+    });
+
+    it("does not emit when an unmatched row is spliced out", () => {
+        const root = buildLookupTree([
+            { id: "b", value: "Babbage" },
+            { id: "a", value: "Ada" },
+        ]);
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        root.store.removeRow("b");
+
+        expect(root.consumer.result).toBe("Ada");
+        expect(changed).not.toHaveBeenCalled();
+    });
+
+    it("does not emit when an unmatched row is reordered", () => {
+        const root = buildLookupTree([
+            { id: "b", value: "Babbage" },
+            { id: "a", value: "Ada" },
+            { id: "c", value: "Curie" },
+        ]);
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        root.store.moveRow("b", 2);
+
+        expect(root.consumer.result).toBe("Ada");
+        expect(changed).not.toHaveBeenCalled();
     });
 });
 

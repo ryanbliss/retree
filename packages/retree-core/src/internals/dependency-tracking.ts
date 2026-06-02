@@ -29,6 +29,7 @@ type DependencyAccessEntry =
           comparisonAccessor?: DependencyComparisonAccessor;
           ownerUnproxiedNode?: TreeNode;
           propertyKey?: string | symbol;
+          isArrayElementRead?: boolean;
           valueUnproxiedNode?: TreeNode;
       }
     | {
@@ -178,20 +179,32 @@ export function trackDependencyPropertyAccess<T>(
     const valueUnproxiedNode = isCustomProxy(value)
         ? value["[[Handler]]"][unproxiedBaseNodeKey]
         : undefined;
+    const arrayElementRead = isArrayElementRead(
+        ownerUnproxiedNode,
+        propertyKey
+    );
+    const comparisonValue = arrayElementRead
+        ? getArrayElementComparisonValue(value)
+        : value;
     currentFrame.entries.push({
         kind: "dependency",
         value: {
             node: owner,
-            comparisons: [value],
+            comparisons: [comparisonValue],
         } satisfies IReactiveDependency,
         comparisonAccessor: createComparisonAccessor(() => [
-            Reflect.get(owner, propertyKey),
+            arrayElementRead
+                ? getArrayElementComparisonValue(
+                      Reflect.get(owner, propertyKey)
+                  )
+                : Reflect.get(owner, propertyKey),
         ]),
         ownerUnproxiedNode,
         propertyKey,
+        isArrayElementRead: arrayElementRead,
         valueUnproxiedNode,
     });
-    if (isArrayElementRead(ownerUnproxiedNode, propertyKey)) {
+    if (arrayElementRead) {
         return value;
     }
     if (currentFrame.mode === "comparisons") {
@@ -289,11 +302,21 @@ function removePendingPropertyValueAccess(
         if (entry.kind !== "dependency") {
             continue;
         }
+        if (entry.isArrayElementRead) {
+            continue;
+        }
         if (entry.valueUnproxiedNode !== valueUnproxiedNode) {
             continue;
         }
         frame.entries.splice(index, 1);
     }
+}
+
+function getArrayElementComparisonValue(value: unknown): unknown {
+    if (!isCustomProxy(value)) {
+        return value;
+    }
+    return value["[[Handler]]"][unproxiedBaseNodeKey];
 }
 
 function isArrayElementRead(

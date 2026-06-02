@@ -3,6 +3,9 @@ import { TreeNode } from "../types";
 
 export interface IActiveReactiveDependency extends IReactiveDependency {
     key: string;
+    selectGetterName?: string | symbol;
+    selectValue?: unknown;
+    compareSelectValueBeforeNotify?: boolean;
     unsubscribeListener: (() => void) | undefined;
     unproxiedNode: TreeNode | undefined;
 }
@@ -12,6 +15,9 @@ export interface IPreviousReactiveDependent {
     unproxiedReactiveNode: TreeNode;
     comparisons?: any[];
     key: string;
+    selectGetterName?: string | symbol;
+    selectValue?: unknown;
+    compareSelectValueBeforeNotify?: boolean;
 }
 
 let reactiveDependentMap:
@@ -88,6 +94,10 @@ export function setReactiveDependents(
         ) {
             existingDependent.reactiveNode = dependent.reactiveNode;
             existingDependent.comparisons = dependent.comparisons;
+            existingDependent.selectGetterName = dependent.selectGetterName;
+            existingDependent.selectValue = dependent.selectValue;
+            existingDependent.compareSelectValueBeforeNotify =
+                dependent.compareSelectValueBeforeNotify;
             return;
         }
     }

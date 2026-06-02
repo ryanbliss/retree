@@ -31,6 +31,7 @@ import {
 import {
     createRetreeSelectionObserver,
     createRetreeTrackedSelectionObserver,
+    defaultSelectEquals,
     normalizeSelectDependencies,
     RetreeSelectEquals,
     RetreeSelectSelector,
@@ -1339,6 +1340,10 @@ export class Retree {
                     unproxiedReactiveNode: unproxiedDependentNode,
                     comparisons: currentDependency.comparisons,
                     key: currentDependency.key,
+                    selectGetterName: currentDependency.selectGetterName,
+                    selectValue: currentDependency.selectValue,
+                    compareSelectValueBeforeNotify:
+                        currentDependency.compareSelectValueBeforeNotify,
                 });
                 unsubscribe = previousDependency?.unsubscribeListener;
             } else {
@@ -1356,6 +1361,10 @@ export class Retree {
                         unproxiedReactiveNode: unproxiedDependentNode,
                         comparisons: currentDependency.comparisons,
                         key: currentDependency.key,
+                        selectGetterName: currentDependency.selectGetterName,
+                        selectValue: currentDependency.selectValue,
+                        compareSelectValueBeforeNotify:
+                            currentDependency.compareSelectValueBeforeNotify,
                     });
                     if (newDependencyNode) {
                         unsubscribe = retainReactiveDependencySubscription(
@@ -1376,6 +1385,10 @@ export class Retree {
                 key: currentDependency.key,
                 node: currentDependency.node,
                 comparisons: currentDependency.comparisons,
+                selectGetterName: currentDependency.selectGetterName,
+                selectValue: currentDependency.selectValue,
+                compareSelectValueBeforeNotify:
+                    currentDependency.compareSelectValueBeforeNotify,
                 unsubscribeListener: unsubscribe,
                 unproxiedNode: currentUnproxiedDependencyNode,
             });
@@ -1410,6 +1423,7 @@ export class Retree {
         const unproxiedDependentNode = getUnproxiedNode(proxiedDependentNode);
         for (const [getterName, selectGetter] of selectGetters.entries()) {
             const selected = selectGetter.getDependencies(proxiedDependentNode);
+            const selectedValue = selectGetter.getValue(proxiedDependentNode);
             const selectedDependencies = normalizeSelectDependencies(selected);
             if (selectedDependencies.length === 0) {
                 continue;
@@ -1446,6 +1460,10 @@ export class Retree {
                         laterComparisons.length === 0
                             ? normalizedDependency.comparisons
                             : laterComparisons,
+                    selectGetterName: getterName,
+                    selectValue: selectedValue,
+                    compareSelectValueBeforeNotify:
+                        selectGetter.compareValueBeforeNotify,
                     unsubscribeListener: undefined,
                     unproxiedNode: undefined,
                 });
@@ -1602,6 +1620,11 @@ export class Retree {
         dependent: IPreviousReactiveDependent,
         changedUnproxiedNode: TreeNode
     ) {
+        const selectValueChanged =
+            this.hasReactiveSelectValueChanged(dependent);
+        if (selectValueChanged !== undefined) {
+            return selectValueChanged;
+        }
         const previousComparisons = dependent.comparisons;
         if (previousComparisons === undefined) {
             return true;
@@ -1635,5 +1658,26 @@ export class Retree {
             }
         }
         return false;
+    }
+
+    private static hasReactiveSelectValueChanged(
+        dependent: IPreviousReactiveDependent
+    ): boolean | undefined {
+        const selectGetterName = dependent.selectGetterName;
+        if (selectGetterName === undefined) {
+            return undefined;
+        }
+        if (!dependent.compareSelectValueBeforeNotify) {
+            return undefined;
+        }
+        const selectGetter =
+            dependent.reactiveNode[SELECT_GETTERS_SYMBOL].get(selectGetterName);
+        if (selectGetter === undefined) {
+            return true;
+        }
+        return !defaultSelectEquals(
+            dependent.selectValue,
+            selectGetter.getValue(dependent.reactiveNode)
+        );
     }
 }
