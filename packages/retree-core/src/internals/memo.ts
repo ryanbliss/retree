@@ -163,7 +163,10 @@ export function runTrappedMemo<T>(
         if (shallowEqualArrays(prev.comparisons ?? [], latest.values)) {
             prev.comparisons = latest.values;
             prev.comparisonSnapshots = latest.snapshots;
-            replayDependencyComparisonAccesses(prev.comparisonAccessors);
+            replayDependencyComparisonAccesses(
+                prev.comparisonAccessors,
+                latest.snapshots.map((snapshot) => snapshot.normalizedValues)
+            );
             return prev.value as T;
         }
     }
@@ -263,7 +266,10 @@ export function runTrappedFnMemo<T>(
         if (shallowEqualArrays(prev.comparisons ?? [], latest.values)) {
             prev.comparisons = latest.values;
             prev.comparisonSnapshots = latest.snapshots;
-            replayDependencyComparisonAccesses(prev.comparisonAccessors);
+            replayDependencyComparisonAccesses(
+                prev.comparisonAccessors,
+                latest.snapshots.map((snapshot) => snapshot.normalizedValues)
+            );
             return prev.value as T;
         }
     }

@@ -813,6 +813,70 @@ describe("automatic dependency trapping through array lookup", () => {
         expect(changed).not.toHaveBeenCalled();
     });
 
+    it("does not re-read cached memo accessors while replaying dependencies for @select", () => {
+        let valueReadCount = 0;
+        class CountedStore extends ReactiveNode {
+            public rows = [
+                {
+                    id: "a",
+                    current: "Ada",
+                    get value() {
+                        valueReadCount++;
+                        return this.current;
+                    },
+                },
+            ];
+
+            get dependencies() {
+                return [this.dependency(this.rows)];
+            }
+
+            public byId(id: string) {
+                return this.rows.find((row) => row.id === id) ?? null;
+            }
+        }
+
+        class CountedConsumer extends ReactiveNode {
+            @link
+            public store: CountedStore | null = null;
+            public rowId = "a";
+            public tick = 0;
+
+            get dependencies() {
+                return [];
+            }
+
+            @memo
+            private get _result(): string | null {
+                return this.store?.byId(this.rowId)?.value ?? null;
+            }
+
+            @select
+            public get result(): string | null {
+                return `${this.tick}:${this._result}`;
+            }
+        }
+
+        const root = trackRoot(
+            Retree.root({
+                store: new CountedStore(),
+                consumer: new CountedConsumer(),
+            })
+        );
+        root.consumer.store = root.store;
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("0:Ada");
+        const warmedValueReadCount = valueReadCount;
+
+        root.consumer.tick = 1;
+
+        expect(root.consumer.result).toBe("1:Ada");
+        expect(changed).toHaveBeenCalledTimes(1);
+        expect(valueReadCount).toBe(warmedValueReadCount);
+    });
+
     it("does not emit when an unmatched row field changes after the resolved row", () => {
         const root = buildLookupTree([
             { id: "a", value: "Ada" },

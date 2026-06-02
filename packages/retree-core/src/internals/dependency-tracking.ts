@@ -226,14 +226,16 @@ export function trackDependencyPropertyAccess<T>(
 }
 
 export function replayDependencyComparisonAccesses(
-    comparisons: unknown[]
+    comparisons: unknown[],
+    comparisonValues?: readonly (readonly unknown[])[]
 ): void {
     const currentFrame =
         dependencyAccessStack[dependencyAccessStack.length - 1];
     if (currentFrame === undefined || currentFrame.mode !== "dependencies") {
         return;
     }
-    for (const comparison of comparisons) {
+    for (let index = 0; index < comparisons.length; index++) {
+        const comparison = comparisons[index];
         if (!isDependencyComparisonAccessor(comparison)) {
             continue;
         }
@@ -241,11 +243,16 @@ export function replayDependencyComparisonAccesses(
         if (dependencyNode === undefined) {
             continue;
         }
+        // Cached trapped memos can already know the current comparison cells
+        // from their validation pass. Reusing those cells keeps nested @select
+        // collection from re-running expensive property accessors a second time.
         currentFrame.entries.push({
             kind: "dependency",
             value: {
                 node: dependencyNode,
-                comparisons: comparison.getValues(),
+                comparisons: [
+                    ...(comparisonValues?.[index] ?? comparison.getValues()),
+                ],
             } satisfies IReactiveDependency,
         });
     }
