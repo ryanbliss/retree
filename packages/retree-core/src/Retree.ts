@@ -1475,7 +1475,7 @@ export class Retree {
     private static getReactiveNodeDependencies(
         proxiedDependentNode: ReactiveNode
     ) {
-        return [
+        return this.runWithoutEmitting(() => [
             ...proxiedDependentNode.dependencies.map((dependency, index) =>
                 this.normalizeReactiveNodeDependency(
                     dependency,
@@ -1483,7 +1483,20 @@ export class Retree {
                 )
             ),
             ...this.getReactiveSelectDependencies(proxiedDependentNode),
-        ];
+        ]);
+    }
+
+    private static runWithoutEmitting<T>(callback: () => T): T {
+        const previousSkipEmit = Transactions.skipEmit;
+        const previousSkipReproxy = Transactions.skipReproxy;
+        Transactions.skipEmit = true;
+        Transactions.skipReproxy = true;
+        try {
+            return callback();
+        } finally {
+            Transactions.skipEmit = previousSkipEmit;
+            Transactions.skipReproxy = previousSkipReproxy;
+        }
     }
 
     private static normalizeReactiveNodeDependency(

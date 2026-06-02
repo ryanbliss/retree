@@ -24,7 +24,7 @@
         "@types/node": "^20.2.3",
         "typescript": "^6.0.2",
         "vite": "^8.0.0",
-        "vitest": "^3.2.4"
+        "vitest": "^4.1.8"
     },
     "repository": {
         "directory": "packages/retree-benchmark-cli",
