@@ -5,7 +5,8 @@
     "entryPoints": [
         "packages/retree-core",
         "packages/retree-react",
-        "packages/retree-convex"
+        "packages/retree-convex",
+        "packages/retree-react-convex"
     ],
     "out": "docs",
     "readme": "README.md",
@@ -17,7 +18,8 @@
         "GitHub": "https://github.com/ryanbliss/retree",
         "npm: @retreejs/core": "https://www.npmjs.com/package/@retreejs/core",
         "npm: @retreejs/react": "https://www.npmjs.com/package/@retreejs/react",
-        "npm: @retreejs/convex": "https://www.npmjs.com/package/@retreejs/convex"
+        "npm: @retreejs/convex": "https://www.npmjs.com/package/@retreejs/convex",
+        "npm: @retreejs/react-convex": "https://www.npmjs.com/package/@retreejs/react-convex"
     },
     "packageOptions": {
         "entryPoints": ["src/index.ts"],

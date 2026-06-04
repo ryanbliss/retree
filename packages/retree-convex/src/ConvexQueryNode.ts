@@ -58,6 +58,8 @@ export class ConvexQueryNode<
         FunctionReturnType<Query>
     > | null = null;
     @ignore
+    private subscribedArgComparisons: unknown[] | undefined;
+    @ignore
     private reconciler: IStateReconciler<FunctionReturnType<Query>> | undefined;
     /**
      * Latest query state emitted by Convex, or the initial state before Convex
@@ -183,54 +185,49 @@ export class ConvexQueryNode<
         args: ConvexQueryArgs<Query>,
         resetBeforeSubscribe: boolean
     ): void {
-        let didSubscribe = false;
         let receivedValue = false;
-        this.memo(
-            "updateArgs",
-            () => {
-                didSubscribe = true;
-                this.dispose();
-                if (args === "skip") {
-                    return;
-                }
+        const argComparisons = this.getArgComparisons(args);
+        if (
+            this.unsubscribe !== null &&
+            shallowEqualArrays(this.subscribedArgComparisons, argComparisons)
+        ) {
+            return;
+        }
 
-                const subscription = this.client.onUpdate(
-                    this.queryReference,
-                    args,
-                    (result) => {
-                        receivedValue = true;
-                        Retree.runTransaction(() => {
-                            this.setEmittedState(result);
-                            this.error = null;
-                        });
-                    },
-                    (error) => {
-                        this.setError(error);
-                    }
-                );
-                this.unsubscribe = subscription;
-                const currentValue = subscription.getCurrentValue();
-                if (currentValue !== undefined) {
-                    receivedValue = true;
-                    Retree.runTransaction(() => {
-                        this.setEmittedState(currentValue);
-                        this.error = null;
-                    });
-                }
+        this.dispose();
+        if (args === "skip") {
+            if (resetBeforeSubscribe) {
+                this.setSkipped();
+            }
+            return;
+        }
+
+        const subscription = this.client.onUpdate(
+            this.queryReference,
+            args,
+            (result) => {
+                receivedValue = true;
+                Retree.runTransaction(() => {
+                    this.setEmittedState(result);
+                    this.error = null;
+                });
             },
-            this.getArgComparisons(args)
+            (error) => {
+                this.setError(error);
+            }
         );
+        this.unsubscribe = subscription;
+        this.subscribedArgComparisons = argComparisons;
+        const currentValue = subscription.getCurrentValue();
+        if (currentValue !== undefined) {
+            receivedValue = true;
+            Retree.runTransaction(() => {
+                this.setEmittedState(currentValue);
+                this.error = null;
+            });
+        }
 
         if (!resetBeforeSubscribe) {
-            return;
-        }
-
-        if (!didSubscribe) {
-            return;
-        }
-
-        if (args === "skip") {
-            this.setSkipped();
             return;
         }
 
@@ -450,6 +447,7 @@ export class ConvexQueryNode<
 
         this.unsubscribe.unsubscribe();
         this.unsubscribe = null;
+        this.subscribedArgComparisons = undefined;
     }
 
     private getArgComparisons(args: ConvexQueryArgs<Query>): unknown[] {
@@ -522,6 +520,31 @@ export class ConvexQueryNode<
     ): boolean {
         return JSON.stringify(left) === JSON.stringify(right);
     }
+}
+
+function shallowEqualArrays(
+    left: unknown[] | undefined,
+    right: unknown[] | undefined
+): boolean {
+    if (left === undefined) {
+        return right === undefined;
+    }
+
+    if (right === undefined) {
+        return false;
+    }
+
+    if (left.length !== right.length) {
+        return false;
+    }
+
+    for (let index = 0; index < left.length; index++) {
+        if (!Object.is(left[index], right[index])) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 function getError(error: unknown): Error {

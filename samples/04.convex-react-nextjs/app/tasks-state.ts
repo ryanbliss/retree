@@ -2,11 +2,13 @@
 
 import { ReactiveNode, fnMemo, link, memo, select } from "@retreejs/core";
 import { BaseConvexNode, ConvexNode, ConvexQueryNode } from "@retreejs/convex";
-import { ConvexClient } from "convex/browser";
+import { RetreeConvexReactClient } from "@retreejs/react-convex";
 import { api } from "../convex/_generated/api";
 import type { Doc, Id } from "../convex/_generated/dataModel";
 
-const convexClient = new ConvexClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+const convexClient = new RetreeConvexReactClient(
+    process.env.NEXT_PUBLIC_CONVEX_URL!
+);
 
 export type TaskFilterValue = boolean | null;
 
@@ -105,10 +107,6 @@ export class TasksState extends ConvexNode {
 
     get dependencies() {
         return [];
-    }
-
-    public dispose(): void {
-        this._tasks.dispose();
     }
 
     public toggleCompleted(taskId: Id<"tasks">): Promise<null> {

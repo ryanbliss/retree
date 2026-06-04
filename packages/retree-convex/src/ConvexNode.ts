@@ -3,6 +3,7 @@
  * Licensed under the MIT License.
  */
 
+import { ignore } from "@retreejs/core";
 import { ConvexQueryNode } from "./ConvexQueryNode";
 import { ConvexConnectionStateNode } from "./ConvexConnectionStateNode";
 import { ConvexPaginatedQueryNode } from "./ConvexPaginatedQueryNode";
@@ -14,6 +15,10 @@ import {
     PaginatedQueryReference,
     QueryReference,
 } from "./types";
+
+interface IConvexNodeDisposable {
+    dispose(): void;
+}
 
 /**
  * Base class for Retree nodes that need access to a Convex client.
@@ -45,6 +50,9 @@ import {
  * ```
  */
 export abstract class ConvexNode extends BaseConvexNode {
+    @ignore
+    private readonly liveChildren: IConvexNodeDisposable[] = [];
+
     /**
      * Create a Convex-backed Retree node.
      *
@@ -93,7 +101,9 @@ export abstract class ConvexNode extends BaseConvexNode {
         query: Query,
         ...options: ConvexQueryNodeOptionsArgs<Query>
     ): ConvexQueryNode<Query> {
-        return new ConvexQueryNode(this.client, query, ...options);
+        return this.trackLiveChild(
+            new ConvexQueryNode(this.client, query, ...options)
+        );
     }
 
     /**
@@ -131,7 +141,9 @@ export abstract class ConvexNode extends BaseConvexNode {
         query: Query,
         ...options: ConvexPaginatedQueryNodeOptionsArgs<Query>
     ): ConvexPaginatedQueryNode<Query> {
-        return new ConvexPaginatedQueryNode(this.client, query, ...options);
+        return this.trackLiveChild(
+            new ConvexPaginatedQueryNode(this.client, query, ...options)
+        );
     }
 
     /**
@@ -160,6 +172,31 @@ export abstract class ConvexNode extends BaseConvexNode {
      * ```
      */
     protected connectionState(): ConvexConnectionStateNode {
-        return new ConvexConnectionStateNode(this.client);
+        return this.trackLiveChild(new ConvexConnectionStateNode(this.client));
+    }
+
+    /**
+     * Stop live Convex children created by this node.
+     *
+     * @remarks
+     * React integrations usually do not need to call this directly. Retree runs
+     * it automatically when the `ConvexNode` loses its final active observer.
+     * Calling it manually is still useful for non-React app shutdown.
+     */
+    public dispose(): void {
+        for (const child of this.liveChildren) {
+            child.dispose();
+        }
+    }
+
+    protected onUnobserved(): void {
+        this.dispose();
+    }
+
+    private trackLiveChild<TChild extends IConvexNodeDisposable>(
+        child: TChild
+    ): TChild {
+        this.liveChildren.push(child);
+        return child;
     }
 }
