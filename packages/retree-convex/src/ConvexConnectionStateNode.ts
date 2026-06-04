@@ -50,17 +50,25 @@ export class ConvexConnectionStateNode extends BaseConvexNode {
     }
 
     get dependencies() {
-        this.memo("subscribeToConnectionState", () => {
-            this.dispose();
-            this.unsubscribe = this.client.subscribeToConnectionState(
-                (connectionState) => {
-                    Retree.runTransaction(() => {
-                        this.state = connectionState;
-                    });
-                }
-            );
-        });
         return [];
+    }
+
+    protected onObserved(): void {
+        if (this.unsubscribe !== null) {
+            return;
+        }
+
+        this.unsubscribe = this.client.subscribeToConnectionState(
+            (connectionState) => {
+                Retree.runTransaction(() => {
+                    this.state = connectionState;
+                });
+            }
+        );
+    }
+
+    protected onUnobserved(): void {
+        this.dispose();
     }
 
     /**

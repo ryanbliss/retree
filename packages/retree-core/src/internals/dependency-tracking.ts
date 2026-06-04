@@ -1,4 +1,4 @@
-import { IReactiveDependency } from "../ReactiveNode";
+import { IReactiveDependency, ReactiveNode } from "../ReactiveNode";
 import { TreeNode } from "../types";
 import {
     isCustomProxy,
@@ -19,6 +19,8 @@ interface DependencyPropertyWrite {
 
 export interface DependencyComparisonAccessor {
     readonly kind: "retree-dependency-comparison-accessor";
+    readonly dependencyNode?: TreeNode;
+    readonly sourceUnproxiedNode?: TreeNode;
     getValues(): unknown[];
 }
 
@@ -29,6 +31,7 @@ type DependencyAccessEntry =
           comparisonAccessor?: DependencyComparisonAccessor;
           ownerUnproxiedNode?: TreeNode;
           propertyKey?: string | symbol;
+          isArrayElementRead?: boolean;
           valueUnproxiedNode?: TreeNode;
       }
     | {
@@ -99,7 +102,13 @@ export function collectDependencyComparisonAccesses<T>(callback: () => T): {
                 return [];
             }
             if (entry.kind === "managed-value") {
-                return [createComparisonAccessor(() => [entry.value])];
+                return [
+                    createComparisonAccessor(
+                        () => [entry.value],
+                        entry.value,
+                        entry.unproxiedNode
+                    ),
+                ];
             }
             if (entry.comparisonAccessor !== undefined) {
                 return [entry.comparisonAccessor];
@@ -178,26 +187,75 @@ export function trackDependencyPropertyAccess<T>(
     const valueUnproxiedNode = isCustomProxy(value)
         ? value["[[Handler]]"][unproxiedBaseNodeKey]
         : undefined;
+    const arrayElementRead = isArrayElementRead(
+        ownerUnproxiedNode,
+        propertyKey
+    );
+    const comparisonValue = arrayElementRead
+        ? getArrayElementComparisonValue(value)
+        : value;
     currentFrame.entries.push({
         kind: "dependency",
         value: {
             node: owner,
-            comparisons: [value],
+            comparisons: [comparisonValue],
         } satisfies IReactiveDependency,
-        comparisonAccessor: createComparisonAccessor(() => [
-            Reflect.get(owner, propertyKey),
-        ]),
+        comparisonAccessor: createComparisonAccessor(
+            () => [
+                arrayElementRead
+                    ? getArrayElementComparisonValue(
+                          Reflect.get(owner, propertyKey)
+                      )
+                    : Reflect.get(owner, propertyKey),
+            ],
+            owner,
+            getComparisonAccessorSource(ownerUnproxiedNode, propertyKey)
+        ),
         ownerUnproxiedNode,
         propertyKey,
+        isArrayElementRead: arrayElementRead,
         valueUnproxiedNode,
     });
-    if (isArrayElementRead(ownerUnproxiedNode, propertyKey)) {
+    if (arrayElementRead) {
         return value;
     }
     if (currentFrame.mode === "comparisons") {
         return value;
     }
     return trackDependencyAccess(value);
+}
+
+export function replayDependencyComparisonAccesses(
+    comparisons: unknown[],
+    comparisonValues?: readonly (readonly unknown[])[]
+): void {
+    const currentFrame =
+        dependencyAccessStack[dependencyAccessStack.length - 1];
+    if (currentFrame === undefined || currentFrame.mode !== "dependencies") {
+        return;
+    }
+    for (let index = 0; index < comparisons.length; index++) {
+        const comparison = comparisons[index];
+        if (!isDependencyComparisonAccessor(comparison)) {
+            continue;
+        }
+        const dependencyNode = comparison.dependencyNode;
+        if (dependencyNode === undefined) {
+            continue;
+        }
+        // Cached trapped memos can already know the current comparison cells
+        // from their validation pass. Reusing those cells keeps nested @select
+        // collection from re-running expensive property accessors a second time.
+        currentFrame.entries.push({
+            kind: "dependency",
+            value: {
+                node: dependencyNode,
+                comparisons: [
+                    ...(comparisonValues?.[index] ?? comparison.getValues()),
+                ],
+            } satisfies IReactiveDependency,
+        });
+    }
 }
 
 export function trackDependencyPropertyWrite(
@@ -231,12 +289,37 @@ function isRetreeInternalProperty(propertyKey: string | symbol): boolean {
 }
 
 function createComparisonAccessor(
-    getValues: () => unknown[]
+    getValues: () => unknown[],
+    dependencyNode?: TreeNode,
+    sourceUnproxiedNode?: TreeNode
 ): DependencyComparisonAccessor {
     return {
         kind: "retree-dependency-comparison-accessor",
+        dependencyNode,
+        sourceUnproxiedNode,
         getValues,
     };
+}
+
+function isDependencyComparisonAccessor(
+    value: unknown
+): value is DependencyComparisonAccessor {
+    if (value === null || typeof value !== "object") {
+        return false;
+    }
+    return (
+        Reflect.get(value, "kind") === "retree-dependency-comparison-accessor"
+    );
+}
+
+function getComparisonAccessorSource(
+    ownerUnproxiedNode: TreeNode,
+    propertyKey: string | symbol
+): TreeNode | undefined {
+    if (ownerUnproxiedNode instanceof ReactiveNode) {
+        return undefined;
+    }
+    return ownerUnproxiedNode;
 }
 
 function removePendingPropertyAccess(
@@ -289,11 +372,21 @@ function removePendingPropertyValueAccess(
         if (entry.kind !== "dependency") {
             continue;
         }
+        if (entry.isArrayElementRead) {
+            continue;
+        }
         if (entry.valueUnproxiedNode !== valueUnproxiedNode) {
             continue;
         }
         frame.entries.splice(index, 1);
     }
+}
+
+function getArrayElementComparisonValue(value: unknown): unknown {
+    if (!isCustomProxy(value)) {
+        return value;
+    }
+    return value["[[Handler]]"][unproxiedBaseNodeKey];
 }
 
 function isArrayElementRead(

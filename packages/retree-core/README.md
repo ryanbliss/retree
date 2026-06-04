@@ -374,6 +374,32 @@ class AttributeRow extends ReactiveNode {
 
 In explicit `@select` lists, raw reactive values subscribe, primitive values compare, and `self.dependency(...)` customizes one slot's comparison behavior.
 
+Pass an options object when the getter output needs custom equality. `equals` receives `(self, previous, next)` and returns `true` when the outputs are equivalent, so the owner should not emit or reproxy. You can use it with automatic trapping or an explicit dependency getter:
+
+```ts
+class VisibleTaskList extends ReactiveNode {
+    public tasks: { id: string; isArchived: boolean }[] = [];
+
+    @select({
+        equals: (_self, previous, next) =>
+            previous.length === next.length &&
+            previous.every((task, index) => task.id === next[index].id),
+    })
+    get visibleTasks() {
+        return this.tasks.filter((task) => !task.isArchived);
+    }
+
+    @select((self) => self.tasks, {
+        equals: (_self, previous, next) =>
+            previous.length === next.length &&
+            previous.every((task, index) => task.id === next[index].id),
+    })
+    get visibleTasksWithExplicitDeps() {
+        return this.visibleTasks;
+    }
+}
+```
+
 ## Memoize computed getters
 
 `ReactiveNode` exposes `@memo` for caching computed getters and `@fnMemo` for caching deterministic method return values. With no arguments, both decorators automatically trap the Retree reads inside the getter or method and invalidate the cache when those values change.

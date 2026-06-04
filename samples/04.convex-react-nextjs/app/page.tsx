@@ -21,10 +21,6 @@ export default function Home() {
     const _root = useRoot(() => new TasksState());
     const root = useNode(_root);
 
-    useEffect(() => {
-        return () => _root.dispose();
-    }, [_root]);
-
     return (
         <main className="min-h-screen bg-zinc-50 px-5 py-8 text-zinc-950 sm:px-8">
             <section className="mx-auto flex w-full max-w-3xl flex-col gap-5">

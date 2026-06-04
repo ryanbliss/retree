@@ -17,6 +17,7 @@ The generated static site is written to `docs/` and ignored by Git. The docs bui
 -   `@retreejs/core` provides Retree's proxy, event, memo, and `ReactiveNode` primitives.
 -   `@retreejs/react` provides React hooks for rendering Retree nodes.
 -   `@retreejs/convex` connects Convex queries, paginated queries, actions, mutations, and connection state to Retree nodes.
+-   `@retreejs/react-convex` adapts Convex's `ConvexReactClient` for React apps that want one client instance for both Convex React and Retree Convex nodes.
 
 ## Feature glossary
 
@@ -38,6 +39,7 @@ The generated static site is written to `docs/` and ignored by Git. The docs bui
 -   [`Retree.runTransaction`](#transactions) batches synchronous writes into one listener flush per changed node.
 -   [`Retree.runSilent`](#skip-re-rendering-changes) performs writes without emitting listeners.
 -   [`ReactiveNode.prepareTree`](#core-api-examples) warms lazy child proxies during a controlled phase.
+-   [`RetreeConvexReactClient`](#retreejsreact-convex) extends Convex's `ConvexReactClient` with Retree Convex subscription methods for React apps.
 
 ## @retreejs/react
 
@@ -478,6 +480,23 @@ class AttributeRow extends ReactiveNode {
     ])
     get attribute() {
         return this._attribute;
+    }
+}
+```
+
+Pass an options object when the getter output needs custom equality. `equals` receives `(self, previous, next)` and returns `true` when the outputs are equivalent, so the owner should not emit or reproxy:
+
+```ts
+class VisibleTaskList extends ReactiveNode {
+    public tasks: { id: string; isArchived: boolean }[] = [];
+
+    @select({
+        equals: (_self, previous, next) =>
+            previous.length === next.length &&
+            previous.every((task, index) => task.id === next[index].id),
+    })
+    get visibleTasks() {
+        return this.tasks.filter((task) => !task.isArchived);
     }
 }
 ```
@@ -1016,6 +1035,67 @@ class TasksState extends ConvexNode {
     }
 }
 ```
+
+## @retreejs/react-convex
+
+Retree React Convex adapts Convex's `ConvexReactClient` to the Retree Convex client interface. Use it in React apps that want one Convex client instance for both Convex React hooks/`ConvexProvider` and Retree `ConvexNode` state.
+
+### How to install
+
+Install with `npm`:
+
+```bash
+npm i @retreejs/core @retreejs/react @retreejs/convex @retreejs/react-convex convex
+```
+
+Install with `yarn`:
+
+```bash
+yarn add @retreejs/core @retreejs/react @retreejs/convex @retreejs/react-convex convex
+```
+
+### How to use
+
+```tsx
+"use client";
+
+import { useNode, useRoot } from "@retreejs/react";
+import { ConvexNode, ConvexQueryNode } from "@retreejs/convex";
+import { RetreeConvexReactClient } from "@retreejs/react-convex";
+import { api } from "../convex/_generated/api";
+
+const convexClient = new RetreeConvexReactClient(
+    process.env.NEXT_PUBLIC_CONVEX_URL!
+);
+
+class TasksState extends ConvexNode {
+    public readonly tasks: ConvexQueryNode<typeof api.tasks.get>;
+
+    constructor() {
+        super(convexClient);
+        this.tasks = this.query(api.tasks.get, { initialState: [] });
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+export function TaskList() {
+    const root = useRoot(() => new TasksState());
+    const state = useNode(root);
+
+    return (
+        <ul>
+            {state.tasks.state?.map((task) => {
+                return <li key={task._id}>{task.text}</li>;
+            })}
+        </ul>
+    );
+}
+```
+
+`useNode(root)` releases its Retree observer on unmount. `ConvexNode` then disposes live query, paginated query, and connection-state children created through its helper methods.
 
 ## Docs
 

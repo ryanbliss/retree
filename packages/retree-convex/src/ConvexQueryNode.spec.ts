@@ -304,6 +304,26 @@ class TestConvexNode extends ConvexNode {
     }
 }
 
+class AutoDisposeTasksState extends ConvexNode {
+    public readonly tasks: ConvexQueryNode<TasksQuery>;
+
+    constructor(client: IConvexClient) {
+        super(client);
+        this.tasks = this.query(tasksQuery, {
+            args: { listId: "today" },
+        });
+    }
+
+    @select
+    public get status() {
+        return this.tasks.result.status;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
 class SelectedTasksNode extends ReactiveNode {
     public readonly tasksQuery: ConvexQueryNode<ConvexTasksQuery>;
 
@@ -412,6 +432,37 @@ describe("ConvexQueryNode", () => {
 
         Retree.on(node, "nodeChanged", () => undefined);
         node.dispose();
+
+        expect(client.subscriptions[0].unsubscribe).toHaveBeenCalledOnce();
+    });
+
+    it("resubscribes after cleanup when observed again", () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(
+            new ConvexQueryNode(client, tasksQuery, {
+                args: { listId: "today" },
+            })
+        );
+
+        Retree.on(node, "nodeChanged", () => undefined);
+        node.dispose();
+        Retree.clearListeners(node);
+        Retree.on(node, "nodeChanged", () => undefined);
+
+        expect(client.subscriptions).toHaveLength(2);
+        expect(client.subscriptions[0].unsubscribe).toHaveBeenCalledOnce();
+        expect(client.subscriptions[1].args).toEqual({ listId: "today" });
+    });
+
+    it("disposes ConvexNode query children when the owner is unobserved", () => {
+        const client = new FakeConvexClient();
+        const node = Retree.root(new AutoDisposeTasksState(client));
+
+        expect(node.status).toBe("pending");
+        const unsubscribe = Retree.on(node, "nodeChanged", () => undefined);
+        expect(client.subscriptions).toHaveLength(1);
+
+        unsubscribe();
 
         expect(client.subscriptions[0].unsubscribe).toHaveBeenCalledOnce();
     });

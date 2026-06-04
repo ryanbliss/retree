@@ -123,6 +123,9 @@ export interface IReactiveSelectGetter<
     Dependencies = unknown
 > {
     getDependencies: (self: This) => Dependencies;
+    getValue: (self: This) => unknown;
+    compareValueBeforeNotify: boolean;
+    equals?: (self: This, previous: unknown, next: unknown) => boolean;
 }
 
 /**

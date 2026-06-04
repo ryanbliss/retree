@@ -1,14 +1,21 @@
 /// <reference types="vitest/config" />
 
 import path from "node:path";
-import { defineConfig as defineViteConfig } from "vite";
+import { transform as transformWithEsbuild } from "esbuild";
+import { defineConfig as defineViteConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig as defineVitestConfig, mergeConfig } from "vitest/config";
 
 const rootDir = __dirname;
 
 const viteConfig = defineViteConfig({
-    plugins: [react()],
+    plugins: [react(), transformDecoratorsForVitest()],
+    oxc: {
+        jsx: {
+            runtime: "automatic",
+            importSource: "react",
+        },
+    },
     resolve: {
         preserveSymlinks: true,
         alias: [
@@ -40,9 +47,43 @@ const viteConfig = defineViteConfig({
                     "packages/retree-react/src/index.ts"
                 ),
             },
+            {
+                find: "@retreejs/react-convex",
+                replacement: path.resolve(
+                    rootDir,
+                    "packages/retree-react-convex/src/index.ts"
+                ),
+            },
         ],
     },
 });
+
+function transformDecoratorsForVitest(): Plugin {
+    return {
+        name: "retree-transform-decorators-for-vitest",
+        enforce: "pre",
+        async transform(code: string, id: string) {
+            if (!/\.[cm]?[jt]sx?$/.test(id)) {
+                return null;
+            }
+            if (!/^\s*@/m.test(code)) {
+                return null;
+            }
+            const result = await transformWithEsbuild(code, {
+                loader: id.endsWith("x") ? "tsx" : "ts",
+                jsx: "automatic",
+                jsxImportSource: "react",
+                sourcefile: id,
+                sourcemap: true,
+                target: "es2022",
+            });
+            return {
+                code: result.code,
+                map: result.map,
+            };
+        },
+    };
+}
 
 const vitestConfig = defineVitestConfig({
     test: {
@@ -59,6 +100,7 @@ const vitestConfig = defineVitestConfig({
                         "packages/retree-core/**/*.spec.ts",
                         "packages/retree-core/**/*.spec.tsx",
                         "packages/retree-convex/**/*.spec.ts",
+                        "packages/retree-react-convex/**/*.spec.ts",
                     ],
                     environment: "node",
                 },

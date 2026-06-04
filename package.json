@@ -8,6 +8,7 @@
         "packages/retree-benchmark-cli",
         "packages/retree-convex",
         "packages/retree-react",
+        "packages/retree-react-convex",
         "samples/01.core-example",
         "samples/02.react-example",
         "samples/03.react-recursion",
@@ -17,13 +18,13 @@
         "benchmark": "npm run benchmark --workspace @retreejs/benchmark-cli -- --output-dir ../../benchmarks/results",
         "doctor": "prettier --write . && eslint **/src/**/*.{j,t}s{,x} --fix --no-error-on-unmatched-pattern",
         "predocs": "npm run build:packages",
-        "build:packages": "npm run build --workspace @retreejs/core && npm run build --workspace @retreejs/react && npm run build --workspace @retreejs/convex",
+        "build:packages": "npm run build --workspace @retreejs/core && npm run build --workspace @retreejs/react && npm run build --workspace @retreejs/convex && npm run build --workspace @retreejs/react-convex",
         "docs": "typedoc --options typedoc.json",
         "postdocs": "node -e \"require('node:fs').copyFileSync('llms.txt', 'docs/llms.txt')\"",
         "publish:packages": "node scripts/publish-packages.mjs",
         "test": "vitest run",
         "test:watch": "vitest",
-        "typecheck": "tsc -p packages/retree-core/tsconfig.json --noEmit && tsc -p packages/retree-core/tsconfig.test.json --noEmit && tsc -p packages/retree-react/tsconfig.json --noEmit && tsc -p packages/retree-convex/tsconfig.json --noEmit && tsc -p packages/retree-benchmark-cli/tsconfig.json --noEmit && tsc -p samples/01.core-example/tsconfig.json --noEmit && tsc -b samples/02.react-example/tsconfig.json --pretty false && tsc -b samples/03.react-recursion/tsconfig.json --pretty false && tsc -p samples/04.convex-react-nextjs/tsconfig.json --noEmit --pretty false"
+        "typecheck": "tsc -p packages/retree-core/tsconfig.json --noEmit && tsc -p packages/retree-core/tsconfig.test.json --noEmit && tsc -p packages/retree-react/tsconfig.json --noEmit && tsc -p packages/retree-convex/tsconfig.json --noEmit && tsc -p packages/retree-react-convex/tsconfig.json --noEmit && tsc -p packages/retree-benchmark-cli/tsconfig.json --noEmit && tsc -p samples/01.core-example/tsconfig.json --noEmit && tsc -b samples/02.react-example/tsconfig.json --pretty false && tsc -b samples/03.react-recursion/tsconfig.json --pretty false && tsc -p samples/04.convex-react-nextjs/tsconfig.json --noEmit --pretty false"
     },
     "author": "Ryan Bliss",
     "license": "MIT",
@@ -34,6 +35,7 @@
         "@typescript-eslint/eslint-plugin": "^8.0.0",
         "@typescript-eslint/parser": "^8.0.0",
         "@vitejs/plugin-react": "^6.0.1",
+        "esbuild": "^0.27.7",
         "eslint": "^9.0.0",
         "eslint-config-prettier": "^8.8.0",
         "eslint-plugin-prettier": "^4.2.1",
@@ -44,6 +46,6 @@
         "typedoc": "^0.28.18",
         "typescript": "^6.0.2",
         "vite": "^8.0.0",
-        "vitest": "^3.2.4"
+        "vitest": "^4.1.8"
     }
 }

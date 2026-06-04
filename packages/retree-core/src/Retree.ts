@@ -31,6 +31,7 @@ import {
 import {
     createRetreeSelectionObserver,
     createRetreeTrackedSelectionObserver,
+    defaultSelectEquals,
     normalizeSelectDependencies,
     RetreeSelectEquals,
     RetreeSelectSelector,
@@ -45,7 +46,7 @@ import {
 import { Transactions } from "./internals/transactions";
 import {
     LINKED_KEYS_SYMBOL,
-    IReactiveDependency,
+    IReactiveSelectGetter,
     ReactiveNode,
     RUN_CHANGED_EFFECT_SYMBOL,
     RUN_OBSERVED_EFFECT_SYMBOL,
@@ -136,6 +137,10 @@ export class Retree {
         null;
     private static nodeRemovedListener: TInternalNodeChangedListener | null =
         null;
+    private static pendingReactiveSelectValueMap = new WeakMap<
+        ReactiveNode,
+        Map<string | symbol, unknown>
+    >();
 
     private static treeChangedListeners: Map<TreeNode, TNodeChangedListener[]> =
         new Map();
@@ -1339,6 +1344,10 @@ export class Retree {
                     unproxiedReactiveNode: unproxiedDependentNode,
                     comparisons: currentDependency.comparisons,
                     key: currentDependency.key,
+                    selectGetterName: currentDependency.selectGetterName,
+                    selectValue: currentDependency.selectValue,
+                    compareSelectValueBeforeNotify:
+                        currentDependency.compareSelectValueBeforeNotify,
                 });
                 unsubscribe = previousDependency?.unsubscribeListener;
             } else {
@@ -1356,6 +1365,10 @@ export class Retree {
                         unproxiedReactiveNode: unproxiedDependentNode,
                         comparisons: currentDependency.comparisons,
                         key: currentDependency.key,
+                        selectGetterName: currentDependency.selectGetterName,
+                        selectValue: currentDependency.selectValue,
+                        compareSelectValueBeforeNotify:
+                            currentDependency.compareSelectValueBeforeNotify,
                     });
                     if (newDependencyNode) {
                         unsubscribe = retainReactiveDependencySubscription(
@@ -1376,6 +1389,10 @@ export class Retree {
                 key: currentDependency.key,
                 node: currentDependency.node,
                 comparisons: currentDependency.comparisons,
+                selectGetterName: currentDependency.selectGetterName,
+                selectValue: currentDependency.selectValue,
+                compareSelectValueBeforeNotify:
+                    currentDependency.compareSelectValueBeforeNotify,
                 unsubscribeListener: unsubscribe,
                 unproxiedNode: currentUnproxiedDependencyNode,
             });
@@ -1403,13 +1420,21 @@ export class Retree {
     }
 
     private static getReactiveSelectDependencies(
-        proxiedDependentNode: ReactiveNode
+        proxiedDependentNode: ReactiveNode,
+        includeSelectValues: boolean
     ): IActiveReactiveDependency[] {
         const selectGetters = proxiedDependentNode[SELECT_GETTERS_SYMBOL];
         const dependencies: IActiveReactiveDependency[] = [];
         const unproxiedDependentNode = getUnproxiedNode(proxiedDependentNode);
         for (const [getterName, selectGetter] of selectGetters.entries()) {
             const selected = selectGetter.getDependencies(proxiedDependentNode);
+            const selectedValue = includeSelectValues
+                ? this.getReactiveSelectValue(
+                      proxiedDependentNode,
+                      getterName,
+                      selectGetter
+                  )
+                : undefined;
             const selectedDependencies = normalizeSelectDependencies(selected);
             if (selectedDependencies.length === 0) {
                 continue;
@@ -1446,6 +1471,10 @@ export class Retree {
                         laterComparisons.length === 0
                             ? normalizedDependency.comparisons
                             : laterComparisons,
+                    selectGetterName: getterName,
+                    selectValue: selectedValue,
+                    compareSelectValueBeforeNotify:
+                        selectGetter.compareValueBeforeNotify,
                     unsubscribeListener: undefined,
                     unproxiedNode: undefined,
                 });
@@ -1454,18 +1483,70 @@ export class Retree {
         return dependencies;
     }
 
-    private static getReactiveNodeDependencies(
-        proxiedDependentNode: ReactiveNode
+    private static getReactiveSelectValue(
+        proxiedDependentNode: ReactiveNode,
+        getterName: string | symbol,
+        selectGetter: IReactiveSelectGetter
     ) {
-        return [
+        const pendingValues =
+            this.pendingReactiveSelectValueMap.get(proxiedDependentNode);
+        if (pendingValues !== undefined && pendingValues.has(getterName)) {
+            const value = pendingValues.get(getterName);
+            pendingValues.delete(getterName);
+            if (pendingValues.size === 0) {
+                this.pendingReactiveSelectValueMap.delete(proxiedDependentNode);
+            }
+            return value;
+        }
+        return selectGetter.getValue(proxiedDependentNode);
+    }
+
+    private static setPendingReactiveSelectValue(
+        proxiedDependentNode: ReactiveNode,
+        getterName: string | symbol,
+        value: unknown
+    ) {
+        const existingValues =
+            this.pendingReactiveSelectValueMap.get(proxiedDependentNode);
+        if (existingValues !== undefined) {
+            existingValues.set(getterName, value);
+            return;
+        }
+        this.pendingReactiveSelectValueMap.set(
+            proxiedDependentNode,
+            new Map([[getterName, value]])
+        );
+    }
+
+    private static getReactiveNodeDependencies(
+        proxiedDependentNode: ReactiveNode,
+        includeSelectValues = true
+    ) {
+        return this.runWithoutEmitting(() => [
             ...proxiedDependentNode.dependencies.map((dependency, index) =>
                 this.normalizeReactiveNodeDependency(
                     dependency,
                     `dependencies:${index}`
                 )
             ),
-            ...this.getReactiveSelectDependencies(proxiedDependentNode),
-        ];
+            ...this.getReactiveSelectDependencies(
+                proxiedDependentNode,
+                includeSelectValues
+            ),
+        ]);
+    }
+
+    private static runWithoutEmitting<T>(callback: () => T): T {
+        const previousSkipEmit = Transactions.skipEmit;
+        const previousSkipReproxy = Transactions.skipReproxy;
+        Transactions.skipEmit = true;
+        Transactions.skipReproxy = true;
+        try {
+            return callback();
+        } finally {
+            Transactions.skipEmit = previousSkipEmit;
+            Transactions.skipReproxy = previousSkipReproxy;
+        }
     }
 
     private static normalizeReactiveNodeDependency(
@@ -1602,12 +1683,32 @@ export class Retree {
         dependent: IPreviousReactiveDependent,
         changedUnproxiedNode: TreeNode
     ) {
+        const dependencyChanged = this.hasReactiveDependencyChanged(
+            dependent,
+            changedUnproxiedNode
+        );
+        if (!dependencyChanged) {
+            return false;
+        }
+        const selectValueChanged =
+            this.hasReactiveSelectValueChanged(dependent);
+        if (selectValueChanged !== undefined) {
+            return selectValueChanged;
+        }
+        return true;
+    }
+
+    private static hasReactiveDependencyChanged(
+        dependent: IPreviousReactiveDependent,
+        changedUnproxiedNode: TreeNode
+    ) {
         const previousComparisons = dependent.comparisons;
         if (previousComparisons === undefined) {
             return true;
         }
         const latest = this.getReactiveNodeDependencies(
-            dependent.reactiveNode
+            dependent.reactiveNode,
+            false
         ).find((dependency) => dependency.key === dependent.key);
         if (latest === undefined) {
             return true;
@@ -1635,5 +1736,39 @@ export class Retree {
             }
         }
         return false;
+    }
+
+    private static hasReactiveSelectValueChanged(
+        dependent: IPreviousReactiveDependent
+    ): boolean | undefined {
+        const selectGetterName = dependent.selectGetterName;
+        if (selectGetterName === undefined) {
+            return undefined;
+        }
+        if (!dependent.compareSelectValueBeforeNotify) {
+            return undefined;
+        }
+        const selectGetter =
+            dependent.reactiveNode[SELECT_GETTERS_SYMBOL].get(selectGetterName);
+        if (selectGetter === undefined) {
+            return true;
+        }
+        const latestValue = selectGetter.getValue(dependent.reactiveNode);
+        const changed =
+            selectGetter.equals !== undefined
+                ? !selectGetter.equals(
+                      dependent.reactiveNode,
+                      dependent.selectValue,
+                      latestValue
+                  )
+                : !defaultSelectEquals(dependent.selectValue, latestValue);
+        if (changed) {
+            this.setPendingReactiveSelectValue(
+                dependent.reactiveNode,
+                selectGetterName,
+                latestValue
+            );
+        }
+        return changed;
     }
 }

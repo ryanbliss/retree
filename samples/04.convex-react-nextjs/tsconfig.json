@@ -19,6 +19,10 @@
             }
         ],
         "paths": {
+            "@retreejs/convex": ["../../packages/retree-convex/src/index.ts"],
+            "@retreejs/react-convex": [
+                "../../packages/retree-react-convex/src/index.ts"
+            ],
             "@/*": ["./*"]
         }
     },

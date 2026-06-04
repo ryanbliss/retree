@@ -51,6 +51,8 @@ export class ConvexPaginatedQueryNode<
     private initialNumItems: number;
     @ignore
     private unsubscribe: IConvexQuerySubscription<unknown> | null = null;
+    @ignore
+    private subscribedArgComparisons: unknown[] | undefined;
     /**
      * Latest paginated query state emitted by Convex.
      */
@@ -139,47 +141,41 @@ export class ConvexPaginatedQueryNode<
         args: ConvexPaginatedQueryArgs<Query>,
         resetBeforeSubscribe: boolean
     ): void {
-        let didSubscribe = false;
         let receivedValue = false;
-        this.memo(
-            "updateArgs",
-            () => {
-                didSubscribe = true;
-                this.dispose();
-                if (args === "skip") {
-                    return;
-                }
+        const argComparisons = this.getArgComparisons(args);
+        if (
+            this.unsubscribe !== null &&
+            shallowEqualArrays(this.subscribedArgComparisons, argComparisons)
+        ) {
+            return;
+        }
 
-                const subscription = this.client.onPaginatedUpdate_experimental(
-                    this.queryReference,
-                    args,
-                    { initialNumItems: this.initialNumItems },
-                    (result) => {
-                        receivedValue =
-                            this.setPaginatedStateFromUnknown(result);
-                    },
-                    (error) => {
-                        this.setError(error);
-                    }
-                );
-                this.unsubscribe = subscription;
-                receivedValue = this.setPaginatedStateFromUnknown(
-                    subscription.getCurrentValue()
-                );
+        this.dispose();
+        if (args === "skip") {
+            if (resetBeforeSubscribe) {
+                this.setSkipped();
+            }
+            return;
+        }
+
+        const subscription = this.client.onPaginatedUpdate_experimental(
+            this.queryReference,
+            args,
+            { initialNumItems: this.initialNumItems },
+            (result) => {
+                receivedValue = this.setPaginatedStateFromUnknown(result);
             },
-            this.getArgComparisons(args)
+            (error) => {
+                this.setError(error);
+            }
+        );
+        this.unsubscribe = subscription;
+        this.subscribedArgComparisons = argComparisons;
+        receivedValue = this.setPaginatedStateFromUnknown(
+            subscription.getCurrentValue()
         );
 
         if (!resetBeforeSubscribe) {
-            return;
-        }
-
-        if (!didSubscribe) {
-            return;
-        }
-
-        if (args === "skip") {
-            this.setSkipped();
             return;
         }
 
@@ -245,6 +241,7 @@ export class ConvexPaginatedQueryNode<
 
         this.unsubscribe.unsubscribe();
         this.unsubscribe = null;
+        this.subscribedArgComparisons = undefined;
     }
 
     private setPaginatedStateFromUnknown(result: unknown): boolean {
@@ -297,6 +294,31 @@ export class ConvexPaginatedQueryNode<
                 .flatMap(([key, value]) => [key, value]),
         ];
     }
+}
+
+function shallowEqualArrays(
+    left: unknown[] | undefined,
+    right: unknown[] | undefined
+): boolean {
+    if (left === undefined) {
+        return right === undefined;
+    }
+
+    if (right === undefined) {
+        return false;
+    }
+
+    if (left.length !== right.length) {
+        return false;
+    }
+
+    for (let index = 0; index < left.length; index++) {
+        if (!Object.is(left[index], right[index])) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 function getQueryOptions<Query extends PaginatedQueryReference>(

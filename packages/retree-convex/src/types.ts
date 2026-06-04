@@ -127,11 +127,11 @@ export interface IConvexQueryClient {
         args: PaginatedQueryArgs<Query>,
         options: { initialNumItems: number },
         callback: (
-            result: PaginationResult<FunctionReturnType<Query>>
+            result: RetreePaginatedQueryResult<PaginatedQueryItem<Query>>
         ) => unknown,
         onError?: (error: Error) => unknown
     ): IConvexQuerySubscription<
-        RetreePaginatedQueryResult<FunctionReturnType<Query>[]>
+        RetreePaginatedQueryResult<PaginatedQueryItem<Query>> | undefined
     >;
 }
 

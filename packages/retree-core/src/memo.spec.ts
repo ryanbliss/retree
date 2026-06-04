@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
-import { fnMemo, ignore, memo } from "./decorators";
+import { fnMemo, ignore, link, memo, select } from "./decorators";
 import { getReproxyNode } from "./internals/reproxy";
 import { Transactions } from "./internals/transactions";
 
@@ -35,6 +35,11 @@ function clearListenersRecursively(node: unknown, seen = new Set<object>()) {
 
 interface Card {
     text: string;
+}
+
+interface Row {
+    id: string;
+    value: string;
 }
 
 class ListFilterMethod extends ReactiveNode {
@@ -448,6 +453,51 @@ describe("@memo decorator", () => {
         expect(root.computeCount).toBe(2);
     });
 
+    it("does not re-read trapped memo property accessors when source reproxies are unchanged", () => {
+        let valueReadCount = 0;
+        class CountedMemoNode extends ReactiveNode {
+            public child = {
+                current: 1,
+                get value() {
+                    valueReadCount++;
+                    return this.current;
+                },
+            };
+            @ignore
+            public computeCount = 0;
+
+            @memo()
+            get doubled(): number {
+                this.computeCount++;
+                return this.child.value * 2;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new CountedMemoNode()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.doubled).toBe(2);
+        expect(root.doubled).toBe(2);
+        expect(root.doubled).toBe(2);
+        expect(root.doubled).toBe(2);
+        expect(root.computeCount).toBe(1);
+        expect(valueReadCount).toBe(3);
+
+        root.child.current = 2;
+
+        expect(root.doubled).toBe(4);
+        expect(root.computeCount).toBe(2);
+        expect(valueReadCount).toBe(6);
+
+        expect(root.doubled).toBe(4);
+        expect(root.doubled).toBe(4);
+        expect(valueReadCount).toBe(6);
+    });
+
     it("still emits and reproxies when a @memo getter writes a non-ignored field", () => {
         class SideEffectMemoNode extends ReactiveNode {
             public source = 1;
@@ -595,6 +645,327 @@ describe("@memo decorator", () => {
     });
 });
 
+describe("automatic dependency trapping through array lookup", () => {
+    class Store extends ReactiveNode {
+        public rows: Row[] = [];
+
+        get dependencies() {
+            return [this.dependency(this.rows)];
+        }
+
+        public byId(id: string): Row | null {
+            return this.rows.find((row) => row.id === id) ?? null;
+        }
+
+        public replaceRow(next: Row): void {
+            const index = this.rows.findIndex((row) => row.id === next.id);
+            if (index === -1) {
+                this.rows.push(next);
+                return;
+            }
+            this.rows.splice(index, 1, next);
+        }
+
+        public removeRow(id: string): void {
+            const index = this.rows.findIndex((row) => row.id === id);
+            if (index === -1) {
+                return;
+            }
+            this.rows.splice(index, 1);
+        }
+
+        public moveRow(id: string, toIndex: number): void {
+            const index = this.rows.findIndex((row) => row.id === id);
+            if (index === -1) {
+                return;
+            }
+            const [row] = this.rows.splice(index, 1);
+            this.rows.splice(toIndex, 0, row);
+        }
+    }
+
+    class Consumer extends ReactiveNode {
+        @link
+        public store: Store | null = null;
+        public rowId = "";
+
+        get dependencies() {
+            return [];
+        }
+
+        @memo
+        private get _result(): string | null {
+            return this.store?.byId(this.rowId)?.value ?? null;
+        }
+
+        @select
+        public get result(): string | null {
+            return this._result;
+        }
+    }
+
+    function buildLookupTree(rows: Row[] = [{ id: "a", value: "Ada" }]) {
+        const root = trackRoot(
+            Retree.root({
+                store: new Store(),
+                consumer: new Consumer(),
+            })
+        );
+        root.store.rows.push(...rows);
+        root.consumer.store = root.store;
+        root.consumer.rowId = "a";
+        return root;
+    }
+
+    it("recomputes when the resolved row's field is mutated in place", () => {
+        const root = buildLookupTree();
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        const row = root.store.byId("a");
+        if (row === null) {
+            // @retree-throws
+            throw new Error(
+                "Test setup failed: expected buildLookupTree() to create row 'a'."
+            );
+        }
+        row.value = "Grace";
+
+        expect(root.consumer.result).toBe("Grace");
+        expect(changed).toHaveBeenCalled();
+    });
+
+    it("recomputes when the resolved row is replaced via splice", () => {
+        const root = buildLookupTree();
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        root.store.replaceRow({ id: "a", value: "Grace" });
+
+        expect(root.consumer.result).toBe("Grace");
+        expect(changed).toHaveBeenCalled();
+    });
+
+    it("recomputes across multiple separate field edits to the resolved row", () => {
+        const root = buildLookupTree();
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        const row = root.store.byId("a");
+        if (row === null) {
+            // @retree-throws
+            throw new Error(
+                "Test setup failed: expected buildLookupTree() to create row 'a'."
+            );
+        }
+
+        row.value = "Grace";
+        expect(root.consumer.result).toBe("Grace");
+        expect(changed).toHaveBeenCalledTimes(1);
+
+        row.value = "Hopper";
+        expect(root.consumer.result).toBe("Hopper");
+        expect(changed).toHaveBeenCalledTimes(2);
+    });
+
+    it("recomputes across multiple separate splice replacements of the resolved row", () => {
+        const root = buildLookupTree();
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        root.store.replaceRow({ id: "a", value: "Grace" });
+        expect(root.consumer.result).toBe("Grace");
+        expect(changed).toHaveBeenCalledTimes(1);
+
+        root.store.replaceRow({ id: "a", value: "Hopper" });
+        expect(root.consumer.result).toBe("Hopper");
+        expect(changed).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not emit when an unmatched row field changes before the resolved row", () => {
+        const root = buildLookupTree([
+            { id: "b", value: "Babbage" },
+            { id: "a", value: "Ada" },
+        ]);
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        const row = root.store.byId("b");
+        if (row === null) {
+            // @retree-throws
+            throw new Error(
+                "Test setup failed: expected buildLookupTree() to create row 'b'."
+            );
+        }
+        row.value = "Byron";
+
+        expect(root.consumer.result).toBe("Ada");
+        expect(changed).not.toHaveBeenCalled();
+    });
+
+    it("does not re-read cached memo accessors while replaying dependencies for @select", () => {
+        let valueReadCount = 0;
+        class CountedStore extends ReactiveNode {
+            public rows = [
+                {
+                    id: "a",
+                    current: "Ada",
+                    get value() {
+                        valueReadCount++;
+                        return this.current;
+                    },
+                },
+            ];
+
+            get dependencies() {
+                return [this.dependency(this.rows)];
+            }
+
+            public byId(id: string) {
+                return this.rows.find((row) => row.id === id) ?? null;
+            }
+        }
+
+        class CountedConsumer extends ReactiveNode {
+            @link
+            public store: CountedStore | null = null;
+            public rowId = "a";
+            public tick = 0;
+
+            get dependencies() {
+                return [];
+            }
+
+            @memo
+            private get _result(): string | null {
+                return this.store?.byId(this.rowId)?.value ?? null;
+            }
+
+            @select
+            public get result(): string | null {
+                return `${this.tick}:${this._result}`;
+            }
+        }
+
+        const root = trackRoot(
+            Retree.root({
+                store: new CountedStore(),
+                consumer: new CountedConsumer(),
+            })
+        );
+        root.consumer.store = root.store;
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("0:Ada");
+        const warmedValueReadCount = valueReadCount;
+
+        root.consumer.tick = 1;
+
+        expect(root.consumer.result).toBe("1:Ada");
+        expect(changed).toHaveBeenCalledTimes(1);
+        expect(valueReadCount).toBe(warmedValueReadCount);
+    });
+
+    it("does not emit when an unmatched row field changes after the resolved row", () => {
+        const root = buildLookupTree([
+            { id: "a", value: "Ada" },
+            { id: "b", value: "Babbage" },
+        ]);
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        const row = root.store.byId("b");
+        if (row === null) {
+            // @retree-throws
+            throw new Error(
+                "Test setup failed: expected buildLookupTree() to create row 'b'."
+            );
+        }
+        row.value = "Byron";
+
+        expect(root.consumer.result).toBe("Ada");
+        expect(changed).not.toHaveBeenCalled();
+    });
+
+    it("does not emit when an unmatched row is replaced after the resolved row", () => {
+        const root = buildLookupTree([
+            { id: "a", value: "Ada" },
+            { id: "b", value: "Babbage" },
+        ]);
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        root.store.replaceRow({ id: "b", value: "Byron" });
+
+        expect(root.consumer.result).toBe("Ada");
+        expect(changed).not.toHaveBeenCalled();
+    });
+
+    it("does not emit when an unmatched row is replaced before the resolved row", () => {
+        const root = buildLookupTree([
+            { id: "b", value: "Babbage" },
+            { id: "a", value: "Ada" },
+        ]);
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        root.store.replaceRow({ id: "b", value: "Byron" });
+
+        expect(root.consumer.result).toBe("Ada");
+        expect(changed).not.toHaveBeenCalled();
+    });
+
+    it("does not emit when an unmatched row is spliced out", () => {
+        const root = buildLookupTree([
+            { id: "b", value: "Babbage" },
+            { id: "a", value: "Ada" },
+        ]);
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        root.store.removeRow("b");
+
+        expect(root.consumer.result).toBe("Ada");
+        expect(changed).not.toHaveBeenCalled();
+    });
+
+    it("does not emit when an unmatched row is reordered", () => {
+        const root = buildLookupTree([
+            { id: "b", value: "Babbage" },
+            { id: "a", value: "Ada" },
+            { id: "c", value: "Curie" },
+        ]);
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+
+        expect(root.consumer.result).toBe("Ada");
+
+        root.store.moveRow("b", 2);
+
+        expect(root.consumer.result).toBe("Ada");
+        expect(changed).not.toHaveBeenCalled();
+    });
+});
+
 describe("@fnMemo decorator", () => {
     it("recomputes when arguments or dependency comparisons change", () => {
         class Scaler extends ReactiveNode {
@@ -736,6 +1107,55 @@ describe("@fnMemo decorator", () => {
         root.child.suffix = "b";
         expect(root.format(2)).toBe("2:b");
         expect(root.computeCount).toBe(3);
+    });
+
+    it("does not re-read trapped fnMemo property accessors when source reproxies are unchanged", () => {
+        let suffixReadCount = 0;
+        class CountedFormatter extends ReactiveNode {
+            public child = {
+                current: "a",
+                get suffix() {
+                    suffixReadCount++;
+                    return this.current;
+                },
+            };
+            @ignore
+            public computeCount = 0;
+
+            @fnMemo()
+            public format(value: number): string {
+                this.computeCount++;
+                return `${value}:${this.child.suffix}`;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new CountedFormatter()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        expect(root.format(1)).toBe("1:a");
+        expect(root.format(1)).toBe("1:a");
+        expect(root.format(1)).toBe("1:a");
+        expect(root.format(1)).toBe("1:a");
+        expect(root.computeCount).toBe(1);
+        expect(suffixReadCount).toBe(3);
+
+        expect(root.format(2)).toBe("2:a");
+        expect(root.computeCount).toBe(2);
+        expect(suffixReadCount).toBe(5);
+
+        expect(root.format(2)).toBe("2:a");
+        expect(root.format(2)).toBe("2:a");
+        expect(suffixReadCount).toBe(5);
+
+        root.child.current = "b";
+
+        expect(root.format(2)).toBe("2:b");
+        expect(root.computeCount).toBe(3);
+        expect(suffixReadCount).toBe(8);
     });
 
     it("still emits and reproxies when a @fnMemo method writes a non-ignored field", () => {
