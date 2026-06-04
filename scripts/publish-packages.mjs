@@ -33,10 +33,12 @@ if (process.argv.includes("--help")) {
             "",
             "Loads root .env variables, then for each Retree package:",
             "  1. npm run build",
-            "  2. npm publish --dry-run",
-            "  3. npm publish",
+            "  2. npm view <package> version",
+            "  3. npm publish --dry-run",
+            "  4. npm publish",
             "",
-            "Publishing stops immediately if build or dry-run fails.",
+            "New scoped packages are published with --access public.",
+            "Publishing stops immediately if build, registry check, dry-run, or publish fails.",
         ].join("\n")
     );
     process.exit(0);
@@ -61,8 +63,19 @@ for (const packageToPublish of packagesToPublish) {
     const packageDir = resolve(rootDir, packageToPublish.directory);
     console.log(`\nPublishing ${packageToPublish.label}`);
     run("npm", ["run", "build"], packageDir, publishEnv);
-    run("npm", ["publish", "--dry-run"], packageDir, publishEnv);
-    run("npm", ["publish"], packageDir, publishEnv);
+
+    const packageExists = npmPackageExists(packageToPublish.label, publishEnv);
+    const publishArgs = packageExists
+        ? ["publish"]
+        : ["publish", "--access", "public"];
+    if (!packageExists) {
+        console.log(
+            `${packageToPublish.label} does not exist on npm yet; publishing as a new public scoped package.`
+        );
+    }
+
+    run("npm", [...publishArgs, "--dry-run"], packageDir, publishEnv);
+    run("npm", publishArgs, packageDir, publishEnv);
 }
 
 console.log("\nAll packages published.");
@@ -113,6 +126,64 @@ function parseEnvValue(rawValue) {
     }
 
     return trimmedValue.replace(/\s+#.*$/u, "");
+}
+
+function npmPackageExists(packageName, env) {
+    const result = spawnSync("npm", ["view", packageName, "version"], {
+        cwd: rootDir,
+        env,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    if (result.error) {
+        throw new Error(
+            `npm view ${packageName} version: failed to start: ${result.error.message}`
+        );
+    }
+
+    if (result.signal) {
+        throw new Error(
+            `npm view ${packageName} version: exited with signal ${result.signal}.`
+        );
+    }
+
+    if (result.status === 0) {
+        const version = result.stdout.trim();
+        console.log(`${packageName} exists on npm at version ${version}.`);
+        return true;
+    }
+
+    if (isNpmNotFound(result.stderr)) {
+        return false;
+    }
+
+    const stderr = result.stderr.trim();
+    if (stderr.length === 0) {
+        throw new Error(
+            `npm view ${packageName} version: exited with status ${String(
+                result.status
+            )}.`
+        );
+    }
+
+    throw new Error(
+        `npm view ${packageName} version: exited with status ${String(
+            result.status
+        )}: ${stderr}`
+    );
+}
+
+function isNpmNotFound(stderr) {
+    if (stderr.includes("E404")) {
+        return true;
+    }
+
+    if (stderr.includes("404 Not Found")) {
+        return true;
+    }
+
+    return stderr.includes("is not in this registry");
 }
 
 function run(command, args, cwd, env) {
