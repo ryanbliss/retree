@@ -217,10 +217,23 @@ export function buildProxy<T extends TreeNode = TreeNode>(
 ): T {
     let isApplyingSet = false;
     if (object === null) return object;
-    const boundFunctionCache = new Map<
+    let boundFunctionCache: Map<
         string | symbol,
         BoundFunctionCacheEntry
-    >();
+    > | null = null;
+    const getBoundFunction = <TFunction extends Function>(
+        prop: string | symbol,
+        source: TFunction,
+        thisArg: unknown
+    ): TFunction => {
+        boundFunctionCache ??= new Map();
+        return getCachedBoundFunction(
+            boundFunctionCache,
+            prop,
+            source,
+            thisArg
+        );
+    };
     const proxyHandler: ProxyHandler<T> & ICustomProxyHandler<T> = {
         // Add some extra stuff into the handler so we can store the original TreeNode and access it later
         // Without overriding the rest of the getters in the object.
@@ -324,12 +337,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         );
                     }
                     return trackAccessIfNeeded(
-                        getCachedBoundFunction(
-                            boundFunctionCache,
-                            prop,
-                            value,
-                            target
-                        )
+                        getBoundFunction(prop, value, target)
                     );
                 }
                 return trackPropertyAccessIfNeeded(baseProxy, prop, value);
@@ -354,22 +362,12 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             if (typeof value === "function") {
                 if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
                     return trackAccessIfNeeded(
-                        getCachedBoundFunction(
-                            boundFunctionCache,
-                            prop,
-                            value,
-                            target
-                        )
+                        getBoundFunction(prop, value, target)
                     );
                 }
                 const baseProxy = getBaseProxy(receiver);
                 return trackAccessIfNeeded(
-                    getCachedBoundFunction(
-                        boundFunctionCache,
-                        prop,
-                        value,
-                        baseProxy
-                    )
+                    getBoundFunction(prop, value, baseProxy)
                 );
             }
             if (shouldLazilyProxyProperty(target, prop, value)) {

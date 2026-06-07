@@ -83,7 +83,11 @@ export function collectDependencyAccesses<T>(callback: () => T): unknown[] {
     } finally {
         dependencyAccessStack.pop();
     }
-    return frame.entries.map((entry) => entry.value);
+    const dependencies: unknown[] = [];
+    for (const entry of frame.entries) {
+        dependencies.push(entry.value);
+    }
+    return dependencies;
 }
 
 export function collectDependencyComparisonAccesses<T>(callback: () => T): {
@@ -102,26 +106,30 @@ export function collectDependencyComparisonAccesses<T>(callback: () => T): {
     } finally {
         dependencyAccessStack.pop();
     }
+    const comparisons: unknown[] = [];
+    for (const entry of frame.entries) {
+        if (isWrittenPropertyEntry(frame, entry)) {
+            continue;
+        }
+        if (entry.kind === "managed-value") {
+            comparisons.push(
+                createComparisonAccessor(
+                    () => [entry.value],
+                    entry.value,
+                    entry.unproxiedNode
+                )
+            );
+            continue;
+        }
+        if (entry.comparisonAccessor !== undefined) {
+            comparisons.push(entry.comparisonAccessor);
+            continue;
+        }
+        comparisons.push(entry.value);
+    }
     return {
         value: value as T,
-        comparisons: frame.entries.flatMap((entry) => {
-            if (isWrittenPropertyEntry(frame, entry)) {
-                return [];
-            }
-            if (entry.kind === "managed-value") {
-                return [
-                    createComparisonAccessor(
-                        () => [entry.value],
-                        entry.value,
-                        entry.unproxiedNode
-                    ),
-                ];
-            }
-            if (entry.comparisonAccessor !== undefined) {
-                return [entry.comparisonAccessor];
-            }
-            return [entry.value];
-        }),
+        comparisons,
     };
 }
 
@@ -314,9 +322,10 @@ function isDependencyComparisonAccessor(
     if (value === null || typeof value !== "object") {
         return false;
     }
-    return (
-        Reflect.get(value, "kind") === "retree-dependency-comparison-accessor"
-    );
+    if (!("kind" in value)) {
+        return false;
+    }
+    return value.kind === "retree-dependency-comparison-accessor";
 }
 
 function getComparisonAccessorSource(

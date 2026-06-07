@@ -114,10 +114,23 @@ function buildReproxy<T extends TreeNode = TreeNode>(
             "Retree internal invariant failed: cannot build a reproxy for an unproxied node. This is unexpected and likely a Retree bug if it came from a public Retree API. Fix: make sure callers pass Retree-managed proxies from Retree.root(...) or tree children; otherwise file a Retree issue with the operation that triggered this."
         );
     }
-    const boundFunctionCache = new Map<
+    let boundFunctionCache: Map<
         string | symbol,
         { source: Function; bound: Function }
-    >();
+    > | null = null;
+    const getBoundFunction = <TFunction extends Function>(
+        prop: string | symbol,
+        source: TFunction,
+        thisArg: unknown
+    ): TFunction => {
+        boundFunctionCache ??= new Map();
+        return getCachedBoundFunction(
+            boundFunctionCache,
+            prop,
+            source,
+            thisArg
+        );
+    };
     const proxyHandler: ProxyHandler<TCustomProxy<T>> &
         Omit<ICustomProxyHandler<T>, typeof proxiedChildrenKey> = {
         // Add some extra stuff into the handler so we can store the original TreeNode and access it later
@@ -193,22 +206,12 @@ function buildReproxy<T extends TreeNode = TreeNode>(
             if (typeof value === "function") {
                 if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
                     return trackAccessIfNeeded(
-                        getCachedBoundFunction(
-                            boundFunctionCache,
-                            prop,
-                            value,
-                            rawNode
-                        )
+                        getBoundFunction(prop, value, rawNode)
                     );
                 }
                 const reproxy = getReproxyNode(object);
                 return trackAccessIfNeeded(
-                    getCachedBoundFunction(
-                        boundFunctionCache,
-                        prop,
-                        value,
-                        reproxy
-                    )
+                    getBoundFunction(prop, value, reproxy)
                 );
             }
             if (value !== null && typeof value === "object") {
