@@ -206,10 +206,12 @@ export function createRetreeSelectionObserver<
     const baseProxy = getBaseProxy(options.node);
     const baseRawNode = getUnproxiedNode(baseProxy);
     let activeDependencies: ActiveSelectDependency[] = [];
+    let activeDependencyMap = new Map<TreeNode, ActiveSelectDependency>();
     let previous = options.selector(getReproxyNode(baseProxy));
 
     const updateDependencySubscriptions = (selected: TSelected) => {
         const nextDependencies: ActiveSelectDependency[] = [];
+        const nextDependencyMap = new Map<TreeNode, ActiveSelectDependency>();
         const nextDependencySlots = new Map<
             TreeNode,
             { baseProxy: TreeNode; indices: number[] }
@@ -239,16 +241,15 @@ export function createRetreeSelectionObserver<
         }
 
         for (const [rawNode, dependencySlot] of nextDependencySlots.entries()) {
-            const existing = activeDependencies.find(
-                (active) => active.rawNode === rawNode
-            );
+            const existing = activeDependencyMap.get(rawNode);
             if (existing !== undefined) {
                 existing.indices = dependencySlot.indices;
                 nextDependencies.push(existing);
+                nextDependencyMap.set(rawNode, existing);
                 continue;
             }
 
-            nextDependencies.push({
+            const nextDependency = {
                 rawNode,
                 indices: dependencySlot.indices,
                 unsubscribe: options.subscribeToNode(
@@ -256,30 +257,25 @@ export function createRetreeSelectionObserver<
                     "nodeChanged",
                     () => evaluate(rawNode)
                 ),
-            });
+            };
+            nextDependencies.push(nextDependency);
+            nextDependencyMap.set(rawNode, nextDependency);
         }
 
         for (const activeDependency of activeDependencies) {
-            if (
-                !nextDependencies.some(
-                    (dependency) =>
-                        dependency.rawNode === activeDependency.rawNode
-                )
-            ) {
+            if (!nextDependencySlots.has(activeDependency.rawNode)) {
                 activeDependency.unsubscribe();
             }
         }
         activeDependencies = nextDependencies;
+        activeDependencyMap = nextDependencyMap;
     };
 
     const evaluate = (changedDependencyRawNode?: TreeNode) => {
         const changedDependencyIndex =
             changedDependencyRawNode === undefined
                 ? undefined
-                : activeDependencies.find(
-                      (dependency) =>
-                          dependency.rawNode === changedDependencyRawNode
-                  )?.indices;
+                : activeDependencyMap.get(changedDependencyRawNode)?.indices;
         const next = options.selector(getReproxyNode(baseProxy));
         updateDependencySubscriptions(next);
         const shouldNotify =
@@ -312,6 +308,7 @@ export function createRetreeSelectionObserver<
             activeDependency.unsubscribe();
         }
         activeDependencies = [];
+        activeDependencyMap = new Map();
     };
 }
 
@@ -322,12 +319,14 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
     onChange: (next: TSelected, previous: TSelected) => void;
 }): () => void {
     let activeDependencies: ActiveSelectDependency[] = [];
+    let activeDependencyMap = new Map<TreeNode, ActiveSelectDependency>();
     let previous = runTrackedSelection(options.selector);
 
     const updateDependencySubscriptions = (
         trackedSelection: TrackedSelection<TSelected>
     ) => {
         const nextDependencies: ActiveSelectDependency[] = [];
+        const nextDependencyMap = new Map<TreeNode, ActiveSelectDependency>();
         const nextDependencySlots = new Map<
             TreeNode,
             { baseProxy: TreeNode; indices: number[] }
@@ -360,16 +359,15 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
         }
 
         for (const [rawNode, dependencySlot] of nextDependencySlots.entries()) {
-            const existing = activeDependencies.find(
-                (active) => active.rawNode === rawNode
-            );
+            const existing = activeDependencyMap.get(rawNode);
             if (existing !== undefined) {
                 existing.indices = dependencySlot.indices;
                 nextDependencies.push(existing);
+                nextDependencyMap.set(rawNode, existing);
                 continue;
             }
 
-            nextDependencies.push({
+            const nextDependency = {
                 rawNode,
                 indices: dependencySlot.indices,
                 unsubscribe: options.subscribeToNode(
@@ -377,20 +375,18 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
                     "nodeChanged",
                     evaluate
                 ),
-            });
+            };
+            nextDependencies.push(nextDependency);
+            nextDependencyMap.set(rawNode, nextDependency);
         }
 
         for (const activeDependency of activeDependencies) {
-            if (
-                !nextDependencies.some(
-                    (dependency) =>
-                        dependency.rawNode === activeDependency.rawNode
-                )
-            ) {
+            if (!nextDependencySlots.has(activeDependency.rawNode)) {
                 activeDependency.unsubscribe();
             }
         }
         activeDependencies = nextDependencies;
+        activeDependencyMap = nextDependencyMap;
     };
 
     const evaluate = () => {
@@ -433,6 +429,7 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
             activeDependency.unsubscribe();
         }
         activeDependencies = [];
+        activeDependencyMap = new Map();
     };
 }
 

@@ -105,7 +105,7 @@ export function getManagedProxyForUnproxiedNode<T extends TreeNode = TreeNode>(
 }
 
 function buildReproxy<T extends TreeNode = TreeNode>(
-    object: T
+    object: TCustomProxy<T>
 ): TCustomProxy<T> {
     const handler = getCustomProxyHandler(object);
     if (!handler) {
@@ -118,7 +118,7 @@ function buildReproxy<T extends TreeNode = TreeNode>(
         string | symbol,
         { source: Function; bound: Function }
     >();
-    const proxyHandler: ProxyHandler<T> &
+    const proxyHandler: ProxyHandler<TCustomProxy<T>> &
         Omit<ICustomProxyHandler<T>, typeof proxiedChildrenKey> = {
         // Add some extra stuff into the handler so we can store the original TreeNode and access it later
         // Without overriding the rest of the getters in the object.
@@ -155,26 +155,23 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                 const childProxy = handler[proxiedChildrenKey][prop];
                 if (typeof childProxy !== "function") {
                     const reproxy = getReproxyNode(childProxy);
-                    const baseProxy: TCustomProxy<T> = getBaseProxy(receiver);
                     return trackPropertyAccessIfNeeded(
-                        baseProxy,
+                        object,
                         prop,
                         reproxy ?? childProxy
                     );
                 }
             }
-            const baseProxy: TCustomProxy<T> = getBaseProxy(receiver);
-            const rawNode = getUnproxiedNode(baseProxy);
+            const rawNode = handler[unproxiedBaseNodeKey];
             // Some built-in methods need internal slots on `this`. Delegate property access to the
             // base proxy so the bind/wrap logic in buildProxy is reused (and mutations emit).
             if (isInternalSlotInstance(rawNode)) {
                 return trackPropertyAccessIfNeeded(
-                    baseProxy,
+                    object,
                     prop,
-                    Reflect.get(baseProxy, prop, baseProxy)
+                    Reflect.get(object, prop, object)
                 );
             }
-            const reproxy = getReproxyNode(baseProxy);
             const evalTarget = rawNode ?? target;
 
             let value: any;
@@ -204,6 +201,7 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                         )
                     );
                 }
+                const reproxy = getReproxyNode(object);
                 return trackAccessIfNeeded(
                     getCachedBoundFunction(
                         boundFunctionCache,
@@ -214,16 +212,16 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                 );
             }
             if (value !== null && typeof value === "object") {
-                const baseValue = Reflect.get(baseProxy, prop, baseProxy);
+                const baseValue = Reflect.get(object, prop, object);
                 if (isCustomProxy(baseValue)) {
                     return trackPropertyAccessIfNeeded(
-                        baseProxy,
+                        object,
                         prop,
                         getReproxyNode(baseValue) ?? baseValue
                     );
                 }
             }
-            return trackPropertyAccessIfNeeded(baseProxy, prop, value);
+            return trackPropertyAccessIfNeeded(object, prop, value);
         },
         set(target, prop, newValue, receiver) {
             if (target instanceof ReactiveNode) {

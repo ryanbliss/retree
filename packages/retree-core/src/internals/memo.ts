@@ -12,7 +12,7 @@ import {
 } from "./dependency-tracking";
 import { getDependencyComparisonValues } from "./dependencies";
 import { getUnproxiedNode } from "./proxy";
-import { getReproxyNodeForUnproxiedNode } from "./reproxy";
+import { getManagedProxyForUnproxiedNode } from "./reproxy";
 
 /**
  * @internal
@@ -100,7 +100,7 @@ export function runMemo<T>(
         return fn();
     }
     const cache = getOrCreateMemoCache(unproxied);
-    const currentReproxy = getReproxyNodeForUnproxiedNode(unproxied);
+    const currentReproxy = getManagedProxyForUnproxiedNode(unproxied);
     // Tree nodes are compared by their latest reproxy identity. The buildProxy a user
     // gets via `this.list` is stable across the lifetime of the tree, so it would never
     // appear "changed". The reproxy ref is what bumps on every mutation.
@@ -134,7 +134,7 @@ export function runMemo<T>(
         comparisons: normalized,
         comparisonAccessors: undefined,
         comparisonSnapshots: undefined,
-        reproxy: getReproxyNodeForUnproxiedNode(unproxied) ?? currentReproxy,
+        reproxy: getManagedProxyForUnproxiedNode(unproxied) ?? currentReproxy,
         args: undefined,
     });
     return value;
@@ -178,7 +178,7 @@ export function runTrappedMemo<T>(
         comparisons: normalized.values,
         comparisonAccessors: result.comparisons,
         comparisonSnapshots: normalized.snapshots,
-        reproxy: getReproxyNodeForUnproxiedNode(unproxied),
+        reproxy: getManagedProxyForUnproxiedNode(unproxied),
         args: undefined,
     });
     return result.value;
@@ -202,7 +202,7 @@ export function runFnMemo<T>(
         return fn();
     }
     const cache = getOrCreateMemoCache(unproxied);
-    const currentReproxy = getReproxyNodeForUnproxiedNode(unproxied);
+    const currentReproxy = getManagedProxyForUnproxiedNode(unproxied);
     const normalizedArgs = normalizeComparisons(args);
     const normalizedComparisons =
         comparisons === undefined
@@ -234,7 +234,7 @@ export function runFnMemo<T>(
         comparisons: normalizedComparisons,
         comparisonAccessors: undefined,
         comparisonSnapshots: undefined,
-        reproxy: getReproxyNodeForUnproxiedNode(unproxied) ?? currentReproxy,
+        reproxy: getManagedProxyForUnproxiedNode(unproxied) ?? currentReproxy,
         args: normalizedArgs,
     });
     return value;
@@ -281,7 +281,7 @@ export function runTrappedFnMemo<T>(
         comparisons: normalized.values,
         comparisonAccessors: result.comparisons,
         comparisonSnapshots: normalized.snapshots,
-        reproxy: getReproxyNodeForUnproxiedNode(unproxied),
+        reproxy: getManagedProxyForUnproxiedNode(unproxied),
         args: normalizedArgs,
     });
     return result.value;
@@ -355,14 +355,14 @@ function getComparisonSourceReproxy(comparison: unknown): TreeNode | undefined {
     if (sourceUnproxiedNode === undefined) {
         return undefined;
     }
-    return getReproxyNodeForUnproxiedNode(sourceUnproxiedNode);
+    return getManagedProxyForUnproxiedNode(sourceUnproxiedNode);
 }
 
 function normalizeComparisonCell(cell: unknown): unknown {
     if (cell !== null && typeof cell === "object") {
         const unproxy = getUnproxiedNode(cell as TreeNode);
         if (unproxy) {
-            const reproxy = getReproxyNodeForUnproxiedNode(unproxy);
+            const reproxy = getManagedProxyForUnproxiedNode(unproxy);
             if (reproxy) {
                 return reproxy;
             }
