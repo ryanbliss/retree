@@ -173,10 +173,6 @@ export function buildProxy<T extends TreeNode = TreeNode>(
 ): T {
     let isApplyingSet = false;
     if (object === null) return object;
-    const existingManagedProxy = getManagedProxyForUnproxiedNode(object);
-    if (existingManagedProxy !== undefined) {
-        return existingManagedProxy as T;
-    }
     const boundFunctionCache = new Map<
         string | symbol,
         BoundFunctionCacheEntry
@@ -422,10 +418,23 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     if (isCustomProxy(newValue)) {
                         valueToSet = reparentProxy(newValue, parentToSet);
                         proxyHandler[proxiedChildrenKey][prop] = valueToSet;
+                    } else if (
+                        getManagedProxyForUnproxiedNode(newValue) !== undefined
+                    ) {
+                        valueToSet = createStructuralProxyForValue(
+                            newValue,
+                            parentToSet,
+                            emitter
+                        );
+                        proxyHandler[proxiedChildrenKey][prop] = valueToSet;
                     } else if (shouldCreatePlainObjectProxyLazily(newValue)) {
                         deleteProxiedChild(proxyHandler, prop);
                     } else {
-                        valueToSet = buildProxy(newValue, emitter, parentToSet);
+                        valueToSet = createStructuralProxyForValue(
+                            newValue,
+                            parentToSet,
+                            emitter
+                        );
                         proxyHandler[proxiedChildrenKey][prop] = valueToSet;
                     }
                 } else {
@@ -842,10 +851,29 @@ function getOrCreateProxiedChild(
         proxyNode: baseProxy,
         propName: prop,
     };
-    const childProxy = buildProxy(value, emitter, parentToSet);
+    const existingManagedProxy = getManagedProxyForUnproxiedNode(value);
+    const childProxy =
+        existingManagedProxy === undefined
+            ? createStructuralProxyForValue(value, parentToSet, emitter)
+            : existingManagedProxy;
     const baseChildProxy = getBaseProxy(childProxy);
     proxyHandler[proxiedChildrenKey][prop] = baseChildProxy;
     return baseChildProxy;
+}
+
+function createStructuralProxyForValue(
+    value: object,
+    parentToSet: IProxyParent<any>,
+    emitter: TreeChangeEmitter
+): object {
+    if (isCustomProxy(value)) {
+        return reparentProxy(value, parentToSet);
+    }
+    const existingManagedProxy = getManagedProxyForUnproxiedNode(value);
+    if (existingManagedProxy !== undefined) {
+        return reparentProxy(existingManagedProxy, parentToSet);
+    }
+    return buildProxy(value, emitter, parentToSet);
 }
 
 function isProxyableObject(value: unknown): value is object {
@@ -880,9 +908,11 @@ function preparePropertyValue(
         proxyNode: baseProxy,
         propName: prop,
     };
-    const valueToSet = isCustomProxy(value)
-        ? reparentProxy(value, parentToSet)
-        : buildProxy(value, emitter, parentToSet);
+    const valueToSet = createStructuralProxyForValue(
+        value,
+        parentToSet,
+        emitter
+    );
     proxyHandler[proxiedChildrenKey][prop] = valueToSet;
     return valueToSet;
 }
@@ -972,9 +1002,11 @@ function getOrCreateMapValueProxy(
         proxyNode: baseProxy,
         propName: mapKeyAsPropName(key),
     };
-    const valueToRead = isCustomProxy(value)
-        ? reparentProxy(value, parentToSet)
-        : buildProxy(value, emitter, parentToSet);
+    const valueToRead = createStructuralProxyForValue(
+        value,
+        parentToSet,
+        emitter
+    );
     if (valueToRead !== value) {
         Map.prototype.set.call(target, key, valueToRead);
     }
@@ -1134,9 +1166,11 @@ function getOrCreateSetValueProxy(
         proxyNode: baseProxy,
         propName: null,
     };
-    const valueToRead = isCustomProxy(value)
-        ? reparentProxy(value, parentToSet)
-        : buildProxy(value, emitter, parentToSet);
+    const valueToRead = createStructuralProxyForValue(
+        value,
+        parentToSet,
+        emitter
+    );
     if (valueToRead !== value) {
         Set.prototype.delete.call(target, value);
         Set.prototype.add.call(target, valueToRead);
