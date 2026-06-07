@@ -64,6 +64,13 @@ export function runWithIsolatedDependencyTracking<T>(callback: () => T): T {
     }
 }
 
+export function isDependencyTrackingActive(): boolean {
+    if (pauseDependencyTrackingDepth > 0) {
+        return false;
+    }
+    return dependencyAccessStack.length > 0;
+}
+
 export function collectDependencyAccesses<T>(callback: () => T): unknown[] {
     const frame: DependencyAccessFrame = {
         entries: [],
@@ -165,12 +172,12 @@ export function trackDependencyPropertyAccess<T>(
     if (pauseDependencyTrackingDepth > 0) {
         return value;
     }
-    if (isRetreeInternalProperty(propertyKey)) {
-        return value;
-    }
     const currentFrame =
         dependencyAccessStack[dependencyAccessStack.length - 1];
     if (currentFrame === undefined) {
+        return value;
+    }
+    if (isRetreeInternalProperty(propertyKey)) {
         return value;
     }
     if (typeof value === "function") {
@@ -265,12 +272,12 @@ export function trackDependencyPropertyWrite(
     if (pauseDependencyTrackingDepth > 0) {
         return;
     }
-    if (isRetreeInternalProperty(propertyKey)) {
-        return;
-    }
     const currentFrame =
         dependencyAccessStack[dependencyAccessStack.length - 1];
     if (currentFrame === undefined) {
+        return;
+    }
+    if (isRetreeInternalProperty(propertyKey)) {
         return;
     }
     if (!isCustomProxy(owner)) {

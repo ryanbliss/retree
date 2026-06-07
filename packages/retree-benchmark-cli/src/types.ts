@@ -12,6 +12,8 @@ export type SelectionMode =
     | "reactive-dependency-select"
     | "root-tree-traversal";
 
+export type AutotrappingMode = "select" | "memo" | "fnMemo";
+
 export type BenchmarkPhase = "measured" | "setup" | "warmup";
 
 export type MutationType =
@@ -24,6 +26,9 @@ export type MutationType =
 
 export type ScenarioId =
     | "ancestor-tree-changed-fan-out"
+    | "auto-trapped-fn-memo"
+    | "auto-trapped-memo"
+    | "auto-trapped-select"
     | "direct-node-changed"
     | "distinct-node-listeners"
     | "listener-fan-out-node-changed"
@@ -107,6 +112,9 @@ export interface BenchmarkMeasurement {
 }
 
 export type BenchmarkSetupOperation =
+    | "auto-trap-priming"
+    | "auto-trap-root-proxy"
+    | "auto-trap-structure-construction"
     | "broad-array-assignment"
     | "broad-array-construction"
     | "broad-map-assignment"
@@ -151,6 +159,7 @@ export interface BenchmarkWarning {
 }
 
 export interface BenchmarkCaseResult {
+    autotrappingMode?: AutotrappingMode;
     callbackReadMode: CallbackReadMode;
     commits: number;
     dependencyDepth?: number;
@@ -177,6 +186,7 @@ export interface BenchmarkCaseResult {
 }
 
 export interface SkippedBenchmarkCase {
+    autotrappingMode?: AutotrappingMode;
     callbackReadMode: CallbackReadMode;
     commits: number;
     dependencyDepth?: number;
@@ -252,6 +262,7 @@ export type BenchmarkProgressTaskStatus =
 
 export interface BenchmarkProgressTask {
     activeWorkers?: number;
+    autotrappingMode?: AutotrappingMode;
     callbackReadMode?: CallbackReadMode;
     caseIndex: number;
     commitIndex?: number;
@@ -278,6 +289,7 @@ export interface BenchmarkProgressTask {
 }
 
 export interface BenchmarkProgressEvent {
+    autotrappingMode?: AutotrappingMode;
     callbackReadMode: CallbackReadMode;
     caseIndex: number;
     commitIndex: number;

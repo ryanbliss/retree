@@ -393,6 +393,10 @@ interface IMemoGetterFrame {
 }
 
 const memoGetterStackMap = new WeakMap<ReactiveNode, IMemoGetterFrame[]>();
+const reactiveNodePrototypeGetterNamesCache = new WeakMap<
+    object,
+    Set<string | symbol>
+>();
 
 function resolveStackOwner(target: object): ReactiveNode {
     // The stack must always be keyed by the unproxied instance so that pushes from
@@ -477,6 +481,9 @@ export function getReactiveNodeGetter(
     target: object,
     prop: string | symbol
 ): (() => unknown) | undefined {
+    if (!reactiveNodePrototypeHasGetter(target, prop)) {
+        return undefined;
+    }
     let current: object | null = target;
     while (current && current !== Object.prototype) {
         const descriptor = Object.getOwnPropertyDescriptor(current, prop);
@@ -488,4 +495,38 @@ export function getReactiveNodeGetter(
         current = Object.getPrototypeOf(current);
     }
     return undefined;
+}
+
+function reactiveNodePrototypeHasGetter(
+    target: object,
+    prop: string | symbol
+): boolean {
+    const prototype = Object.getPrototypeOf(target);
+    if (prototype === null) {
+        return false;
+    }
+    const getterNames = getReactiveNodePrototypeGetterNames(prototype);
+    return getterNames.has(prop);
+}
+
+function getReactiveNodePrototypeGetterNames(
+    prototype: object
+): Set<string | symbol> {
+    const cached = reactiveNodePrototypeGetterNamesCache.get(prototype);
+    if (cached !== undefined) {
+        return cached;
+    }
+    const getterNames = new Set<string | symbol>();
+    let current: object | null = prototype;
+    while (current && current !== Object.prototype) {
+        for (const key of Reflect.ownKeys(current)) {
+            const descriptor = Object.getOwnPropertyDescriptor(current, key);
+            if (descriptor?.get !== undefined) {
+                getterNames.add(key);
+            }
+        }
+        current = Object.getPrototypeOf(current);
+    }
+    reactiveNodePrototypeGetterNamesCache.set(prototype, getterNames);
+    return getterNames;
 }

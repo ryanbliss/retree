@@ -312,6 +312,7 @@ function createShardProgressTask(
     }
 
     return {
+        autotrappingMode: event.autotrappingMode,
         callbackReadMode: event.callbackReadMode,
         caseIndex: event.caseIndex,
         commitIndex: event.commitIndex,

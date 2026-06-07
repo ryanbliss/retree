@@ -567,6 +567,7 @@ function formatCaseKey(benchmarkCase: BenchmarkCaseResult) {
         benchmarkCase.frequencyTitle,
         benchmarkCase.commits,
         benchmarkCase.callbackReadMode,
+        benchmarkCase.autotrappingMode ?? "",
         benchmarkCase.dependencyDepth ?? "",
         benchmarkCase.dependencyFanout ?? "",
         benchmarkCase.effectWrites ?? "",
@@ -585,6 +586,9 @@ function formatCaseLabel(benchmarkCase: BenchmarkCaseResult) {
     ];
     if (benchmarkCase.dependencyDepth !== undefined) {
         details.push(`dep depth ${benchmarkCase.dependencyDepth}`);
+    }
+    if (benchmarkCase.autotrappingMode !== undefined) {
+        details.push(`trap ${benchmarkCase.autotrappingMode}`);
     }
     if (benchmarkCase.dependencyFanout !== undefined) {
         details.push(`dep fanout ${benchmarkCase.dependencyFanout}`);

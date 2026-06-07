@@ -1,6 +1,14 @@
 import os from "node:os";
 import { performance } from "node:perf_hooks";
-import { Retree } from "@retreejs/core";
+import {
+    ReactiveNode,
+    RetreeLink,
+    Retree,
+    fnMemo,
+    memo,
+    select,
+    type IReactiveDependency,
+} from "@retreejs/core";
 import {
     BenchmarkNode,
     configureBenchmarkChangedEffect,
@@ -25,6 +33,7 @@ import {
     BenchmarkSetupSummary,
     BenchmarkWarning,
     BenchmarkWorkEstimate,
+    AutotrappingMode,
     CallbackReadMode,
     MutationType,
     ScenarioId,
@@ -41,6 +50,7 @@ export interface BenchmarkScenarioDefinition {
 }
 
 interface BenchmarkVariant {
+    autotrappingMode?: AutotrappingMode;
     dependencyDepth?: number;
     dependencyFanout?: number;
     effectWrites?: number;
@@ -79,6 +89,18 @@ export class BenchmarkStoppedError extends Error {
 }
 
 const SCENARIOS: BenchmarkScenarioDefinition[] = [
+    {
+        id: "auto-trapped-select",
+        title: "Auto-trapped @select",
+    },
+    {
+        id: "auto-trapped-memo",
+        title: "Auto-trapped @memo",
+    },
+    {
+        id: "auto-trapped-fn-memo",
+        title: "Auto-trapped @fnMemo",
+    },
     {
         id: "direct-node-changed",
         title: "Direct nodeChanged",
@@ -132,6 +154,152 @@ const SCENARIOS: BenchmarkScenarioDefinition[] = [
 const MAX_MUTATION_COLLECTION_SIZE = 32;
 
 let callbackReadSink = 0;
+
+class AutoTrappingConsumer extends ReactiveNode {
+    public sourceLink: RetreeLink<BenchmarkNode> | null = null;
+
+    public multiplier = 2;
+
+    get dependencies(): IReactiveDependency[] {
+        const source = this.source;
+        if (source === null) {
+            return [];
+        }
+        return [this.dependency(source)];
+    }
+
+    public get selectedTotal(): number {
+        return this.readSourceTotal();
+    }
+
+    public get memoTotal(): number {
+        return this.readSourceTotal();
+    }
+
+    public formatTotal(prefix: number): number {
+        return prefix + this.multiplier * this.readSourceTotal();
+    }
+
+    private get source(): BenchmarkNode | null {
+        return this.sourceLink?.current ?? null;
+    }
+
+    private readSourceTotal(): number {
+        const source = this.source;
+        if (source === null) {
+            return 0;
+        }
+        return (
+            source.value +
+            source.metadata.stats.version +
+            source.metadata.stats.score
+        );
+    }
+}
+
+decorateAutoTrappingConsumer();
+
+function decorateAutoTrappingConsumer() {
+    decorateAutoTrappingGetter("selectedTotal", select);
+    decorateAutoTrappingGetter("memoTotal", memo);
+    decorateAutoTrappingMethod("formatTotal", fnMemo);
+}
+
+function decorateAutoTrappingGetter(
+    name: "memoTotal" | "selectedTotal",
+    decorator: (
+        target: (this: AutoTrappingConsumer) => number,
+        context: ClassGetterDecoratorContext<AutoTrappingConsumer, number>
+    ) => (this: AutoTrappingConsumer) => number
+) {
+    const descriptor = Object.getOwnPropertyDescriptor(
+        AutoTrappingConsumer.prototype,
+        name
+    );
+    if (descriptor === undefined) {
+        throw new Error(
+            `Auto-trapping benchmark setup failed: missing getter descriptor for ${name}.`
+        );
+    }
+    if (descriptor.get === undefined) {
+        throw new Error(
+            `Auto-trapping benchmark setup failed: ${name} is not a getter.`
+        );
+    }
+    const context: ClassGetterDecoratorContext<AutoTrappingConsumer, number> = {
+        access: {
+            get(object) {
+                return object[name];
+            },
+            has(object) {
+                return name in object;
+            },
+        },
+        addInitializer() {
+            return;
+        },
+        kind: "getter",
+        metadata: undefined,
+        name,
+        private: false,
+        static: false,
+    };
+    Object.defineProperty(AutoTrappingConsumer.prototype, name, {
+        ...descriptor,
+        get: decorator(descriptor.get, context),
+    });
+}
+
+function decorateAutoTrappingMethod(
+    name: "formatTotal",
+    decorator: (
+        target: (this: AutoTrappingConsumer, prefix: number) => number,
+        context: ClassMethodDecoratorContext<
+            AutoTrappingConsumer,
+            (prefix: number) => number
+        >
+    ) => (this: AutoTrappingConsumer, prefix: number) => number
+) {
+    const descriptor = Object.getOwnPropertyDescriptor(
+        AutoTrappingConsumer.prototype,
+        name
+    );
+    if (descriptor === undefined) {
+        throw new Error(
+            `Auto-trapping benchmark setup failed: missing method descriptor for ${name}.`
+        );
+    }
+    if (typeof descriptor.value !== "function") {
+        throw new Error(
+            `Auto-trapping benchmark setup failed: ${name} is not a method.`
+        );
+    }
+    const context: ClassMethodDecoratorContext<
+        AutoTrappingConsumer,
+        (prefix: number) => number
+    > = {
+        access: {
+            get(object) {
+                return object[name];
+            },
+            has(object) {
+                return name in object;
+            },
+        },
+        addInitializer() {
+            return;
+        },
+        kind: "method",
+        metadata: undefined,
+        name,
+        private: false,
+        static: false,
+    };
+    Object.defineProperty(AutoTrappingConsumer.prototype, name, {
+        ...descriptor,
+        value: decorator(descriptor.value, context),
+    });
+}
 
 export function runBenchmarks(config: BenchmarkConfig): BenchmarkResults {
     const scenarioResults: BenchmarkScenarioResult[] = [];
@@ -471,6 +639,36 @@ function createScenarioVariants(options: {
         reason: string;
         variant: BenchmarkVariant;
     }> = [];
+
+    if (options.scenario.id === "auto-trapped-select") {
+        cases.push({
+            autotrappingMode: "select",
+        });
+        return {
+            cases,
+            skipped,
+        };
+    }
+
+    if (options.scenario.id === "auto-trapped-memo") {
+        cases.push({
+            autotrappingMode: "memo",
+        });
+        return {
+            cases,
+            skipped,
+        };
+    }
+
+    if (options.scenario.id === "auto-trapped-fn-memo") {
+        cases.push({
+            autotrappingMode: "fnMemo",
+        });
+        return {
+            cases,
+            skipped,
+        };
+    }
 
     if (options.scenario.id === "reactive-dependency-node-changed") {
         for (const dependencyDepth of options.config.dependencyDepths) {
@@ -1038,6 +1236,7 @@ function createBenchmarkCaseResult(
     );
 
     return {
+        autotrappingMode: options.autotrappingMode,
         callbackReadMode: options.callbackReadMode,
         commits: options.frequencyTier.value,
         dependencyDepth: options.dependencyDepth,
@@ -1080,6 +1279,7 @@ async function waitForBenchmarkTurn(options: {
     }
 
     const event: BenchmarkProgressEvent = {
+        autotrappingMode: options.options.autotrappingMode,
         callbackReadMode: options.options.callbackReadMode,
         caseIndex: options.progressState.caseIndex,
         commitIndex: options.commitIndex + 1,
@@ -1125,6 +1325,53 @@ function subscribeBenchmarkCase(
             "listener-setup-total",
             () => {
                 if (options.scenario.id === "subscription-churn") {
+                    return;
+                }
+
+                if (isAutoTrappingScenario(options.scenario.id)) {
+                    const consumer = measureSetupOperation(
+                        options.setupMeasurements,
+                        "auto-trap-root-proxy",
+                        () => Retree.root(new AutoTrappingConsumer())
+                    );
+                    measureSetupOperation(
+                        options.setupMeasurements,
+                        "auto-trap-structure-construction",
+                        () => {
+                            consumer.sourceLink = Retree.link(
+                                options.tree.target
+                            );
+                            consumer.multiplier =
+                                options.widthTier.value +
+                                options.depthTier.value;
+                        }
+                    );
+                    measureSetupOperation(
+                        options.setupMeasurements,
+                        "auto-trap-priming",
+                        () => {
+                            consumeAutoTrappedValue(consumer, options);
+                        }
+                    );
+                    measureSetupOperation(
+                        options.setupMeasurements,
+                        "listener-registration",
+                        () => {
+                            unsubscribe.push(
+                                Retree.on(
+                                    consumer,
+                                    "nodeChanged",
+                                    (reproxiedConsumer) => {
+                                        consumeAutoTrappedValue(
+                                            reproxiedConsumer,
+                                            options
+                                        );
+                                        listener(options.tree.target);
+                                    }
+                                )
+                            );
+                        }
+                    );
                     return;
                 }
 
@@ -1636,7 +1883,10 @@ function resolveMutationType(
     if (options.scenario.id === "subscription-churn") {
         return "subscription-cycle";
     }
-    if (options.scenario.id === "select-vs-tree-traversal") {
+    if (
+        options.scenario.id === "select-vs-tree-traversal" ||
+        isAutoTrappingScenario(options.scenario.id)
+    ) {
         return "scalar-set";
     }
 
@@ -1737,7 +1987,10 @@ export function getBenchmarkScenarioCallbackReadModes(
     config: BenchmarkConfig,
     scenarioId: ScenarioId
 ): CallbackReadMode[] {
-    if (scenarioId === "subscription-churn") {
+    if (
+        scenarioId === "subscription-churn" ||
+        isAutoTrappingScenario(scenarioId)
+    ) {
         return ["none"];
     }
     if (scenarioId === "select-vs-tree-traversal") {
@@ -1751,6 +2004,39 @@ function getCallbackReadModes(
     scenarioId: ScenarioId
 ): CallbackReadMode[] {
     return getBenchmarkScenarioCallbackReadModes(config, scenarioId);
+}
+
+function isAutoTrappingScenario(scenarioId: ScenarioId): boolean {
+    return (
+        scenarioId === "auto-trapped-select" ||
+        scenarioId === "auto-trapped-memo" ||
+        scenarioId === "auto-trapped-fn-memo"
+    );
+}
+
+function consumeAutoTrappedValue(
+    consumer: AutoTrappingConsumer,
+    options: BenchmarkRunContext
+) {
+    if (options.autotrappingMode === "select") {
+        callbackReadSink = callbackReadSink + consumer.selectedTotal;
+        return;
+    }
+    if (options.autotrappingMode === "memo") {
+        callbackReadSink = callbackReadSink + consumer.memoTotal;
+        return;
+    }
+    if (options.autotrappingMode === "fnMemo") {
+        callbackReadSink =
+            callbackReadSink +
+            consumer.formatTotal(
+                options.depthTier.value + options.widthTier.value
+            );
+        return;
+    }
+    throw new Error(
+        `${options.scenario.title}: auto-trapping benchmark missing autotrappingMode.`
+    );
 }
 
 function consumeCallbackRead(
@@ -1927,6 +2213,7 @@ function createSkippedCase(
     }
 ): SkippedBenchmarkCase {
     return {
+        autotrappingMode: options.autotrappingMode,
         callbackReadMode: options.callbackReadMode,
         commits: options.frequencyTier.value,
         dependencyDepth: options.dependencyDepth,

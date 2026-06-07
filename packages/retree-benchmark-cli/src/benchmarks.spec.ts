@@ -28,7 +28,17 @@ describe("benchmark scenarios", () => {
             widthTiers: [profile.widthTiers.low],
         });
 
-        expect(results.scenarios).toHaveLength(12);
+        expect(results.scenarios).toHaveLength(15);
+
+        const autoSelect = results.scenarios.find(
+            (scenario) => scenario.scenarioId === "auto-trapped-select"
+        );
+        const autoMemo = results.scenarios.find(
+            (scenario) => scenario.scenarioId === "auto-trapped-memo"
+        );
+        const autoFnMemo = results.scenarios.find(
+            (scenario) => scenario.scenarioId === "auto-trapped-fn-memo"
+        );
 
         const direct = results.scenarios.find(
             (scenario) => scenario.scenarioId === "direct-node-changed"
@@ -67,6 +77,12 @@ describe("benchmark scenarios", () => {
             (scenario) => scenario.scenarioId === "select-vs-tree-traversal"
         );
 
+        expect(autoSelect?.cases[0]?.autotrappingMode).toBe("select");
+        expect(autoMemo?.cases[0]?.autotrappingMode).toBe("memo");
+        expect(autoFnMemo?.cases[0]?.autotrappingMode).toBe("fnMemo");
+        expect(autoSelect?.cases[0]?.measurements[0]?.mutationType).toBe(
+            "scalar-set"
+        );
         expect(direct?.cases).toHaveLength(1);
         expect(tree?.cases).toHaveLength(1);
         expect(dependency?.cases).toHaveLength(1);

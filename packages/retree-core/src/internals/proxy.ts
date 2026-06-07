@@ -30,6 +30,7 @@ import {
     updateReproxyNode,
 } from "./reproxy";
 import {
+    isDependencyTrackingActive,
     trackDependencyAccess,
     trackDependencyPropertyAccess,
     trackDependencyPropertyWrite,
@@ -44,6 +45,35 @@ export const FUNCTION_NAMES_BIND_TO_RAW: (string | symbol)[] = [
 
 const MAP_MUTATING_METHODS = new Set(["set", "delete", "clear"]);
 const SET_MUTATING_METHODS = new Set(["add", "delete", "clear"]);
+
+function trackAccessIfNeeded<T>(value: T): T {
+    if (!isDependencyTrackingActive()) {
+        return value;
+    }
+    return trackDependencyAccess(value);
+}
+
+function trackPropertyAccessIfNeeded<T>(
+    owner: unknown,
+    propertyKey: string | symbol,
+    value: T
+): T {
+    if (!isDependencyTrackingActive()) {
+        return value;
+    }
+    return trackDependencyPropertyAccess(owner, propertyKey, value);
+}
+
+function trackPropertyWriteIfNeeded(
+    owner: unknown,
+    propertyKey: string | symbol
+): void {
+    if (!isDependencyTrackingActive()) {
+        return;
+    }
+    trackDependencyPropertyWrite(owner, propertyKey);
+}
+
 type DateMutatingMethodName =
     | "setDate"
     | "setFullYear"
@@ -197,14 +227,14 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     return Reflect.get(target, prop, target);
                 }
                 if (target[COLLECTED_KEYS_SYMBOL].has(propString)) {
-                    return trackDependencyPropertyAccess(
+                    return trackPropertyAccessIfNeeded(
                         getBaseProxy(receiver),
                         prop,
                         getLatestIgnoredValue(Reflect.get(target, prop, target))
                     );
                 }
                 if (target[LINKED_KEYS_SYMBOL].has(prop)) {
-                    return trackDependencyPropertyAccess(
+                    return trackPropertyAccessIfNeeded(
                         getBaseProxy(receiver),
                         prop,
                         getLatestLinkedValue(Reflect.get(target, prop, target))
@@ -218,11 +248,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 const value = proxyHandler[proxiedChildrenKey][prop];
                 if (typeof value !== "function") {
                     const baseProxy = getBaseProxy(receiver);
-                    return trackDependencyPropertyAccess(
-                        baseProxy,
-                        prop,
-                        value
-                    );
+                    return trackPropertyAccessIfNeeded(baseProxy, prop, value);
                 }
             }
             const baseProxy = getBaseProxy(receiver);
@@ -280,7 +306,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                             emitter
                         );
                     }
-                    return trackDependencyAccess(
+                    return trackAccessIfNeeded(
                         getCachedBoundFunction(
                             boundFunctionCache,
                             prop,
@@ -289,7 +315,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         )
                     );
                 }
-                return trackDependencyPropertyAccess(baseProxy, prop, value);
+                return trackPropertyAccessIfNeeded(baseProxy, prop, value);
             }
             let value: any;
             if (
@@ -310,7 +336,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             }
             if (typeof value === "function") {
                 if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
-                    return trackDependencyAccess(
+                    return trackAccessIfNeeded(
                         getCachedBoundFunction(
                             boundFunctionCache,
                             prop,
@@ -319,7 +345,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         )
                     );
                 }
-                return trackDependencyAccess(
+                return trackAccessIfNeeded(
                     getCachedBoundFunction(
                         boundFunctionCache,
                         prop,
@@ -334,14 +360,10 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     prop
                 );
                 if (!descriptor || !descriptorHasValue(descriptor)) {
-                    return trackDependencyPropertyAccess(
-                        baseProxy,
-                        prop,
-                        value
-                    );
+                    return trackPropertyAccessIfNeeded(baseProxy, prop, value);
                 }
                 if (!shouldKeepRawPropertyValue(descriptor, value)) {
-                    return trackDependencyPropertyAccess(
+                    return trackPropertyAccessIfNeeded(
                         baseProxy,
                         prop,
                         getOrCreateProxiedChild(
@@ -354,10 +376,10 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     );
                 }
             }
-            return trackDependencyPropertyAccess(baseProxy, prop, value);
+            return trackPropertyAccessIfNeeded(baseProxy, prop, value);
         },
         set(target, prop, newValue, receiver) {
-            trackDependencyPropertyWrite(getBaseProxy<T>(receiver), prop);
+            trackPropertyWriteIfNeeded(getBaseProxy<T>(receiver), prop);
             if (target instanceof ReactiveNode) {
                 const propString = String(prop);
                 if (target[LINKED_KEYS_SYMBOL].has(prop)) {
@@ -485,7 +507,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 ? getBaseProxy(currentProxyForWrite)
                 : undefined;
             if (baseProxyForWrite !== undefined) {
-                trackDependencyPropertyWrite(baseProxyForWrite, prop);
+                trackPropertyWriteIfNeeded(baseProxyForWrite, prop);
             }
             if (target instanceof ReactiveNode) {
                 const propString = String(prop);

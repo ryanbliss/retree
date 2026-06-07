@@ -264,6 +264,18 @@ function renderMarkdownLegend() {
             ["Scenario", "What it measures"],
             [
                 [
+                    "Auto-trapped @select",
+                    "A ReactiveNode with a linked source uses an automatically trapped @select getter; the source mutates and the consumer listener reads the selected value.",
+                ],
+                [
+                    "Auto-trapped @memo",
+                    "A ReactiveNode with a linked source uses an automatically trapped @memo getter; the source mutates and the consumer listener reads the memoized value.",
+                ],
+                [
+                    "Auto-trapped @fnMemo",
+                    "A ReactiveNode with a linked source uses an automatically trapped @fnMemo method; the source mutates and the consumer listener calls the memoized method.",
+                ],
+                [
                     "Direct nodeChanged",
                     "A nodeChanged listener is attached directly to the mutated target node.",
                 ],
@@ -306,6 +318,10 @@ function renderMarkdownLegend() {
                 [
                     "runTransaction",
                     "A Retree.runTransaction call wraps the configured number of mutations and measures the resulting emission.",
+                ],
+                [
+                    "Reactive select vs tree traversal",
+                    "Compares Retree.select-style derived listening with manually traversing a broad treeChanged source after each observed change.",
                 ],
             ],
             {
@@ -872,6 +888,10 @@ function createScenarioMatrixTable(scenario: BenchmarkScenarioResult) {
                 "Selection modes",
                 formatStringDimensionList(dimensions.selectionModes),
             ],
+            [
+                "Auto-trapping modes",
+                formatStringDimensionList(dimensions.autotrappingModes),
+            ],
             ["Mutation types", dimensions.mutationTypes.join(", ")],
             ["Setup operations", dimensions.setupOperations.join(", ")],
             ["Mutation warnings", String(summary.warnings)],
@@ -1144,6 +1164,11 @@ function summarizeScenario(scenario: BenchmarkScenarioResult) {
 
 function summarizeScenarioDimensions(scenario: BenchmarkScenarioResult) {
     return {
+        autotrappingModes: uniqueSortedStrings(
+            scenario.cases.map(
+                (benchmarkCase) => benchmarkCase.autotrappingMode
+            )
+        ),
         callbackReadModes: uniqueSortedStrings(
             scenario.cases.map(
                 (benchmarkCase) => benchmarkCase.callbackReadMode
@@ -1334,6 +1359,7 @@ function createJsonResults(results: BenchmarkResults) {
 
 function formatCaseDimensionsForJson(benchmarkCase: BenchmarkCaseResult) {
     return {
+        autotrappingMode: benchmarkCase.autotrappingMode,
         callbackReadMode: benchmarkCase.callbackReadMode,
         commits: benchmarkCase.commits,
         dependencyDepth: benchmarkCase.dependencyDepth,
@@ -1355,6 +1381,9 @@ function formatScenarioDetail(result: BenchmarkCaseResult) {
     const details: string[] = [];
     if (result.dependencyDepth !== undefined) {
         details.push(`dependency depth ${result.dependencyDepth}`);
+    }
+    if (result.autotrappingMode !== undefined) {
+        details.push(`trap ${result.autotrappingMode}`);
     }
     if (result.dependencyFanout !== undefined) {
         details.push(`dependency fan-out ${result.dependencyFanout}`);

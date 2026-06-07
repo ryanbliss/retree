@@ -18,6 +18,7 @@ import {
     isInternalSlotInstance,
 } from "./proxy";
 import {
+    isDependencyTrackingActive,
     trackDependencyAccess,
     trackDependencyPropertyAccess,
 } from "./dependency-tracking";
@@ -33,6 +34,24 @@ import {
 
 const reproxyMap: WeakMap<TreeNode, TCustomProxy<TreeNode>> = new WeakMap();
 const baseProxyMap: WeakMap<TreeNode, TCustomProxy<TreeNode>> = new WeakMap();
+
+function trackAccessIfNeeded<T>(value: T): T {
+    if (!isDependencyTrackingActive()) {
+        return value;
+    }
+    return trackDependencyAccess(value);
+}
+
+function trackPropertyAccessIfNeeded<T>(
+    owner: unknown,
+    propertyKey: string | symbol,
+    value: T
+): T {
+    if (!isDependencyTrackingActive()) {
+        return value;
+    }
+    return trackDependencyPropertyAccess(owner, propertyKey, value);
+}
 
 export function registerBaseProxy<T extends TreeNode = TreeNode>(
     unproxiedNode: T,
@@ -137,7 +156,7 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                 if (typeof childProxy !== "function") {
                     const reproxy = getReproxyNode(childProxy);
                     const baseProxy: TCustomProxy<T> = getBaseProxy(receiver);
-                    return trackDependencyPropertyAccess(
+                    return trackPropertyAccessIfNeeded(
                         baseProxy,
                         prop,
                         reproxy ?? childProxy
@@ -149,7 +168,7 @@ function buildReproxy<T extends TreeNode = TreeNode>(
             // Some built-in methods need internal slots on `this`. Delegate property access to the
             // base proxy so the bind/wrap logic in buildProxy is reused (and mutations emit).
             if (isInternalSlotInstance(rawNode)) {
-                return trackDependencyPropertyAccess(
+                return trackPropertyAccessIfNeeded(
                     baseProxy,
                     prop,
                     Reflect.get(baseProxy, prop, baseProxy)
@@ -176,7 +195,7 @@ function buildReproxy<T extends TreeNode = TreeNode>(
 
             if (typeof value === "function") {
                 if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
-                    return trackDependencyAccess(
+                    return trackAccessIfNeeded(
                         getCachedBoundFunction(
                             boundFunctionCache,
                             prop,
@@ -185,7 +204,7 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                         )
                     );
                 }
-                return trackDependencyAccess(
+                return trackAccessIfNeeded(
                     getCachedBoundFunction(
                         boundFunctionCache,
                         prop,
@@ -197,14 +216,14 @@ function buildReproxy<T extends TreeNode = TreeNode>(
             if (value !== null && typeof value === "object") {
                 const baseValue = Reflect.get(baseProxy, prop, baseProxy);
                 if (isCustomProxy(baseValue)) {
-                    return trackDependencyPropertyAccess(
+                    return trackPropertyAccessIfNeeded(
                         baseProxy,
                         prop,
                         getReproxyNode(baseValue) ?? baseValue
                     );
                 }
             }
-            return trackDependencyPropertyAccess(baseProxy, prop, value);
+            return trackPropertyAccessIfNeeded(baseProxy, prop, value);
         },
         set(target, prop, newValue, receiver) {
             if (target instanceof ReactiveNode) {
@@ -224,19 +243,19 @@ function buildReproxy<T extends TreeNode = TreeNode>(
 
 function getLatestIgnoredValue(value: unknown) {
     if (isCustomProxy(value)) {
-        return trackDependencyAccess(getReproxyNode(value));
+        return trackAccessIfNeeded(getReproxyNode(value));
     }
-    return trackDependencyAccess(value);
+    return trackAccessIfNeeded(value);
 }
 
 function getLatestLinkedValue(value: unknown) {
     if (isCustomProxy(value)) {
-        return trackDependencyAccess(getReproxyNode(value));
+        return trackAccessIfNeeded(getReproxyNode(value));
     }
     if (value !== null && typeof value === "object") {
-        return trackDependencyAccess(
+        return trackAccessIfNeeded(
             getManagedProxyForUnproxiedNode(value as TreeNode) ?? value
         );
     }
-    return trackDependencyAccess(value);
+    return trackAccessIfNeeded(value);
 }
