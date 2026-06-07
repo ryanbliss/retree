@@ -316,8 +316,8 @@ function renderMarkdownLegend() {
                     "A Retree listener is created and immediately removed, measuring subscription lifecycle cost.",
                 ],
                 [
-                    "runTransaction",
-                    "A Retree.runTransaction call wraps the configured number of mutations and measures the resulting emission.",
+                    "runTransaction overhead",
+                    "Compares the same mutation batch without and with Retree.runTransaction; Average/mean ms reports additional transaction overhead only, while separate comparison rows show saved time and listener calls.",
                 ],
                 [
                     "Reactive select vs tree traversal",
@@ -374,11 +374,11 @@ function renderMarkdownLegend() {
                 ],
                 [
                     "Tx mutations",
-                    "Number of mutations wrapped inside a single runTransaction call.",
+                    "Number of mutations compared as an unwrapped batch and as a single runTransaction batch.",
                 ],
                 [
                     "Average/mean ms",
-                    "Arithmetic mean duration in milliseconds.",
+                    "Arithmetic mean duration in milliseconds. For runTransaction overhead, this is max(transaction duration - unwrapped duration, 0).",
                 ],
                 ["Median ms", "Median duration in milliseconds."],
                 ["P95 ms", "95th percentile duration in milliseconds."],
@@ -656,6 +656,12 @@ function renderMarkdownScenarioSection(
         lines.push("");
         lines.push(renderMarkdownScenarioMatrixTable(scenario));
         lines.push("");
+        if (scenario.scenarioId === "run-transaction") {
+            lines.push("### Transaction comparison");
+            lines.push("");
+            lines.push(renderMarkdownTransactionComparisonTable(scenario));
+            lines.push("");
+        }
         lines.push("### Slowest cases");
         lines.push("");
         lines.push(renderMarkdownSlowestCaseTable(scenario.cases));
@@ -768,6 +774,15 @@ function renderMarkdownSlowestCaseTable(cases: BenchmarkCaseResult[]) {
 
 function renderMarkdownMutationTable(scenario: BenchmarkScenarioResult) {
     const table = createMutationTable(scenario);
+    return renderAlignedTable(table.headers, table.rows, {
+        format: "markdown",
+    });
+}
+
+function renderMarkdownTransactionComparisonTable(
+    scenario: BenchmarkScenarioResult
+) {
+    const table = createTransactionComparisonTable(scenario);
     return renderAlignedTable(table.headers, table.rows, {
         format: "markdown",
     });
@@ -1028,6 +1043,66 @@ function createMutationTable(scenario: BenchmarkScenarioResult) {
             ),
             String(summary.warnings),
         ]),
+    };
+}
+
+function createTransactionComparisonTable(scenario: BenchmarkScenarioResult) {
+    return {
+        headers: [
+            "Depth",
+            "Width",
+            "Frequency",
+            "Read",
+            "Tx mutations",
+            "Samples",
+            "Unwrapped avg ms",
+            "Transaction avg ms",
+            "Overhead avg ms",
+            "Saved avg ms",
+            "Signed delta avg ms",
+            "Saved listener calls",
+        ],
+        rows: scenario.cases.map((result) => {
+            const comparisons = result.measurements
+                .map((measurement) => measurement.transactionComparison)
+                .filter((comparison) => comparison !== undefined);
+            const unwrappedSummary = summarizeDurationsForReport(
+                comparisons.map((comparison) => comparison.unwrappedDurationMs)
+            );
+            const transactionSummary = summarizeDurationsForReport(
+                comparisons.map(
+                    (comparison) => comparison.transactionDurationMs
+                )
+            );
+            const overheadSummary = summarizeDurationsForReport(
+                comparisons.map((comparison) => comparison.overheadMs)
+            );
+            const savedSummary = summarizeDurationsForReport(
+                comparisons.map((comparison) => comparison.savedDurationMs)
+            );
+            const signedSummary = summarizeDurationsForReport(
+                comparisons.map((comparison) => comparison.signedDeltaMs)
+            );
+            const savedListenerCalls = summarizeDurationsForReport(
+                comparisons.map((comparison) => comparison.savedListenerCalls)
+            );
+            return [
+                `${result.depthTitle}=${result.depth}`,
+                `${result.widthTitle}=${result.width}`,
+                `${result.frequencyTitle} (${result.commits})`,
+                result.callbackReadMode,
+                result.transactionMutations === undefined
+                    ? ""
+                    : String(result.transactionMutations),
+                String(comparisons.length),
+                formatMs(unwrappedSummary.averageMeanMs),
+                formatMs(transactionSummary.averageMeanMs),
+                formatMs(overheadSummary.averageMeanMs),
+                formatMs(savedSummary.averageMeanMs),
+                formatSignedMs(signedSummary.averageMeanMs),
+                formatMs(savedListenerCalls.averageMeanMs),
+            ];
+        }),
     };
 }
 
@@ -1352,9 +1427,47 @@ function createJsonResults(results: BenchmarkResults) {
                     })),
                 summary: summarizeScenario(scenario),
                 title: scenario.title,
+                transactionComparisonSummaries:
+                    summarizeScenarioTransactionComparisons(scenario),
             })),
         },
     };
+}
+
+function summarizeScenarioTransactionComparisons(
+    scenario: BenchmarkScenarioResult
+) {
+    if (scenario.scenarioId !== "run-transaction") {
+        return [];
+    }
+    return scenario.cases.map((benchmarkCase) => {
+        const comparisons = benchmarkCase.measurements
+            .map((measurement) => measurement.transactionComparison)
+            .filter((comparison) => comparison !== undefined);
+        return {
+            ...formatCaseDimensionsForJson(benchmarkCase),
+            overheadSummary: summarizeDurationsForReport(
+                comparisons.map((comparison) => comparison.overheadMs)
+            ),
+            savedDurationSummary: summarizeDurationsForReport(
+                comparisons.map((comparison) => comparison.savedDurationMs)
+            ),
+            savedListenerCallsSummary: summarizeDurationsForReport(
+                comparisons.map((comparison) => comparison.savedListenerCalls)
+            ),
+            signedDeltaSummary: summarizeDurationsForReport(
+                comparisons.map((comparison) => comparison.signedDeltaMs)
+            ),
+            transactionDurationSummary: summarizeDurationsForReport(
+                comparisons.map(
+                    (comparison) => comparison.transactionDurationMs
+                )
+            ),
+            unwrappedDurationSummary: summarizeDurationsForReport(
+                comparisons.map((comparison) => comparison.unwrappedDurationMs)
+            ),
+        };
+    });
 }
 
 function formatCaseDimensionsForJson(benchmarkCase: BenchmarkCaseResult) {
@@ -1617,6 +1730,11 @@ function isNumericTableValue(value: string) {
 
 function formatMs(value: number) {
     return value.toFixed(6);
+}
+
+function formatSignedMs(value: number) {
+    const prefix = value >= 0 ? "+" : "";
+    return `${prefix}${formatMs(value)}`;
 }
 
 function formatWarnings(result: BenchmarkCaseResult) {

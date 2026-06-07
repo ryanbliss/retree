@@ -39,7 +39,10 @@ describe("benchmark stats and reports", () => {
         expect(markdown).toContain("broad-set-assignment");
         expect(markdown).toContain("## Direct nodeChanged");
         expect(markdown).toContain("## Root treeChanged");
+        expect(markdown).toContain("## runTransaction overhead");
         expect(markdown).toContain("### Matrix summary");
+        expect(markdown).toContain("### Transaction comparison");
+        expect(markdown).toContain("Unwrapped avg ms");
         expect(markdown).toContain("### Slowest cases");
         expect(markdown).toContain("### Setup operations");
         expect(markdown).toContain("### Slowest setup cases");
@@ -120,6 +123,14 @@ describe("benchmark stats and reports", () => {
         expect(json.analysis.scenarios[0].slowestSetupCases[0]).toMatchObject({
             scenarioDetail: "base",
             slowestSetupOperation: "case-setup-total (7.000000 ms P95)",
+        });
+        expect(
+            json.analysis.scenarios[2].transactionComparisonSummaries[0]
+        ).toMatchObject({
+            savedListenerCallsSummary: {
+                averageMeanMs: 9,
+            },
+            transactionMutations: 10,
         });
     });
 
@@ -296,6 +307,81 @@ function createExampleResults(): BenchmarkResults {
                     },
                 ],
                 title: "Root treeChanged",
+            },
+            {
+                cases: [
+                    {
+                        callbackReadMode: "none",
+                        commits: 2,
+                        depth: 2,
+                        depthTitle: "Low",
+                        durationsMs: [0, 0],
+                        frequencyTitle: "Low",
+                        measurements: [
+                            {
+                                durationMs: 0,
+                                mutationType: "scalar-set",
+                                transactionComparison: {
+                                    overheadMs: 0,
+                                    savedDurationMs: 2,
+                                    savedListenerCalls: 9,
+                                    signedDeltaMs: -2,
+                                    transactionDurationMs: 1,
+                                    transactionListenerCalls: 1,
+                                    unwrappedDurationMs: 3,
+                                    unwrappedListenerCalls: 10,
+                                },
+                            },
+                            {
+                                durationMs: 0,
+                                mutationType: "array-push",
+                                transactionComparison: {
+                                    overheadMs: 0,
+                                    savedDurationMs: 4,
+                                    savedListenerCalls: 9,
+                                    signedDeltaMs: -4,
+                                    transactionDurationMs: 2,
+                                    transactionListenerCalls: 1,
+                                    unwrappedDurationMs: 6,
+                                    unwrappedListenerCalls: 10,
+                                },
+                            },
+                        ],
+                        mutationSummaries: [
+                            {
+                                ...summarizeDurations([0]),
+                                mutationType: "scalar-set",
+                            },
+                            {
+                                ...summarizeDurations([0]),
+                                mutationType: "array-push",
+                            },
+                        ],
+                        scenarioId: "run-transaction",
+                        scenarioTitle: "runTransaction overhead",
+                        setupMeasurements: [
+                            {
+                                durationMs: 1,
+                                operation: "case-setup-total",
+                            },
+                        ],
+                        setupSummaries: [
+                            {
+                                ...summarizeDurations([1]),
+                                operation: "case-setup-total",
+                            },
+                        ],
+                        setupSummary: summarizeDurations([1]),
+                        summary: summarizeDurations([0, 0]),
+                        transactionMutations: 10,
+                        warnings: [],
+                        width: 1,
+                        widthTitle: "Low",
+                    },
+                ],
+                scenarioId: "run-transaction",
+                skipped: [],
+                title: "runTransaction overhead",
             },
         ],
     };

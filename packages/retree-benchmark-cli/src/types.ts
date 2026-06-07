@@ -109,6 +109,18 @@ export interface BenchmarkSummary {
 export interface BenchmarkMeasurement {
     durationMs: number;
     mutationType: MutationType;
+    transactionComparison?: BenchmarkTransactionComparison;
+}
+
+export interface BenchmarkTransactionComparison {
+    overheadMs: number;
+    savedDurationMs: number;
+    savedListenerCalls: number;
+    signedDeltaMs: number;
+    transactionDurationMs: number;
+    transactionListenerCalls: number;
+    unwrappedDurationMs: number;
+    unwrappedListenerCalls: number;
 }
 
 export type BenchmarkSetupOperation =

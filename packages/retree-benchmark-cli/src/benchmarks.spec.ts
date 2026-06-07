@@ -111,6 +111,14 @@ describe("benchmark scenarios", () => {
             "subscription-cycle"
         );
         expect(transaction?.cases[0]?.transactionMutations).toBe(2);
+        expect(transaction?.title).toBe("runTransaction overhead");
+        expect(
+            transaction?.cases[0]?.measurements[0]?.transactionComparison
+        ).toMatchObject({
+            savedListenerCalls: 1,
+            transactionListenerCalls: 1,
+            unwrappedListenerCalls: 2,
+        });
         expect(
             selectVsTraversal?.cases.map((benchmarkCase) => ({
                 callbackReadMode: benchmarkCase.callbackReadMode,

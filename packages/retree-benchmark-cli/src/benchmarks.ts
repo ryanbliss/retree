@@ -31,6 +31,7 @@ import {
     BenchmarkSetupMeasurement,
     BenchmarkSetupOperation,
     BenchmarkSetupSummary,
+    BenchmarkTransactionComparison,
     BenchmarkWarning,
     BenchmarkWorkEstimate,
     AutotrappingMode,
@@ -143,7 +144,7 @@ const SCENARIOS: BenchmarkScenarioDefinition[] = [
     },
     {
         id: "run-transaction",
-        title: "runTransaction",
+        title: "runTransaction overhead",
     },
     {
         id: "select-vs-tree-traversal",
@@ -786,6 +787,7 @@ function runBenchmarkCase(options: BenchmarkRunContext): BenchmarkCaseResult {
     let listenerCalls = 0;
     let timerStartedAt: number | null = null;
     let measuredDurationMs = 0;
+    let transactionComparison: BenchmarkTransactionComparison | undefined;
 
     try {
         prepared.subscriptions.activate((reproxiedNode) => {
@@ -819,6 +821,7 @@ function runBenchmarkCase(options: BenchmarkRunContext): BenchmarkCaseResult {
                 onBeforeCommit: () => {
                     listenerCalls = 0;
                     measuredDurationMs = 0;
+                    transactionComparison = undefined;
                     timerStartedAt = performance.now();
                 },
                 onCommitFinished: () => {
@@ -828,6 +831,9 @@ function runBenchmarkCase(options: BenchmarkRunContext): BenchmarkCaseResult {
                 phase: "warmup",
                 recordManualDuration: (durationMs) => {
                     measuredDurationMs = durationMs;
+                },
+                recordTransactionComparison: (comparison) => {
+                    transactionComparison = comparison;
                 },
             });
         }
@@ -847,6 +853,7 @@ function runBenchmarkCase(options: BenchmarkRunContext): BenchmarkCaseResult {
                 onBeforeCommit: () => {
                     listenerCalls = 0;
                     measuredDurationMs = 0;
+                    transactionComparison = undefined;
                     timerStartedAt = performance.now();
                 },
                 onCommitFinished: () => {
@@ -857,10 +864,14 @@ function runBenchmarkCase(options: BenchmarkRunContext): BenchmarkCaseResult {
                 recordManualDuration: (durationMs) => {
                     measuredDurationMs = durationMs;
                 },
+                recordTransactionComparison: (comparison) => {
+                    transactionComparison = comparison;
+                },
             });
             measurements.push({
                 durationMs: measuredDurationMs,
                 mutationType,
+                transactionComparison,
             });
         }
     } finally {
@@ -886,6 +897,7 @@ async function runBenchmarkCaseWithProgress(
     let listenerCalls = 0;
     let timerStartedAt: number | null = null;
     let measuredDurationMs = 0;
+    let transactionComparison: BenchmarkTransactionComparison | undefined;
 
     progressState.caseIndex++;
     progressState.phaseIndex++;
@@ -948,6 +960,7 @@ async function runBenchmarkCaseWithProgress(
                 onBeforeCommit: () => {
                     listenerCalls = 0;
                     measuredDurationMs = 0;
+                    transactionComparison = undefined;
                     timerStartedAt = performance.now();
                 },
                 onCommitFinished: () => {
@@ -957,6 +970,9 @@ async function runBenchmarkCaseWithProgress(
                 phase: "warmup",
                 recordManualDuration: (durationMs) => {
                     measuredDurationMs = durationMs;
+                },
+                recordTransactionComparison: (comparison) => {
+                    transactionComparison = comparison;
                 },
             });
             progressState.lastOperationDurationMs = measuredDurationMs;
@@ -987,6 +1003,7 @@ async function runBenchmarkCaseWithProgress(
                 onBeforeCommit: () => {
                     listenerCalls = 0;
                     measuredDurationMs = 0;
+                    transactionComparison = undefined;
                     timerStartedAt = performance.now();
                 },
                 onCommitFinished: () => {
@@ -997,10 +1014,14 @@ async function runBenchmarkCaseWithProgress(
                 recordManualDuration: (durationMs) => {
                     measuredDurationMs = durationMs;
                 },
+                recordTransactionComparison: (comparison) => {
+                    transactionComparison = comparison;
+                },
             });
             measurements.push({
                 durationMs: measuredDurationMs,
                 mutationType,
+                transactionComparison,
             });
             progressState.lastOperationDurationMs = measuredDurationMs;
             progressState.operationIndex++;
@@ -1257,10 +1278,13 @@ function createBenchmarkCaseResult(
         setupSummary: summarizeDurations(setupDurationsMs),
         summary,
         transactionMutations: options.transactionMutations,
-        warnings: createMutationWarnings(
-            summary.averageMeanMs,
-            mutationSummaries
-        ),
+        warnings:
+            options.scenario.id === "run-transaction"
+                ? []
+                : createMutationWarnings(
+                      summary.averageMeanMs,
+                      mutationSummaries
+                  ),
         width: options.widthTier.value,
         widthTitle: options.widthTier.title,
     };
@@ -1727,6 +1751,9 @@ function runCommit(options: {
     options: BenchmarkRunContext;
     phase: BenchmarkPhase;
     recordManualDuration: (durationMs: number) => void;
+    recordTransactionComparison: (
+        comparison: BenchmarkTransactionComparison
+    ) => void;
 }) {
     options.onBeforeCommit();
     if (options.options.scenario.id === "subscription-churn") {
@@ -1743,6 +1770,33 @@ function runCommit(options: {
             options.options.transactionMutations,
             "runTransaction benchmark requires transactionMutations."
         );
+        const firstMutationIndex =
+            options.commitIndex * transactionMutations * 2;
+        const unwrappedStartedAt = performance.now();
+        for (
+            let mutationIndex = 0;
+            mutationIndex < transactionMutations;
+            mutationIndex++
+        ) {
+            applyMutation({
+                commitIndex: firstMutationIndex + mutationIndex,
+                mutationType: options.mutationType,
+                target: options.mutationTarget,
+            });
+        }
+        const unwrappedDurationMs = performance.now() - unwrappedStartedAt;
+        options.onCommitFinished();
+        const unwrappedListenerCalls = options.listenerCalls();
+        const expectedUnwrappedCalls =
+            options.expectedCalls * transactionMutations;
+        if (unwrappedListenerCalls !== expectedUnwrappedCalls) {
+            throw new Error(
+                `${options.options.scenario.title}: expected ${expectedUnwrappedCalls} unwrapped listener emissions for ${options.phase} commit ${options.commitIndex} at depth tier ${options.options.depthTier.title} (${options.options.depthTier.value}), width tier ${options.options.widthTier.title} (${options.options.widthTier.value}), frequency tier ${options.options.frequencyTier.title} (${options.options.frequencyTier.value}), transaction mutations ${transactionMutations}, mutation type ${options.mutationType}, and callback read mode ${options.options.callbackReadMode}, but received ${unwrappedListenerCalls}.`
+            );
+        }
+
+        options.onBeforeCommit();
+        const transactionStartedAt = performance.now();
         Retree.runTransaction(() => {
             for (
                 let mutationIndex = 0;
@@ -1751,13 +1805,38 @@ function runCommit(options: {
             ) {
                 applyMutation({
                     commitIndex:
-                        options.commitIndex * transactionMutations +
+                        firstMutationIndex +
+                        transactionMutations +
                         mutationIndex,
                     mutationType: options.mutationType,
                     target: options.mutationTarget,
                 });
             }
         });
+        const transactionDurationMs = performance.now() - transactionStartedAt;
+        options.onCommitFinished();
+        const transactionListenerCalls = options.listenerCalls();
+        if (transactionListenerCalls !== options.expectedCalls) {
+            throw new Error(
+                `${options.options.scenario.title}: expected ${options.expectedCalls} transaction listener emissions for ${options.phase} commit ${options.commitIndex} at depth tier ${options.options.depthTier.title} (${options.options.depthTier.value}), width tier ${options.options.widthTier.title} (${options.options.widthTier.value}), frequency tier ${options.options.frequencyTier.title} (${options.options.frequencyTier.value}), transaction mutations ${transactionMutations}, mutation type ${options.mutationType}, and callback read mode ${options.options.callbackReadMode}, but received ${transactionListenerCalls}.`
+            );
+        }
+
+        const signedDeltaMs = transactionDurationMs - unwrappedDurationMs;
+        const overheadMs = Math.max(signedDeltaMs, 0);
+        options.recordTransactionComparison({
+            overheadMs,
+            savedDurationMs: Math.max(-signedDeltaMs, 0),
+            savedListenerCalls:
+                unwrappedListenerCalls - transactionListenerCalls,
+            signedDeltaMs,
+            transactionDurationMs,
+            transactionListenerCalls,
+            unwrappedDurationMs,
+            unwrappedListenerCalls,
+        });
+        options.recordManualDuration(overheadMs);
+        return;
     } else {
         applyMutation({
             commitIndex: options.commitIndex,
