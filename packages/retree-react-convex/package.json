@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/react-convex",
-    "version": "0.4.8",
+    "version": "0.4.9",
     "description": "Use ConvexReactClient with Retree Convex nodes.",
     "author": "Ryan Bliss",
     "license": "MIT",
@@ -14,13 +14,13 @@
         "publish:package": "dotenv -e .env -- npm publish --access public"
     },
     "devDependencies": {
-        "@retreejs/convex": "0.4.8",
+        "@retreejs/convex": "0.4.9",
         "convex": "^1.39.1",
         "dotenv-cli": "^11.0.0",
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
-        "@retreejs/convex": "0.4.8",
+        "@retreejs/convex": "0.4.9",
         "convex": "^1.39.1"
     },
     "repository": {
