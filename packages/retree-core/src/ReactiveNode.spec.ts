@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
-import { ignore } from "./decorators";
+import { ignore, link } from "./decorators";
 import { getCustomProxyHandler, getUnproxiedNode } from "./internals";
 import { proxiedChildrenKey } from "./internals/proxy-types";
 import {
@@ -229,6 +229,46 @@ class OptionalDependencyNode extends ReactiveNode {
         return [
             this.dependency(this.dependencyNode, [
                 this.dependencyNode?.length ?? null,
+            ]),
+        ];
+    }
+}
+
+class ValueChangeTrackerNode extends ReactiveNode {
+    public valueChangeCountsById: Record<string, number> = { valueA: 0 };
+
+    public valueChangeCountFor(valueId: string): number {
+        return this.valueChangeCountsById[valueId] ?? 0;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class ProjectNode extends ReactiveNode {
+    public changeTracker = new ValueChangeTrackerNode();
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class ValueBackingDependencyNode extends ReactiveNode {
+    @link
+    public project: ProjectNode | null = null;
+    public _backing = {
+        valueId: "valueA",
+    };
+
+    get dependencies() {
+        return [
+            this.dependency(this.project?.changeTracker.valueChangeCountsById, [
+                this._backing.valueId
+                    ? this.project?.changeTracker.valueChangeCountFor(
+                          this._backing.valueId
+                      ) ?? 0
+                    : 0,
             ]),
         ];
     }
@@ -704,6 +744,42 @@ describe("ReactiveNode", () => {
         nodeChanged.mockClear();
 
         dependencyNode.push(1);
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("emits when an explicit object dependency comparison changes by keyed increment", () => {
+        const root = trackRoot(
+            Retree.root({
+                project: new ProjectNode(),
+                dependent: new ValueBackingDependencyNode(),
+            })
+        );
+        const nodeChanged = vi.fn();
+
+        root.dependent.project = root.project;
+        Retree.on(root.dependent, "nodeChanged", nodeChanged);
+        nodeChanged.mockClear();
+
+        root.project.changeTracker.valueChangeCountsById.valueA++;
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("subscribes to an explicit object dependency when an optional link becomes available", () => {
+        const root = trackRoot(
+            Retree.root({
+                project: new ProjectNode(),
+                dependent: new ValueBackingDependencyNode(),
+            })
+        );
+        const nodeChanged = vi.fn();
+
+        Retree.on(root.dependent, "nodeChanged", nodeChanged);
+        root.dependent.project = root.project;
+        nodeChanged.mockClear();
+
+        root.project.changeTracker.valueChangeCountsById.valueA++;
 
         expect(nodeChanged).toHaveBeenCalledTimes(1);
     });

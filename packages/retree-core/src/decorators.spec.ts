@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
 import { ignore, link, memo, select } from "./decorators";
+import { getUnproxiedNode } from "./internals";
 import { getReproxyNode } from "./internals/reproxy";
 import { Transactions } from "./internals/transactions";
 
@@ -40,6 +41,34 @@ class LinkedPointerNode extends ReactiveNode {
 
     @link
     public selected: { value: number } | null = null;
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class ConstructorLinkedChildNode extends ReactiveNode {
+    @link
+    public parent: ConstructorLinkedParentNode;
+
+    constructor(parent: ConstructorLinkedParentNode) {
+        super();
+        this.parent = parent;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class ConstructorLinkedParentNode extends ReactiveNode {
+    public value = 0;
+    public child: ConstructorLinkedChildNode;
+
+    constructor() {
+        super();
+        this.child = new ConstructorLinkedChildNode(this);
+    }
 
     get dependencies() {
         return [];
@@ -404,6 +433,42 @@ describe("link", () => {
         }
         expect(selectedAfterChange).not.toBe(selectedBeforeChange);
         expect(selectedAfterChange.value).toBe(1);
+    });
+
+    it("resolves a raw constructor-time self reference to the managed parent proxy", () => {
+        const state = trackRoot(Retree.root(new ConstructorLinkedParentNode()));
+
+        expect(getUnproxiedNode(state.child.parent)).toBe(
+            getUnproxiedNode(state)
+        );
+    });
+
+    it("returns the latest reproxy for a raw constructor-time linked parent", () => {
+        const state = trackRoot(Retree.root(new ConstructorLinkedParentNode()));
+        const parentBeforeChange = state.child.parent;
+
+        state.value = 1;
+
+        expect(state.child.parent).not.toBe(parentBeforeChange);
+        expect(state.child.parent.value).toBe(1);
+    });
+
+    it("allows assigning a raw object to @link after that object belongs to a Retree tree", () => {
+        const rawChild = { value: 0 };
+        const source = trackRoot(Retree.root({ child: rawChild }));
+        const owner = trackRoot(Retree.root(new LinkedPointerNode()));
+
+        expect(source.child).toBeDefined();
+        owner.selected = rawChild;
+        const selectedBeforeChange = owner.selected;
+
+        source.child.value = 1;
+
+        expect(owner.selected).not.toBe(selectedBeforeChange);
+        expect(owner.selected?.value).toBe(1);
+        expect(getUnproxiedNode(owner.selected)).toBe(
+            getUnproxiedNode(source.child)
+        );
     });
 });
 

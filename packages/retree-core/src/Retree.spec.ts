@@ -840,6 +840,41 @@ describe("Retree", () => {
         }).toThrow(/Retree.move/);
     });
 
+    it("enforces the single-parent rule for raw objects that already belong to a tree", () => {
+        const rawChild = { value: 1 };
+        const root1 = trackRoot(Retree.root({ child: rawChild }));
+        const root2 = trackRoot(
+            Retree.root({ other: null as null | { value: number } })
+        );
+
+        expect(root1.child).toBeDefined();
+        expect(() => {
+            root2.other = rawChild;
+        }).toThrow(/already has a structural parent/i);
+        expect(() => {
+            root2.other = rawChild;
+        }).toThrow(/Current parent: Object at key child/i);
+        expect(() => {
+            root2.other = rawChild;
+        }).toThrow(/Retree.move/);
+    });
+
+    it("reads raw aliases to managed nodes without changing structural parentage", () => {
+        const rawChild = { value: 1 };
+        const root = trackRoot(
+            Retree.root({
+                child: rawChild,
+                alias: { data: rawChild },
+            })
+        );
+
+        expect(root.child).toBeDefined();
+        const aliasData = root.alias.data;
+
+        expect(getUnproxiedNode(aliasData)).toBe(getUnproxiedNode(root.child));
+        expect(Retree.parent(aliasData)).toBe(root);
+    });
+
     it("stores a Retree.link without reparenting the linked target", () => {
         const source = trackRoot(Retree.root({ child: { value: 1 } }));
         const owner = trackRoot(

@@ -23,8 +23,10 @@ import {
 } from "./proxy-types";
 import { getReactiveNodeGetter, popMemoGetter, pushMemoGetter } from "./memo";
 import {
+    getManagedProxyForUnproxiedNode,
     getReproxyNode,
     getReproxyNodeForUnproxiedNode,
+    registerBaseProxy,
     updateReproxyNode,
 } from "./reproxy";
 import {
@@ -123,6 +125,16 @@ function getLatestIgnoredValue(value: unknown) {
     return value;
 }
 
+function getLatestLinkedValue(value: unknown) {
+    if (isCustomProxy(value)) {
+        return getReproxyNode(value);
+    }
+    if (value !== null && typeof value === "object") {
+        return getManagedProxyForUnproxiedNode(value as TreeNode) ?? value;
+    }
+    return value;
+}
+
 function assertValidLinkedValue(prop: string | symbol, value: unknown) {
     if (value === null || value === undefined) {
         return;
@@ -133,11 +145,14 @@ function assertValidLinkedValue(prop: string | symbol, value: unknown) {
     if (isCustomProxy(value)) {
         return;
     }
+    if (getManagedProxyForUnproxiedNode(value as TreeNode) !== undefined) {
+        return;
+    }
     // @retree-throws
     throw new Error(
         `@link field ${String(
             prop
-        )} can only store a Retree-managed node, null, undefined, or a non-object leaf value. This is expected when assigning a plain object to @link. Fix: pass the object through Retree.root(...) or read it from an existing Retree tree first; use @ignore for non-reactive objects that should not be managed by Retree.`
+        )} can only store a Retree-managed node, a raw node that already belongs to a Retree tree, null, undefined, or a non-object leaf value. This is expected when assigning a plain object to @link. Fix: pass the object through Retree.root(...) or read it from an existing Retree tree first; use @ignore for non-reactive objects that should not be managed by Retree.`
     );
 }
 
@@ -157,6 +172,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     parent?: IProxyParent<any>
 ): T {
     let isApplyingSet = false;
+    if (object === null) return object;
     const boundFunctionCache = new Map<
         string | symbol,
         BoundFunctionCacheEntry
@@ -191,7 +207,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     return trackDependencyPropertyAccess(
                         getBaseProxy(receiver),
                         prop,
-                        getLatestIgnoredValue(Reflect.get(target, prop, target))
+                        getLatestLinkedValue(Reflect.get(target, prop, target))
                     );
                 }
             }
@@ -402,10 +418,23 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     if (isCustomProxy(newValue)) {
                         valueToSet = reparentProxy(newValue, parentToSet);
                         proxyHandler[proxiedChildrenKey][prop] = valueToSet;
+                    } else if (
+                        getManagedProxyForUnproxiedNode(newValue) !== undefined
+                    ) {
+                        valueToSet = createStructuralProxyForValue(
+                            newValue,
+                            parentToSet,
+                            emitter
+                        );
+                        proxyHandler[proxiedChildrenKey][prop] = valueToSet;
                     } else if (shouldCreatePlainObjectProxyLazily(newValue)) {
                         deleteProxiedChild(proxyHandler, prop);
                     } else {
-                        valueToSet = buildProxy(newValue, emitter, parentToSet);
+                        valueToSet = createStructuralProxyForValue(
+                            newValue,
+                            parentToSet,
+                            emitter
+                        );
                         proxyHandler[proxiedChildrenKey][prop] = valueToSet;
                     }
                 } else {
@@ -609,9 +638,9 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             return returnValue;
         },
     };
-    if (object === null) return object;
     if (isCustomProxy(object)) return getBaseProxy(object);
     const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
+    registerBaseProxy(object, proxy);
     if (object instanceof Map) {
         for (const [key, value] of object.entries()) {
             if (isCustomProxy(value)) {
@@ -822,10 +851,29 @@ function getOrCreateProxiedChild(
         proxyNode: baseProxy,
         propName: prop,
     };
-    const childProxy = buildProxy(value, emitter, parentToSet);
+    const existingManagedProxy = getManagedProxyForUnproxiedNode(value);
+    const childProxy =
+        existingManagedProxy === undefined
+            ? createStructuralProxyForValue(value, parentToSet, emitter)
+            : existingManagedProxy;
     const baseChildProxy = getBaseProxy(childProxy);
     proxyHandler[proxiedChildrenKey][prop] = baseChildProxy;
     return baseChildProxy;
+}
+
+function createStructuralProxyForValue(
+    value: object,
+    parentToSet: IProxyParent<any>,
+    emitter: TreeChangeEmitter
+): object {
+    if (isCustomProxy(value)) {
+        return reparentProxy(value, parentToSet);
+    }
+    const existingManagedProxy = getManagedProxyForUnproxiedNode(value);
+    if (existingManagedProxy !== undefined) {
+        return reparentProxy(existingManagedProxy, parentToSet);
+    }
+    return buildProxy(value, emitter, parentToSet);
 }
 
 function isProxyableObject(value: unknown): value is object {
@@ -860,9 +908,11 @@ function preparePropertyValue(
         proxyNode: baseProxy,
         propName: prop,
     };
-    const valueToSet = isCustomProxy(value)
-        ? reparentProxy(value, parentToSet)
-        : buildProxy(value, emitter, parentToSet);
+    const valueToSet = createStructuralProxyForValue(
+        value,
+        parentToSet,
+        emitter
+    );
     proxyHandler[proxiedChildrenKey][prop] = valueToSet;
     return valueToSet;
 }
@@ -952,9 +1002,11 @@ function getOrCreateMapValueProxy(
         proxyNode: baseProxy,
         propName: mapKeyAsPropName(key),
     };
-    const valueToRead = isCustomProxy(value)
-        ? reparentProxy(value, parentToSet)
-        : buildProxy(value, emitter, parentToSet);
+    const valueToRead = createStructuralProxyForValue(
+        value,
+        parentToSet,
+        emitter
+    );
     if (valueToRead !== value) {
         Map.prototype.set.call(target, key, valueToRead);
     }
@@ -1114,9 +1166,11 @@ function getOrCreateSetValueProxy(
         proxyNode: baseProxy,
         propName: null,
     };
-    const valueToRead = isCustomProxy(value)
-        ? reparentProxy(value, parentToSet)
-        : buildProxy(value, emitter, parentToSet);
+    const valueToRead = createStructuralProxyForValue(
+        value,
+        parentToSet,
+        emitter
+    );
     if (valueToRead !== value) {
         Set.prototype.delete.call(target, value);
         Set.prototype.add.call(target, valueToRead);

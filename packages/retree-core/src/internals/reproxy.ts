@@ -32,6 +32,14 @@ import {
 } from "./proxy-types";
 
 const reproxyMap: WeakMap<TreeNode, TCustomProxy<TreeNode>> = new WeakMap();
+const baseProxyMap: WeakMap<TreeNode, TCustomProxy<TreeNode>> = new WeakMap();
+
+export function registerBaseProxy<T extends TreeNode = TreeNode>(
+    unproxiedNode: T,
+    baseProxy: TCustomProxy<T>
+): void {
+    baseProxyMap.set(unproxiedNode, baseProxy);
+}
 
 export function updateReproxyNode<T extends TreeNode = TreeNode>(
     node: TCustomProxy<T>
@@ -66,6 +74,15 @@ export function getReproxyNodeForUnproxiedNode<T extends TreeNode = TreeNode>(
     unproxiedNode: T
 ): TCustomProxy<T> | undefined {
     return reproxyMap.get(unproxiedNode) as TCustomProxy<T> | undefined;
+}
+
+export function getManagedProxyForUnproxiedNode<T extends TreeNode = TreeNode>(
+    unproxiedNode: T
+): TCustomProxy<T> | undefined {
+    return (
+        getReproxyNodeForUnproxiedNode(unproxiedNode) ??
+        (baseProxyMap.get(unproxiedNode) as TCustomProxy<T> | undefined)
+    );
 }
 
 function buildReproxy<T extends TreeNode = TreeNode>(
@@ -106,7 +123,7 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                     );
                 }
                 if (target[LINKED_KEYS_SYMBOL].has(prop)) {
-                    return getLatestIgnoredValue(
+                    return getLatestLinkedValue(
                         Reflect.get(target, prop, target)
                     );
                 }
@@ -208,6 +225,18 @@ function buildReproxy<T extends TreeNode = TreeNode>(
 function getLatestIgnoredValue(value: unknown) {
     if (isCustomProxy(value)) {
         return trackDependencyAccess(getReproxyNode(value));
+    }
+    return trackDependencyAccess(value);
+}
+
+function getLatestLinkedValue(value: unknown) {
+    if (isCustomProxy(value)) {
+        return trackDependencyAccess(getReproxyNode(value));
+    }
+    if (value !== null && typeof value === "object") {
+        return trackDependencyAccess(
+            getManagedProxyForUnproxiedNode(value as TreeNode) ?? value
+        );
     }
     return trackDependencyAccess(value);
 }
