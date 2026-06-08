@@ -35,6 +35,7 @@ describe("benchmark scenarios", () => {
             parallelWorkers: 1,
             profile,
             profileName: "smoke",
+            reactInitialRenderSamples: profile.reactInitialRenderSamples,
             seed: 42,
             selectedDepthTiers: ["low"],
             selectedFrequencyTiers: ["low"],
@@ -140,6 +141,11 @@ describe("benchmark scenarios", () => {
             )
         ).toContain("react-hook-effect-subscribe");
         expect(
+            reactUseNode?.cases[0]?.setupSummaries.find(
+                (summary) => summary.operation === "react-hook-render-read"
+            )?.samples
+        ).toBe(profile.reactInitialRenderSamples);
+        expect(
             reactUseNode?.cases[0]?.measurements[0]?.details?.map(
                 (detail) => detail.operation
             )
@@ -204,6 +210,7 @@ describe("benchmark scenarios", () => {
             parallelWorkers: 1,
             profile,
             profileName: "stable",
+            reactInitialRenderSamples: profile.reactInitialRenderSamples,
             seed: 42,
             selectedDepthTiers: ["low"],
             selectedFrequencyTiers: ["low"],
@@ -263,6 +270,7 @@ function createSmokeConfig(): BenchmarkConfig {
         parallelWorkers: 1,
         profile,
         profileName: "smoke",
+        reactInitialRenderSamples: profile.reactInitialRenderSamples,
         seed: 42,
         selectedDepthTiers: ["low"],
         selectedFrequencyTiers: ["low"],

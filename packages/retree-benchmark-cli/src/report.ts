@@ -199,6 +199,7 @@ function renderMarkdownReportWithOptions(
         `Transaction mutations: ${results.metadata.transactionMutations.join(
             ", "
         )}`,
+        `React initial render samples per case: ${results.metadata.reactInitialRenderSamples}`,
         `Warmup commits per case: ${results.metadata.warmupCommits}`,
         "",
         renderMarkdownLegend(),
@@ -709,6 +710,9 @@ function renderConsoleBenchmarkReport(results: BenchmarkResults) {
             "Transaction mutations:",
             "dim"
         )} ${results.metadata.transactionMutations.join(", ")}`,
+        `${colorize("React initial render samples per case:", "dim")} ${
+            results.metadata.reactInitialRenderSamples
+        }`,
         `${colorize("Warmup commits per case:", "dim")} ${
             results.metadata.warmupCommits
         }`,
@@ -741,6 +745,9 @@ function renderConsoleBenchmarkSummary(results: BenchmarkResults) {
         `${colorize("Width tiers:", "dim")} ${results.metadata.widthTiers
             .map((tier) => `${tier.title}=${tier.value}`)
             .join(", ")}`,
+        `${colorize("React initial render samples per case:", "dim")} ${
+            results.metadata.reactInitialRenderSamples
+        }`,
         "",
         renderConsoleScenarioSummaryTable(results.scenarios),
     ];

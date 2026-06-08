@@ -45,6 +45,44 @@ export interface ICustomProxy<TNode extends TreeNode = TreeNode> {
 export type TCustomProxy<TNode extends TreeNode = TreeNode> =
     ICustomProxy<TNode> & TNode;
 
+interface CustomProxyMetadata<TNode extends TreeNode = TreeNode> {
+    handler: ICustomProxyHandler<TNode>;
+    target: TNode;
+}
+
+const customProxyMetadata = new WeakMap<
+    object,
+    CustomProxyMetadata<TreeNode>
+>();
+
+export function registerCustomProxyMetadata<TNode extends TreeNode = TreeNode>(
+    proxy: TCustomProxy<TNode>,
+    handler: ICustomProxyHandler<TNode>,
+    target: TNode
+): void {
+    customProxyMetadata.set(proxy, { handler, target });
+}
+
+export function getCustomProxyHandlerFromMetadata<
+    TNode extends TreeNode = TreeNode
+>(value: unknown): ICustomProxyHandler<TNode> | undefined {
+    if (value === null || typeof value !== "object") {
+        return undefined;
+    }
+    return customProxyMetadata.get(value)?.handler as
+        | ICustomProxyHandler<TNode>
+        | undefined;
+}
+
+export function getCustomProxyTargetFromMetadata<
+    TNode extends TreeNode = TreeNode
+>(value: unknown): TNode | undefined {
+    if (value === null || typeof value !== "object") {
+        return undefined;
+    }
+    return customProxyMetadata.get(value)?.target as TNode | undefined;
+}
+
 /**
  * @internal
  * Checks to see if a value is an {@link ICustomProxy} instance
@@ -52,9 +90,5 @@ export type TCustomProxy<TNode extends TreeNode = TreeNode> =
 export function isCustomProxy<TNode extends TreeNode = TreeNode>(
     value: any
 ): value is TCustomProxy<TNode> {
-    return (
-        value &&
-        isCustomProxyHandler(value["[[Handler]]"]) &&
-        value["[[Target]]"]
-    );
+    return getCustomProxyHandlerFromMetadata<TNode>(value) !== undefined;
 }

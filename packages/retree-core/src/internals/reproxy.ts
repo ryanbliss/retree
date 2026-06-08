@@ -29,6 +29,7 @@ import {
     proxiedChildrenKey,
     unproxiedBaseNodeKey,
     proxiedParentKey,
+    registerCustomProxyMetadata,
     TCustomProxy,
 } from "./proxy-types";
 
@@ -131,114 +132,119 @@ function buildReproxy<T extends TreeNode = TreeNode>(
             thisArg
         );
     };
-    const proxyHandler: ProxyHandler<TCustomProxy<T>> &
-        Omit<ICustomProxyHandler<T>, typeof proxiedChildrenKey> = {
-        // Add some extra stuff into the handler so we can store the original TreeNode and access it later
-        // Without overriding the rest of the getters in the object.
-        [unproxiedBaseNodeKey]: handler[unproxiedBaseNodeKey],
-        [proxiedParentKey]: handler[proxiedParentKey],
-        get: (target, prop, receiver) => {
-            if (prop === "[[Handler]]") {
-                return proxyHandler;
-            }
-            if (prop === "[[Target]]") {
-                return object;
-            }
-            if (target instanceof ReactiveNode) {
-                // Check for ignore keys
-                if (typeof prop === "string" && prop.startsWith("RETREE_")) {
-                    return Reflect.get(target, prop, target);
+    const proxyHandler: ProxyHandler<TCustomProxy<T>> & ICustomProxyHandler<T> =
+        {
+            // Add some extra stuff into the handler so we can store the original TreeNode and access it later
+            // Without overriding the rest of the getters in the object.
+            [unproxiedBaseNodeKey]: handler[unproxiedBaseNodeKey],
+            [proxiedChildrenKey]: handler[proxiedChildrenKey],
+            [proxiedParentKey]: handler[proxiedParentKey],
+            get: (target, prop, receiver) => {
+                if (prop === "[[Handler]]") {
+                    return proxyHandler;
                 }
-                if (target[COLLECTED_KEYS_SYMBOL].has(prop)) {
-                    return getLatestIgnoredValue(
-                        Reflect.get(target, prop, target)
-                    );
+                if (prop === "[[Target]]") {
+                    return object;
                 }
-                if (target[LINKED_KEYS_SYMBOL].has(prop)) {
-                    return getLatestLinkedValue(
-                        Reflect.get(target, prop, target)
-                    );
+                if (target instanceof ReactiveNode) {
+                    // Check for ignore keys
+                    if (
+                        typeof prop === "string" &&
+                        prop.startsWith("RETREE_")
+                    ) {
+                        return Reflect.get(target, prop, target);
+                    }
+                    if (target[COLLECTED_KEYS_SYMBOL].has(prop)) {
+                        return getLatestIgnoredValue(
+                            Reflect.get(target, prop, target)
+                        );
+                    }
+                    if (target[LINKED_KEYS_SYMBOL].has(prop)) {
+                        return getLatestLinkedValue(
+                            Reflect.get(target, prop, target)
+                        );
+                    }
                 }
-            }
-            if (
-                typeof prop === "string" &&
-                prop !== "constructor" &&
-                handler[proxiedChildrenKey][prop]
-            ) {
-                const childProxy = handler[proxiedChildrenKey][prop];
-                if (typeof childProxy !== "function") {
-                    const reproxy = getReproxyNode(childProxy);
-                    return trackPropertyAccessIfNeeded(
-                        object,
-                        prop,
-                        reproxy ?? childProxy
-                    );
-                }
-            }
-            const rawNode = handler[unproxiedBaseNodeKey];
-            // Some built-in methods need internal slots on `this`. Delegate property access to the
-            // base proxy so the bind/wrap logic in buildProxy is reused (and mutations emit).
-            if (isInternalSlotInstance(rawNode)) {
-                return trackPropertyAccessIfNeeded(
-                    object,
-                    prop,
-                    Reflect.get(object, prop, object)
-                );
-            }
-            const evalTarget = rawNode ?? target;
-
-            let value: any;
-            if (
-                evalTarget instanceof ReactiveNode &&
-                getReactiveNodeGetter(evalTarget, prop)
-            ) {
-                // Mirror proxy.ts: track the active getter for keyless `this.memo(...)`.
-                pushMemoGetter(evalTarget, prop);
-                try {
-                    value = Reflect.get(evalTarget, prop, receiver);
-                } finally {
-                    popMemoGetter(evalTarget);
-                }
-            } else {
-                value = Reflect.get(evalTarget, prop, receiver);
-            }
-
-            if (typeof value === "function") {
-                if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
-                    return trackAccessIfNeeded(
-                        getBoundFunction(prop, value, rawNode)
-                    );
-                }
-                const reproxy = getReproxyNode(object);
-                return trackAccessIfNeeded(
-                    getBoundFunction(prop, value, reproxy)
-                );
-            }
-            if (value !== null && typeof value === "object") {
-                const baseValue = Reflect.get(object, prop, object);
-                if (isCustomProxy(baseValue)) {
-                    return trackPropertyAccessIfNeeded(
-                        object,
-                        prop,
-                        getReproxyNode(baseValue) ?? baseValue
-                    );
-                }
-            }
-            return trackPropertyAccessIfNeeded(object, prop, value);
-        },
-        set(target, prop, newValue, receiver) {
-            if (target instanceof ReactiveNode) {
                 if (
-                    prop === COLLECTED_KEYS_SYMBOL ||
-                    target[COLLECTED_KEYS_SYMBOL].has(prop)
+                    typeof prop === "string" &&
+                    prop !== "constructor" &&
+                    handler[proxiedChildrenKey][prop]
                 ) {
-                    return Reflect.set(target, prop, newValue, target);
+                    const childProxy = handler[proxiedChildrenKey][prop];
+                    if (typeof childProxy !== "function") {
+                        const reproxy = getReproxyNode(childProxy);
+                        return trackPropertyAccessIfNeeded(
+                            object,
+                            prop,
+                            reproxy ?? childProxy
+                        );
+                    }
                 }
-            }
-            return Reflect.set(target, prop, newValue, receiver);
-        },
-    };
-    const proxy = new Proxy(object, proxyHandler);
+                const rawNode = handler[unproxiedBaseNodeKey];
+                // Some built-in methods need internal slots on `this`. Delegate property access to the
+                // base proxy so the bind/wrap logic in buildProxy is reused (and mutations emit).
+                if (isInternalSlotInstance(rawNode)) {
+                    return trackPropertyAccessIfNeeded(
+                        object,
+                        prop,
+                        Reflect.get(object, prop, object)
+                    );
+                }
+                const evalTarget = rawNode ?? target;
+
+                let value: any;
+                if (
+                    evalTarget instanceof ReactiveNode &&
+                    getReactiveNodeGetter(evalTarget, prop)
+                ) {
+                    // Mirror proxy.ts: track the active getter for keyless `this.memo(...)`.
+                    pushMemoGetter(evalTarget, prop);
+                    try {
+                        value = Reflect.get(evalTarget, prop, receiver);
+                    } finally {
+                        popMemoGetter(evalTarget);
+                    }
+                } else {
+                    value = Reflect.get(evalTarget, prop, receiver);
+                }
+
+                if (typeof value === "function") {
+                    if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
+                        return trackAccessIfNeeded(
+                            getBoundFunction(prop, value, rawNode)
+                        );
+                    }
+                    const reproxy = getReproxyNode(object);
+                    return trackAccessIfNeeded(
+                        getBoundFunction(prop, value, reproxy)
+                    );
+                }
+                if (value !== null && typeof value === "object") {
+                    const baseValue = Reflect.get(object, prop, object);
+                    if (isCustomProxy(baseValue)) {
+                        return trackPropertyAccessIfNeeded(
+                            object,
+                            prop,
+                            getReproxyNode(baseValue) ?? baseValue
+                        );
+                    }
+                }
+                return trackPropertyAccessIfNeeded(object, prop, value);
+            },
+            set(target, prop, newValue, receiver) {
+                if (target instanceof ReactiveNode) {
+                    if (
+                        prop === COLLECTED_KEYS_SYMBOL ||
+                        target[COLLECTED_KEYS_SYMBOL].has(prop)
+                    ) {
+                        return Reflect.set(target, prop, newValue, target);
+                    }
+                }
+                return Reflect.set(target, prop, newValue, receiver);
+            },
+        };
+    const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
+    registerCustomProxyMetadata(proxy, proxyHandler, object);
     return proxy as TCustomProxy<T>;
 }
 

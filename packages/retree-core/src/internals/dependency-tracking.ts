@@ -1,6 +1,7 @@
 import { IReactiveDependency, ReactiveNode } from "../ReactiveNode";
 import { TreeNode } from "../types";
 import {
+    getCustomProxyHandlerFromMetadata,
     isCustomProxy,
     TCustomProxy,
     unproxiedBaseNodeKey,
@@ -146,10 +147,16 @@ export function trackDependencyAccess<T>(value: T): T {
         return value;
     }
     if (isCustomProxy(value)) {
+        const handler = getCustomProxyHandlerFromMetadata(value);
+        if (handler === undefined) {
+            throw new Error(
+                "Retree internal invariant failed: cannot track a managed dependency value without Retree proxy metadata."
+            );
+        }
         currentFrame.entries.push({
             kind: "managed-value",
             value,
-            unproxiedNode: value["[[Handler]]"][unproxiedBaseNodeKey],
+            unproxiedNode: handler[unproxiedBaseNodeKey],
         });
         return value;
     }
@@ -194,14 +201,18 @@ export function trackDependencyPropertyAccess<T>(
     if (!isCustomProxy(owner)) {
         return trackDependencyAccess(value);
     }
-    const ownerUnproxiedNode = owner["[[Handler]]"][unproxiedBaseNodeKey];
+    const ownerHandler = getCustomProxyHandlerFromMetadata(owner);
+    if (ownerHandler === undefined) {
+        throw new Error(
+            "Retree internal invariant failed: cannot track a dependency property read without owner proxy metadata."
+        );
+    }
+    const ownerUnproxiedNode = ownerHandler[unproxiedBaseNodeKey];
     removePendingManagedValueAccess(currentFrame, ownerUnproxiedNode);
     if (currentFrame.mode === "comparisons") {
         removePendingPropertyValueAccess(currentFrame, ownerUnproxiedNode);
     }
-    const valueUnproxiedNode = isCustomProxy(value)
-        ? value["[[Handler]]"][unproxiedBaseNodeKey]
-        : undefined;
+    const valueUnproxiedNode = getValueUnproxiedNode(value);
     const arrayElementRead = isArrayElementRead(
         ownerUnproxiedNode,
         propertyKey
@@ -291,7 +302,13 @@ export function trackDependencyPropertyWrite(
     if (!isCustomProxy(owner)) {
         return;
     }
-    const ownerUnproxiedNode = owner["[[Handler]]"][unproxiedBaseNodeKey];
+    const handler = getCustomProxyHandlerFromMetadata(owner);
+    if (handler === undefined) {
+        throw new Error(
+            "Retree internal invariant failed: cannot track a dependency property write without owner proxy metadata."
+        );
+    }
+    const ownerUnproxiedNode = handler[unproxiedBaseNodeKey];
     currentFrame.writes.push({ ownerUnproxiedNode, propertyKey });
     removePendingPropertyAccess(currentFrame, ownerUnproxiedNode, propertyKey);
 }
@@ -402,7 +419,26 @@ function getArrayElementComparisonValue(value: unknown): unknown {
     if (!isCustomProxy(value)) {
         return value;
     }
-    return value["[[Handler]]"][unproxiedBaseNodeKey];
+    const handler = getCustomProxyHandlerFromMetadata(value);
+    if (handler === undefined) {
+        throw new Error(
+            "Retree internal invariant failed: cannot compare an array element proxy without Retree metadata."
+        );
+    }
+    return handler[unproxiedBaseNodeKey];
+}
+
+function getValueUnproxiedNode(value: unknown): TreeNode | undefined {
+    if (!isCustomProxy(value)) {
+        return undefined;
+    }
+    const handler = getCustomProxyHandlerFromMetadata(value);
+    if (handler === undefined) {
+        throw new Error(
+            "Retree internal invariant failed: cannot track a dependency value proxy without Retree metadata."
+        );
+    }
+    return handler[unproxiedBaseNodeKey];
 }
 
 function isArrayElementRead(

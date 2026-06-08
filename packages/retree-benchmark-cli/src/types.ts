@@ -61,6 +61,7 @@ export interface ProfileDefinition {
     frequencyTiers: TierMap;
     listenerFanouts: number[];
     mutationTypes: MutationType[];
+    reactInitialRenderSamples: number;
     transactionMutations: number[];
     warmupCommits: number;
     widthTiers: TierMap;
@@ -79,6 +80,7 @@ export interface BenchmarkConfig {
     parallelWorkers?: number;
     profile: ProfileDefinition;
     profileName: ProfileName;
+    reactInitialRenderSamples: number;
     seed: number;
     selectedDepthTiers: TierName[];
     selectedFrequencyTiers: TierName[];
@@ -281,6 +283,7 @@ export interface BenchmarkMetadata {
     parallelWorkers: number;
     platform: string;
     profileName: ProfileName;
+    reactInitialRenderSamples: number;
     seed: number;
     selectedDepthTiers: TierName[];
     selectedFrequencyTiers: TierName[];

@@ -1132,6 +1132,7 @@ function runReactHookBenchmarkCase(
 ): BenchmarkCaseResult {
     const prepared = prepareBenchmarkCase(options);
     const measurements: BenchmarkMeasurement[] = [];
+    collectAdditionalReactInitialRenderSamples(options, prepared);
     const reactCase = setupReactHookBenchmarkCase(options, prepared);
 
     try {
@@ -1188,6 +1189,7 @@ async function runReactHookBenchmarkCaseWithProgress(
     });
 
     const prepared = prepareBenchmarkCase(options);
+    collectAdditionalReactInitialRenderSamples(options, prepared);
     const reactCase = setupReactHookBenchmarkCase(options, prepared);
 
     try {
@@ -1480,6 +1482,66 @@ function setupReactHookBenchmarkCase(
     };
 }
 
+function collectAdditionalReactInitialRenderSamples(
+    options: BenchmarkRunContext,
+    prepared: ReturnType<typeof prepareBenchmarkCase>
+) {
+    const additionalSampleCount =
+        options.config.profile.reactInitialRenderSamples - 1;
+    if (additionalSampleCount <= 0) {
+        return;
+    }
+
+    for (
+        let sampleIndex = 0;
+        sampleIndex < additionalSampleCount;
+        sampleIndex++
+    ) {
+        const samplePrepared = prepareBenchmarkCase(options, sampleIndex + 1);
+        const sampleReactCase = setupReactHookBenchmarkCase(
+            options,
+            samplePrepared
+        );
+        try {
+            sampleReactCase.cleanup();
+        } finally {
+            for (const unsubscribe of samplePrepared.subscriptions
+                .unsubscribe) {
+                unsubscribe();
+            }
+            Retree.clearListeners(samplePrepared.tree.root, false);
+        }
+        mergeReactInitialRenderSetupMeasurements(
+            prepared.setupMeasurements,
+            samplePrepared.setupMeasurements
+        );
+    }
+}
+
+function mergeReactInitialRenderSetupMeasurements(
+    target: BenchmarkSetupMeasurement[],
+    samples: BenchmarkSetupMeasurement[]
+) {
+    for (const sample of samples) {
+        if (!isReactInitialRenderSetupMeasurement(sample)) {
+            continue;
+        }
+        target.push(sample);
+    }
+}
+
+function isReactInitialRenderSetupMeasurement(
+    measurement: BenchmarkSetupMeasurement
+) {
+    if (measurement.operation === "react-root-render") {
+        return true;
+    }
+    if (measurement.operation === "react-root-unmount") {
+        return true;
+    }
+    return isReactSetupMeasurementOperation(measurement.operation);
+}
+
 function recordReactHookBenchmarkMeasurement(options: {
     currentMeasurementDetails: BenchmarkMeasurementDetail[] | undefined;
     measurement: UseNodeInternalBenchmarkMeasurement;
@@ -1585,7 +1647,7 @@ function getReactRenderReadOperation(
 }
 
 function isReactSetupMeasurementOperation(
-    operation: BenchmarkMeasurementDetailOperation
+    operation: BenchmarkMeasurementDetailOperation | BenchmarkSetupOperation
 ): operation is BenchmarkMeasurementDetailOperation & BenchmarkSetupOperation {
     if (operation === "react-component-render") {
         return true;
@@ -1889,14 +1951,16 @@ function runReactSync(modules: ReactBenchmarkModules, run: () => void) {
     });
 }
 
-function prepareBenchmarkCase(options: BenchmarkRunContext) {
+function prepareBenchmarkCase(options: BenchmarkRunContext, seedOffset = 0) {
     const setupMeasurements: BenchmarkSetupMeasurement[] = [];
+    const sampleSeedOffset = seedOffset * 100_003;
     const tree = createBenchmarkTree({
         depth: options.depthTier.value,
         seed:
             options.config.seed +
             options.depthTier.value +
-            options.widthTier.value,
+            options.widthTier.value +
+            sampleSeedOffset,
         setupMeasurements,
         width: options.widthTier.value,
     });
@@ -1904,7 +1968,8 @@ function prepareBenchmarkCase(options: BenchmarkRunContext) {
         seed:
             options.config.seed +
             options.depthTier.value * 31 +
-            options.widthTier.value * 997,
+            options.widthTier.value * 997 +
+            sampleSeedOffset,
         setupMeasurements,
         target: tree.target,
         width: options.widthTier.value,
@@ -3236,6 +3301,7 @@ function createBenchmarkMetadata(config: BenchmarkConfig) {
         parallelWorkers: config.parallelWorkers ?? 1,
         platform: `${process.platform} ${os.release()}`,
         profileName: config.profileName,
+        reactInitialRenderSamples: config.profile.reactInitialRenderSamples,
         seed: config.seed,
         selectedDepthTiers: [...config.selectedDepthTiers],
         selectedFrequencyTiers: [...config.selectedFrequencyTiers],

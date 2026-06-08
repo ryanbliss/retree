@@ -215,6 +215,7 @@ function createExampleResults(): BenchmarkResults {
             parallelWorkers: 1,
             platform: "darwin 24.0.0",
             profileName: "stable",
+            reactInitialRenderSamples: 20,
             seed: 1,
             selectedDepthTiers: ["low"],
             selectedFrequencyTiers: ["low"],

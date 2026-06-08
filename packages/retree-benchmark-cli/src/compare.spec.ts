@@ -227,6 +227,7 @@ function createFixture(
             parallelWorkers: 1,
             platform: "darwin",
             profileName: "stable",
+            reactInitialRenderSamples: 20,
             seed: 422024,
             selectedDepthTiers: ["low"],
             selectedFrequencyTiers: ["low"],

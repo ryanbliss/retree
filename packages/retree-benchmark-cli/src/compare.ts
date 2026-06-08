@@ -270,7 +270,23 @@ function renderMetadataComparison(
             String(left.metadata.parallelWorkers),
             String(right.metadata.parallelWorkers),
         ],
+        [
+            "React initial render samples",
+            formatOptionalMetadataNumber(
+                left.metadata.reactInitialRenderSamples
+            ),
+            formatOptionalMetadataNumber(
+                right.metadata.reactInitialRenderSamples
+            ),
+        ],
     ]);
+}
+
+function formatOptionalMetadataNumber(value: number | undefined): string {
+    if (value === undefined) {
+        return "null";
+    }
+    return String(value);
 }
 
 function renderScenarioComparison(

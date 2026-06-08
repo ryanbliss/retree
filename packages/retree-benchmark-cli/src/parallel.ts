@@ -773,6 +773,7 @@ function createBenchmarkMetadata(config: BenchmarkConfig, workerCount: number) {
         parallelWorkers: workerCount,
         platform: `${process.platform} ${os.release()}`,
         profileName: config.profileName,
+        reactInitialRenderSamples: config.profile.reactInitialRenderSamples,
         seed: config.seed,
         selectedDepthTiers: [...config.selectedDepthTiers],
         selectedFrequencyTiers: [...config.selectedFrequencyTiers],
