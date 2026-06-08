@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     estimateBenchmarkWork,
+    getBenchmarkScenarioCallbackReadModes,
     runBenchmarks,
     runBenchmarksWithProgress,
 } from "./benchmarks";
@@ -8,6 +9,19 @@ import { PROFILES } from "./config";
 import { BenchmarkConfig } from "./types";
 
 describe("benchmark scenarios", () => {
+    it("uses focused render reads for React useNode", () => {
+        const profile = PROFILES.stable;
+        const config = createSmokeConfig();
+        config.callbackReadModes = [...profile.callbackReadModes];
+
+        expect(
+            getBenchmarkScenarioCallbackReadModes(config, "react-use-node")
+        ).toEqual(["none", "shallow"]);
+        expect(
+            getBenchmarkScenarioCallbackReadModes(config, "react-use-tree")
+        ).toEqual(["none", "deep"]);
+    });
+
     it("runs expanded scenarios with emission validation", () => {
         const profile = PROFILES.smoke;
         const results = runBenchmarks({
@@ -28,7 +42,7 @@ describe("benchmark scenarios", () => {
             widthTiers: [profile.widthTiers.low],
         });
 
-        expect(results.scenarios).toHaveLength(15);
+        expect(results.scenarios).toHaveLength(17);
 
         const autoSelect = results.scenarios.find(
             (scenario) => scenario.scenarioId === "auto-trapped-select"
@@ -63,6 +77,12 @@ describe("benchmark scenarios", () => {
         const dependencyUpdateFanout = results.scenarios.find(
             (scenario) =>
                 scenario.scenarioId === "reactive-dependency-update-fan-out"
+        );
+        const reactUseNode = results.scenarios.find(
+            (scenario) => scenario.scenarioId === "react-use-node"
+        );
+        const reactUseTree = results.scenarios.find(
+            (scenario) => scenario.scenarioId === "react-use-tree"
         );
         const onChangedEffect = results.scenarios.find(
             (scenario) => scenario.scenarioId === "on-changed-effect"
@@ -106,6 +126,41 @@ describe("benchmark scenarios", () => {
         expect(dependencyFanout?.cases[0]?.dependencyFanout).toBe(2);
         expect(dependencyUpdateFanout?.cases[0]?.dependencyFanout).toBe(2);
         expect(dependencyUpdateFanout?.cases[0]?.dependencyDepth).toBe(1);
+        expect(reactUseNode?.cases[0]?.measurements[0]?.mutationType).toBe(
+            "scalar-set"
+        );
+        expect(
+            reactUseNode?.cases[0]?.setupMeasurements.map(
+                (measurement) => measurement.operation
+            )
+        ).toContain("react-root-render");
+        expect(
+            reactUseNode?.cases[0]?.setupMeasurements.map(
+                (measurement) => measurement.operation
+            )
+        ).toContain("react-hook-effect-subscribe");
+        expect(
+            reactUseNode?.cases[0]?.measurements[0]?.details?.map(
+                (detail) => detail.operation
+            )
+        ).toEqual(
+            expect.arrayContaining([
+                "react-component-render",
+                "react-hook-call",
+                "react-hook-render-base-proxy",
+                "react-hook-render-read",
+                "react-hook-render-read-first",
+                "react-hook-render-read-second",
+                "react-unrelated-component-render",
+                "react-unrelated-render-read",
+                "react-unrelated-render-read-first",
+                "react-unrelated-render-read-second",
+                "react-update-outside-component",
+            ])
+        );
+        expect(reactUseTree?.cases[0]?.measurements[0]?.mutationType).toBe(
+            "scalar-set"
+        );
         expect(onChangedEffect?.cases[0]?.effectWrites).toBe(1);
         expect(subscriptionChurn?.cases[0]?.measurements[0]?.mutationType).toBe(
             "subscription-cycle"

@@ -8,8 +8,8 @@
     "main": "./bin/index.js",
     "types": "./bin/index.d.ts",
     "scripts": {
-        "clean": "npx shx rm -rf bin",
-        "build": "tsc -p tsconfig.build.json",
+        "clean": "node -e \"require('node:fs').rmSync('bin', { recursive: true, force: true })\"",
+        "build": "npm run clean && tsc -p tsconfig.build.json",
         "typecheck": "tsc"
     },
     "devDependencies": {

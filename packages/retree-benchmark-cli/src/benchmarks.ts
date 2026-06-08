@@ -1,5 +1,6 @@
 import os from "node:os";
 import { performance } from "node:perf_hooks";
+import { createRequire } from "node:module";
 import {
     ReactiveNode,
     RetreeLink,
@@ -9,6 +10,13 @@ import {
     select,
     type IReactiveDependency,
 } from "@retreejs/core";
+import {
+    __unstable_setUseNodeInternalBenchmarkRecorder,
+    useNode,
+    useTree,
+    type UseNodeInternalBenchmarkMeasurement,
+    type UseNodeInternalBenchmarkOperation,
+} from "@retreejs/react/benchmark";
 import {
     BenchmarkNode,
     configureBenchmarkChangedEffect,
@@ -23,6 +31,8 @@ import {
     BenchmarkCaseResult,
     BenchmarkConfig,
     BenchmarkMeasurement,
+    BenchmarkMeasurementDetail,
+    BenchmarkMeasurementDetailOperation,
     BenchmarkMutationSummary,
     BenchmarkPhase,
     BenchmarkProgressEvent,
@@ -44,6 +54,8 @@ import {
 } from "./types";
 
 type ListenerEvent = "nodeChanged" | "treeChanged";
+
+const require = createRequire(import.meta.url);
 
 export interface BenchmarkScenarioDefinition {
     id: ScenarioId;
@@ -135,6 +147,14 @@ const SCENARIOS: BenchmarkScenarioDefinition[] = [
         title: "Reactive dependency update fan-out",
     },
     {
+        id: "react-use-node",
+        title: "React useNode",
+    },
+    {
+        id: "react-use-tree",
+        title: "React useTree",
+    },
+    {
         id: "on-changed-effect",
         title: "onChanged effect",
     },
@@ -155,6 +175,40 @@ const SCENARIOS: BenchmarkScenarioDefinition[] = [
 const MAX_MUTATION_COLLECTION_SIZE = 32;
 
 let callbackReadSink = 0;
+
+interface ReactBenchmarkModules {
+    act(run: () => void): unknown;
+    createElement(component: () => unknown): unknown;
+    createRoot(container: unknown): ReactBenchmarkRoot;
+    flushSync(run: () => void): void;
+    useNumberState(initialValue: number): [number, (value: number) => void];
+}
+
+interface ReactBenchmarkRoot {
+    render(element: unknown): void;
+    unmount(): void;
+}
+
+interface ReactBenchmarkRuntime {
+    createContainer(): unknown;
+    dispose(): void;
+    modules: ReactBenchmarkModules;
+    removeContainer(container: unknown): void;
+}
+
+type ReactBenchmarkPhase = "cleanup" | "measured" | "setup" | "warmup";
+type ReactRenderCause = "retree-update" | "setup" | "unrelated-state";
+
+interface ReactCommitResult {
+    details: BenchmarkMeasurementDetail[];
+    durationMs: number;
+}
+
+interface JsdomConstructor {
+    new (html: string): unknown;
+}
+
+let reactBenchmarkRuntime: ReactBenchmarkRuntime | undefined;
 
 class AutoTrappingConsumer extends ReactiveNode {
     public sourceLink: RetreeLink<BenchmarkNode> | null = null;
@@ -304,72 +358,79 @@ function decorateAutoTrappingMethod(
 
 export function runBenchmarks(config: BenchmarkConfig): BenchmarkResults {
     const scenarioResults: BenchmarkScenarioResult[] = [];
+    const shouldDisposeReactRuntime = prepareReactBenchmarkRuntimeForScenarios(
+        SCENARIOS.map((scenario) => scenario.id)
+    );
 
-    for (const scenario of SCENARIOS) {
-        const cases: BenchmarkCaseResult[] = [];
-        const skipped: SkippedBenchmarkCase[] = [];
+    try {
+        for (const scenario of SCENARIOS) {
+            const cases: BenchmarkCaseResult[] = [];
+            const skipped: SkippedBenchmarkCase[] = [];
 
-        for (const depthTierName of config.selectedDepthTiers) {
-            const depthTier = config.profile.depthTiers[depthTierName];
-            for (const frequencyTierName of config.selectedFrequencyTiers) {
-                const frequencyTier =
-                    config.profile.frequencyTiers[frequencyTierName];
-                for (const widthTier of config.widthTiers) {
-                    for (const callbackReadMode of getCallbackReadModes(
-                        config,
-                        scenario.id
-                    )) {
-                        const variants = createScenarioVariants({
+            for (const depthTierName of config.selectedDepthTiers) {
+                const depthTier = config.profile.depthTiers[depthTierName];
+                for (const frequencyTierName of config.selectedFrequencyTiers) {
+                    const frequencyTier =
+                        config.profile.frequencyTiers[frequencyTierName];
+                    for (const widthTier of config.widthTiers) {
+                        for (const callbackReadMode of getCallbackReadModes(
                             config,
-                            depthTier,
-                            frequencyTier,
-                            scenario,
-                        });
+                            scenario.id
+                        )) {
+                            const variants = createScenarioVariants({
+                                config,
+                                depthTier,
+                                frequencyTier,
+                                scenario,
+                            });
 
-                        for (const variant of variants.cases) {
-                            cases.push(
-                                runBenchmarkCase({
-                                    ...variant,
-                                    callbackReadMode,
-                                    config,
-                                    depthTier,
-                                    frequencyTier,
-                                    scenario,
-                                    widthTier,
-                                })
-                            );
-                        }
+                            for (const variant of variants.cases) {
+                                cases.push(
+                                    runBenchmarkCase({
+                                        ...variant,
+                                        callbackReadMode,
+                                        config,
+                                        depthTier,
+                                        frequencyTier,
+                                        scenario,
+                                        widthTier,
+                                    })
+                                );
+                            }
 
-                        for (const skippedVariant of variants.skipped) {
-                            skipped.push(
-                                createSkippedCase({
-                                    ...skippedVariant.variant,
-                                    callbackReadMode,
-                                    depthTier,
-                                    frequencyTier,
-                                    reason: skippedVariant.reason,
-                                    scenario,
-                                    widthTier,
-                                })
-                            );
+                            for (const skippedVariant of variants.skipped) {
+                                skipped.push(
+                                    createSkippedCase({
+                                        ...skippedVariant.variant,
+                                        callbackReadMode,
+                                        depthTier,
+                                        frequencyTier,
+                                        reason: skippedVariant.reason,
+                                        scenario,
+                                        widthTier,
+                                    })
+                                );
+                            }
                         }
                     }
                 }
             }
+
+            scenarioResults.push({
+                cases,
+                scenarioId: scenario.id,
+                skipped,
+                title: scenario.title,
+            });
         }
 
-        scenarioResults.push({
-            cases,
-            scenarioId: scenario.id,
-            skipped,
-            title: scenario.title,
-        });
+        return {
+            metadata: createBenchmarkMetadata(config),
+            scenarios: scenarioResults,
+        };
+    } finally {
+        disposeReactBenchmarkRuntimeIfNeeded(shouldDisposeReactRuntime);
     }
-
-    return {
-        metadata: createBenchmarkMetadata(config),
-        scenarios: scenarioResults,
-    };
 }
 
 export function getBenchmarkScenarioDefinitions() {
@@ -381,6 +442,9 @@ export async function runBenchmarksWithProgress(
     progressOptions: RunBenchmarksProgressOptions = {}
 ): Promise<BenchmarkResults> {
     const scenarioResults: BenchmarkScenarioResult[] = [];
+    const shouldDisposeReactRuntime = prepareReactBenchmarkRuntimeForScenarios(
+        SCENARIOS.map((scenario) => scenario.id)
+    );
     const progressState: BenchmarkProgressState = {
         ...estimateBenchmarkWork(config),
         caseIndex: 0,
@@ -389,75 +453,79 @@ export async function runBenchmarksWithProgress(
         phaseIndex: 0,
     };
 
-    for (const scenario of SCENARIOS) {
-        const cases: BenchmarkCaseResult[] = [];
-        const skipped: SkippedBenchmarkCase[] = [];
+    try {
+        for (const scenario of SCENARIOS) {
+            const cases: BenchmarkCaseResult[] = [];
+            const skipped: SkippedBenchmarkCase[] = [];
 
-        for (const depthTierName of config.selectedDepthTiers) {
-            const depthTier = config.profile.depthTiers[depthTierName];
-            for (const frequencyTierName of config.selectedFrequencyTiers) {
-                const frequencyTier =
-                    config.profile.frequencyTiers[frequencyTierName];
-                for (const widthTier of config.widthTiers) {
-                    for (const callbackReadMode of getCallbackReadModes(
-                        config,
-                        scenario.id
-                    )) {
-                        const variants = createScenarioVariants({
+            for (const depthTierName of config.selectedDepthTiers) {
+                const depthTier = config.profile.depthTiers[depthTierName];
+                for (const frequencyTierName of config.selectedFrequencyTiers) {
+                    const frequencyTier =
+                        config.profile.frequencyTiers[frequencyTierName];
+                    for (const widthTier of config.widthTiers) {
+                        for (const callbackReadMode of getCallbackReadModes(
                             config,
-                            depthTier,
-                            frequencyTier,
-                            scenario,
-                        });
+                            scenario.id
+                        )) {
+                            const variants = createScenarioVariants({
+                                config,
+                                depthTier,
+                                frequencyTier,
+                                scenario,
+                            });
 
-                        for (const variant of variants.cases) {
-                            cases.push(
-                                await runBenchmarkCaseWithProgress(
-                                    {
-                                        ...variant,
+                            for (const variant of variants.cases) {
+                                cases.push(
+                                    await runBenchmarkCaseWithProgress(
+                                        {
+                                            ...variant,
+                                            callbackReadMode,
+                                            config,
+                                            depthTier,
+                                            frequencyTier,
+                                            scenario,
+                                            widthTier,
+                                        },
+                                        progressState,
+                                        progressOptions
+                                    )
+                                );
+                            }
+
+                            for (const skippedVariant of variants.skipped) {
+                                skipped.push(
+                                    createSkippedCase({
+                                        ...skippedVariant.variant,
                                         callbackReadMode,
-                                        config,
                                         depthTier,
                                         frequencyTier,
+                                        reason: skippedVariant.reason,
                                         scenario,
                                         widthTier,
-                                    },
-                                    progressState,
-                                    progressOptions
-                                )
-                            );
-                        }
-
-                        for (const skippedVariant of variants.skipped) {
-                            skipped.push(
-                                createSkippedCase({
-                                    ...skippedVariant.variant,
-                                    callbackReadMode,
-                                    depthTier,
-                                    frequencyTier,
-                                    reason: skippedVariant.reason,
-                                    scenario,
-                                    widthTier,
-                                })
-                            );
+                                    })
+                                );
+                            }
                         }
                     }
                 }
             }
+
+            scenarioResults.push({
+                cases,
+                scenarioId: scenario.id,
+                skipped,
+                title: scenario.title,
+            });
         }
 
-        scenarioResults.push({
-            cases,
-            scenarioId: scenario.id,
-            skipped,
-            title: scenario.title,
-        });
+        return {
+            metadata: createBenchmarkMetadata(config),
+            scenarios: scenarioResults,
+        };
+    } finally {
+        disposeReactBenchmarkRuntimeIfNeeded(shouldDisposeReactRuntime);
     }
-
-    return {
-        metadata: createBenchmarkMetadata(config),
-        scenarios: scenarioResults,
-    };
 }
 
 export async function runBenchmarkScenarioWithProgress(
@@ -466,6 +534,9 @@ export async function runBenchmarkScenarioWithProgress(
     progressOptions: RunBenchmarksProgressOptions = {}
 ): Promise<BenchmarkScenarioResult> {
     const scenario = resolveScenarioDefinition(scenarioId);
+    const shouldDisposeReactRuntime = prepareReactBenchmarkRuntimeForScenarios([
+        scenarioId,
+    ]);
     const progressState: BenchmarkProgressState = {
         ...estimateBenchmarkScenarioWork(config, scenarioId),
         caseIndex: 0,
@@ -474,12 +545,16 @@ export async function runBenchmarkScenarioWithProgress(
         phaseIndex: 0,
     };
 
-    return runScenarioWithProgress(
-        config,
-        scenario,
-        progressState,
-        progressOptions
-    );
+    try {
+        return await runScenarioWithProgress(
+            config,
+            scenario,
+            progressState,
+            progressOptions
+        );
+    } finally {
+        disposeReactBenchmarkRuntimeIfNeeded(shouldDisposeReactRuntime);
+    }
 }
 
 export function estimateBenchmarkWork(
@@ -781,6 +856,10 @@ function createScenarioVariants(options: {
 }
 
 function runBenchmarkCase(options: BenchmarkRunContext): BenchmarkCaseResult {
+    if (isReactHookScenario(options.scenario.id)) {
+        return runReactHookBenchmarkCase(options);
+    }
+
     const setupStartedAt = performance.now();
     const prepared = prepareBenchmarkCase(options);
     const measurements: BenchmarkMeasurement[] = [];
@@ -893,6 +972,14 @@ async function runBenchmarkCaseWithProgress(
     progressState: BenchmarkProgressState,
     progressOptions: RunBenchmarksProgressOptions
 ): Promise<BenchmarkCaseResult> {
+    if (isReactHookScenario(options.scenario.id)) {
+        return runReactHookBenchmarkCaseWithProgress(
+            options,
+            progressState,
+            progressOptions
+        );
+    }
+
     const measurements: BenchmarkMeasurement[] = [];
     let listenerCalls = 0;
     let timerStartedAt: number | null = null;
@@ -1038,6 +1125,768 @@ async function runBenchmarkCaseWithProgress(
         measurements,
         prepared.setupMeasurements
     );
+}
+
+function runReactHookBenchmarkCase(
+    options: BenchmarkRunContext
+): BenchmarkCaseResult {
+    const prepared = prepareBenchmarkCase(options);
+    const measurements: BenchmarkMeasurement[] = [];
+    const reactCase = setupReactHookBenchmarkCase(options, prepared);
+
+    try {
+        for (
+            let warmupIndex = 0;
+            warmupIndex < options.config.profile.warmupCommits;
+            warmupIndex++
+        ) {
+            reactCase.commit(warmupIndex);
+        }
+
+        for (
+            let commitIndex = 0;
+            commitIndex < options.frequencyTier.value;
+            commitIndex++
+        ) {
+            const result = reactCase.commit(commitIndex, true);
+            const unrelatedRenderResult = reactCase.unrelatedRender(true);
+            measurements.push({
+                details: [...result.details, ...unrelatedRenderResult.details],
+                durationMs: result.durationMs,
+                mutationType: "scalar-set",
+            });
+        }
+    } finally {
+        reactCase.cleanup();
+        Retree.clearListeners(prepared.tree.root, false);
+    }
+
+    return createBenchmarkCaseResult(
+        options,
+        measurements,
+        prepared.setupMeasurements
+    );
+}
+
+async function runReactHookBenchmarkCaseWithProgress(
+    options: BenchmarkRunContext,
+    progressState: BenchmarkProgressState,
+    progressOptions: RunBenchmarksProgressOptions
+): Promise<BenchmarkCaseResult> {
+    const measurements: BenchmarkMeasurement[] = [];
+
+    progressState.caseIndex++;
+    progressState.phaseIndex++;
+
+    await waitForBenchmarkTurn({
+        commitIndex: 0,
+        commitsInPhase: 1,
+        options,
+        phase: "setup",
+        progressOptions,
+        progressState,
+    });
+
+    const prepared = prepareBenchmarkCase(options);
+    const reactCase = setupReactHookBenchmarkCase(options, prepared);
+
+    try {
+        const setupSummary = summarizeDurations(
+            prepared.setupMeasurements.map(
+                (measurement) => measurement.durationMs
+            )
+        );
+        progressState.lastOperationDurationMs = setupSummary.maxMs;
+        progressState.operationIndex++;
+
+        progressState.phaseIndex++;
+        for (
+            let warmupIndex = 0;
+            warmupIndex < options.config.profile.warmupCommits;
+            warmupIndex++
+        ) {
+            await waitForBenchmarkTurn({
+                commitIndex: warmupIndex,
+                commitsInPhase: options.config.profile.warmupCommits,
+                options,
+                phase: "warmup",
+                progressOptions,
+                progressState,
+            });
+            const result = reactCase.commit(warmupIndex);
+            progressState.lastOperationDurationMs = result.durationMs;
+            progressState.operationIndex++;
+        }
+
+        progressState.phaseIndex++;
+        for (
+            let commitIndex = 0;
+            commitIndex < options.frequencyTier.value;
+            commitIndex++
+        ) {
+            await waitForBenchmarkTurn({
+                commitIndex,
+                commitsInPhase: options.frequencyTier.value,
+                options,
+                phase: "measured",
+                progressOptions,
+                progressState,
+            });
+            const result = reactCase.commit(commitIndex, true);
+            const unrelatedRenderResult = reactCase.unrelatedRender(true);
+            measurements.push({
+                details: [...result.details, ...unrelatedRenderResult.details],
+                durationMs: result.durationMs,
+                mutationType: "scalar-set",
+            });
+            progressState.lastOperationDurationMs = result.durationMs;
+            progressState.operationIndex++;
+        }
+    } finally {
+        reactCase.cleanup();
+        Retree.clearListeners(prepared.tree.root, false);
+    }
+
+    return createBenchmarkCaseResult(
+        options,
+        measurements,
+        prepared.setupMeasurements
+    );
+}
+
+function setupReactHookBenchmarkCase(
+    options: BenchmarkRunContext,
+    prepared: ReturnType<typeof prepareBenchmarkCase>
+) {
+    const setupStartedAt = performance.now();
+    const runtime = getReactBenchmarkRuntime();
+    const modules = runtime.modules;
+    const container = runtime.createContainer();
+    const root = modules.createRoot(container);
+    const subscribedNode =
+        options.scenario.id === "react-use-tree"
+            ? prepared.tree.root
+            : prepared.tree.target;
+    let reactPhase: ReactBenchmarkPhase = "setup";
+    let renderCause: ReactRenderCause = "setup";
+    let currentMeasurementDetails: BenchmarkMeasurementDetail[] | undefined;
+    let renderCount = 0;
+    let triggerUnrelatedRender: ((value: number) => void) | undefined;
+    let unrelatedRenderVersion = 0;
+    const restoreRecorder = __unstable_setUseNodeInternalBenchmarkRecorder(
+        (measurement) => {
+            recordReactHookBenchmarkMeasurement({
+                measurement,
+                phase: reactPhase,
+                renderCause,
+                setupMeasurements: prepared.setupMeasurements,
+                currentMeasurementDetails,
+            });
+        }
+    );
+
+    function recordReactMeasurementDetail(
+        operation: BenchmarkMeasurementDetailOperation,
+        durationMs: number
+    ) {
+        if (reactPhase === "measured") {
+            currentMeasurementDetails?.push({
+                durationMs,
+                operation,
+            });
+            return;
+        }
+        if (reactPhase === "warmup") {
+            return;
+        }
+        if (!isReactSetupMeasurementOperation(operation)) {
+            throw new Error(
+                `React benchmark attempted to record ${operation} during setup or cleanup.`
+            );
+        }
+        recordSetupOperationDuration(
+            prepared.setupMeasurements,
+            operation,
+            durationMs
+        );
+    }
+
+    function BenchmarkComponent() {
+        const componentStartedAt = performance.now();
+        const [unrelatedVersion, setUnrelatedVersion] =
+            modules.useNumberState(0);
+        triggerUnrelatedRender = setUnrelatedVersion;
+        callbackReadSink += unrelatedVersion;
+        const hookStartedAt = performance.now();
+        const state =
+            options.scenario.id === "react-use-tree"
+                ? useTree(subscribedNode)
+                : useNode(subscribedNode);
+        recordReactMeasurementDetail(
+            getReactHookCallOperation(renderCause),
+            performance.now() - hookStartedAt
+        );
+        renderCount++;
+        measureReactRenderRead({
+            cause: renderCause,
+            node: state,
+            options,
+            record: recordReactMeasurementDetail,
+        });
+        recordReactMeasurementDetail(
+            getReactComponentRenderOperation(renderCause),
+            performance.now() - componentStartedAt
+        );
+        return null;
+    }
+
+    try {
+        reactPhase = "setup";
+        renderCause = "setup";
+        measureSetupOperation(
+            prepared.setupMeasurements,
+            "react-root-render",
+            () =>
+                runReactSync(modules, () => {
+                    root.render(modules.createElement(BenchmarkComponent));
+                })
+        );
+    } catch (error: unknown) {
+        restoreRecorder();
+        runtime.removeContainer(container);
+        throw error;
+    }
+    if (renderCount !== 1) {
+        restoreRecorder();
+        runtime.removeContainer(container);
+        throw new Error(
+            `${options.scenario.title}: expected initial React render count to be 1, but received ${renderCount}.`
+        );
+    }
+    recordSetupOperationDuration(
+        prepared.setupMeasurements,
+        "case-setup-total",
+        performance.now() - setupStartedAt
+    );
+
+    return {
+        cleanup() {
+            try {
+                reactPhase = "cleanup";
+                measureSetupOperation(
+                    prepared.setupMeasurements,
+                    "react-root-unmount",
+                    () => {
+                        runReactSync(modules, () => {
+                            root.unmount();
+                        });
+                        runtime.removeContainer(container);
+                    }
+                );
+            } finally {
+                restoreRecorder();
+            }
+        },
+        commit(
+            commitIndex: number,
+            shouldCollectDetails = false
+        ): ReactCommitResult {
+            const previousRenderCount = renderCount;
+            const details: BenchmarkMeasurementDetail[] = [];
+            reactPhase = shouldCollectDetails ? "measured" : "warmup";
+            renderCause = "retree-update";
+            currentMeasurementDetails = shouldCollectDetails
+                ? details
+                : undefined;
+            const startedAt = performance.now();
+            runReactSync(modules, () => {
+                applyMutation({
+                    commitIndex,
+                    mutationType: "scalar-set",
+                    target: prepared.mutationTarget,
+                });
+            });
+            const durationMs = performance.now() - startedAt;
+            currentMeasurementDetails = undefined;
+            const expectedRenderCount = previousRenderCount + 1;
+            if (renderCount !== expectedRenderCount) {
+                throw new Error(
+                    `${options.scenario.title}: expected React render count to advance from ${previousRenderCount} to ${expectedRenderCount} for commit ${commitIndex}, but received ${renderCount}.`
+                );
+            }
+            if (shouldCollectDetails) {
+                details.push({
+                    durationMs: Math.max(
+                        durationMs -
+                            sumReactMeasurementDetails(
+                                details,
+                                "react-component-render"
+                            ),
+                        0
+                    ),
+                    operation: "react-update-outside-component",
+                });
+            }
+            return {
+                details,
+                durationMs,
+            };
+        },
+        unrelatedRender(shouldCollectDetails = false): ReactCommitResult {
+            if (triggerUnrelatedRender === undefined) {
+                throw new Error(
+                    `${options.scenario.title}: cannot trigger unrelated React render before the benchmark component has mounted.`
+                );
+            }
+            const previousRenderCount = renderCount;
+            const details: BenchmarkMeasurementDetail[] = [];
+            reactPhase = shouldCollectDetails ? "measured" : "warmup";
+            renderCause = "unrelated-state";
+            currentMeasurementDetails = shouldCollectDetails
+                ? details
+                : undefined;
+            const startedAt = performance.now();
+            unrelatedRenderVersion++;
+            const nextVersion = unrelatedRenderVersion;
+            runReactSync(modules, () => {
+                triggerUnrelatedRender?.(nextVersion);
+            });
+            const durationMs = performance.now() - startedAt;
+            currentMeasurementDetails = undefined;
+            const expectedRenderCount = previousRenderCount + 1;
+            if (renderCount !== expectedRenderCount) {
+                throw new Error(
+                    `${options.scenario.title}: expected unrelated React render count to advance from ${previousRenderCount} to ${expectedRenderCount}, but received ${renderCount}.`
+                );
+            }
+            if (shouldCollectDetails) {
+                details.push({
+                    durationMs: Math.max(
+                        durationMs -
+                            sumReactMeasurementDetails(
+                                details,
+                                "react-unrelated-component-render"
+                            ),
+                        0
+                    ),
+                    operation: "react-unrelated-update-outside-component",
+                });
+            }
+            return {
+                details,
+                durationMs,
+            };
+        },
+    };
+}
+
+function recordReactHookBenchmarkMeasurement(options: {
+    currentMeasurementDetails: BenchmarkMeasurementDetail[] | undefined;
+    measurement: UseNodeInternalBenchmarkMeasurement;
+    phase: ReactBenchmarkPhase;
+    renderCause: ReactRenderCause;
+    setupMeasurements: BenchmarkSetupMeasurement[];
+}) {
+    const operation = formatReactHookBenchmarkOperation(
+        options.measurement.operation,
+        options.renderCause
+    );
+    if (options.phase === "measured") {
+        options.currentMeasurementDetails?.push({
+            durationMs: options.measurement.durationMs,
+            operation,
+        });
+        return;
+    }
+    if (options.phase === "warmup") {
+        return;
+    }
+    if (!isReactSetupMeasurementOperation(operation)) {
+        throw new Error(
+            `React benchmark attempted to record ${operation} hook instrumentation during setup or cleanup.`
+        );
+    }
+    recordSetupOperationDuration(
+        options.setupMeasurements,
+        operation,
+        options.measurement.durationMs
+    );
+}
+
+function measureReactRenderRead(options: {
+    cause: ReactRenderCause;
+    node: BenchmarkNode;
+    options: BenchmarkRunContext;
+    record: (
+        operation: BenchmarkMeasurementDetailOperation,
+        durationMs: number
+    ) => void;
+}) {
+    const firstReadStartedAt = performance.now();
+    consumeCallbackRead(options.node, options.options.callbackReadMode);
+    const firstReadDurationMs = performance.now() - firstReadStartedAt;
+    options.record(
+        getReactRenderReadOperation(options.cause, "first"),
+        firstReadDurationMs
+    );
+
+    const secondReadStartedAt = performance.now();
+    consumeCallbackRead(options.node, options.options.callbackReadMode);
+    const secondReadDurationMs = performance.now() - secondReadStartedAt;
+    options.record(
+        getReactRenderReadOperation(options.cause, "second"),
+        secondReadDurationMs
+    );
+
+    options.record(
+        getReactRenderReadOperation(options.cause, "total"),
+        firstReadDurationMs + secondReadDurationMs
+    );
+}
+
+function getReactHookCallOperation(
+    cause: ReactRenderCause
+): BenchmarkMeasurementDetailOperation {
+    if (cause === "unrelated-state") {
+        return "react-unrelated-hook-call";
+    }
+    return "react-hook-call";
+}
+
+function getReactComponentRenderOperation(
+    cause: ReactRenderCause
+): BenchmarkMeasurementDetailOperation {
+    if (cause === "unrelated-state") {
+        return "react-unrelated-component-render";
+    }
+    return "react-component-render";
+}
+
+function getReactRenderReadOperation(
+    cause: ReactRenderCause,
+    readPass: "first" | "second" | "total"
+): BenchmarkMeasurementDetailOperation {
+    if (cause === "unrelated-state") {
+        if (readPass === "first") {
+            return "react-unrelated-render-read-first";
+        }
+        if (readPass === "second") {
+            return "react-unrelated-render-read-second";
+        }
+        return "react-unrelated-render-read";
+    }
+    if (readPass === "first") {
+        return "react-hook-render-read-first";
+    }
+    if (readPass === "second") {
+        return "react-hook-render-read-second";
+    }
+    return "react-hook-render-read";
+}
+
+function isReactSetupMeasurementOperation(
+    operation: BenchmarkMeasurementDetailOperation
+): operation is BenchmarkMeasurementDetailOperation & BenchmarkSetupOperation {
+    if (operation === "react-component-render") {
+        return true;
+    }
+    if (operation === "react-hook-call") {
+        return true;
+    }
+    if (operation === "react-hook-effect-cleanup") {
+        return true;
+    }
+    if (operation === "react-hook-effect-subscribe") {
+        return true;
+    }
+    if (operation === "react-hook-initial-reproxy-state") {
+        return true;
+    }
+    if (operation === "react-hook-render-base-proxy") {
+        return true;
+    }
+    if (operation === "react-hook-render-read") {
+        return true;
+    }
+    if (operation === "react-hook-render-read-first") {
+        return true;
+    }
+    if (operation === "react-hook-render-read-second") {
+        return true;
+    }
+    if (operation === "react-hook-render-reproxy-reset") {
+        return true;
+    }
+    if (operation === "react-hook-render-state-base-proxy") {
+        return true;
+    }
+    return false;
+}
+
+function formatReactHookBenchmarkOperation(
+    operation: UseNodeInternalBenchmarkOperation,
+    renderCause: ReactRenderCause
+): BenchmarkMeasurementDetailOperation {
+    if (operation === "effect-cleanup") {
+        return "react-hook-effect-cleanup";
+    }
+    if (operation === "effect-subscribe") {
+        return "react-hook-effect-subscribe";
+    }
+    if (operation === "initial-reproxy-state") {
+        return "react-hook-initial-reproxy-state";
+    }
+    if (operation === "render-base-proxy") {
+        if (renderCause === "unrelated-state") {
+            return "react-unrelated-hook-render-base-proxy";
+        }
+        return "react-hook-render-base-proxy";
+    }
+    if (operation === "render-reproxy-reset") {
+        if (renderCause === "unrelated-state") {
+            return "react-unrelated-hook-render-reproxy-reset";
+        }
+        return "react-hook-render-reproxy-reset";
+    }
+    if (operation === "render-state-base-proxy") {
+        if (renderCause === "unrelated-state") {
+            return "react-unrelated-hook-render-state-base-proxy";
+        }
+        return "react-hook-render-state-base-proxy";
+    }
+    throw new Error(
+        `Unknown useNodeInternal benchmark operation: ${operation}.`
+    );
+}
+
+function sumReactMeasurementDetails(
+    details: BenchmarkMeasurementDetail[],
+    operation: BenchmarkMeasurementDetailOperation
+) {
+    return details.reduce((sum, detail) => {
+        if (detail.operation !== operation) {
+            return sum;
+        }
+        return sum + detail.durationMs;
+    }, 0);
+}
+
+function prepareReactBenchmarkRuntimeForScenarios(
+    scenarioIds: ScenarioId[]
+): boolean {
+    if (!scenarioIds.some(isReactHookScenario)) {
+        return false;
+    }
+    getReactBenchmarkRuntime();
+    return true;
+}
+
+function disposeReactBenchmarkRuntimeIfNeeded(shouldDispose: boolean): void {
+    if (!shouldDispose) {
+        return;
+    }
+    const runtime = reactBenchmarkRuntime;
+    reactBenchmarkRuntime = undefined;
+    runtime?.dispose();
+}
+
+function getReactBenchmarkRuntime(): ReactBenchmarkRuntime {
+    if (reactBenchmarkRuntime !== undefined) {
+        return reactBenchmarkRuntime;
+    }
+    const dom = createReactBenchmarkDom();
+    const modules = loadReactBenchmarkModules();
+    reactBenchmarkRuntime = {
+        createContainer: dom.createContainer,
+        dispose: dom.dispose,
+        modules,
+        removeContainer: dom.removeContainer,
+    };
+    return reactBenchmarkRuntime;
+}
+
+function loadReactBenchmarkModules(): ReactBenchmarkModules {
+    const reactModule: unknown = require("react");
+    const reactDomModule: unknown = require("react-dom");
+    const reactDomClientModule: unknown = require("react-dom/client");
+
+    if (!isRecord(reactModule)) {
+        throw new Error("React benchmark failed to load the react module.");
+    }
+    if (!isRecord(reactDomModule)) {
+        throw new Error("React benchmark failed to load the react-dom module.");
+    }
+    if (!isRecord(reactDomClientModule)) {
+        throw new Error(
+            "React benchmark failed to load the react-dom/client module."
+        );
+    }
+
+    const createElement = reactModule.createElement;
+    if (typeof createElement !== "function") {
+        throw new Error(
+            "React benchmark cannot run because react.createElement is missing."
+        );
+    }
+
+    const useState = reactModule.useState;
+    if (typeof useState !== "function") {
+        throw new Error(
+            "React benchmark cannot run because react.useState is missing."
+        );
+    }
+
+    const act = reactModule.act;
+    if (typeof act !== "function") {
+        throw new Error(
+            "React benchmark cannot run because react.act is missing."
+        );
+    }
+
+    const flushSync = reactDomModule.flushSync;
+    if (typeof flushSync !== "function") {
+        throw new Error(
+            "React benchmark cannot run because react-dom.flushSync is missing."
+        );
+    }
+
+    const createRoot = reactDomClientModule.createRoot;
+    if (typeof createRoot !== "function") {
+        throw new Error(
+            "React benchmark cannot run because react-dom/client.createRoot is missing."
+        );
+    }
+
+    return {
+        act: (run) => act(run),
+        createElement: (component) => createElement(component),
+        createRoot: (container) => {
+            const root: unknown = createRoot(container);
+            if (!isReactBenchmarkRoot(root)) {
+                throw new Error(
+                    "React benchmark cannot run because createRoot returned an invalid root."
+                );
+            }
+            return root;
+        },
+        flushSync: (run) => {
+            flushSync(run);
+        },
+        useNumberState: (initialValue) => {
+            const stateTuple: unknown = useState(initialValue);
+            if (!isNumberReactStateTuple(stateTuple)) {
+                throw new Error(
+                    "React benchmark cannot run because react.useState returned an invalid state tuple."
+                );
+            }
+            return stateTuple;
+        },
+    };
+}
+
+function createReactBenchmarkDom(): Omit<ReactBenchmarkRuntime, "modules"> {
+    const jsdomModule: unknown = require("jsdom");
+    if (!isRecord(jsdomModule)) {
+        throw new Error("React benchmark failed to load the jsdom module.");
+    }
+    const JSDOM = jsdomModule.JSDOM;
+    if (!isJsdomConstructor(JSDOM)) {
+        throw new Error(
+            "React benchmark cannot run because jsdom.JSDOM is missing."
+        );
+    }
+    const dom: unknown = new JSDOM("<!doctype html><html><body></body></html>");
+    if (!isRecord(dom)) {
+        throw new Error("React benchmark failed to create a jsdom instance.");
+    }
+    const window = dom.window;
+    if (!isRecord(window)) {
+        throw new Error("React benchmark failed to create a jsdom window.");
+    }
+    const document = window.document;
+    if (!isRecord(document)) {
+        throw new Error("React benchmark failed to create a jsdom document.");
+    }
+    const body = document.body;
+    if (!isRecord(body)) {
+        throw new Error("React benchmark failed to create a jsdom body.");
+    }
+
+    const globalValues = globalThis as Record<string, unknown>;
+    const previousValues = new Map<
+        string,
+        { descriptor?: PropertyDescriptor; existed: boolean }
+    >();
+    const setGlobal = (key: string, value: unknown) => {
+        previousValues.set(key, {
+            descriptor: Object.getOwnPropertyDescriptor(globalValues, key),
+            existed: Object.prototype.hasOwnProperty.call(globalValues, key),
+        });
+        Object.defineProperty(globalValues, key, {
+            configurable: true,
+            value,
+            writable: true,
+        });
+    };
+
+    setGlobal("window", window);
+    setGlobal("document", document);
+    setGlobal("navigator", window.navigator);
+    setGlobal("HTMLElement", window.HTMLElement);
+    setGlobal("Node", window.Node);
+    setGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+
+    return {
+        createContainer() {
+            const createElement = document.createElement;
+            if (typeof createElement !== "function") {
+                throw new Error(
+                    "React benchmark cannot create a container because document.createElement is missing."
+                );
+            }
+            const appendChild = body.appendChild;
+            if (typeof appendChild !== "function") {
+                throw new Error(
+                    "React benchmark cannot attach a container because document.body.appendChild is missing."
+                );
+            }
+            const container = createElement.call(document, "div");
+            appendChild.call(body, container);
+            return container;
+        },
+        dispose() {
+            const close = window.close;
+            if (typeof close === "function") {
+                close.call(window);
+            }
+            for (const [key, previous] of previousValues) {
+                if (!previous.existed) {
+                    delete globalValues[key];
+                    continue;
+                }
+                if (previous.descriptor === undefined) {
+                    delete globalValues[key];
+                    continue;
+                }
+                Object.defineProperty(globalValues, key, previous.descriptor);
+            }
+        },
+        removeContainer(container: unknown) {
+            const removeChild = body.removeChild;
+            if (typeof removeChild !== "function") {
+                throw new Error(
+                    "React benchmark cannot remove a container because document.body.removeChild is missing."
+                );
+            }
+            removeChild.call(body, container);
+        },
+    };
+}
+
+function runReactSync(modules: ReactBenchmarkModules, run: () => void) {
+    modules.act(() => {
+        modules.flushSync(run);
+    });
 }
 
 function prepareBenchmarkCase(options: BenchmarkRunContext) {
@@ -1964,6 +2813,7 @@ function resolveMutationType(
     }
     if (
         options.scenario.id === "select-vs-tree-traversal" ||
+        isReactHookScenario(options.scenario.id) ||
         isAutoTrappingScenario(options.scenario.id)
     ) {
         return "scalar-set";
@@ -2075,7 +2925,23 @@ export function getBenchmarkScenarioCallbackReadModes(
     if (scenarioId === "select-vs-tree-traversal") {
         return ["none"];
     }
+    if (scenarioId === "react-use-node") {
+        return uniqueCallbackReadModes(
+            config.callbackReadModes.map((callbackReadMode) => {
+                if (callbackReadMode === "deep") {
+                    return "shallow";
+                }
+                return callbackReadMode;
+            })
+        );
+    }
     return [...config.callbackReadModes];
+}
+
+function uniqueCallbackReadModes(
+    callbackReadModes: CallbackReadMode[]
+): CallbackReadMode[] {
+    return [...new Set(callbackReadModes)];
 }
 
 function getCallbackReadModes(
@@ -2091,6 +2957,10 @@ function isAutoTrappingScenario(scenarioId: ScenarioId): boolean {
         scenarioId === "auto-trapped-memo" ||
         scenarioId === "auto-trapped-fn-memo"
     );
+}
+
+function isReactHookScenario(scenarioId: ScenarioId): boolean {
+    return scenarioId === "react-use-node" || scenarioId === "react-use-tree";
 }
 
 function consumeAutoTrappedValue(
@@ -2317,6 +3187,39 @@ function requireNumber(value: number | undefined, message: string) {
         throw new Error(message);
     }
     return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === "object";
+}
+
+function isReactBenchmarkRoot(value: unknown): value is ReactBenchmarkRoot {
+    if (!isRecord(value)) {
+        return false;
+    }
+    return (
+        typeof value.render === "function" &&
+        typeof value.unmount === "function"
+    );
+}
+
+function isNumberReactStateTuple(
+    value: unknown
+): value is [number, (value: number) => void] {
+    if (!Array.isArray(value)) {
+        return false;
+    }
+    if (value.length !== 2) {
+        return false;
+    }
+    if (typeof value[0] !== "number") {
+        return false;
+    }
+    return typeof value[1] === "function";
+}
+
+function isJsdomConstructor(value: unknown): value is JsdomConstructor {
+    return typeof value === "function";
 }
 
 function createBenchmarkMetadata(config: BenchmarkConfig) {

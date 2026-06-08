@@ -18,7 +18,11 @@
     },
     "dependencies": {
         "@inquirer/prompts": "^7.0.0",
-        "@retreejs/core": "0.4.11"
+        "@retreejs/core": "0.4.11",
+        "@retreejs/react": "0.4.11",
+        "jsdom": "^26.1.0",
+        "react": "^19.2.5",
+        "react-dom": "^19.2.5"
     },
     "devDependencies": {
         "@types/node": "^20.2.3",

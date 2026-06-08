@@ -3,8 +3,10 @@ import path from "node:path";
 import {
     BenchmarkArtifactPaths,
     BenchmarkCaseResult,
+    BenchmarkMeasurementDetailOperation,
     BenchmarkResults,
     BenchmarkScenarioResult,
+    BenchmarkSetupOperation,
     SkippedBenchmarkCase,
 } from "./types";
 
@@ -308,6 +310,14 @@ function renderMarkdownLegend() {
                     "Many dependent roots share one dependency target, but commits mutate a dependent root to measure dependency update overhead.",
                 ],
                 [
+                    "React useNode",
+                    "Mounts a React component using useNode, mutates the subscribed node, and measures from mutation start through the committed React re-render.",
+                ],
+                [
+                    "React useTree",
+                    "Mounts a React component using useTree on the root, mutates a deep target, and measures from mutation start through the committed React re-render.",
+                ],
+                [
                     "onChanged effect",
                     "The mutated target has an onChanged effect that performs the configured number of extra writes.",
                 ],
@@ -354,7 +364,7 @@ function renderMarkdownLegend() {
                 ],
                 [
                     "Callback read",
-                    "How much data the listener reads when it fires: none, shallow, or deep.",
+                    "How much data the listener reads when it fires: none, shallow, or deep. React scenarios use this as render-read depth; React useNode caps recursive profile reads to shallow because focused node components should not traverse an entire subtree.",
                 ],
                 [
                     "Dependency depth",
@@ -401,6 +411,18 @@ function renderMarkdownLegend() {
                 [
                     "Mutation warnings",
                     "Mutation types that averaged at least 25% slower than their case average.",
+                ],
+                [
+                    "React measured update breakdown",
+                    "Fine-grained timing slices recorded inside React hook benchmark commits. Some rows are nested: react-hook-call and react-hook-render-read are included in react-component-render, while react-component-render plus react-update-outside-component approximates the full Retree-triggered update. react-unrelated-* rows measure a follow-up React state rerender with no Retree mutation.",
+                ],
+                [
+                    "React initial render breakdown",
+                    "React hook benchmark timings captured during the initial component render before measured commits begin.",
+                ],
+                [
+                    "React effect lifecycle breakdown",
+                    "React hook benchmark timings captured while useEffect subscriptions are created or cleaned up.",
                 ],
             ],
             {
@@ -504,6 +526,98 @@ function renderMarkdownLegend() {
                 [
                     "changed-effect-configuration",
                     "Configuration of the onChanged effect used by effect cases.",
+                ],
+                [
+                    "react-component-render",
+                    "Benchmark component function time from entry to return.",
+                ],
+                [
+                    "react-hook-call",
+                    "The public hook call, including useNodeInternal from entry to returned node.",
+                ],
+                [
+                    "react-hook-effect-cleanup",
+                    "useNodeInternal useEffect cleanup work when the hook subscription is removed.",
+                ],
+                [
+                    "react-hook-effect-subscribe",
+                    "useNodeInternal useEffect subscription work for subscribeToNode.",
+                ],
+                [
+                    "react-hook-initial-reproxy-state",
+                    "Initial useState getReproxyNode work inside useNodeInternal.",
+                ],
+                [
+                    "react-hook-render-base-proxy",
+                    "Render-phase getBaseProxy call for the subscribed node.",
+                ],
+                [
+                    "react-hook-render-read",
+                    "Total benchmark render-read work after the hook returns, including first and immediate second read passes.",
+                ],
+                [
+                    "react-hook-render-read-first",
+                    "First benchmark render-read pass after a Retree-triggered hook render.",
+                ],
+                [
+                    "react-hook-render-read-second",
+                    "Immediate second benchmark render-read pass in the same Retree-triggered render.",
+                ],
+                [
+                    "react-hook-render-reproxy-reset",
+                    "Render-phase getReproxyNode work when useNodeInternal resets to a new base proxy.",
+                ],
+                [
+                    "react-hook-render-state-base-proxy",
+                    "Render-phase getBaseProxy call for the current hook state node.",
+                ],
+                [
+                    "react-update-outside-component",
+                    "Measured React commit time not spent inside the benchmark component function.",
+                ],
+                [
+                    "react-unrelated-component-render",
+                    "Benchmark component function time during a rerender caused by unrelated local React state.",
+                ],
+                [
+                    "react-unrelated-hook-call",
+                    "The public hook call during an unrelated local React state rerender.",
+                ],
+                [
+                    "react-unrelated-hook-render-base-proxy",
+                    "Render-phase getBaseProxy call for the subscribed node during an unrelated rerender.",
+                ],
+                [
+                    "react-unrelated-hook-render-reproxy-reset",
+                    "Render-phase getReproxyNode reset work during an unrelated rerender; this should normally be absent when no Retree node changed.",
+                ],
+                [
+                    "react-unrelated-hook-render-state-base-proxy",
+                    "Render-phase getBaseProxy call for the current hook state node during an unrelated rerender.",
+                ],
+                [
+                    "react-unrelated-render-read",
+                    "Total benchmark render-read work during an unrelated local React state rerender.",
+                ],
+                [
+                    "react-unrelated-render-read-first",
+                    "First benchmark render-read pass during an unrelated local React state rerender.",
+                ],
+                [
+                    "react-unrelated-render-read-second",
+                    "Immediate second benchmark render-read pass during an unrelated local React state rerender.",
+                ],
+                [
+                    "react-unrelated-update-outside-component",
+                    "Unrelated React update time not spent inside the benchmark component function.",
+                ],
+                [
+                    "react-root-render",
+                    "Initial React root render that mounts the benchmark hook component.",
+                ],
+                [
+                    "react-root-unmount",
+                    "React root unmount and removal of the per-case container for hook benchmarks.",
                 ],
             ],
             {
@@ -656,6 +770,34 @@ function renderMarkdownScenarioSection(
         lines.push("");
         lines.push(renderMarkdownScenarioMatrixTable(scenario));
         lines.push("");
+        if (hasMeasurementDetails(scenario)) {
+            lines.push("### React measured update breakdown");
+            lines.push("");
+            lines.push(renderMarkdownMeasurementDetailTable(scenario));
+            lines.push("");
+        }
+        if (hasReactInitialRenderSetupOperations(scenario)) {
+            lines.push("### React initial render breakdown");
+            lines.push("");
+            lines.push(
+                renderMarkdownSetupOperationTable(
+                    scenario,
+                    isReactInitialRenderOperation
+                )
+            );
+            lines.push("");
+        }
+        if (hasReactEffectLifecycleSetupOperations(scenario)) {
+            lines.push("### React effect lifecycle breakdown");
+            lines.push("");
+            lines.push(
+                renderMarkdownSetupOperationTable(
+                    scenario,
+                    isReactEffectLifecycleOperation
+                )
+            );
+            lines.push("");
+        }
         if (scenario.scenarioId === "run-transaction") {
             lines.push("### Transaction comparison");
             lines.push("");
@@ -788,8 +930,20 @@ function renderMarkdownTransactionComparisonTable(
     });
 }
 
-function renderMarkdownSetupOperationTable(scenario: BenchmarkScenarioResult) {
-    const table = createSetupOperationTable(scenario);
+function renderMarkdownMeasurementDetailTable(
+    scenario: BenchmarkScenarioResult
+) {
+    const table = createMeasurementDetailTable(scenario);
+    return renderAlignedTable(table.headers, table.rows, {
+        format: "markdown",
+    });
+}
+
+function renderMarkdownSetupOperationTable(
+    scenario: BenchmarkScenarioResult,
+    predicate?: (operation: BenchmarkSetupOperation) => boolean
+) {
+    const table = createSetupOperationTable(scenario, predicate);
     return renderAlignedTable(table.headers, table.rows, {
         format: "markdown",
     });
@@ -950,9 +1104,14 @@ function createSlowestCaseTable(cases: BenchmarkCaseResult[]) {
     };
 }
 
-function createSetupOperationTable(scenario: BenchmarkScenarioResult) {
+function createSetupOperationTable(
+    scenario: BenchmarkScenarioResult,
+    predicate?: (operation: BenchmarkSetupOperation) => boolean
+) {
     const scenarioSummary = summarizeScenario(scenario);
-    const setupSummaries = summarizeScenarioSetupOperations(scenario);
+    const setupSummaries = summarizeScenarioSetupOperations(scenario).filter(
+        (summary) => predicate?.(summary.operation) ?? true
+    );
     return {
         headers: [
             "Setup operation",
@@ -1046,6 +1205,34 @@ function createMutationTable(scenario: BenchmarkScenarioResult) {
     };
 }
 
+function createMeasurementDetailTable(scenario: BenchmarkScenarioResult) {
+    const scenarioSummary = summarizeScenario(scenario);
+    const summaries = summarizeScenarioMeasurementDetails(scenario);
+    return {
+        headers: [
+            "Operation",
+            "Samples",
+            "Average/mean ms",
+            "Median ms",
+            "P95 ms",
+            "Max ms",
+            "Vs scenario avg",
+        ],
+        rows: summaries.map((summary) => [
+            summary.operation,
+            String(summary.samples),
+            formatMs(summary.averageMeanMs),
+            formatMs(summary.medianMs),
+            formatMs(summary.p95Ms),
+            formatMs(summary.maxMs),
+            formatRelativePercent(
+                summary.averageMeanMs,
+                scenarioSummary.averageMeanMs
+            ),
+        ]),
+    };
+}
+
 function createTransactionComparisonTable(scenario: BenchmarkScenarioResult) {
     return {
         headers: [
@@ -1104,6 +1291,62 @@ function createTransactionComparisonTable(scenario: BenchmarkScenarioResult) {
             ];
         }),
     };
+}
+
+function hasMeasurementDetails(scenario: BenchmarkScenarioResult) {
+    return scenario.cases.some((benchmarkCase) =>
+        benchmarkCase.measurements.some(
+            (measurement) =>
+                measurement.details !== undefined &&
+                measurement.details.length > 0
+        )
+    );
+}
+
+function hasReactInitialRenderSetupOperations(
+    scenario: BenchmarkScenarioResult
+) {
+    return hasSetupOperation(scenario, isReactInitialRenderOperation);
+}
+
+function hasReactEffectLifecycleSetupOperations(
+    scenario: BenchmarkScenarioResult
+) {
+    return hasSetupOperation(scenario, isReactEffectLifecycleOperation);
+}
+
+function hasSetupOperation(
+    scenario: BenchmarkScenarioResult,
+    predicate: (operation: BenchmarkSetupOperation) => boolean
+) {
+    return scenario.cases.some((benchmarkCase) =>
+        benchmarkCase.setupMeasurements.some((measurement) =>
+            predicate(measurement.operation)
+        )
+    );
+}
+
+function isReactInitialRenderOperation(operation: BenchmarkSetupOperation) {
+    return (
+        operation === "react-component-render" ||
+        operation === "react-hook-call" ||
+        operation === "react-hook-initial-reproxy-state" ||
+        operation === "react-hook-render-base-proxy" ||
+        operation === "react-hook-render-read" ||
+        operation === "react-hook-render-read-first" ||
+        operation === "react-hook-render-read-second" ||
+        operation === "react-hook-render-reproxy-reset" ||
+        operation === "react-hook-render-state-base-proxy" ||
+        operation === "react-root-render"
+    );
+}
+
+function isReactEffectLifecycleOperation(operation: BenchmarkSetupOperation) {
+    return (
+        operation === "react-hook-effect-cleanup" ||
+        operation === "react-hook-effect-subscribe" ||
+        operation === "react-root-unmount"
+    );
 }
 
 function createSkippedTable(skippedCases: SkippedBenchmarkCase[]) {
@@ -1333,7 +1576,7 @@ function summarizeScenarioMutations(scenario: BenchmarkScenarioResult) {
 }
 
 function summarizeScenarioSetupOperations(scenario: BenchmarkScenarioResult) {
-    const durationsByOperation = new Map<string, number[]>();
+    const durationsByOperation = new Map<BenchmarkSetupOperation, number[]>();
 
     for (const benchmarkCase of scenario.cases) {
         for (const measurement of benchmarkCase.setupMeasurements) {
@@ -1341,6 +1584,33 @@ function summarizeScenarioSetupOperations(scenario: BenchmarkScenarioResult) {
                 durationsByOperation.get(measurement.operation) ?? [];
             durations.push(measurement.durationMs);
             durationsByOperation.set(measurement.operation, durations);
+        }
+    }
+
+    return [...durationsByOperation.entries()]
+        .map(([operation, durations]) => ({
+            ...summarizeDurationsForReport(durations),
+            operation,
+        }))
+        .sort((left, right) => right.p95Ms - left.p95Ms);
+}
+
+function summarizeScenarioMeasurementDetails(
+    scenario: BenchmarkScenarioResult
+) {
+    const durationsByOperation = new Map<
+        BenchmarkMeasurementDetailOperation,
+        number[]
+    >();
+
+    for (const benchmarkCase of scenario.cases) {
+        for (const measurement of benchmarkCase.measurements) {
+            for (const detail of measurement.details ?? []) {
+                const durations =
+                    durationsByOperation.get(detail.operation) ?? [];
+                durations.push(detail.durationMs);
+                durationsByOperation.set(detail.operation, durations);
+            }
         }
     }
 
@@ -1401,6 +1671,8 @@ function createJsonResults(results: BenchmarkResults) {
                     }))
                 ),
                 scenarioId: scenario.scenarioId,
+                measurementDetailSummaries:
+                    summarizeScenarioMeasurementDetails(scenario),
                 setupSummaries: summarizeScenarioSetupOperations(scenario),
                 slowestSetupCases: [...scenario.cases]
                     .sort(

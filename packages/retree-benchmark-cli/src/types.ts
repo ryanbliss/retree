@@ -37,6 +37,8 @@ export type ScenarioId =
     | "reactive-dependency-update-fan-out"
     | "root-tree-changed"
     | "reactive-dependency-node-changed"
+    | "react-use-node"
+    | "react-use-tree"
     | "run-transaction"
     | "select-vs-tree-traversal"
     | "subscription-churn";
@@ -107,9 +109,38 @@ export interface BenchmarkSummary {
 }
 
 export interface BenchmarkMeasurement {
+    details?: BenchmarkMeasurementDetail[];
     durationMs: number;
     mutationType: MutationType;
     transactionComparison?: BenchmarkTransactionComparison;
+}
+
+export type BenchmarkMeasurementDetailOperation =
+    | "react-component-render"
+    | "react-hook-call"
+    | "react-hook-effect-cleanup"
+    | "react-hook-effect-subscribe"
+    | "react-hook-initial-reproxy-state"
+    | "react-hook-render-base-proxy"
+    | "react-hook-render-read"
+    | "react-hook-render-read-first"
+    | "react-hook-render-read-second"
+    | "react-hook-render-reproxy-reset"
+    | "react-hook-render-state-base-proxy"
+    | "react-unrelated-component-render"
+    | "react-unrelated-hook-call"
+    | "react-unrelated-hook-render-base-proxy"
+    | "react-unrelated-hook-render-reproxy-reset"
+    | "react-unrelated-hook-render-state-base-proxy"
+    | "react-unrelated-render-read"
+    | "react-unrelated-render-read-first"
+    | "react-unrelated-render-read-second"
+    | "react-unrelated-update-outside-component"
+    | "react-update-outside-component";
+
+export interface BenchmarkMeasurementDetail {
+    durationMs: number;
+    operation: BenchmarkMeasurementDetailOperation;
 }
 
 export interface BenchmarkTransactionComparison {
@@ -147,6 +178,19 @@ export type BenchmarkSetupOperation =
     | "listener-setup-total"
     | "mutation-target-resolution"
     | "primary-path-collection"
+    | "react-component-render"
+    | "react-hook-call"
+    | "react-hook-effect-cleanup"
+    | "react-hook-effect-subscribe"
+    | "react-hook-initial-reproxy-state"
+    | "react-hook-render-base-proxy"
+    | "react-hook-render-read"
+    | "react-hook-render-read-first"
+    | "react-hook-render-read-second"
+    | "react-hook-render-reproxy-reset"
+    | "react-hook-render-state-base-proxy"
+    | "react-root-render"
+    | "react-root-unmount"
     | "raw-dependent-node-construction"
     | "raw-tree-construction"
     | "root-proxy";

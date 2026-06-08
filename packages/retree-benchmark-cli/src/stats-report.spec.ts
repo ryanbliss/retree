@@ -37,6 +37,12 @@ describe("benchmark stats and reports", () => {
         expect(markdown).toContain("### Column legend");
         expect(markdown).toContain("### Setup operation legend");
         expect(markdown).toContain("broad-set-assignment");
+        expect(markdown).toContain("React useNode");
+        expect(markdown).toContain("react-root-render");
+        expect(markdown).toContain("React measured update breakdown");
+        expect(markdown).toContain("React initial render breakdown");
+        expect(markdown).toContain("React effect lifecycle breakdown");
+        expect(markdown).toContain("react-hook-call");
         expect(markdown).toContain("## Direct nodeChanged");
         expect(markdown).toContain("## Root treeChanged");
         expect(markdown).toContain("## runTransaction overhead");
@@ -131,6 +137,19 @@ describe("benchmark stats and reports", () => {
                 averageMeanMs: 9,
             },
             transactionMutations: 10,
+        });
+        const reactAnalysis = json.analysis.scenarios.find(
+            (scenario: { scenarioId: string }) =>
+                scenario.scenarioId === "react-use-node"
+        );
+        const outsideComponentSummary =
+            reactAnalysis.measurementDetailSummaries.find(
+                (summary: { operation: string }) =>
+                    summary.operation === "react-update-outside-component"
+            );
+        expect(outsideComponentSummary).toMatchObject({
+            operation: "react-update-outside-component",
+            samples: 1,
         });
     });
 
@@ -382,6 +401,79 @@ function createExampleResults(): BenchmarkResults {
                 scenarioId: "run-transaction",
                 skipped: [],
                 title: "runTransaction overhead",
+            },
+            {
+                cases: [
+                    {
+                        callbackReadMode: "deep",
+                        commits: 1,
+                        depth: 2,
+                        depthTitle: "Low",
+                        durationsMs: [2],
+                        frequencyTitle: "Low",
+                        measurements: [
+                            {
+                                details: [
+                                    {
+                                        durationMs: 0.5,
+                                        operation: "react-hook-call",
+                                    },
+                                    {
+                                        durationMs: 0.25,
+                                        operation: "react-hook-render-read",
+                                    },
+                                    {
+                                        durationMs: 1,
+                                        operation: "react-component-render",
+                                    },
+                                    {
+                                        durationMs: 1,
+                                        operation:
+                                            "react-update-outside-component",
+                                    },
+                                ],
+                                durationMs: 2,
+                                mutationType: "scalar-set",
+                            },
+                        ],
+                        mutationSummaries: [
+                            {
+                                ...summarizeDurations([2]),
+                                mutationType: "scalar-set",
+                            },
+                        ],
+                        scenarioId: "react-use-node",
+                        scenarioTitle: "React useNode",
+                        setupMeasurements: [
+                            {
+                                durationMs: 0.1,
+                                operation: "react-hook-effect-subscribe",
+                            },
+                            {
+                                durationMs: 1,
+                                operation: "react-root-render",
+                            },
+                        ],
+                        setupSummaries: [
+                            {
+                                ...summarizeDurations([0.1]),
+                                operation: "react-hook-effect-subscribe",
+                            },
+                            {
+                                ...summarizeDurations([1]),
+                                operation: "react-root-render",
+                            },
+                        ],
+                        setupSummary: summarizeDurations([0.1, 1]),
+                        summary: summarizeDurations([2]),
+                        warnings: [],
+                        width: 1,
+                        widthTitle: "Low",
+                    },
+                ],
+                scenarioId: "react-use-node",
+                skipped: [],
+                title: "React useNode",
             },
         ],
     };
