@@ -312,6 +312,7 @@ function createShardProgressTask(
     }
 
     return {
+        autotrappingMode: event.autotrappingMode,
         callbackReadMode: event.callbackReadMode,
         caseIndex: event.caseIndex,
         commitIndex: event.commitIndex,
@@ -473,6 +474,8 @@ function shouldShardScenarioByWidth(scenarioId: ScenarioId) {
         scenarioId === "ancestor-tree-changed-fan-out" ||
         scenarioId === "distinct-node-listeners" ||
         scenarioId === "listener-fan-out-node-changed" ||
+        scenarioId === "react-use-node" ||
+        scenarioId === "react-use-tree" ||
         scenarioId === "reactive-dependency-fan-out" ||
         scenarioId === "reactive-dependency-update-fan-out" ||
         scenarioId === "run-transaction" ||
@@ -770,6 +773,7 @@ function createBenchmarkMetadata(config: BenchmarkConfig, workerCount: number) {
         parallelWorkers: workerCount,
         platform: `${process.platform} ${os.release()}`,
         profileName: config.profileName,
+        reactInitialRenderSamples: config.profile.reactInitialRenderSamples,
         seed: config.seed,
         selectedDepthTiers: [...config.selectedDepthTiers],
         selectedFrequencyTiers: [...config.selectedFrequencyTiers],

@@ -3,9 +3,11 @@ import path from "node:path";
 import { DEFAULT_OUTPUT_DIR } from "./config";
 import {
     BenchmarkCaseResult,
+    BenchmarkMeasurementDetailOperation,
     BenchmarkResults,
     BenchmarkScenarioResult,
     BenchmarkSummary,
+    BenchmarkSetupOperation,
 } from "./types";
 
 export interface ParsedCompareArgs {
@@ -22,9 +24,15 @@ interface BenchmarkJsonResults extends BenchmarkResults {
 }
 
 interface BenchmarkAnalysisScenario {
+    measurementDetailSummaries?: BenchmarkOperationSummary[];
     scenarioId: string;
+    setupSummaries?: BenchmarkOperationSummary[];
     summary: BenchmarkScenarioAnalysisSummary;
     title: string;
+}
+
+interface BenchmarkOperationSummary extends BenchmarkSummary {
+    operation: string;
 }
 
 interface BenchmarkScenarioAnalysisSummary {
@@ -124,6 +132,12 @@ export async function renderBenchmarkComparison(args: ParsedCompareArgs) {
         renderSignalSummaryComparison(left, right),
         "",
         renderScenarioComparison(left, right),
+        "",
+        renderMeasurementDetailComparison(left, right),
+        "",
+        renderReactInitialRenderOperationComparison(left, right),
+        "",
+        renderReactEffectLifecycleOperationComparison(left, right),
     ];
 
     if (args.verbose) {
@@ -256,7 +270,23 @@ function renderMetadataComparison(
             String(left.metadata.parallelWorkers),
             String(right.metadata.parallelWorkers),
         ],
+        [
+            "React initial render samples",
+            formatOptionalMetadataNumber(
+                left.metadata.reactInitialRenderSamples
+            ),
+            formatOptionalMetadataNumber(
+                right.metadata.reactInitialRenderSamples
+            ),
+        ],
     ]);
+}
+
+function formatOptionalMetadataNumber(value: number | undefined): string {
+    if (value === undefined) {
+        return "null";
+    }
+    return String(value);
 }
 
 function renderScenarioComparison(
@@ -311,6 +341,156 @@ function renderScenarioComparison(
     }
 
     return renderSectionTable("Scenario Summary", rows);
+}
+
+function renderMeasurementDetailComparison(
+    left: BenchmarkJsonResults,
+    right: BenchmarkJsonResults
+) {
+    const leftDetails = getMeasurementDetailSummaryMap(left);
+    const rightDetails = getMeasurementDetailSummaryMap(right);
+    const rows = [
+        [
+            "Scenario",
+            "Operation",
+            "Samples",
+            "Avg ms",
+            "Avg Δ",
+            "Median ms",
+            "Median Δ",
+            "P95 ms",
+            "P95 Δ",
+        ],
+    ];
+
+    for (const summaryKey of getSortedUnionKeys(leftDetails, rightDetails)) {
+        const leftSummary = leftDetails.get(summaryKey);
+        const rightSummary = rightDetails.get(summaryKey);
+        const displaySummary = leftSummary ?? rightSummary;
+        if (displaySummary === undefined) {
+            continue;
+        }
+        rows.push([
+            displaySummary.scenarioTitle,
+            displaySummary.operation,
+            `${formatNullableInteger(
+                leftSummary?.samples
+            )} -> ${formatNullableInteger(rightSummary?.samples)}`,
+            `${formatNullableMs(
+                leftSummary?.averageMeanMs
+            )} -> ${formatNullableMs(rightSummary?.averageMeanMs)}`,
+            formatNullableDelta(
+                leftSummary?.averageMeanMs,
+                rightSummary?.averageMeanMs
+            ),
+            `${formatNullableMs(leftSummary?.medianMs)} -> ${formatNullableMs(
+                rightSummary?.medianMs
+            )}`,
+            formatNullableDelta(leftSummary?.medianMs, rightSummary?.medianMs),
+            `${formatNullableMs(leftSummary?.p95Ms)} -> ${formatNullableMs(
+                rightSummary?.p95Ms
+            )}`,
+            formatNullableDelta(leftSummary?.p95Ms, rightSummary?.p95Ms),
+        ]);
+    }
+
+    if (rows.length === 1) {
+        rows.push(["No measurement details", "", "", "", "", "", "", "", ""]);
+    }
+
+    return renderSectionTable("React Measured Update Breakdown", rows);
+}
+
+function renderReactInitialRenderOperationComparison(
+    left: BenchmarkJsonResults,
+    right: BenchmarkJsonResults
+) {
+    return renderReactSetupOperationComparison(
+        "React Initial Render Breakdown",
+        getReactInitialRenderOperationSummaryMap(left),
+        getReactInitialRenderOperationSummaryMap(right)
+    );
+}
+
+function renderReactEffectLifecycleOperationComparison(
+    left: BenchmarkJsonResults,
+    right: BenchmarkJsonResults
+) {
+    return renderReactSetupOperationComparison(
+        "React Effect Lifecycle Breakdown",
+        getReactEffectLifecycleOperationSummaryMap(left),
+        getReactEffectLifecycleOperationSummaryMap(right)
+    );
+}
+
+function renderReactSetupOperationComparison(
+    title: string,
+    leftOperations: Map<string, ScenarioOperationSummary>,
+    rightOperations: Map<string, ScenarioOperationSummary>
+) {
+    const rows = [
+        [
+            "Scenario",
+            "Operation",
+            "Samples",
+            "Avg ms",
+            "Avg Δ",
+            "P95 ms",
+            "P95 Δ",
+            "Max ms",
+            "Max Δ",
+        ],
+    ];
+
+    for (const summaryKey of getSortedUnionKeys(
+        leftOperations,
+        rightOperations
+    )) {
+        const leftSummary = leftOperations.get(summaryKey);
+        const rightSummary = rightOperations.get(summaryKey);
+        const displaySummary = leftSummary ?? rightSummary;
+        if (displaySummary === undefined) {
+            continue;
+        }
+        rows.push([
+            displaySummary.scenarioTitle,
+            displaySummary.operation,
+            `${formatNullableInteger(
+                leftSummary?.samples
+            )} -> ${formatNullableInteger(rightSummary?.samples)}`,
+            `${formatNullableMs(
+                leftSummary?.averageMeanMs
+            )} -> ${formatNullableMs(rightSummary?.averageMeanMs)}`,
+            formatNullableDelta(
+                leftSummary?.averageMeanMs,
+                rightSummary?.averageMeanMs
+            ),
+            `${formatNullableMs(leftSummary?.p95Ms)} -> ${formatNullableMs(
+                rightSummary?.p95Ms
+            )}`,
+            formatNullableDelta(leftSummary?.p95Ms, rightSummary?.p95Ms),
+            `${formatNullableMs(leftSummary?.maxMs)} -> ${formatNullableMs(
+                rightSummary?.maxMs
+            )}`,
+            formatNullableDelta(leftSummary?.maxMs, rightSummary?.maxMs),
+        ]);
+    }
+
+    if (rows.length === 1) {
+        rows.push([
+            "No React setup operations",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ]);
+    }
+
+    return renderSectionTable(title, rows);
 }
 
 function renderSignalSummaryComparison(
@@ -413,7 +593,9 @@ function renderCaseComparison(
     return renderSectionTable("Matched Cases", rows);
 }
 
-function getAnalysisScenarioMap(results: BenchmarkJsonResults) {
+function getAnalysisScenarioMap(
+    results: BenchmarkJsonResults
+): Map<string, BenchmarkAnalysisScenario> {
     const analysisScenarios = results.analysis?.scenarios;
     if (analysisScenarios !== undefined) {
         return new Map(
@@ -431,6 +613,175 @@ function getAnalysisScenarioMap(results: BenchmarkJsonResults) {
             },
         ])
     );
+}
+
+interface ScenarioOperationSummary extends BenchmarkOperationSummary {
+    scenarioId: string;
+    scenarioTitle: string;
+}
+
+function getMeasurementDetailSummaryMap(results: BenchmarkJsonResults) {
+    return getScenarioOperationSummaryMap(
+        getMeasurementDetailSummaries(results)
+    );
+}
+
+function getReactInitialRenderOperationSummaryMap(
+    results: BenchmarkJsonResults
+) {
+    return getScenarioOperationSummaryMap(
+        getSetupOperationSummaries(results).filter((summary) =>
+            isReactInitialRenderOperation(summary.operation)
+        )
+    );
+}
+
+function getReactEffectLifecycleOperationSummaryMap(
+    results: BenchmarkJsonResults
+) {
+    return getScenarioOperationSummaryMap(
+        getSetupOperationSummaries(results).filter((summary) =>
+            isReactEffectLifecycleOperation(summary.operation)
+        )
+    );
+}
+
+function isReactInitialRenderOperation(operation: string) {
+    return (
+        operation === "react-component-render" ||
+        operation === "react-hook-call" ||
+        operation === "react-hook-initial-reproxy-state" ||
+        operation === "react-hook-render-base-proxy" ||
+        operation === "react-hook-render-read" ||
+        operation === "react-hook-render-read-first" ||
+        operation === "react-hook-render-read-second" ||
+        operation === "react-hook-render-reproxy-reset" ||
+        operation === "react-hook-render-state-base-proxy" ||
+        operation === "react-root-render"
+    );
+}
+
+function isReactEffectLifecycleOperation(operation: string) {
+    return (
+        operation === "react-hook-effect-cleanup" ||
+        operation === "react-hook-effect-subscribe" ||
+        operation === "react-root-unmount"
+    );
+}
+
+function getScenarioOperationSummaryMap(summaries: ScenarioOperationSummary[]) {
+    const summaryMap = new Map<string, ScenarioOperationSummary>();
+    for (const summary of summaries) {
+        summaryMap.set(`${summary.scenarioId}|${summary.operation}`, summary);
+    }
+    return summaryMap;
+}
+
+function getSortedUnionKeys(
+    left: Map<string, ScenarioOperationSummary>,
+    right: Map<string, ScenarioOperationSummary>
+) {
+    return [...new Set([...left.keys(), ...right.keys()])].sort(
+        (leftKey, rightKey) => leftKey.localeCompare(rightKey)
+    );
+}
+
+function getMeasurementDetailSummaries(
+    results: BenchmarkJsonResults
+): ScenarioOperationSummary[] {
+    const analysisSummaries = getAnalysisOperationSummaries(
+        results,
+        "measurementDetailSummaries"
+    );
+    if (analysisSummaries.length > 0) {
+        return analysisSummaries;
+    }
+
+    const summaries: ScenarioOperationSummary[] = [];
+    for (const scenario of results.scenarios) {
+        const durationsByOperation = new Map<
+            BenchmarkMeasurementDetailOperation,
+            number[]
+        >();
+        for (const benchmarkCase of scenario.cases) {
+            for (const measurement of benchmarkCase.measurements) {
+                for (const detail of measurement.details ?? []) {
+                    const durations =
+                        durationsByOperation.get(detail.operation) ?? [];
+                    durations.push(detail.durationMs);
+                    durationsByOperation.set(detail.operation, durations);
+                }
+            }
+        }
+        for (const [operation, durations] of durationsByOperation) {
+            summaries.push({
+                ...summarizeDurations(durations),
+                operation,
+                scenarioId: scenario.scenarioId,
+                scenarioTitle: scenario.title,
+            });
+        }
+    }
+    return summaries;
+}
+
+function getSetupOperationSummaries(
+    results: BenchmarkJsonResults
+): ScenarioOperationSummary[] {
+    const analysisSummaries = getAnalysisOperationSummaries(
+        results,
+        "setupSummaries"
+    );
+    if (analysisSummaries.length > 0) {
+        return analysisSummaries;
+    }
+
+    const summaries: ScenarioOperationSummary[] = [];
+    for (const scenario of results.scenarios) {
+        const durationsByOperation = new Map<
+            BenchmarkSetupOperation,
+            number[]
+        >();
+        for (const benchmarkCase of scenario.cases) {
+            for (const measurement of benchmarkCase.setupMeasurements) {
+                const durations =
+                    durationsByOperation.get(measurement.operation) ?? [];
+                durations.push(measurement.durationMs);
+                durationsByOperation.set(measurement.operation, durations);
+            }
+        }
+        for (const [operation, durations] of durationsByOperation) {
+            summaries.push({
+                ...summarizeDurations(durations),
+                operation,
+                scenarioId: scenario.scenarioId,
+                scenarioTitle: scenario.title,
+            });
+        }
+    }
+    return summaries;
+}
+
+function getAnalysisOperationSummaries(
+    results: BenchmarkJsonResults,
+    key: "measurementDetailSummaries" | "setupSummaries"
+): ScenarioOperationSummary[] {
+    const analysisScenarios = results.analysis?.scenarios;
+    if (analysisScenarios === undefined) {
+        return [];
+    }
+
+    const summaries: ScenarioOperationSummary[] = [];
+    for (const scenario of analysisScenarios) {
+        for (const summary of scenario[key] ?? []) {
+            summaries.push({
+                ...summary,
+                scenarioId: scenario.scenarioId,
+                scenarioTitle: scenario.title,
+            });
+        }
+    }
+    return summaries;
 }
 
 function getCaseMap(scenarios: BenchmarkScenarioResult[]) {
@@ -567,6 +918,7 @@ function formatCaseKey(benchmarkCase: BenchmarkCaseResult) {
         benchmarkCase.frequencyTitle,
         benchmarkCase.commits,
         benchmarkCase.callbackReadMode,
+        benchmarkCase.autotrappingMode ?? "",
         benchmarkCase.dependencyDepth ?? "",
         benchmarkCase.dependencyFanout ?? "",
         benchmarkCase.effectWrites ?? "",
@@ -585,6 +937,9 @@ function formatCaseLabel(benchmarkCase: BenchmarkCaseResult) {
     ];
     if (benchmarkCase.dependencyDepth !== undefined) {
         details.push(`dep depth ${benchmarkCase.dependencyDepth}`);
+    }
+    if (benchmarkCase.autotrappingMode !== undefined) {
+        details.push(`trap ${benchmarkCase.autotrappingMode}`);
     }
     if (benchmarkCase.dependencyFanout !== undefined) {
         details.push(`dep fanout ${benchmarkCase.dependencyFanout}`);
@@ -647,6 +1002,29 @@ function weightedAverage(summaries: BenchmarkSummary[]) {
     return total / samples;
 }
 
+function summarizeDurations(durationsMs: number[]): BenchmarkSummary {
+    if (durationsMs.length === 0) {
+        return {
+            averageMeanMs: 0,
+            maxMs: 0,
+            medianMs: 0,
+            minMs: 0,
+            p95Ms: 0,
+            samples: 0,
+        };
+    }
+    const sorted = [...durationsMs].sort((left, right) => left - right);
+    const total = durationsMs.reduce((sum, duration) => sum + duration, 0);
+    return {
+        averageMeanMs: total / durationsMs.length,
+        maxMs: sorted[sorted.length - 1],
+        medianMs: median(sorted),
+        minMs: sorted[0],
+        p95Ms: percentile(sorted, 95),
+        samples: durationsMs.length,
+    };
+}
+
 function median(values: number[]) {
     if (values.length === 0) {
         return 0;
@@ -657,6 +1035,14 @@ function median(values: number[]) {
         return sorted[middle];
     }
     return (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function percentile(sortedValues: number[], percentileValue: number) {
+    if (sortedValues.length === 0) {
+        return 0;
+    }
+    const index = Math.ceil((percentileValue / 100) * sortedValues.length) - 1;
+    return sortedValues[Math.min(Math.max(index, 0), sortedValues.length - 1)];
 }
 
 function formatWidthTiers(results: BenchmarkJsonResults) {
@@ -748,11 +1134,35 @@ function formatMs(value: number) {
     return value.toFixed(6);
 }
 
+function formatNullableMs(value: number | undefined) {
+    if (value === undefined) {
+        return "null";
+    }
+    return formatMs(value);
+}
+
+function formatNullableInteger(value: number | undefined) {
+    if (value === undefined) {
+        return "null";
+    }
+    return String(value);
+}
+
 function formatDelta(left: number, right: number) {
     if (left === 0) {
         return "n/a";
     }
     return formatPercent(calculateDeltaPercent(left, right));
+}
+
+function formatNullableDelta(
+    left: number | undefined,
+    right: number | undefined
+) {
+    if (left === undefined || right === undefined) {
+        return "+NaN%";
+    }
+    return formatDelta(left, right);
 }
 
 function calculateDeltaPercent(left: number, right: number) {

@@ -9,10 +9,31 @@ export default defineConfig({
     resolve: {
         alias: [
             {
+                find: "@retreejs/core/internal",
+                replacement: path.resolve(
+                    repoDir,
+                    "packages/retree-core/src/internals/index.ts"
+                ),
+            },
+            {
                 find: "@retreejs/core",
                 replacement: path.resolve(
                     repoDir,
                     "packages/retree-core/src/index.ts"
+                ),
+            },
+            {
+                find: "@retreejs/react/benchmark",
+                replacement: path.resolve(
+                    repoDir,
+                    "packages/retree-react/src/index.benchmark.ts"
+                ),
+            },
+            {
+                find: "@retreejs/react",
+                replacement: path.resolve(
+                    repoDir,
+                    "packages/retree-react/src/index.ts"
                 ),
             },
         ],

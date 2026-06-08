@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/react",
-    "version": "0.4.10",
+    "version": "0.4.12",
     "description": "Easily build stateful React applications using familiar JavaScript patterns.",
     "author": "Ryan Bliss",
     "license": "MIT",
@@ -8,20 +8,20 @@
     "main": "./bin/index.js",
     "types": "./bin/index.d.ts",
     "scripts": {
-        "clean": "npx shx rm -rf bin",
-        "build": "tsc -p tsconfig.build.json",
+        "clean": "node -e \"require('node:fs').rmSync('bin', { recursive: true, force: true })\"",
+        "build": "npm run clean && tsc -p tsconfig.build.json",
         "typecheck": "tsc"
     },
     "devDependencies": {
         "@babel/core": "^7.21.8",
-        "@retreejs/core": "0.4.10",
+        "@retreejs/core": "0.4.12",
         "@types/react": "^19.2.3",
         "@types/react-dom": "^19.2.3",
         "babel-loader": "^9.1.2",
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
-        "@retreejs/core": "0.4.10",
+        "@retreejs/core": "0.4.12",
         "react": "^16.8.0 || ^17 || ^18 || ^19",
         "react-dom": "^16.8.0 || ^17 || ^18 || ^19"
     },

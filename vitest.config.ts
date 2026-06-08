@@ -41,6 +41,13 @@ const viteConfig = defineViteConfig({
                 ),
             },
             {
+                find: "@retreejs/react/benchmark",
+                replacement: path.resolve(
+                    rootDir,
+                    "packages/retree-react/src/index.benchmark.ts"
+                ),
+            },
+            {
                 find: "@retreejs/react",
                 replacement: path.resolve(
                     rootDir,

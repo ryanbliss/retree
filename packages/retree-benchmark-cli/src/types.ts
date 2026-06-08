@@ -12,6 +12,8 @@ export type SelectionMode =
     | "reactive-dependency-select"
     | "root-tree-traversal";
 
+export type AutotrappingMode = "select" | "memo" | "fnMemo";
+
 export type BenchmarkPhase = "measured" | "setup" | "warmup";
 
 export type MutationType =
@@ -24,6 +26,9 @@ export type MutationType =
 
 export type ScenarioId =
     | "ancestor-tree-changed-fan-out"
+    | "auto-trapped-fn-memo"
+    | "auto-trapped-memo"
+    | "auto-trapped-select"
     | "direct-node-changed"
     | "distinct-node-listeners"
     | "listener-fan-out-node-changed"
@@ -32,6 +37,8 @@ export type ScenarioId =
     | "reactive-dependency-update-fan-out"
     | "root-tree-changed"
     | "reactive-dependency-node-changed"
+    | "react-use-node"
+    | "react-use-tree"
     | "run-transaction"
     | "select-vs-tree-traversal"
     | "subscription-churn";
@@ -54,6 +61,7 @@ export interface ProfileDefinition {
     frequencyTiers: TierMap;
     listenerFanouts: number[];
     mutationTypes: MutationType[];
+    reactInitialRenderSamples: number;
     transactionMutations: number[];
     warmupCommits: number;
     widthTiers: TierMap;
@@ -72,6 +80,7 @@ export interface BenchmarkConfig {
     parallelWorkers?: number;
     profile: ProfileDefinition;
     profileName: ProfileName;
+    reactInitialRenderSamples: number;
     seed: number;
     selectedDepthTiers: TierName[];
     selectedFrequencyTiers: TierName[];
@@ -102,11 +111,55 @@ export interface BenchmarkSummary {
 }
 
 export interface BenchmarkMeasurement {
+    details?: BenchmarkMeasurementDetail[];
     durationMs: number;
     mutationType: MutationType;
+    transactionComparison?: BenchmarkTransactionComparison;
+}
+
+export type BenchmarkMeasurementDetailOperation =
+    | "react-component-render"
+    | "react-hook-call"
+    | "react-hook-effect-cleanup"
+    | "react-hook-effect-subscribe"
+    | "react-hook-initial-reproxy-state"
+    | "react-hook-render-base-proxy"
+    | "react-hook-render-read"
+    | "react-hook-render-read-first"
+    | "react-hook-render-read-second"
+    | "react-hook-render-reproxy-reset"
+    | "react-hook-render-state-base-proxy"
+    | "react-unrelated-component-render"
+    | "react-unrelated-hook-call"
+    | "react-unrelated-hook-render-base-proxy"
+    | "react-unrelated-hook-render-reproxy-reset"
+    | "react-unrelated-hook-render-state-base-proxy"
+    | "react-unrelated-render-read"
+    | "react-unrelated-render-read-first"
+    | "react-unrelated-render-read-second"
+    | "react-unrelated-update-outside-component"
+    | "react-update-outside-component";
+
+export interface BenchmarkMeasurementDetail {
+    durationMs: number;
+    operation: BenchmarkMeasurementDetailOperation;
+}
+
+export interface BenchmarkTransactionComparison {
+    overheadMs: number;
+    savedDurationMs: number;
+    savedListenerCalls: number;
+    signedDeltaMs: number;
+    transactionDurationMs: number;
+    transactionListenerCalls: number;
+    unwrappedDurationMs: number;
+    unwrappedListenerCalls: number;
 }
 
 export type BenchmarkSetupOperation =
+    | "auto-trap-priming"
+    | "auto-trap-root-proxy"
+    | "auto-trap-structure-construction"
     | "broad-array-assignment"
     | "broad-array-construction"
     | "broad-map-assignment"
@@ -127,6 +180,19 @@ export type BenchmarkSetupOperation =
     | "listener-setup-total"
     | "mutation-target-resolution"
     | "primary-path-collection"
+    | "react-component-render"
+    | "react-hook-call"
+    | "react-hook-effect-cleanup"
+    | "react-hook-effect-subscribe"
+    | "react-hook-initial-reproxy-state"
+    | "react-hook-render-base-proxy"
+    | "react-hook-render-read"
+    | "react-hook-render-read-first"
+    | "react-hook-render-read-second"
+    | "react-hook-render-reproxy-reset"
+    | "react-hook-render-state-base-proxy"
+    | "react-root-render"
+    | "react-root-unmount"
     | "raw-dependent-node-construction"
     | "raw-tree-construction"
     | "root-proxy";
@@ -151,6 +217,7 @@ export interface BenchmarkWarning {
 }
 
 export interface BenchmarkCaseResult {
+    autotrappingMode?: AutotrappingMode;
     callbackReadMode: CallbackReadMode;
     commits: number;
     dependencyDepth?: number;
@@ -177,6 +244,7 @@ export interface BenchmarkCaseResult {
 }
 
 export interface SkippedBenchmarkCase {
+    autotrappingMode?: AutotrappingMode;
     callbackReadMode: CallbackReadMode;
     commits: number;
     dependencyDepth?: number;
@@ -215,6 +283,7 @@ export interface BenchmarkMetadata {
     parallelWorkers: number;
     platform: string;
     profileName: ProfileName;
+    reactInitialRenderSamples: number;
     seed: number;
     selectedDepthTiers: TierName[];
     selectedFrequencyTiers: TierName[];
@@ -252,6 +321,7 @@ export type BenchmarkProgressTaskStatus =
 
 export interface BenchmarkProgressTask {
     activeWorkers?: number;
+    autotrappingMode?: AutotrappingMode;
     callbackReadMode?: CallbackReadMode;
     caseIndex: number;
     commitIndex?: number;
@@ -278,6 +348,7 @@ export interface BenchmarkProgressTask {
 }
 
 export interface BenchmarkProgressEvent {
+    autotrappingMode?: AutotrappingMode;
     callbackReadMode: CallbackReadMode;
     caseIndex: number;
     commitIndex: number;

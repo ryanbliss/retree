@@ -12,7 +12,7 @@ import {
 } from "./dependency-tracking";
 import { getDependencyComparisonValues } from "./dependencies";
 import { getUnproxiedNode } from "./proxy";
-import { getReproxyNodeForUnproxiedNode } from "./reproxy";
+import { getManagedProxyForUnproxiedNode } from "./reproxy";
 
 /**
  * @internal
@@ -100,7 +100,7 @@ export function runMemo<T>(
         return fn();
     }
     const cache = getOrCreateMemoCache(unproxied);
-    const currentReproxy = getReproxyNodeForUnproxiedNode(unproxied);
+    const currentReproxy = getManagedProxyForUnproxiedNode(unproxied);
     // Tree nodes are compared by their latest reproxy identity. The buildProxy a user
     // gets via `this.list` is stable across the lifetime of the tree, so it would never
     // appear "changed". The reproxy ref is what bumps on every mutation.
@@ -134,7 +134,7 @@ export function runMemo<T>(
         comparisons: normalized,
         comparisonAccessors: undefined,
         comparisonSnapshots: undefined,
-        reproxy: getReproxyNodeForUnproxiedNode(unproxied) ?? currentReproxy,
+        reproxy: getManagedProxyForUnproxiedNode(unproxied) ?? currentReproxy,
         args: undefined,
     });
     return value;
@@ -178,7 +178,7 @@ export function runTrappedMemo<T>(
         comparisons: normalized.values,
         comparisonAccessors: result.comparisons,
         comparisonSnapshots: normalized.snapshots,
-        reproxy: getReproxyNodeForUnproxiedNode(unproxied),
+        reproxy: getManagedProxyForUnproxiedNode(unproxied),
         args: undefined,
     });
     return result.value;
@@ -202,7 +202,7 @@ export function runFnMemo<T>(
         return fn();
     }
     const cache = getOrCreateMemoCache(unproxied);
-    const currentReproxy = getReproxyNodeForUnproxiedNode(unproxied);
+    const currentReproxy = getManagedProxyForUnproxiedNode(unproxied);
     const normalizedArgs = normalizeComparisons(args);
     const normalizedComparisons =
         comparisons === undefined
@@ -234,7 +234,7 @@ export function runFnMemo<T>(
         comparisons: normalizedComparisons,
         comparisonAccessors: undefined,
         comparisonSnapshots: undefined,
-        reproxy: getReproxyNodeForUnproxiedNode(unproxied) ?? currentReproxy,
+        reproxy: getManagedProxyForUnproxiedNode(unproxied) ?? currentReproxy,
         args: normalizedArgs,
     });
     return value;
@@ -281,7 +281,7 @@ export function runTrappedFnMemo<T>(
         comparisons: normalized.values,
         comparisonAccessors: result.comparisons,
         comparisonSnapshots: normalized.snapshots,
-        reproxy: getReproxyNodeForUnproxiedNode(unproxied),
+        reproxy: getManagedProxyForUnproxiedNode(unproxied),
         args: normalizedArgs,
     });
     return result.value;
@@ -355,14 +355,14 @@ function getComparisonSourceReproxy(comparison: unknown): TreeNode | undefined {
     if (sourceUnproxiedNode === undefined) {
         return undefined;
     }
-    return getReproxyNodeForUnproxiedNode(sourceUnproxiedNode);
+    return getManagedProxyForUnproxiedNode(sourceUnproxiedNode);
 }
 
 function normalizeComparisonCell(cell: unknown): unknown {
     if (cell !== null && typeof cell === "object") {
         const unproxy = getUnproxiedNode(cell as TreeNode);
         if (unproxy) {
-            const reproxy = getReproxyNodeForUnproxiedNode(unproxy);
+            const reproxy = getManagedProxyForUnproxiedNode(unproxy);
             if (reproxy) {
                 return reproxy;
             }
@@ -393,6 +393,10 @@ interface IMemoGetterFrame {
 }
 
 const memoGetterStackMap = new WeakMap<ReactiveNode, IMemoGetterFrame[]>();
+const reactiveNodePrototypeGetterNamesCache = new WeakMap<
+    object,
+    Set<string | symbol>
+>();
 
 function resolveStackOwner(target: object): ReactiveNode {
     // The stack must always be keyed by the unproxied instance so that pushes from
@@ -477,6 +481,9 @@ export function getReactiveNodeGetter(
     target: object,
     prop: string | symbol
 ): (() => unknown) | undefined {
+    if (!reactiveNodePrototypeHasGetter(target, prop)) {
+        return undefined;
+    }
     let current: object | null = target;
     while (current && current !== Object.prototype) {
         const descriptor = Object.getOwnPropertyDescriptor(current, prop);
@@ -488,4 +495,38 @@ export function getReactiveNodeGetter(
         current = Object.getPrototypeOf(current);
     }
     return undefined;
+}
+
+function reactiveNodePrototypeHasGetter(
+    target: object,
+    prop: string | symbol
+): boolean {
+    const prototype = Object.getPrototypeOf(target);
+    if (prototype === null) {
+        return false;
+    }
+    const getterNames = getReactiveNodePrototypeGetterNames(prototype);
+    return getterNames.has(prop);
+}
+
+function getReactiveNodePrototypeGetterNames(
+    prototype: object
+): Set<string | symbol> {
+    const cached = reactiveNodePrototypeGetterNamesCache.get(prototype);
+    if (cached !== undefined) {
+        return cached;
+    }
+    const getterNames = new Set<string | symbol>();
+    let current: object | null = prototype;
+    while (current && current !== Object.prototype) {
+        for (const key of Reflect.ownKeys(current)) {
+            const descriptor = Object.getOwnPropertyDescriptor(current, key);
+            if (descriptor?.get !== undefined) {
+                getterNames.add(key);
+            }
+        }
+        current = Object.getPrototypeOf(current);
+    }
+    reactiveNodePrototypeGetterNamesCache.set(prototype, getterNames);
+    return getterNames;
 }

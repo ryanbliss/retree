@@ -63,6 +63,12 @@ describe("benchmark compare", () => {
         expect(rendered).toContain("Signal Summary");
         expect(rendered).toContain("Direct nodeChanged");
         expect(rendered).toContain("+100.0%");
+        expect(rendered).toContain("React Measured Update Breakdown");
+        expect(rendered).toContain("React Initial Render Breakdown");
+        expect(rendered).toContain("React Effect Lifecycle Breakdown");
+        expect(rendered).toContain("React useNode");
+        expect(rendered).toContain("react-hook-call");
+        expect(rendered).toContain("react-hook-effect-subscribe");
         expect(rendered).not.toContain("Matched Cases");
         expect(rendered).not.toContain("depth Low=2");
     });
@@ -90,9 +96,44 @@ describe("benchmark compare", () => {
         expect(rendered).toContain("Matched Cases");
         expect(rendered).toContain("depth Low=2");
     });
+
+    it("renders missing comparison detail metrics as null with NaN deltas", async () => {
+        const outputDir = await fs.mkdtemp(
+            path.join(os.tmpdir(), "retree-benchmark-compare-")
+        );
+        await fs.writeFile(
+            path.join(outputDir, "retree-benchmark-BEFORE.json"),
+            JSON.stringify(
+                createFixture(1, {
+                    includeReactDetails: false,
+                }),
+                null,
+                4
+            )
+        );
+        await fs.writeFile(
+            path.join(outputDir, "retree-benchmark-AFTER.json"),
+            JSON.stringify(createFixture(2), null, 4)
+        );
+
+        const rendered = await renderBenchmarkComparison({
+            leftName: "BEFORE",
+            outputDir,
+            rightName: "AFTER",
+            verbose: false,
+        });
+
+        expect(rendered).toContain("null -> 0.500000");
+        expect(rendered).toContain("null -> 0.250000");
+        expect(rendered).toContain("+NaN%");
+    });
 });
 
-function createFixture(multiplier: number) {
+function createFixture(
+    multiplier: number,
+    options: { includeReactDetails?: boolean } = {}
+) {
+    const includeReactDetails = options.includeReactDetails ?? true;
     const benchmarkCase = {
         callbackReadMode: "none",
         commits: 20,
@@ -121,6 +162,57 @@ function createFixture(multiplier: number) {
         width: 1,
         widthTitle: "Low",
     };
+    const reactCase = {
+        callbackReadMode: "none",
+        commits: 20,
+        depth: 2,
+        depthTitle: "Low",
+        durationsMs: [2 * multiplier],
+        frequencyTitle: "Low",
+        measurements: [
+            {
+                details: includeReactDetails
+                    ? [
+                          {
+                              durationMs: 0.25 * multiplier,
+                              operation: "react-hook-call",
+                          },
+                          {
+                              durationMs: 0.5 * multiplier,
+                              operation: "react-component-render",
+                          },
+                          {
+                              durationMs: 1.5 * multiplier,
+                              operation: "react-update-outside-component",
+                          },
+                      ]
+                    : undefined,
+                durationMs: 2 * multiplier,
+                mutationType: "scalar-set",
+            },
+        ],
+        mutationSummaries: [],
+        scenarioId: "react-use-node",
+        scenarioTitle: "React useNode",
+        setupMeasurements: includeReactDetails
+            ? [
+                  {
+                      durationMs: 0.125 * multiplier,
+                      operation: "react-hook-effect-subscribe",
+                  },
+                  {
+                      durationMs: 1 * multiplier,
+                      operation: "react-root-render",
+                  },
+              ]
+            : [],
+        setupSummaries: [],
+        setupSummary: createSummary(0.25 * multiplier),
+        summary: createSummary(2 * multiplier),
+        warnings: [],
+        width: 1,
+        widthTitle: "Low",
+    };
     return {
         metadata: {
             arch: "arm64",
@@ -135,6 +227,7 @@ function createFixture(multiplier: number) {
             parallelWorkers: 1,
             platform: "darwin",
             profileName: "stable",
+            reactInitialRenderSamples: 20,
             seed: 422024,
             selectedDepthTiers: ["low"],
             selectedFrequencyTiers: ["low"],
@@ -154,6 +247,12 @@ function createFixture(multiplier: number) {
                 scenarioId: "direct-node-changed",
                 skipped: [],
                 title: "Direct nodeChanged",
+            },
+            {
+                cases: [reactCase],
+                scenarioId: "react-use-node",
+                skipped: [],
+                title: "React useNode",
             },
         ],
     };

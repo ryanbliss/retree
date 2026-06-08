@@ -1,6 +1,7 @@
 import { IReactiveDependency, ReactiveNode } from "../ReactiveNode";
 import { TreeNode } from "../types";
 import {
+    getCustomProxyHandlerFromMetadata,
     isCustomProxy,
     TCustomProxy,
     unproxiedBaseNodeKey,
@@ -64,6 +65,13 @@ export function runWithIsolatedDependencyTracking<T>(callback: () => T): T {
     }
 }
 
+export function isDependencyTrackingActive(): boolean {
+    if (pauseDependencyTrackingDepth > 0) {
+        return false;
+    }
+    return dependencyAccessStack.length > 0;
+}
+
 export function collectDependencyAccesses<T>(callback: () => T): unknown[] {
     const frame: DependencyAccessFrame = {
         entries: [],
@@ -76,7 +84,11 @@ export function collectDependencyAccesses<T>(callback: () => T): unknown[] {
     } finally {
         dependencyAccessStack.pop();
     }
-    return frame.entries.map((entry) => entry.value);
+    const dependencies: unknown[] = [];
+    for (const entry of frame.entries) {
+        dependencies.push(entry.value);
+    }
+    return dependencies;
 }
 
 export function collectDependencyComparisonAccesses<T>(callback: () => T): {
@@ -95,26 +107,30 @@ export function collectDependencyComparisonAccesses<T>(callback: () => T): {
     } finally {
         dependencyAccessStack.pop();
     }
+    const comparisons: unknown[] = [];
+    for (const entry of frame.entries) {
+        if (isWrittenPropertyEntry(frame, entry)) {
+            continue;
+        }
+        if (entry.kind === "managed-value") {
+            comparisons.push(
+                createComparisonAccessor(
+                    () => [entry.value],
+                    entry.value,
+                    entry.unproxiedNode
+                )
+            );
+            continue;
+        }
+        if (entry.comparisonAccessor !== undefined) {
+            comparisons.push(entry.comparisonAccessor);
+            continue;
+        }
+        comparisons.push(entry.value);
+    }
     return {
         value: value as T,
-        comparisons: frame.entries.flatMap((entry) => {
-            if (isWrittenPropertyEntry(frame, entry)) {
-                return [];
-            }
-            if (entry.kind === "managed-value") {
-                return [
-                    createComparisonAccessor(
-                        () => [entry.value],
-                        entry.value,
-                        entry.unproxiedNode
-                    ),
-                ];
-            }
-            if (entry.comparisonAccessor !== undefined) {
-                return [entry.comparisonAccessor];
-            }
-            return [entry.value];
-        }),
+        comparisons,
     };
 }
 
@@ -131,10 +147,16 @@ export function trackDependencyAccess<T>(value: T): T {
         return value;
     }
     if (isCustomProxy(value)) {
+        const handler = getCustomProxyHandlerFromMetadata(value);
+        if (handler === undefined) {
+            throw new Error(
+                "Retree internal invariant failed: cannot track a managed dependency value without Retree proxy metadata."
+            );
+        }
         currentFrame.entries.push({
             kind: "managed-value",
             value,
-            unproxiedNode: value["[[Handler]]"][unproxiedBaseNodeKey],
+            unproxiedNode: handler[unproxiedBaseNodeKey],
         });
         return value;
     }
@@ -165,12 +187,12 @@ export function trackDependencyPropertyAccess<T>(
     if (pauseDependencyTrackingDepth > 0) {
         return value;
     }
-    if (isRetreeInternalProperty(propertyKey)) {
-        return value;
-    }
     const currentFrame =
         dependencyAccessStack[dependencyAccessStack.length - 1];
     if (currentFrame === undefined) {
+        return value;
+    }
+    if (isRetreeInternalProperty(propertyKey)) {
         return value;
     }
     if (typeof value === "function") {
@@ -179,14 +201,18 @@ export function trackDependencyPropertyAccess<T>(
     if (!isCustomProxy(owner)) {
         return trackDependencyAccess(value);
     }
-    const ownerUnproxiedNode = owner["[[Handler]]"][unproxiedBaseNodeKey];
+    const ownerHandler = getCustomProxyHandlerFromMetadata(owner);
+    if (ownerHandler === undefined) {
+        throw new Error(
+            "Retree internal invariant failed: cannot track a dependency property read without owner proxy metadata."
+        );
+    }
+    const ownerUnproxiedNode = ownerHandler[unproxiedBaseNodeKey];
     removePendingManagedValueAccess(currentFrame, ownerUnproxiedNode);
     if (currentFrame.mode === "comparisons") {
         removePendingPropertyValueAccess(currentFrame, ownerUnproxiedNode);
     }
-    const valueUnproxiedNode = isCustomProxy(value)
-        ? value["[[Handler]]"][unproxiedBaseNodeKey]
-        : undefined;
+    const valueUnproxiedNode = getValueUnproxiedNode(value);
     const arrayElementRead = isArrayElementRead(
         ownerUnproxiedNode,
         propertyKey
@@ -265,18 +291,24 @@ export function trackDependencyPropertyWrite(
     if (pauseDependencyTrackingDepth > 0) {
         return;
     }
-    if (isRetreeInternalProperty(propertyKey)) {
-        return;
-    }
     const currentFrame =
         dependencyAccessStack[dependencyAccessStack.length - 1];
     if (currentFrame === undefined) {
         return;
     }
+    if (isRetreeInternalProperty(propertyKey)) {
+        return;
+    }
     if (!isCustomProxy(owner)) {
         return;
     }
-    const ownerUnproxiedNode = owner["[[Handler]]"][unproxiedBaseNodeKey];
+    const handler = getCustomProxyHandlerFromMetadata(owner);
+    if (handler === undefined) {
+        throw new Error(
+            "Retree internal invariant failed: cannot track a dependency property write without owner proxy metadata."
+        );
+    }
+    const ownerUnproxiedNode = handler[unproxiedBaseNodeKey];
     currentFrame.writes.push({ ownerUnproxiedNode, propertyKey });
     removePendingPropertyAccess(currentFrame, ownerUnproxiedNode, propertyKey);
 }
@@ -307,9 +339,10 @@ function isDependencyComparisonAccessor(
     if (value === null || typeof value !== "object") {
         return false;
     }
-    return (
-        Reflect.get(value, "kind") === "retree-dependency-comparison-accessor"
-    );
+    if (!("kind" in value)) {
+        return false;
+    }
+    return value.kind === "retree-dependency-comparison-accessor";
 }
 
 function getComparisonAccessorSource(
@@ -386,7 +419,26 @@ function getArrayElementComparisonValue(value: unknown): unknown {
     if (!isCustomProxy(value)) {
         return value;
     }
-    return value["[[Handler]]"][unproxiedBaseNodeKey];
+    const handler = getCustomProxyHandlerFromMetadata(value);
+    if (handler === undefined) {
+        throw new Error(
+            "Retree internal invariant failed: cannot compare an array element proxy without Retree metadata."
+        );
+    }
+    return handler[unproxiedBaseNodeKey];
+}
+
+function getValueUnproxiedNode(value: unknown): TreeNode | undefined {
+    if (!isCustomProxy(value)) {
+        return undefined;
+    }
+    const handler = getCustomProxyHandlerFromMetadata(value);
+    if (handler === undefined) {
+        throw new Error(
+            "Retree internal invariant failed: cannot track a dependency value proxy without Retree metadata."
+        );
+    }
+    return handler[unproxiedBaseNodeKey];
 }
 
 function isArrayElementRead(

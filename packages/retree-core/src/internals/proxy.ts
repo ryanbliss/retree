@@ -14,10 +14,13 @@ import {
     ICustomProxy,
     ICustomProxyHandler,
     IProxyParent,
+    getCustomProxyHandlerFromMetadata,
+    getCustomProxyTargetFromMetadata,
     isCustomProxy,
     isCustomProxyHandler,
     proxiedChildrenKey,
     proxiedParentKey,
+    registerCustomProxyMetadata,
     TCustomProxy,
     unproxiedBaseNodeKey,
 } from "./proxy-types";
@@ -25,11 +28,11 @@ import { getReactiveNodeGetter, popMemoGetter, pushMemoGetter } from "./memo";
 import {
     getManagedProxyForUnproxiedNode,
     getReproxyNode,
-    getReproxyNodeForUnproxiedNode,
     registerBaseProxy,
     updateReproxyNode,
 } from "./reproxy";
 import {
+    isDependencyTrackingActive,
     trackDependencyAccess,
     trackDependencyPropertyAccess,
     trackDependencyPropertyWrite,
@@ -44,6 +47,35 @@ export const FUNCTION_NAMES_BIND_TO_RAW: (string | symbol)[] = [
 
 const MAP_MUTATING_METHODS = new Set(["set", "delete", "clear"]);
 const SET_MUTATING_METHODS = new Set(["add", "delete", "clear"]);
+
+function trackAccessIfNeeded<T>(value: T): T {
+    if (!isDependencyTrackingActive()) {
+        return value;
+    }
+    return trackDependencyAccess(value);
+}
+
+function trackPropertyAccessIfNeeded<T>(
+    owner: unknown,
+    propertyKey: string | symbol,
+    value: T
+): T {
+    if (!isDependencyTrackingActive()) {
+        return value;
+    }
+    return trackDependencyPropertyAccess(owner, propertyKey, value);
+}
+
+function trackPropertyWriteIfNeeded(
+    owner: unknown,
+    propertyKey: string | symbol
+): void {
+    if (!isDependencyTrackingActive()) {
+        return;
+    }
+    trackDependencyPropertyWrite(owner, propertyKey);
+}
+
 type DateMutatingMethodName =
     | "setDate"
     | "setFullYear"
@@ -173,10 +205,32 @@ export function buildProxy<T extends TreeNode = TreeNode>(
 ): T {
     let isApplyingSet = false;
     if (object === null) return object;
-    const boundFunctionCache = new Map<
+    const reactiveObject = object instanceof ReactiveNode ? object : undefined;
+    const mapObject = object instanceof Map ? object : undefined;
+    const setObject = object instanceof Set ? object : undefined;
+    const dateObject = object instanceof Date ? object : undefined;
+    const hasInternalSlots =
+        mapObject !== undefined ||
+        setObject !== undefined ||
+        dateObject !== undefined;
+    let boundFunctionCache: Map<
         string | symbol,
         BoundFunctionCacheEntry
-    >();
+    > | null = null;
+    let baseProxy: TCustomProxy<T>;
+    const getBoundFunction = <TFunction extends Function>(
+        prop: string | symbol,
+        source: TFunction,
+        thisArg: unknown
+    ): TFunction => {
+        boundFunctionCache ??= new Map();
+        return getCachedBoundFunction(
+            boundFunctionCache,
+            prop,
+            source,
+            thisArg
+        );
+    };
     const proxyHandler: ProxyHandler<T> & ICustomProxyHandler<T> = {
         // Add some extra stuff into the handler so we can store the original TreeNode and access it later
         // Without overriding the rest of the getters in the object.
@@ -190,22 +244,22 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             if (prop === "[[Target]]") {
                 return object;
             }
-            if (target instanceof ReactiveNode) {
+            if (reactiveObject !== undefined) {
                 const propString = String(prop);
                 // Check for ignore keys
                 if (propString.startsWith("RETREE_")) {
                     return Reflect.get(target, prop, target);
                 }
-                if (target[COLLECTED_KEYS_SYMBOL].has(propString)) {
-                    return trackDependencyPropertyAccess(
-                        getBaseProxy(receiver),
+                if (reactiveObject[COLLECTED_KEYS_SYMBOL].has(propString)) {
+                    return trackPropertyAccessIfNeeded(
+                        baseProxy,
                         prop,
                         getLatestIgnoredValue(Reflect.get(target, prop, target))
                     );
                 }
-                if (target[LINKED_KEYS_SYMBOL].has(prop)) {
-                    return trackDependencyPropertyAccess(
-                        getBaseProxy(receiver),
+                if (reactiveObject[LINKED_KEYS_SYMBOL].has(prop)) {
+                    return trackPropertyAccessIfNeeded(
+                        baseProxy,
                         prop,
                         getLatestLinkedValue(Reflect.get(target, prop, target))
                     );
@@ -217,115 +271,87 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             ) {
                 const value = proxyHandler[proxiedChildrenKey][prop];
                 if (typeof value !== "function") {
-                    const baseProxy = getBaseProxy(receiver);
-                    return trackDependencyPropertyAccess(
-                        baseProxy,
-                        prop,
-                        value
-                    );
+                    return trackPropertyAccessIfNeeded(baseProxy, prop, value);
                 }
             }
-            const baseProxy = getBaseProxy(receiver);
-            if (isInternalSlotInstance(target)) {
+            if (hasInternalSlots) {
                 // Methods on Map/Set must run with the raw target as `this` because they read
                 // internal slots that the proxy does not expose.
                 const value = Reflect.get(target, prop, target);
                 if (typeof value === "function") {
                     if (
-                        target instanceof Map &&
+                        mapObject !== undefined &&
                         typeof prop === "string" &&
                         MAP_MUTATING_METHODS.has(prop)
                     ) {
                         return wrapMapMutation(
                             prop,
-                            target,
+                            mapObject,
                             baseProxy,
                             emitter
                         );
                     }
-                    if (target instanceof Map) {
-                        return wrapMapRead(prop, target, baseProxy, emitter);
+                    if (mapObject !== undefined) {
+                        return wrapMapRead(prop, mapObject, baseProxy, emitter);
                     }
                     if (
-                        target instanceof Set &&
+                        setObject !== undefined &&
                         typeof prop === "string" &&
                         SET_MUTATING_METHODS.has(prop)
                     ) {
                         return wrapSetMutation(
                             prop,
-                            target,
+                            setObject,
                             baseProxy,
                             emitter
                         );
                     }
-                    if (target instanceof Set) {
-                        return wrapSetRead(prop, target, baseProxy, emitter);
+                    if (setObject !== undefined) {
+                        return wrapSetRead(prop, setObject, baseProxy, emitter);
                     }
                     if (
-                        target instanceof Set &&
-                        typeof prop === "string" &&
-                        prop === "has"
-                    ) {
-                        return wrapSetHas(target);
-                    }
-                    if (
-                        target instanceof Date &&
+                        dateObject !== undefined &&
                         typeof prop === "string" &&
                         isDateMutatingMethod(prop)
                     ) {
                         return wrapDateMutation(
                             prop,
-                            target,
+                            dateObject,
                             baseProxy,
                             emitter
                         );
                     }
-                    return trackDependencyAccess(
-                        getCachedBoundFunction(
-                            boundFunctionCache,
-                            prop,
-                            value,
-                            target
-                        )
+                    return trackAccessIfNeeded(
+                        getBoundFunction(prop, value, target)
                     );
                 }
-                return trackDependencyPropertyAccess(baseProxy, prop, value);
+                return trackPropertyAccessIfNeeded(baseProxy, prop, value);
             }
             let value: any;
             if (
-                target instanceof ReactiveNode &&
-                getReactiveNodeGetter(target, prop)
+                reactiveObject !== undefined &&
+                getReactiveNodeGetter(reactiveObject, prop)
             ) {
                 // For ReactiveNode getters, push the getter name onto the memo-getter
                 // stack so a keyless `this.memo(fn, deps)` inside the getter can derive
                 // its cache key from `prop`. Pop in `finally` so a throwing getter
-                pushMemoGetter(target, prop);
+                pushMemoGetter(reactiveObject, prop);
                 try {
                     value = Reflect.get(target, prop, receiver);
                 } finally {
-                    popMemoGetter(target);
+                    popMemoGetter(reactiveObject);
                 }
             } else {
                 value = Reflect.get(target, prop, receiver);
             }
             if (typeof value === "function") {
                 if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
-                    return trackDependencyAccess(
-                        getCachedBoundFunction(
-                            boundFunctionCache,
-                            prop,
-                            value,
-                            target
-                        )
+                    return trackAccessIfNeeded(
+                        getBoundFunction(prop, value, target)
                     );
                 }
-                return trackDependencyAccess(
-                    getCachedBoundFunction(
-                        boundFunctionCache,
-                        prop,
-                        value,
-                        baseProxy
-                    )
+                return trackAccessIfNeeded(
+                    getBoundFunction(prop, value, baseProxy)
                 );
             }
             if (shouldLazilyProxyProperty(target, prop, value)) {
@@ -334,14 +360,10 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     prop
                 );
                 if (!descriptor || !descriptorHasValue(descriptor)) {
-                    return trackDependencyPropertyAccess(
-                        baseProxy,
-                        prop,
-                        value
-                    );
+                    return trackPropertyAccessIfNeeded(baseProxy, prop, value);
                 }
                 if (!shouldKeepRawPropertyValue(descriptor, value)) {
-                    return trackDependencyPropertyAccess(
+                    return trackPropertyAccessIfNeeded(
                         baseProxy,
                         prop,
                         getOrCreateProxiedChild(
@@ -354,19 +376,18 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     );
                 }
             }
-            return trackDependencyPropertyAccess(baseProxy, prop, value);
+            return trackPropertyAccessIfNeeded(baseProxy, prop, value);
         },
         set(target, prop, newValue, receiver) {
-            trackDependencyPropertyWrite(getBaseProxy<T>(receiver), prop);
-            if (target instanceof ReactiveNode) {
+            trackPropertyWriteIfNeeded(baseProxy, prop);
+            if (reactiveObject !== undefined) {
                 const propString = String(prop);
-                if (target[LINKED_KEYS_SYMBOL].has(prop)) {
+                if (reactiveObject[LINKED_KEYS_SYMBOL].has(prop)) {
                     assertValidLinkedValue(prop, newValue);
                     const prev = Reflect.get(target, prop, target);
                     if (prev === newValue) {
                         return true;
                     }
-                    const baseProxy = getBaseProxy<T>(receiver);
                     let returnValue: boolean;
                     isApplyingSet = true;
                     try {
@@ -393,14 +414,13 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 // Check for ignore keys
                 if (
                     propString === COLLECTED_KEYS_SYMBOL ||
-                    target[COLLECTED_KEYS_SYMBOL].has(propString)
+                    reactiveObject[COLLECTED_KEYS_SYMBOL].has(propString)
                 ) {
                     return Reflect.set(target, prop, newValue, target);
                 }
             }
             const prev = (target as any)[prop];
             const hasChanged = prev !== newValue;
-            const baseProxy = getBaseProxy<T>(receiver);
             if (hasChanged) {
                 let valueToSet = newValue;
                 const nodeRemoved = handleNodeRemoved(baseProxy, prop);
@@ -478,27 +498,27 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             return true;
         },
         defineProperty(target, prop, descriptor) {
+            if (isApplyingSet) {
+                return Reflect.defineProperty(target, prop, descriptor);
+            }
             const currentProxyForWrite = isCustomProxy(target)
                 ? target
-                : getReproxyNodeForUnproxiedNode(target);
+                : getManagedProxyForUnproxiedNode(target);
             const baseProxyForWrite = currentProxyForWrite
                 ? getBaseProxy(currentProxyForWrite)
                 : undefined;
             if (baseProxyForWrite !== undefined) {
-                trackDependencyPropertyWrite(baseProxyForWrite, prop);
+                trackPropertyWriteIfNeeded(baseProxyForWrite, prop);
             }
-            if (target instanceof ReactiveNode) {
+            if (reactiveObject !== undefined) {
                 const propString = String(prop);
                 // Check for ignore keys
                 if (
                     propString === COLLECTED_KEYS_SYMBOL ||
-                    target[COLLECTED_KEYS_SYMBOL].has(propString)
+                    reactiveObject[COLLECTED_KEYS_SYMBOL].has(propString)
                 ) {
                     return Reflect.defineProperty(target, prop, descriptor);
                 }
-            }
-            if (isApplyingSet) {
-                return Reflect.defineProperty(target, prop, descriptor);
             }
             const currentProxy = currentProxyForWrite;
             const baseProxy = currentProxy
@@ -585,12 +605,12 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             return returnValue;
         },
         deleteProperty(target, prop) {
-            if (target instanceof ReactiveNode) {
+            if (reactiveObject !== undefined) {
                 const propString = String(prop);
                 // Check for ignore keys
                 if (
                     propString === COLLECTED_KEYS_SYMBOL ||
-                    target[COLLECTED_KEYS_SYMBOL].has(propString)
+                    reactiveObject[COLLECTED_KEYS_SYMBOL].has(propString)
                 ) {
                     return Reflect.deleteProperty(target, prop);
                 }
@@ -600,7 +620,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             // TODO: should revisit this at some point...
             const currentProxy = isCustomProxy(target)
                 ? target
-                : getReproxyNodeForUnproxiedNode(target);
+                : getManagedProxyForUnproxiedNode(target);
             const baseProxy = currentProxy
                 ? getBaseProxy(currentProxy)
                 : currentProxy;
@@ -640,6 +660,8 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     };
     if (isCustomProxy(object)) return getBaseProxy(object);
     const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
+    baseProxy = proxy;
+    registerCustomProxyMetadata(proxy, proxyHandler, object);
     registerBaseProxy(object, proxy);
     if (object instanceof Map) {
         for (const [key, value] of object.entries()) {
@@ -653,8 +675,8 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             }
         }
     } else if (object instanceof Set) {
-        const values = Array.from(object.values());
-        for (const value of values) {
+        const replacements: { previous: unknown; next: unknown }[] = [];
+        for (const value of object.values()) {
             if (isCustomProxy(value)) {
                 const parentToSet: IProxyParent<any> = {
                     proxyNode: proxy,
@@ -662,10 +684,16 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 };
                 const childProxy = reparentProxy(value, parentToSet);
                 if (childProxy !== value) {
-                    Set.prototype.delete.call(object, value);
-                    Set.prototype.add.call(object, childProxy);
+                    replacements.push({
+                        previous: value,
+                        next: childProxy,
+                    });
                 }
             }
+        }
+        for (const replacement of replacements) {
+            Set.prototype.delete.call(object, replacement.previous);
+            Set.prototype.add.call(object, replacement.next);
         }
     } else {
         Object.entries(object).forEach(([prop, value]) => {
@@ -708,7 +736,6 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             depth: object.options.prepare.depth,
         });
     }
-    updateReproxyNode(proxy);
     return proxy;
 }
 
@@ -1332,7 +1359,7 @@ function emitCollectionChange(
 export function getCustomProxyHandler<TNode extends TreeNode = TreeNode>(
     proxy: TNode
 ) {
-    const handler = (proxy as any)["[[Handler]]"];
+    const handler = getCustomProxyHandlerFromMetadata<TNode>(proxy);
     if (isCustomProxyHandler<TNode>(handler)) {
         return handler;
     }
@@ -1349,7 +1376,13 @@ function reparentProxy<T extends TreeNode = TreeNode>(
     proxy: ICustomProxy<T>,
     newParent: IProxyParent<any>
 ) {
-    const currentParent = proxy["[[Handler]]"][proxiedParentKey];
+    const handler = getCustomProxyHandler(proxy);
+    if (handler === undefined) {
+        throw new Error(
+            "Retree internal invariant failed: cannot reparent a proxy without Retree metadata."
+        );
+    }
+    const currentParent = handler[proxiedParentKey];
     // Reproxy shares same reference to original IProxyParent object.
     // Set deep values directly.
     if (currentParent) {
@@ -1375,7 +1408,7 @@ function reparentProxy<T extends TreeNode = TreeNode>(
         currentParent.propName = newParent.propName;
         currentParent.proxyNode = newParent.proxyNode;
     } else {
-        proxy["[[Handler]]"][proxiedParentKey] = newParent;
+        handler[proxiedParentKey] = newParent;
     }
     return proxy;
 }
@@ -1442,7 +1475,13 @@ function handleNodeRemoved(
 export function getUnproxiedNodeFromProxy<TNode extends TreeNode = TreeNode>(
     proxy: TCustomProxy<TNode>
 ): TNode {
-    return proxy["[[Handler]]"][unproxiedBaseNodeKey];
+    const handler = getCustomProxyHandler(proxy);
+    if (handler === undefined) {
+        throw new Error(
+            "Retree internal invariant failed: cannot get a raw node from a proxy without Retree metadata."
+        );
+    }
+    return handler[unproxiedBaseNodeKey];
 }
 
 /**
@@ -1474,7 +1513,12 @@ export function getBaseProxy<T extends TreeNode = TreeNode>(
     node: T
 ): TCustomProxy<T> {
     if (isCustomProxy<T>(node)) {
-        const target = node["[[Target]]"];
+        const target = getCustomProxyTargetFromMetadata<T>(node);
+        if (target === undefined) {
+            throw new Error(
+                "Retree internal invariant failed: cannot get a base proxy from a proxy without Retree target metadata."
+            );
+        }
         if (isCustomProxy<T>(target)) {
             return getBaseProxy<T>(target as T);
         }

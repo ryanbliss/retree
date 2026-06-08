@@ -798,6 +798,37 @@ export class Retree {
         );
     }
 
+    private static notifyChangedListeners(
+        listeners: TNodeChangedListener[],
+        reproxyNode: TreeNode
+    ): void {
+        const firstListener = listeners[0];
+        if (firstListener === undefined) {
+            return;
+        }
+        if (listeners.length === 1) {
+            firstListener(reproxyNode);
+            return;
+        }
+        for (const callback of [...listeners]) {
+            callback(reproxyNode);
+        }
+    }
+
+    private static notifyRemovedListeners(listeners: (() => void)[]): void {
+        const firstListener = listeners[0];
+        if (firstListener === undefined) {
+            return;
+        }
+        if (listeners.length === 1) {
+            firstListener();
+            return;
+        }
+        for (const callback of [...listeners]) {
+            callback();
+        }
+    }
+
     private static handleNotifyTreeChanged(
         node: TreeNode,
         proxyNode: TCustomProxy<TreeNode>,
@@ -830,11 +861,13 @@ export class Retree {
             if (!Transactions.skipEmit) {
                 // Handle callbacks for the node that originally changed
                 const handleEmitTreeChanged = () => {
-                    confirmedCallbacksToNotify
-                        .get(proxyNodeThatChanged)
-                        ?.forEach((c) =>
-                            c(getReproxyNode(proxyNodeThatChanged))
-                        );
+                    const listeners =
+                        confirmedCallbacksToNotify.get(proxyNodeThatChanged) ??
+                        [];
+                    this.notifyChangedListeners(
+                        listeners,
+                        getReproxyNode(proxyNodeThatChanged)
+                    );
                 };
                 // If running a transaction, schedule this to emit later.
                 // That way if this same node gets changed later, we can only emit once for that node.
@@ -868,9 +901,9 @@ export class Retree {
                 // Skip emitting if in skipEmit transaction
                 if (!Transactions.skipEmit) {
                     const handlePNodeEmitTreeChanged = () => {
-                        confirmedCallbacksToNotify
-                            .get(pNode)
-                            ?.forEach((c) => c(pReproxyNode));
+                        const listeners =
+                            confirmedCallbacksToNotify.get(pNode) ?? [];
+                        this.notifyChangedListeners(listeners, pReproxyNode);
                     };
                     // If running a transaction, schedule this to emit later.
                     // That way if this same node gets changed later, we can only emit once for that node.
@@ -938,10 +971,7 @@ export class Retree {
             const emitNodeRemovedListeners = () => {
                 const listenersToNotify =
                     this.nodeRemovedListeners.get(node) ?? [];
-                // We copy the list because it could get changed if the first callback triggers an unsubscribe
-                [...listenersToNotify].forEach((callback) => {
-                    callback();
-                });
+                this.notifyRemovedListeners(listenersToNotify);
             };
             // If running a transaction, schedule this to emit later.
             // That way if this same node gets changed later, we can only emit once for that node.
@@ -973,10 +1003,10 @@ export class Retree {
             const emitNodeChangedListeners = () => {
                 const nodeChangedListnersToNotify =
                     this.nodeChangedListeners.get(unproxiedNode) ?? [];
-                // We copy the list because it could get changed if the first callback triggers an unsubscribe
-                [...nodeChangedListnersToNotify].forEach((callback) => {
-                    callback(reproxyNode);
-                });
+                this.notifyChangedListeners(
+                    nodeChangedListnersToNotify,
+                    reproxyNode
+                );
             };
 
             const scheduleNodeChangedListeners = () => {

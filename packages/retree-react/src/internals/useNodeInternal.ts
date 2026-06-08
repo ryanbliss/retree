@@ -5,59 +5,42 @@
 "use no memo";
 
 import { TreeNode } from "@retreejs/core";
-import { getReproxyNode, getBaseProxy } from "@retreejs/core/internal";
-import { useEffect, useMemo, useState } from "react";
+import { getBaseProxy, getReproxyNode } from "@retreejs/core/internal";
 import { NodeFactory } from "../types";
 import { subscribeToNode } from "./subscriptionHub";
+import {
+    useNodeInternalCore,
+    UseNodeInternalListenerType,
+    UseNodeInternalOperations,
+} from "./useNodeInternalCore";
 
-function getNode<T extends TreeNode = TreeNode>(node: T | (() => T)) {
-    if (typeof node === "function") {
-        return node();
-    }
-    return node;
-}
+const operations: UseNodeInternalOperations = {
+    cleanupSubscription(_listenerType, unsubscribe) {
+        unsubscribe();
+    },
+    getInitialReproxyNode(_listenerType, node) {
+        return getReproxyNode(node);
+    },
+    getRenderBaseProxy(_listenerType, node) {
+        return getBaseProxy(node);
+    },
+    getResetReproxyNode(_listenerType, node) {
+        return getReproxyNode(node);
+    },
+    getStateBaseProxy(_listenerType, node) {
+        return getBaseProxy(node);
+    },
+    subscribeToNode(listenerType, node, listener) {
+        return subscribeToNode(node, listenerType, listener);
+    },
+};
 
 /**
  * Stateful version of an object and its leafs.
  */
 export function useNodeInternal<T extends TreeNode = TreeNode>(
     node: T | NodeFactory<T>,
-    listenerType: "nodeChanged" | "treeChanged"
+    listenerType: UseNodeInternalListenerType
 ): T {
-    const memoNode = useMemo(() => {
-        return getNode(node);
-    }, [node]);
-
-    const [nodeState, setNodeState] = useState<{ node: T }>(() => {
-        return {
-            node: getReproxyNode(memoNode),
-        };
-    });
-
-    // We can listen to a reproxied or base proxy node, but base proxies change less frequently.
-    // Listen to the baseProxy changes. This is cheap so it's okay to do it unmemoized.
-    const baseProxy = getBaseProxy<T>(memoNode);
-    useEffect(() => {
-        const unsubscribe = subscribeToNode<T>(
-            baseProxy,
-            listenerType,
-            (proxy) => {
-                setNodeState({ node: proxy });
-            }
-        );
-        // Unsubscribe on unmount
-        return () => {
-            unsubscribe();
-        };
-    }, [baseProxy, listenerType]);
-
-    // We want to reset our state when our prop changes to a new node without causing a re-render via `useEffect`.
-    // Fortunately our base proxies never change for a given node, so we compare old and new values.
-    // If the values differ, we set `nodeState.node` to the latest reproxied value.
-    const currentStateBaseProxy = getBaseProxy<T>(nodeState.node);
-    if (currentStateBaseProxy !== baseProxy) {
-        nodeState.node = getReproxyNode<T>(baseProxy);
-    }
-
-    return nodeState.node;
+    return useNodeInternalCore(node, listenerType, operations);
 }
