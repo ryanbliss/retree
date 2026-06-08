@@ -498,6 +498,9 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             return true;
         },
         defineProperty(target, prop, descriptor) {
+            if (isApplyingSet) {
+                return Reflect.defineProperty(target, prop, descriptor);
+            }
             const currentProxyForWrite = isCustomProxy(target)
                 ? target
                 : getManagedProxyForUnproxiedNode(target);
@@ -516,9 +519,6 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 ) {
                     return Reflect.defineProperty(target, prop, descriptor);
                 }
-            }
-            if (isApplyingSet) {
-                return Reflect.defineProperty(target, prop, descriptor);
             }
             const currentProxy = currentProxyForWrite;
             const baseProxy = currentProxy
