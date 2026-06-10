@@ -10,6 +10,7 @@
     "scripts": {
         "clean": "npx shx rm -rf bin",
         "build": "tsc -p tsconfig.json",
+        "prepack": "node ../../scripts/sync-package-docs.mjs .",
         "publish:package": "dotenv -e .env -- npm publish --access public"
     },
     "devDependencies": {

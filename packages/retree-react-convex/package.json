@@ -11,6 +11,7 @@
         "clean": "npx shx rm -rf bin",
         "build": "tsc -p tsconfig.json",
         "typecheck": "tsc -p tsconfig.json --noEmit",
+        "prepack": "node ../../scripts/sync-package-docs.mjs .",
         "publish:package": "dotenv -e .env -- npm publish --access public"
     },
     "devDependencies": {

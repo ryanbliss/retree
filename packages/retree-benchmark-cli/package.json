@@ -14,7 +14,8 @@
     "scripts": {
         "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
         "benchmark": "npm run build && node ./bin/cli.js",
-        "typecheck": "tsc -p tsconfig.json --noEmit"
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "prepack": "node ../../scripts/sync-package-docs.mjs ."
     },
     "dependencies": {
         "@inquirer/prompts": "^7.0.0",
@@ -47,6 +48,7 @@
     },
     "files": [
         "bin",
-        "README.md"
+        "README.md",
+        "llms.txt"
     ]
 }

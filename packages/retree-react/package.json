@@ -10,7 +10,8 @@
     "scripts": {
         "clean": "node -e \"require('node:fs').rmSync('bin', { recursive: true, force: true })\"",
         "build": "npm run clean && tsc -p tsconfig.build.json",
-        "typecheck": "tsc"
+        "typecheck": "tsc",
+        "prepack": "node ../../scripts/sync-package-docs.mjs ."
     },
     "devDependencies": {
         "@babel/core": "^7.21.8",
