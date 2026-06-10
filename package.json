@@ -17,10 +17,10 @@
     "scripts": {
         "benchmark": "npm run benchmark --workspace @retreejs/benchmark-cli -- --output-dir ../../benchmarks/results",
         "doctor": "prettier --write . && eslint **/src/**/*.{j,t}s{,x} --fix --no-error-on-unmatched-pattern",
-        "predocs": "npm run build:packages",
         "build:packages": "npm run build --workspace @retreejs/core && npm run build --workspace @retreejs/react && npm run build --workspace @retreejs/convex && npm run build --workspace @retreejs/react-convex",
-        "docs": "typedoc --options typedoc.json",
-        "postdocs": "node -e \"require('node:fs').copyFileSync('llms.txt', 'docs/llms.txt')\"",
+        "docs": "npm run build:packages && typedoc --options typedoc.json && node -e \"require('node:fs').copyFileSync('llms.txt', 'docs/llms.txt')\" && npm run sync:skill-references",
+        "sync:package-docs": "node scripts/sync-package-docs.mjs",
+        "sync:skill-references": "node scripts/sync-skill-references.mjs",
         "publish:packages": "node scripts/publish-packages.mjs",
         "test": "vitest run",
         "test:watch": "vitest",

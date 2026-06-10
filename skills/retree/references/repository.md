@@ -1,3 +1,8 @@
+# Retree Repository README
+
+> Generated from the repository README used by TypeDoc as the docs home page.
+> Source: `README.md`
+
 # Retree packages
 
 Retree is a lightweight and simple state management library, designed primarily for React. If you know how to work with objects in JavaScript or TypeScript, you pretty much already know how to use Retree.

@@ -1,0 +1,4 @@
+interface:
+    display_name: "Retree"
+    short_description: "Retree state, React, and Convex guidance"
+    default_prompt: "Use $retree to build or debug Retree state, React hooks, or Convex integration code."

@@ -9,7 +9,8 @@
     "types": "./bin/index.d.ts",
     "scripts": {
         "clean": "npx shx rm -rf bin",
-        "build": "tsc -p tsconfig.json"
+        "build": "tsc -p tsconfig.json",
+        "prepack": "node ../../scripts/sync-package-docs.mjs ."
     },
     "dependencies": {
         "events": "^3.0.0"
