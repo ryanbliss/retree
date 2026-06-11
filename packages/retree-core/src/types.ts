@@ -28,12 +28,24 @@ export type TRetreeChangedEvents = "nodeChanged" | "treeChanged";
 export type TRetreeEvents = TRetreeChangedEvents | "nodeRemoved";
 
 /**
+ * Field-level change metadata passed to Retree change listeners.
+ */
+export interface INodeFieldChanges<TValue = unknown> {
+    key: string;
+    previous: TValue;
+    new: TValue;
+}
+
+/**
  * Listener callback function types for {@link Retree.on}.
  */
-export type TRetreeListeners = (reproxiedNode: TreeNode) => void | (() => void);
+export type TRetreeListeners = TNodeChangedListener | (() => void);
 
 /**
  * Listener callback function type for {@link Retree.on} which returns a reproxied node.
  * See {@link TRetreeChangedEvents} for corresponding listener type.
  */
-export type TNodeChangedListener = (reproxiedNode: TreeNode) => void;
+export type TNodeChangedListener<TNode extends TreeNode = TreeNode> = (
+    reproxiedNode: TNode,
+    changes: INodeFieldChanges[]
+) => void;

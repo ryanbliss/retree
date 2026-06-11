@@ -3,15 +3,17 @@
  * Licensed under the MIT License.
  */
 
-import { TreeNode } from "../types";
+import { INodeFieldChanges, TreeNode } from "../types";
 
 /**
  * @internal
  */
 export interface ITransaction {
-    emitNodeChanged?: () => void;
-    emitTreeChanged?: () => void;
+    emitNodeChanged?: (changes: INodeFieldChanges[]) => void;
+    emitTreeChanged?: (changes: INodeFieldChanges[]) => void;
     emitNodeRemoved?: () => void;
+    nodeChanges?: INodeFieldChanges[];
+    treeChanges?: INodeFieldChanges[];
 }
 
 /**
@@ -70,6 +72,18 @@ export class Transactions {
         if (upsertTransaction.emitNodeRemoved !== undefined) {
             transaction.emitNodeRemoved = upsertTransaction.emitNodeRemoved;
         }
+        if (upsertTransaction.nodeChanges !== undefined) {
+            transaction.nodeChanges = [
+                ...(transaction.nodeChanges ?? []),
+                ...upsertTransaction.nodeChanges,
+            ];
+        }
+        if (upsertTransaction.treeChanges !== undefined) {
+            transaction.treeChanges = [
+                ...(transaction.treeChanges ?? []),
+                ...upsertTransaction.treeChanges,
+            ];
+        }
     }
 
     /**
@@ -79,8 +93,8 @@ export class Transactions {
     static runPendingTransactions() {
         try {
             this.pendingTransactions.forEach((transaction) => {
-                transaction.emitNodeChanged?.();
-                transaction.emitTreeChanged?.();
+                transaction.emitNodeChanged?.(transaction.nodeChanges ?? []);
+                transaction.emitTreeChanged?.(transaction.treeChanges ?? []);
                 transaction.emitNodeRemoved?.();
             });
         } finally {

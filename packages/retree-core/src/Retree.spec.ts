@@ -385,6 +385,81 @@ describe("Retree", () => {
         );
     });
 
+    it("passes field changes to nodeChanged listeners", () => {
+        const root = trackRoot(
+            Retree.root({
+                count: 1,
+                label: "one",
+            })
+        );
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        root.count = 2;
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(nodeChanged.mock.calls[0]?.[1]).toEqual([
+            {
+                key: "count",
+                previous: 1,
+                new: 2,
+            },
+        ]);
+    });
+
+    it("passes descendant field changes to treeChanged listeners", () => {
+        const root = trackRoot(
+            Retree.root({
+                child: {
+                    count: 1,
+                },
+            })
+        );
+        const treeChanged = vi.fn();
+        Retree.on(root, "treeChanged", treeChanged);
+
+        root.child.count = 2;
+
+        expect(treeChanged).toHaveBeenCalledTimes(1);
+        expect(treeChanged.mock.calls[0]?.[1]).toEqual([
+            {
+                key: "count",
+                previous: 1,
+                new: 2,
+            },
+        ]);
+    });
+
+    it("aggregates field changes during transactions", () => {
+        const root = trackRoot(
+            Retree.root({
+                count: 1,
+                label: "one",
+            })
+        );
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        Retree.runTransaction(() => {
+            root.count = 2;
+            root.label = "two";
+        });
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(nodeChanged.mock.calls[0]?.[1]).toEqual([
+            {
+                key: "count",
+                previous: 1,
+                new: 2,
+            },
+            {
+                key: "label",
+                previous: "one",
+                new: "two",
+            },
+        ]);
+    });
+
     it("does not refresh ancestor reproxies for deep nodeChanged-only workloads", () => {
         const root = trackRoot(Retree.root({ child: { value: 1 } }));
         const rootReproxyBefore = getReproxyNode(root);

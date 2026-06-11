@@ -3,7 +3,7 @@
  * Licensed under the MIT License.
  */
 
-import { TreeNode } from "../types";
+import { INodeFieldChanges, TreeNode } from "../types";
 import { IEvent, TypedEventEmitter } from "./TypedEventEmitter";
 
 export interface ITreeChangeEmitterEvents extends IEvent {
@@ -20,7 +20,8 @@ export interface ITreeChangeEmitterEvents extends IEvent {
         listener: (
             node: TreeNode,
             proxyNode: TreeNode,
-            reproxiedNode: TreeNode
+            reproxiedNode: TreeNode,
+            changes: INodeFieldChanges[]
         ) => void
     ): void;
 

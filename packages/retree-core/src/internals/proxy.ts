@@ -8,7 +8,7 @@ import {
     LINKED_KEYS_SYMBOL,
     ReactiveNode,
 } from "../ReactiveNode";
-import { TreeNode } from "../types";
+import { INodeFieldChanges, TreeNode } from "../types";
 import { TreeChangeEmitter } from "./NodeChangeEmitter";
 import {
     ICustomProxy,
@@ -74,6 +74,14 @@ function trackPropertyWriteIfNeeded(
         return;
     }
     trackDependencyPropertyWrite(owner, propertyKey);
+}
+
+function createNodeFieldChanges(
+    key: string | symbol,
+    previous: unknown,
+    next: unknown
+): INodeFieldChanges[] {
+    return [{ key: String(key), previous, new: next }];
 }
 
 type DateMutatingMethodName =
@@ -402,11 +410,17 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     }
                     if (!Transactions.skipReproxy) {
                         const reproxy = updateReproxyNode(baseProxy);
+                        const changes = createNodeFieldChanges(
+                            prop,
+                            prev,
+                            newValue
+                        );
                         emitter.emit(
                             "nodeChanged",
                             proxyHandler[unproxiedBaseNodeKey],
                             baseProxy,
-                            reproxy
+                            reproxy,
+                            changes
                         );
                     }
                     return returnValue;
@@ -475,12 +489,18 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 // If in a skip reproxy transaction, do not reproxy node
                 if (!Transactions.skipReproxy) {
                     const reproxy = updateReproxyNode(baseProxy);
+                    const changes = createNodeFieldChanges(
+                        prop,
+                        prev,
+                        newValue
+                    );
                     // Still emit here if in a `skipEmit` transaction so that parents get reproxied
                     emitter.emit(
                         "nodeChanged",
                         proxyHandler[unproxiedBaseNodeKey],
                         baseProxy,
-                        reproxy
+                        reproxy,
+                        changes
                     );
                     // nodeRemoved events do not reproxy parents, so we skip
                     if (nodeRemoved && !Transactions.skipEmit) {
@@ -529,6 +549,12 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 target,
                 prop
             );
+            const previousValue = currentDescriptorHasValue(currentDescriptor)
+                ? currentDescriptor.value
+                : undefined;
+            const nextValue = descriptorHasValue(descriptor)
+                ? descriptor.value
+                : descriptor;
             let nodeRemoved: object | undefined;
 
             if (descriptorHasValue(descriptorToDefine)) {
@@ -585,7 +611,8 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         "nodeChanged",
                         proxyHandler[unproxiedBaseNodeKey],
                         baseProxy,
-                        reproxy
+                        reproxy,
+                        createNodeFieldChanges(prop, previousValue, nextValue)
                     );
                 } else {
                     console.warn(
@@ -625,6 +652,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 ? getBaseProxy(currentProxy)
                 : currentProxy;
             const nodeRemoved = handleNodeRemoved(baseProxy, prop);
+            const previousValue = Reflect.get(target, prop, target);
             const returnValue = Reflect.deleteProperty(target, prop);
             if (returnValue) {
                 deleteProxiedChild(proxyHandler, prop);
@@ -638,7 +666,8 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         "nodeChanged",
                         proxyHandler[unproxiedBaseNodeKey],
                         baseProxy,
-                        reproxy
+                        reproxy,
+                        createNodeFieldChanges(prop, previousValue, undefined)
                     );
                 } else {
                     console.warn(
@@ -1070,7 +1099,13 @@ function wrapMapMutation(
                 }
             }
             Map.prototype.set.call(target, key, valueToStore);
-            emitCollectionChange(target, baseProxy, emitter, removedNodes);
+            emitCollectionChange(
+                target,
+                baseProxy,
+                emitter,
+                removedNodes,
+                createNodeFieldChanges(key, previous, value)
+            );
             // Map.prototype.set returns the map itself; return the proxy so chaining stays reactive.
             return baseProxy;
         };
@@ -1089,7 +1124,13 @@ function wrapMapMutation(
             }
             const result = Map.prototype.delete.call(target, key);
             if (result) {
-                emitCollectionChange(target, baseProxy, emitter, removedNodes);
+                emitCollectionChange(
+                    target,
+                    baseProxy,
+                    emitter,
+                    removedNodes,
+                    createNodeFieldChanges(key, previous, undefined)
+                );
             }
             return result;
         };
@@ -1104,8 +1145,15 @@ function wrapMapMutation(
                     if (removed) removedNodes.push(removed);
                 }
             });
+            const previousSize = target.size;
             Map.prototype.clear.call(target);
-            emitCollectionChange(target, baseProxy, emitter, removedNodes);
+            emitCollectionChange(
+                target,
+                baseProxy,
+                emitter,
+                removedNodes,
+                createNodeFieldChanges("clear", previousSize, 0)
+            );
         };
     }
     // @retree-throws
@@ -1228,7 +1276,13 @@ function wrapSetMutation(
                 }
             }
             Set.prototype.add.call(target, valueToStore);
-            emitCollectionChange(target, baseProxy, emitter, []);
+            emitCollectionChange(
+                target,
+                baseProxy,
+                emitter,
+                [],
+                createNodeFieldChanges("add", undefined, value)
+            );
             return baseProxy;
         };
     }
@@ -1248,7 +1302,13 @@ function wrapSetMutation(
                     ? false
                     : Set.prototype.delete.call(target, valueToDelete);
             if (result) {
-                emitCollectionChange(target, baseProxy, emitter, removedNodes);
+                emitCollectionChange(
+                    target,
+                    baseProxy,
+                    emitter,
+                    removedNodes,
+                    createNodeFieldChanges("delete", valueToDelete, undefined)
+                );
             }
             return result;
         };
@@ -1263,8 +1323,15 @@ function wrapSetMutation(
                     if (removed) removedNodes.push(removed);
                 }
             });
+            const previousSize = target.size;
             Set.prototype.clear.call(target);
-            emitCollectionChange(target, baseProxy, emitter, removedNodes);
+            emitCollectionChange(
+                target,
+                baseProxy,
+                emitter,
+                removedNodes,
+                createNodeFieldChanges("clear", previousSize, 0)
+            );
         };
     }
     // @retree-throws
@@ -1313,7 +1380,13 @@ function wrapDateMutation(
         const result = DATE_MUTATING_METHODS[prop].call(target, ...args);
         const nextTime = Date.prototype.getTime.call(target);
         if (!Object.is(previousTime, nextTime)) {
-            emitCollectionChange(target, baseProxy, emitter, []);
+            emitCollectionChange(
+                target,
+                baseProxy,
+                emitter,
+                [],
+                createNodeFieldChanges(prop, previousTime, nextTime)
+            );
         }
         return result;
     };
@@ -1338,11 +1411,12 @@ function emitCollectionChange(
     target: object,
     baseProxy: TCustomProxy<any>,
     emitter: TreeChangeEmitter,
-    removedNodes: object[]
+    removedNodes: object[],
+    changes: INodeFieldChanges[]
 ) {
     if (Transactions.skipReproxy) return;
     const reproxy = updateReproxyNode(baseProxy);
-    emitter.emit("nodeChanged", target, baseProxy, reproxy);
+    emitter.emit("nodeChanged", target, baseProxy, reproxy, changes);
     if (removedNodes.length === 0 || Transactions.skipEmit) return;
     for (const removed of removedNodes) {
         const removedUnproxied = getUnproxiedNode(removed);
