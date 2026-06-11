@@ -4,7 +4,12 @@ import {
     runTrappedMemo,
 } from "./internals/memo";
 import type { RetreeLink } from "./Retree";
-import { OptionalNode, RetreeObjectMoveKey, TreeNode } from "./types";
+import {
+    INodeFieldChanges,
+    OptionalNode,
+    RetreeObjectMoveKey,
+    TreeNode,
+} from "./types";
 
 type LinkReactiveNode = <TNode extends TreeNode>(
     node: TNode
@@ -396,7 +401,7 @@ export abstract class ReactiveNode {
      * }
      * ```
      */
-    protected onChanged(): void {}
+    protected onChanged(_changes: INodeFieldChanges[]): void {}
     /**
      * Creates a new {@link IReactiveDependency} instance.
      *
@@ -567,8 +572,11 @@ export abstract class ReactiveNode {
     /**
      * @hidden
      */
-    public static [RUN_CHANGED_EFFECT_SYMBOL](node: ReactiveNode): void {
-        node.onChanged();
+    public static [RUN_CHANGED_EFFECT_SYMBOL](
+        node: ReactiveNode,
+        changes: INodeFieldChanges[]
+    ): void {
+        node.onChanged(changes);
     }
 
     /**

@@ -550,9 +550,11 @@ class LiveValueNode extends ReactiveNode {
 }
 ```
 
-Use `onChanged()` when you need to update derived state only after Retree has confirmed that the node actually changed. Retree runs `onChanged()` before listener callbacks flush. If no transaction is already active, Retree starts one so state updates made in `onChanged()` are bundled with the triggering change.
+Use `onChanged(changes)` when you need to update derived state only after Retree has confirmed that the node actually changed. Retree runs `onChanged()` before listener callbacks flush. `changes` is an array of `{ key, previous, new }` records.
 
 ```ts
+import type { INodeFieldChanges } from "@retreejs/core";
+
 class SearchNode extends ReactiveNode {
     public query = "";
     public normalizedQuery = "";
@@ -561,7 +563,7 @@ class SearchNode extends ReactiveNode {
         return [];
     }
 
-    protected onChanged(): void {
+    protected onChanged(_changes: INodeFieldChanges[]): void {
         const next = this.query.trim().toLowerCase();
         if (this.normalizedQuery === next) {
             return;
@@ -887,8 +889,8 @@ class TodoList {
 const tree = Retree.root(new TodoList());
 
 // Listen for changes to the todo list (e.g., todo created)
-const unsubscribe = Retree.on(tree.todos, "treeChanged", (todos) => {
-    console.log("list updated", todos);
+const unsubscribe = Retree.on(tree.todos, "treeChanged", (todos, changes) => {
+    console.log("list updated", todos, changes);
 });
 tree.add();
 tree.todos[0].toggle();
@@ -900,10 +902,14 @@ unsubscribe();
 
 Use `Retree.on` when you need events outside React:
 
+`nodeChanged` and `treeChanged` callbacks receive `(reproxiedNode, changes)`, where `changes` is an array of `{ key, previous, new }` records.
+
 ```ts
-Retree.on(tree.todos, "nodeChanged", () => console.log("list changed"));
-Retree.on(tree.todos, "treeChanged", () =>
-    console.log("list or child changed")
+Retree.on(tree.todos, "nodeChanged", (_todos, changes) =>
+    console.log("list changed", changes)
+);
+Retree.on(tree.todos, "treeChanged", (_todos, changes) =>
+    console.log("list or child changed", changes)
 );
 
 tree.todos.push(new Todo()); // ✅ nodeChanged, ✅ treeChanged
