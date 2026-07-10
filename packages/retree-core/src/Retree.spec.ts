@@ -1315,3 +1315,91 @@ describe("Retree", () => {
         expect(nodeChanged).toHaveBeenCalledTimes(1);
     });
 });
+
+describe("Retree.peek", () => {
+    it("returns the raw object behind a root node", () => {
+        const raw = { count: 0, child: { value: 1 } };
+        const root = Retree.root(raw);
+        expect(Retree.peek(root)).toBe(raw);
+    });
+
+    it("returns the raw object behind a child node and a reproxy", () => {
+        const raw = { child: { value: 1 } };
+        const root = Retree.root(raw);
+        expect(Retree.peek(root.child)).toBe(raw.child);
+
+        let latest: typeof root | undefined;
+        const unsubscribe = Retree.on(root, "nodeChanged", (reproxy) => {
+            latest = reproxy;
+        });
+        (root as { count?: number }).count = 1;
+        expect(latest).toBeDefined();
+        if (latest === undefined) {
+            throw new Error("expected nodeChanged listener to run");
+        }
+        expect(Retree.peek(latest)).toBe(raw);
+        unsubscribe();
+    });
+
+    it("throws for unmanaged values", () => {
+        expect(() => Retree.peek({ count: 0 })).toThrowError(/Retree.peek/);
+    });
+
+    it("reads via peek do not subscribe a tracked select", () => {
+        const root = Retree.root({ items: [{ score: 1 }, { score: 2 }] });
+        // Materialize children before selecting.
+        expect(root.items[1].score).toBe(2);
+        const callback = vi.fn();
+        const unsubscribe = Retree.select(() => {
+            const rawItems = Retree.peek(root.items);
+            let total = 0;
+            for (const item of rawItems) {
+                total += item.score;
+            }
+            return total;
+        }, callback);
+        root.items[0].score = 100;
+        expect(callback).not.toHaveBeenCalled();
+        unsubscribe();
+    });
+});
+
+describe("Retree.untracked", () => {
+    it("pauses dependency collection inside tracked selectors", () => {
+        const root = Retree.root({
+            flag: false,
+            items: [{ score: 1 }, { score: 2 }],
+        });
+        const callback = vi.fn();
+        const unsubscribe = Retree.select(() => {
+            const flag = root.flag;
+            const total = Retree.untracked(() =>
+                root.items.reduce((sum, item) => sum + item.score, 0)
+            );
+            return flag ? total : -1;
+        }, callback);
+
+        // Untracked reads must not subscribe: item mutations are invisible.
+        root.items[0].score = 100;
+        expect(callback).not.toHaveBeenCalled();
+
+        // Tracked reads still subscribe.
+        root.flag = true;
+        expect(callback).toHaveBeenCalledTimes(1);
+        expect(callback).toHaveBeenLastCalledWith(102, -1);
+        unsubscribe();
+    });
+
+    it("returns the callback result and still emits writes", () => {
+        const root = Retree.root({ count: 0 });
+        const nodeChanged = vi.fn();
+        const unsubscribe = Retree.on(root, "nodeChanged", nodeChanged);
+        const result = Retree.untracked(() => {
+            root.count = 5;
+            return root.count * 2;
+        });
+        expect(result).toBe(10);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        unsubscribe();
+    });
+});

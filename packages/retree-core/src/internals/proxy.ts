@@ -39,11 +39,9 @@ import {
 } from "./dependency-tracking";
 import { Transactions } from "./transactions";
 
-export const FUNCTION_NAMES_BIND_TO_RAW: (string | symbol)[] = [
-    "valueOf",
-    "toISOString",
-    "toJSON",
-];
+export const FUNCTION_NAMES_BIND_TO_RAW: ReadonlySet<string | symbol> = new Set(
+    ["valueOf", "toISOString", "toJSON"]
+);
 
 const MAP_MUTATING_METHODS = new Set(["set", "delete", "clear"]);
 const SET_MUTATING_METHODS = new Set(["add", "delete", "clear"]);
@@ -253,17 +251,21 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 return object;
             }
             if (reactiveObject !== undefined) {
-                const propString = String(prop);
-                // Check for ignore keys
-                if (propString.startsWith("RETREE_")) {
-                    return Reflect.get(target, prop, target);
-                }
-                if (reactiveObject[COLLECTED_KEYS_SYMBOL].has(propString)) {
-                    return trackPropertyAccessIfNeeded(
-                        baseProxy,
-                        prop,
-                        getLatestIgnoredValue(Reflect.get(target, prop, target))
-                    );
+                // Collected/ignore keys are always strings; symbol props skip
+                // these checks without paying a String(prop) allocation.
+                if (typeof prop === "string") {
+                    if (prop.startsWith("RETREE_")) {
+                        return Reflect.get(target, prop, target);
+                    }
+                    if (reactiveObject[COLLECTED_KEYS_SYMBOL].has(prop)) {
+                        return trackPropertyAccessIfNeeded(
+                            baseProxy,
+                            prop,
+                            getLatestIgnoredValue(
+                                Reflect.get(target, prop, target)
+                            )
+                        );
+                    }
                 }
                 if (reactiveObject[LINKED_KEYS_SYMBOL].has(prop)) {
                     return trackPropertyAccessIfNeeded(
@@ -353,7 +355,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 value = Reflect.get(target, prop, receiver);
             }
             if (typeof value === "function") {
-                if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
+                if (FUNCTION_NAMES_BIND_TO_RAW.has(prop)) {
                     return trackAccessIfNeeded(
                         getBoundFunction(prop, value, target)
                     );
@@ -370,7 +372,12 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 if (!descriptor || !descriptorHasValue(descriptor)) {
                     return trackPropertyAccessIfNeeded(baseProxy, prop, value);
                 }
-                if (!shouldKeepRawPropertyValue(descriptor, value)) {
+                // shouldLazilyProxyProperty already established the value is a
+                // proxyable non-proxy object; only the descriptor lock check
+                // from shouldKeepRawPropertyValue remains.
+                if (
+                    !descriptorRequiresExactDefinedValue(descriptor, descriptor)
+                ) {
                     return trackPropertyAccessIfNeeded(
                         baseProxy,
                         prop,
@@ -725,28 +732,30 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             Set.prototype.add.call(object, replacement.next);
         }
     } else {
-        Object.entries(object).forEach(([prop, value]) => {
-            const propString = String(prop);
+        // The children record was created empty just above, so deferred
+        // children need no bookkeeping here; they resolve through the lazy
+        // read path. Checking laziness before descriptors keeps this walk
+        // free of per-property descriptor allocations for plain data.
+        for (const prop of Object.keys(object)) {
+            const value = (object as Record<string, unknown>)[prop];
             if (
                 value === null ||
-                (object instanceof ReactiveNode &&
-                    (propString === COLLECTED_KEYS_SYMBOL ||
-                        object[COLLECTED_KEYS_SYMBOL].has(propString) ||
-                        object[LINKED_KEYS_SYMBOL].has(prop)))
+                (reactiveObject !== undefined &&
+                    (prop === COLLECTED_KEYS_SYMBOL ||
+                        reactiveObject[COLLECTED_KEYS_SYMBOL].has(prop) ||
+                        reactiveObject[LINKED_KEYS_SYMBOL].has(prop)))
             ) {
                 proxyHandler[proxiedChildrenKey][prop] = value;
             } else if (typeof value === "object") {
+                if (shouldCreatePlainObjectProxyLazily(value)) {
+                    continue;
+                }
                 const descriptor = Reflect.getOwnPropertyDescriptor(
                     object,
                     prop
                 );
                 if (shouldKeepRawPropertyValue(descriptor, value)) {
-                    deleteProxiedChild(proxyHandler, prop);
-                    return;
-                }
-                if (shouldCreatePlainObjectProxyLazily(value)) {
-                    deleteProxiedChild(proxyHandler, prop);
-                    return;
+                    continue;
                 }
                 const cProxy = buildProxy(value, emitter, {
                     proxyNode: proxy,
@@ -754,7 +763,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 });
                 proxyHandler[proxiedChildrenKey][prop] = getBaseProxy(cProxy);
             }
-        });
+        }
     }
     if (
         object instanceof ReactiveNode &&
@@ -877,19 +886,14 @@ function shouldCreatePlainObjectProxyLazily(value: unknown): value is object {
     if (!isProxyableObject(value)) {
         return false;
     }
-    if (isCustomProxy(value)) {
+    // Cheap shape checks first; isCustomProxy costs a WeakMap lookup.
+    if (
+        !Array.isArray(value) &&
+        Object.getPrototypeOf(value) !== Object.prototype
+    ) {
         return false;
     }
-    if (value instanceof ReactiveNode) {
-        return false;
-    }
-    if (isInternalSlotInstance(value)) {
-        return false;
-    }
-    return (
-        Array.isArray(value) ||
-        Object.getPrototypeOf(value) === Object.prototype
-    );
+    return !isCustomProxy(value);
 }
 
 function getOrCreateProxiedChild(
@@ -907,12 +911,16 @@ function getOrCreateProxiedChild(
         proxyNode: baseProxy,
         propName: prop,
     };
+    // Callers guarantee `value` is a raw (non-proxy) object, so a managed
+    // proxy can only exist if this same raw node was proxied elsewhere first.
     const existingManagedProxy = getManagedProxyForUnproxiedNode(value);
-    const childProxy =
-        existingManagedProxy === undefined
-            ? createStructuralProxyForValue(value, parentToSet, emitter)
-            : existingManagedProxy;
-    const baseChildProxy = getBaseProxy(childProxy);
+    if (existingManagedProxy === undefined) {
+        // buildProxy returns the base proxy for a fresh raw object.
+        const builtChildProxy = buildProxy(value, emitter, parentToSet);
+        proxyHandler[proxiedChildrenKey][prop] = builtChildProxy;
+        return builtChildProxy;
+    }
+    const baseChildProxy = getBaseProxy(existingManagedProxy);
     proxyHandler[proxiedChildrenKey][prop] = baseChildProxy;
     return baseChildProxy;
 }

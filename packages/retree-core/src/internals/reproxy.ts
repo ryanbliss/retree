@@ -209,7 +209,7 @@ function buildReproxy<T extends TreeNode = TreeNode>(
                 }
 
                 if (typeof value === "function") {
-                    if (FUNCTION_NAMES_BIND_TO_RAW.includes(prop)) {
+                    if (FUNCTION_NAMES_BIND_TO_RAW.has(prop)) {
                         return trackAccessIfNeeded(
                             getBoundFunction(prop, value, rawNode)
                         );

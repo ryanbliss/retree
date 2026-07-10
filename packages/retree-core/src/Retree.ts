@@ -37,7 +37,10 @@ import {
     RetreeSelectSelector,
     RetreeTrackedSelectSelector,
 } from "./internals/select";
-import { runWithIsolatedDependencyTracking } from "./internals/dependency-tracking";
+import {
+    runWithIsolatedDependencyTracking,
+    runWithoutDependencyTracking,
+} from "./internals/dependency-tracking";
 import {
     areDependencyValuesEqual,
     getDependencyComparisonValues,
@@ -603,6 +606,81 @@ export class Retree {
     static parent(node: TreeNode): TreeNode | null {
         const response = this.getParentInternal(node);
         return response?.proxyNode ?? null;
+    }
+
+    /**
+     * Get the raw, unproxied object behind a Retree-managed node for
+     * read-only, non-reactive access.
+     *
+     * @remarks
+     * Reads through Retree proxies pay per-property trap overhead. That is
+     * usually irrelevant, but algorithms that scan large collections of
+     * deeply nested nodes can read the raw object at native speed instead.
+     *
+     * Treat the returned object as read-only. Mutating it directly skips
+     * Retree change emission and can desynchronize memoized comparisons; make
+     * all writes through the managed node. Reads through `peek` are invisible
+     * to reactivity: they are not trapped by `useSelect`/`Retree.select`
+     * selectors or `@memo` dependency collection, and children read this way
+     * are not prepared for `Retree.parent` / `Retree.on` usage.
+     *
+     * Children that were assigned into the tree as already-managed nodes are
+     * stored as proxies, so a raw traversal may still encounter Retree
+     * proxies on some branches. Values read from `peek` results should not be
+     * assumed to be raw; normalize per node with another `peek` call when
+     * identity matters.
+     *
+     * @param node Retree-managed node to unwrap.
+     * @returns The raw object behind the node.
+     *
+     * @example
+     * ```ts
+     * const project = Retree.root({ items: [{ score: 1 }, { score: 92 }] });
+     *
+     * const rawItems = Retree.peek(project.items);
+     * const total = rawItems.reduce((sum, item) => sum + item.score, 0); // ✅ native-speed read
+     *
+     * project.items[0].score = 50; // ✅ writes stay on the managed tree
+     * ```
+     */
+    static peek<TNode extends TreeNode>(node: TNode): TNode {
+        this.assertRetreeManagedNode(node, "Retree.peek");
+        return getUnproxiedNode(node) as TNode;
+    }
+
+    /**
+     * Run a synchronous function with Retree dependency tracking paused.
+     *
+     * @remarks
+     * Inside tracked contexts — `Retree.select(() => ...)`, `useSelect`
+     * selectors, and auto-trapped `@memo` / `@fnMemo` / `@select` bodies —
+     * every Retree read is recorded as a dependency. Wrap bulk reads in
+     * `untracked` when they should not subscribe, such as a wide scan whose
+     * result is already covered by a narrower dependency.
+     *
+     * Reads inside `untracked` still go through Retree proxies (combine with
+     * {@link Retree.peek} for native-speed scans). Writes inside `untracked`
+     * still emit normally; this pauses dependency collection, not change
+     * emission.
+     *
+     * @param fn Function to run without dependency tracking.
+     * @returns The function's return value.
+     *
+     * @example
+     * ```ts
+     * const doneCount = Retree.select(
+     *     () => {
+     *         const tasks = project.tasks; // ✅ tracked: subscribes to tasks
+     *         return Retree.untracked(
+     *             () => tasks.filter((task) => task.done).length
+     *         );
+     *     },
+     *     (count) => console.log(count)
+     * );
+     * ```
+     */
+    static untracked<T>(fn: () => T): T {
+        return runWithoutDependencyTracking(fn);
     }
 
     /**
@@ -1689,9 +1767,33 @@ export class Retree {
         }
         const groupedDependents = this.groupReactiveDependents(dependents);
         groupedDependents.forEach((group) => {
+            // All dependents in a group share one ReactiveNode, so its current
+            // dependency list is computed at most once per group. Recomputing it
+            // per dependent re-runs the `dependencies` getter and every @select
+            // getter M times for a node with M edges onto the changed node.
+            let latestDependenciesByKey:
+                | Map<string, IActiveReactiveDependency>
+                | undefined;
+            const getLatestDependenciesByKey = () => {
+                if (latestDependenciesByKey === undefined) {
+                    latestDependenciesByKey = new Map();
+                    const latestDependencies = this.getReactiveNodeDependencies(
+                        group.reactiveNode,
+                        false
+                    );
+                    for (const dependency of latestDependencies) {
+                        latestDependenciesByKey.set(dependency.key, dependency);
+                    }
+                }
+                return latestDependenciesByKey;
+            };
             if (
                 !group.dependents.some((dependent) =>
-                    this.shouldNotifyReactiveDependent(dependent, _unproxy)
+                    this.shouldNotifyReactiveDependent(
+                        dependent,
+                        _unproxy,
+                        getLatestDependenciesByKey
+                    )
                 )
             ) {
                 return;
@@ -1745,11 +1847,13 @@ export class Retree {
 
     private static shouldNotifyReactiveDependent(
         dependent: IPreviousReactiveDependent,
-        changedUnproxiedNode: TreeNode
+        changedUnproxiedNode: TreeNode,
+        getLatestDependenciesByKey: () => Map<string, IActiveReactiveDependency>
     ) {
         const dependencyChanged = this.hasReactiveDependencyChanged(
             dependent,
-            changedUnproxiedNode
+            changedUnproxiedNode,
+            getLatestDependenciesByKey
         );
         if (!dependencyChanged) {
             return false;
@@ -1764,16 +1868,14 @@ export class Retree {
 
     private static hasReactiveDependencyChanged(
         dependent: IPreviousReactiveDependent,
-        changedUnproxiedNode: TreeNode
+        changedUnproxiedNode: TreeNode,
+        getLatestDependenciesByKey: () => Map<string, IActiveReactiveDependency>
     ) {
         const previousComparisons = dependent.comparisons;
         if (previousComparisons === undefined) {
             return true;
         }
-        const latest = this.getReactiveNodeDependencies(
-            dependent.reactiveNode,
-            false
-        ).find((dependency) => dependency.key === dependent.key);
+        const latest = getLatestDependenciesByKey().get(dependent.key);
         if (latest === undefined) {
             return true;
         }

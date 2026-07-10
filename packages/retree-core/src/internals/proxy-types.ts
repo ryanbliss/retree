@@ -3,6 +3,7 @@ import { TreeNode } from "../types";
 export const unproxiedBaseNodeKey = Symbol("retree-base-node");
 export const proxiedParentKey = Symbol("retree-parent");
 export const proxiedChildrenKey = Symbol("retree-children");
+export const proxyTargetKey = Symbol("retree-proxy-target");
 
 /**
  * @internal
@@ -20,6 +21,12 @@ export interface ICustomProxyHandler<TNode extends TreeNode = TreeNode> {
     [unproxiedBaseNodeKey]: TNode;
     [proxiedChildrenKey]: Record<string | symbol, any>;
     [proxiedParentKey]: IProxyParent | null;
+    /**
+     * The proxy's direct target when it differs from the raw node. Base proxy
+     * handlers omit this (their target is the raw node); reproxy handlers set
+     * it to the base proxy they wrap.
+     */
+    [proxyTargetKey]?: TNode;
 }
 
 /**
@@ -45,14 +52,13 @@ export interface ICustomProxy<TNode extends TreeNode = TreeNode> {
 export type TCustomProxy<TNode extends TreeNode = TreeNode> =
     ICustomProxy<TNode> & TNode;
 
-interface CustomProxyMetadata<TNode extends TreeNode = TreeNode> {
-    handler: ICustomProxyHandler<TNode>;
-    target: TNode;
-}
-
+// Keyed by proxy, valued by the proxy's handler. The handler already knows the
+// raw node and (for reproxies) the wrapped target, so storing it directly
+// avoids allocating a metadata record per proxy — a measurable share of
+// materialization cost.
 const customProxyMetadata = new WeakMap<
     object,
-    CustomProxyMetadata<TreeNode>
+    ICustomProxyHandler<TreeNode>
 >();
 
 export function registerCustomProxyMetadata<TNode extends TreeNode = TreeNode>(
@@ -60,7 +66,10 @@ export function registerCustomProxyMetadata<TNode extends TreeNode = TreeNode>(
     handler: ICustomProxyHandler<TNode>,
     target: TNode
 ): void {
-    customProxyMetadata.set(proxy, { handler, target });
+    if (target !== handler[unproxiedBaseNodeKey]) {
+        handler[proxyTargetKey] = target;
+    }
+    customProxyMetadata.set(proxy, handler as ICustomProxyHandler<TreeNode>);
 }
 
 export function getCustomProxyHandlerFromMetadata<
@@ -69,7 +78,7 @@ export function getCustomProxyHandlerFromMetadata<
     if (value === null || typeof value !== "object") {
         return undefined;
     }
-    return customProxyMetadata.get(value)?.handler as
+    return customProxyMetadata.get(value) as
         | ICustomProxyHandler<TNode>
         | undefined;
 }
@@ -80,7 +89,11 @@ export function getCustomProxyTargetFromMetadata<
     if (value === null || typeof value !== "object") {
         return undefined;
     }
-    return customProxyMetadata.get(value)?.target as TNode | undefined;
+    const handler = customProxyMetadata.get(value);
+    if (handler === undefined) {
+        return undefined;
+    }
+    return (handler[proxyTargetKey] ?? handler[unproxiedBaseNodeKey]) as TNode;
 }
 
 /**

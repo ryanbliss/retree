@@ -3,15 +3,23 @@
  * Licensed under the MIT License.
  */
 
-import { TRetreeChangedEvents, TreeNode } from "../types";
+import { ReactiveNode } from "../ReactiveNode";
+import { INodeFieldChanges, TRetreeChangedEvents, TreeNode } from "../types";
 import {
     areDependencyComparisonValuesEqual,
     areDependencyValuesEqual,
     getDependencyComparisonValues,
     normalizeDependencyEntry,
 } from "./dependencies";
-import { collectDependencyAccesses } from "./dependency-tracking";
-import { getBaseProxy, getUnproxiedNode } from "./proxy";
+import {
+    collectTrackedSelectionAccesses,
+    ITrackedNodeAccessSummary,
+} from "./dependency-tracking";
+import {
+    getBaseProxy,
+    getUnproxiedNode,
+    isInternalSlotInstance,
+} from "./proxy";
 import { getReproxyNode } from "./reproxy";
 
 export type RetreeSelectSelector<TNode extends TreeNode, TSelected> = (
@@ -25,7 +33,10 @@ export type RetreeSelectEquals<TSelected> = (
     next: TSelected
 ) => boolean;
 
-type SelectionListener<TNode extends TreeNode> = (node: TNode) => void;
+type SelectionListener<TNode extends TreeNode> = (
+    node: TNode,
+    changes?: INodeFieldChanges[]
+) => void;
 type SubscribeToNode = <TNode extends TreeNode>(
     node: TNode,
     listenerType: TRetreeChangedEvents,
@@ -41,6 +52,7 @@ interface ActiveSelectDependency {
 interface TrackedSelection<TSelected> {
     selected: TSelected;
     dependencies: readonly unknown[];
+    getAccessSummaries: () => Map<TreeNode, ITrackedNodeAccessSummary>;
 }
 
 function getTrackedDependencyComparisonValue(dependency: unknown): unknown {
@@ -69,27 +81,19 @@ function getTrackedDependencyComparisonValues(
     return comparisonValues;
 }
 
-function defaultTrackedDependenciesChanged(
+function areTrackedComparisonValuesEqual(
     previous: readonly unknown[],
     next: readonly unknown[]
 ): boolean {
-    const previousComparisonValues =
-        getTrackedDependencyComparisonValues(previous);
-    const nextComparisonValues = getTrackedDependencyComparisonValues(next);
-    if (previousComparisonValues.length !== nextComparisonValues.length) {
-        return true;
+    if (previous.length !== next.length) {
+        return false;
     }
-    for (let index = 0; index < previousComparisonValues.length; index++) {
-        if (
-            !Object.is(
-                previousComparisonValues[index],
-                nextComparisonValues[index]
-            )
-        ) {
-            return true;
+    for (let index = 0; index < previous.length; index++) {
+        if (!Object.is(previous[index], next[index])) {
+            return false;
         }
     }
-    return false;
+    return true;
 }
 
 function defaultTrackedSelectedChanged<TSelected>(
@@ -373,7 +377,7 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
                 unsubscribe: options.subscribeToNode(
                     dependencySlot.baseProxy,
                     "nodeChanged",
-                    evaluate
+                    (_node, changes) => evaluateForDependency(rawNode, changes)
                 ),
             };
             nextDependencies.push(nextDependency);
@@ -387,6 +391,26 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
         }
         activeDependencies = nextDependencies;
         activeDependencyMap = nextDependencyMap;
+    };
+
+    let previousComparisonValues = getTrackedDependencyComparisonValues(
+        previous.dependencies
+    );
+
+    const evaluateForDependency = (
+        changedRawNode: TreeNode,
+        changes?: INodeFieldChanges[]
+    ) => {
+        if (
+            canSkipTrackedDependencyChange(
+                changedRawNode,
+                previous.getAccessSummaries().get(changedRawNode),
+                changes
+            )
+        ) {
+            return;
+        }
+        evaluate();
     };
 
     const evaluate = () => {
@@ -403,22 +427,23 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
                       previous.selected,
                       nextSelected
                   );
-        const dependenciesChanged = defaultTrackedDependenciesChanged(
-            previous.dependencies,
+        const nextComparisonValues = getTrackedDependencyComparisonValues(
             next.dependencies
         );
-        if (!selectedChanged && !dependenciesChanged) {
-            previous = {
-                selected: nextSelected,
-                dependencies: next.dependencies,
-            };
-            return;
-        }
+        const dependenciesChanged = !areTrackedComparisonValuesEqual(
+            previousComparisonValues,
+            nextComparisonValues
+        );
+        previousComparisonValues = nextComparisonValues;
         const previousToEmit = previous;
         previous = {
             selected: nextSelected,
             dependencies: next.dependencies,
+            getAccessSummaries: next.getAccessSummaries,
         };
+        if (!selectedChanged && !dependenciesChanged) {
+            return;
+        }
         options.onChange(nextSelected, previousToEmit.selected);
     };
 
@@ -436,12 +461,66 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
 export function runTrackedSelection<TSelected>(
     selector: RetreeTrackedSelectSelector<TSelected>
 ): TrackedSelection<TSelected> {
-    let selected: TSelected | undefined;
-    const dependencies = collectDependencyAccesses(() => {
-        selected = selector();
-    });
+    const accesses = collectTrackedSelectionAccesses(selector);
     return {
-        selected: selected as TSelected,
-        dependencies,
+        selected: accesses.value,
+        dependencies: accesses.dependencies,
+        getAccessSummaries: accesses.getAccessSummaries,
     };
+}
+
+/**
+ * Decide whether a dependency's `nodeChanged` can be skipped without
+ * re-running the tracked selector.
+ *
+ * A change is skippable when every value the selector read from the changed
+ * node re-reads equal. For plain-object nodes the emitted field changes can
+ * short-circuit that check entirely when none of the changed keys were read.
+ * Arrays are excluded from key scoping because an index write (e.g. `push`)
+ * implicitly changes `length` without emitting a `length` change record.
+ * ReactiveNodes are excluded because dependency-driven emissions forward the
+ * dependency's change records, whose keys do not describe the node's own
+ * fields.
+ */
+function canSkipTrackedDependencyChange(
+    changedRawNode: TreeNode,
+    summary: ITrackedNodeAccessSummary | undefined,
+    changes: INodeFieldChanges[] | undefined
+): boolean {
+    if (summary === undefined) {
+        return false;
+    }
+    if (summary.wholeNodeRead) {
+        return false;
+    }
+    const keyScopingAllowed =
+        summary.keyScopable &&
+        !Array.isArray(changedRawNode) &&
+        !(changedRawNode instanceof ReactiveNode) &&
+        !isInternalSlotInstance(changedRawNode);
+    if (
+        keyScopingAllowed &&
+        changes !== undefined &&
+        changes.length > 0 &&
+        !changes.some((change) => summary.propertyKeys.has(change.key))
+    ) {
+        return true;
+    }
+    for (const validator of summary.validators) {
+        const currentValues = validator.accessor.getValues();
+        if (currentValues.length !== validator.capturedValues.length) {
+            return false;
+        }
+        for (let index = 0; index < currentValues.length; index++) {
+            if (
+                !areDependencyValuesEqual(
+                    validator.capturedValues[index],
+                    currentValues[index]
+                )
+            ) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
