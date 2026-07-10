@@ -549,8 +549,8 @@ describe("ReactiveNode", () => {
         nested.prepareTree({ depth: 0 });
 
         expect(root.dependenciesReadCount).toBe(0);
-        expect(nestedHandler[proxiedChildrenKey].payload).toBeDefined();
-        expect(nestedHandler[proxiedChildrenKey].items).toBeDefined();
+        expect(nestedHandler[proxiedChildrenKey]?.payload).toBeDefined();
+        expect(nestedHandler[proxiedChildrenKey]?.items).toBeDefined();
 
         const payloadHandler = getCustomProxyHandler(nested.payload);
         if (payloadHandler === undefined) {
@@ -558,7 +558,7 @@ describe("ReactiveNode", () => {
                 "ReactiveNode prepareTree test expected payload to expose proxy metadata."
             );
         }
-        expect(payloadHandler[proxiedChildrenKey].stats).toBeUndefined();
+        expect(payloadHandler[proxiedChildrenKey]?.stats).toBeUndefined();
     });
 
     it("auto prepares lazy ReactiveNode data fields when configured", () => {
@@ -570,8 +570,8 @@ describe("ReactiveNode", () => {
             );
         }
 
-        expect(rootHandler[proxiedChildrenKey].payload).toBeDefined();
-        expect(rootHandler[proxiedChildrenKey].items).toBeDefined();
+        expect(rootHandler[proxiedChildrenKey]?.payload).toBeDefined();
+        expect(rootHandler[proxiedChildrenKey]?.items).toBeDefined();
 
         const payloadHandler = getCustomProxyHandler(root.payload);
         if (payloadHandler === undefined) {
@@ -579,7 +579,7 @@ describe("ReactiveNode", () => {
                 "ReactiveNode auto prepare test expected payload to expose proxy metadata."
             );
         }
-        expect(payloadHandler[proxiedChildrenKey].stats).toBeUndefined();
+        expect(payloadHandler[proxiedChildrenKey]?.stats).toBeUndefined();
     });
 
     it("shares one Retree listener for many dependents on the same dependency node", () => {

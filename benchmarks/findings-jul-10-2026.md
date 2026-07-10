@@ -181,6 +181,90 @@ profile after fix: GC 37%, `registerCustomProxyMetadata` 14.6%,
   (delete-free) case.
 - Lazy reproxy-on-write (dirty flag) remains unimplemented.
 
+## Results — allocation pass (same day, second pass)
+
+Follow-up pass targeting the CPU-profile findings from the first pass (GC 37%,
+per-proxy WeakMap registrations ~22%, per-node trap closures). Measured with a
+standalone esbuild bundle (20 rounds of 10k-item first-touch materialization,
+100 steady scans, 20k scalar writes, 10k pushes; medians of 3 runs) plus the
+vitest perf probe. All 307 tests pass after each step.
+
+| Bundle measurement | Pass start | After | Change |
+| --- | --- | --- | --- |
+| Materialize 20 rounds | 655 ms | ~372 ms | **−43%** |
+| Steady scan ×100 | 776 ms | ~430 ms | **−44%** |
+| 20k scalar writes | 26 ms | ~16 ms | −35% |
+| 10k pushes | 16–19 ms | ~14 ms | −15% |
+
+Vitest probe first-touch materialization: ~55 ms (before either pass) → 38 ms
+(first pass) → **23.6 ms** now. GC share of the materialization profile:
+37% → 12%.
+
+**What changed (kept):**
+
+1. **Handler-class refactor.** `buildProxy`'s handler object literal with four
+   trap closures (plus the bound-function helper closure) became
+   `BaseProxyHandler`, with traps on the prototype and per-node state in
+   fields; `buildReproxy` likewise became `ReproxyHandler` (a per-write
+   allocation). Materialize −11%, and steady-state reads −33% — shared
+   prototype trap functions keep V8's inline caches monomorphic where
+   per-node closures fragmented them.
+2. **Sentinel-symbol proxy metadata.** The proxy→handler WeakMap
+   (`registerCustomProxyMetadata`, 14.6% of materialization) is gone: Retree
+   get traps intercept `proxyHandlerSentinel` as their first check and return
+   the handler, so identity checks need no per-proxy registration.
+   `getCustomProxyHandlerFromMetadata` guards with `isCustomProxyHandler`
+   (foreign proxies answering arbitrary keys) and try/catch (revoked proxies
+   throw on reads). Materialize −34% on top of the class refactor; writes and
+   pushes −18–20% (reproxies skip the registration too). Tracked-scan and
+   select probes show no regression from trap-dispatch identity checks.
+3. **Lazy children cache.** `proxiedChildrenKey` records start as `null`; leaf
+   nodes (roughly half the probe tree) never allocate one, and the get trap's
+   null check is cheaper than an empty-record property miss. The reproxy
+   handler now delegates the children record to the base handler through an
+   accessor instead of copying the reference at construction (required for
+   laziness, and removes a stale-copy hazard). Materialize −3%, steady −10%.
+4. `updateReproxyNode` passes its handler into `buildReproxy` (one sentinel
+   dispatch saved per write).
+
+**Experiments run and rejected (with measurements):**
+
+- **Symbol property instead of the raw→proxy WeakMap** (`registerBaseProxy`,
+  ~8%). Non-enumerable `defineProperty` measures the same as `WeakMap.set`
+  (~20 ms/200k vs 20 ms). A plain enumerable set is 4–5× faster (4–9 ms) and
+  copied-pointer aliasing can be neutralized with a read-side self-check, but
+  the enumerable symbol leaks into deep-equality assertions on raw nodes —
+  vitest/jest `toEqual` compares symbol properties, so user tests comparing
+  `Retree.raw(...)` results against literals would break. WeakMap stays; this
+  is the one remaining per-node registration and it is semantically required
+  (raw→proxy discovery when re-attaching known raw nodes).
+- **Lazy reproxy-on-write (dirty flag).** Stubbing reproxy creation out
+  entirely moves 20k writes from ~16 ms to ~15 ms — a ≤6% ceiling that does
+  not justify rewiring the emitter payloads and every emit site. Post-refactor
+  reproxy construction is already cheap; the write path is dominated by trap +
+  emit bookkeeping.
+- **First-character gate before the legacy `"[[Handler]]"` string compares**
+  in the get trap: measured ~10% *slower* (charCodeAt call beats two
+  fast-rejecting string compares); reverted.
+
+**Regression caught and fixed:** the sentinel made each `isCustomProxy` /
+handler lookup on a proxy a trap dispatch instead of a `WeakMap.get`, and the
+dependency-tracking hot path paid it up to four times per tracked read
+(`isCustomProxy(owner)` then the handler fetch, again for the value, again in
+the tail entry). A 100k-iteration micro-probe on 3-read tracking frames caught
+it: 0.68→0.95 µs/frame. Deduplicating to one handler read per owner and one
+per value (`getCustomProxyHandlerFromMetadata` result doubles as the
+`isCustomProxy` check) recovered to ~0.78 µs — a residual ~12% on tiny
+tracking frames traded for the −40% materialization / −20% writes. Large
+tracked scans and select probes are unaffected.
+
+**Remaining profile after this pass** (materialize+steady bundle): steady-scan
+loop 38%, get trap 22%, GC 12%, `registerBaseProxy` 8%, `buildProxy` 4%. The
+get trap and GC shares are now mostly intrinsic to the proxy model at this
+code shape; the next meaningful lever for algorithmic reads remains
+version-cached snapshots (`Retree.snapshot`), with `Retree.raw`/`peekInto`
+already covering the escape-hatch cases.
+
 ## Recommended order
 
 1. De-quadratic dependency tracking (side indexes + tombstones) — biggest algorithmic win, no semantic change.

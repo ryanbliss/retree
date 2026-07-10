@@ -20,6 +20,8 @@ import {
     isCustomProxyHandler,
     proxiedChildrenKey,
     proxiedParentKey,
+    proxyHandlerSentinel,
+    proxyTargetKey,
     registerCustomProxyMetadata,
     TCustomProxy,
     unproxiedBaseNodeKey,
@@ -196,6 +198,535 @@ function assertValidLinkedValue(prop: string | symbol, value: unknown) {
 
 /**
  * @internal
+ * Proxy handler for a base (non-reproxy) Retree node.
+ *
+ * @remarks
+ * Trap methods live on the prototype and per-node state lives in fields, so
+ * creating a node allocates one handler instance instead of a handler object
+ * literal plus one closure per trap. Materialization of large trees is
+ * allocation-bound, so this shape matters.
+ */
+class BaseProxyHandler<T extends TreeNode>
+    implements ProxyHandler<T>, ICustomProxyHandler<T>
+{
+    public [unproxiedBaseNodeKey]: T;
+    public [proxiedChildrenKey]: Record<string | symbol, any> | null;
+    public [proxiedParentKey]: IProxyParent | null;
+    public [proxyTargetKey]?: T;
+    public baseProxy!: TCustomProxy<T>;
+    public readonly emitter: TreeChangeEmitter;
+    public readonly reactiveObject: ReactiveNode | undefined;
+    private readonly mapObject: Map<any, any> | undefined;
+    private readonly setObject: Set<any> | undefined;
+    private readonly dateObject: Date | undefined;
+    private readonly hasInternalSlots: boolean;
+    private isApplyingSet = false;
+    private boundFunctionCache: Map<
+        string | symbol,
+        BoundFunctionCacheEntry
+    > | null = null;
+
+    constructor(
+        object: T,
+        emitter: TreeChangeEmitter,
+        parent: IProxyParent<any> | null
+    ) {
+        this[unproxiedBaseNodeKey] = object;
+        // Lazily allocated: leaf nodes never cache children.
+        this[proxiedChildrenKey] = null;
+        this[proxiedParentKey] = parent;
+        this.emitter = emitter;
+        this.reactiveObject =
+            object instanceof ReactiveNode ? object : undefined;
+        this.mapObject = object instanceof Map ? object : undefined;
+        this.setObject = object instanceof Set ? object : undefined;
+        this.dateObject = object instanceof Date ? object : undefined;
+        this.hasInternalSlots =
+            this.mapObject !== undefined ||
+            this.setObject !== undefined ||
+            this.dateObject !== undefined;
+    }
+
+    private getBoundFunction<TFunction extends Function>(
+        prop: string | symbol,
+        source: TFunction,
+        thisArg: unknown
+    ): TFunction {
+        this.boundFunctionCache ??= new Map();
+        return getCachedBoundFunction(
+            this.boundFunctionCache,
+            prop,
+            source,
+            thisArg
+        );
+    }
+
+    public get(target: T, prop: string | symbol, receiver: any): any {
+        if (prop === proxyHandlerSentinel) {
+            return this;
+        }
+        if (prop === "[[Handler]]") {
+            return this;
+        }
+        if (prop === "[[Target]]") {
+            return this[unproxiedBaseNodeKey];
+        }
+        const reactiveObject = this.reactiveObject;
+        const baseProxy = this.baseProxy;
+        if (reactiveObject !== undefined) {
+            // Collected/ignore keys are always strings; symbol props skip
+            // these checks without paying a String(prop) allocation.
+            if (typeof prop === "string") {
+                if (prop.startsWith("RETREE_")) {
+                    return Reflect.get(target, prop, target);
+                }
+                if (reactiveObject[COLLECTED_KEYS_SYMBOL].has(prop)) {
+                    return trackPropertyAccessIfNeeded(
+                        baseProxy,
+                        prop,
+                        getLatestIgnoredValue(Reflect.get(target, prop, target))
+                    );
+                }
+            }
+            if (reactiveObject[LINKED_KEYS_SYMBOL].has(prop)) {
+                return trackPropertyAccessIfNeeded(
+                    baseProxy,
+                    prop,
+                    getLatestLinkedValue(Reflect.get(target, prop, target))
+                );
+            }
+        }
+        const cachedChildren = this[proxiedChildrenKey];
+        if (
+            cachedChildren !== null &&
+            typeof prop === "string" &&
+            cachedChildren[prop]
+        ) {
+            const value = cachedChildren[prop];
+            if (typeof value !== "function") {
+                return trackPropertyAccessIfNeeded(baseProxy, prop, value);
+            }
+        }
+        if (this.hasInternalSlots) {
+            // Methods on Map/Set must run with the raw target as `this` because they read
+            // internal slots that the proxy does not expose.
+            const value = Reflect.get(target, prop, target);
+            if (typeof value === "function") {
+                const mapObject = this.mapObject;
+                const setObject = this.setObject;
+                const dateObject = this.dateObject;
+                if (
+                    mapObject !== undefined &&
+                    typeof prop === "string" &&
+                    MAP_MUTATING_METHODS.has(prop)
+                ) {
+                    return wrapMapMutation(
+                        prop,
+                        mapObject,
+                        baseProxy,
+                        this.emitter
+                    );
+                }
+                if (mapObject !== undefined) {
+                    return wrapMapRead(
+                        prop,
+                        mapObject,
+                        baseProxy,
+                        this.emitter
+                    );
+                }
+                if (
+                    setObject !== undefined &&
+                    typeof prop === "string" &&
+                    SET_MUTATING_METHODS.has(prop)
+                ) {
+                    return wrapSetMutation(
+                        prop,
+                        setObject,
+                        baseProxy,
+                        this.emitter
+                    );
+                }
+                if (setObject !== undefined) {
+                    return wrapSetRead(
+                        prop,
+                        setObject,
+                        baseProxy,
+                        this.emitter
+                    );
+                }
+                if (
+                    dateObject !== undefined &&
+                    typeof prop === "string" &&
+                    isDateMutatingMethod(prop)
+                ) {
+                    return wrapDateMutation(
+                        prop,
+                        dateObject,
+                        baseProxy,
+                        this.emitter
+                    );
+                }
+                return trackAccessIfNeeded(
+                    this.getBoundFunction(prop, value, target)
+                );
+            }
+            return trackPropertyAccessIfNeeded(baseProxy, prop, value);
+        }
+        let value: any;
+        if (
+            reactiveObject !== undefined &&
+            getReactiveNodeGetter(reactiveObject, prop)
+        ) {
+            // For ReactiveNode getters, push the getter name onto the memo-getter
+            // stack so a keyless `this.memo(fn, deps)` inside the getter can derive
+            // its cache key from `prop`. Pop in `finally` so a throwing getter
+            pushMemoGetter(reactiveObject, prop);
+            try {
+                value = Reflect.get(target, prop, receiver);
+            } finally {
+                popMemoGetter(reactiveObject);
+            }
+        } else {
+            value = Reflect.get(target, prop, receiver);
+        }
+        if (typeof value === "function") {
+            if (FUNCTION_NAMES_BIND_TO_RAW.has(prop)) {
+                return trackAccessIfNeeded(
+                    this.getBoundFunction(prop, value, target)
+                );
+            }
+            return trackAccessIfNeeded(
+                this.getBoundFunction(prop, value, baseProxy)
+            );
+        }
+        if (shouldLazilyProxyProperty(target, prop, value)) {
+            const descriptor = Reflect.getOwnPropertyDescriptor(target, prop);
+            if (!descriptor || !descriptorHasValue(descriptor)) {
+                return trackPropertyAccessIfNeeded(baseProxy, prop, value);
+            }
+            // shouldLazilyProxyProperty already established the value is a
+            // proxyable non-proxy object; only the descriptor lock check
+            // from shouldKeepRawPropertyValue remains.
+            if (!descriptorRequiresExactDefinedValue(descriptor, descriptor)) {
+                return trackPropertyAccessIfNeeded(
+                    baseProxy,
+                    prop,
+                    getOrCreateProxiedChild(
+                        this,
+                        prop,
+                        value,
+                        baseProxy,
+                        this.emitter
+                    )
+                );
+            }
+        }
+        return trackPropertyAccessIfNeeded(baseProxy, prop, value);
+    }
+
+    public set(
+        target: T,
+        prop: string | symbol,
+        newValue: any,
+        receiver: any
+    ): boolean {
+        const baseProxy = this.baseProxy;
+        const reactiveObject = this.reactiveObject;
+        trackPropertyWriteIfNeeded(baseProxy, prop);
+        if (reactiveObject !== undefined) {
+            const propString = String(prop);
+            if (reactiveObject[LINKED_KEYS_SYMBOL].has(prop)) {
+                assertValidLinkedValue(prop, newValue);
+                const prev = Reflect.get(target, prop, target);
+                if (prev === newValue) {
+                    return true;
+                }
+                let returnValue: boolean;
+                this.isApplyingSet = true;
+                try {
+                    returnValue = Reflect.set(target, prop, newValue, target);
+                } finally {
+                    this.isApplyingSet = false;
+                }
+                if (!Transactions.skipReproxy) {
+                    const reproxy = updateReproxyNode(baseProxy);
+                    const changes = createNodeFieldChanges(
+                        prop,
+                        prev,
+                        newValue
+                    );
+                    this.emitter.emit(
+                        "nodeChanged",
+                        this[unproxiedBaseNodeKey],
+                        baseProxy,
+                        reproxy,
+                        changes
+                    );
+                }
+                return returnValue;
+            }
+            // Check for ignore keys
+            if (
+                propString === COLLECTED_KEYS_SYMBOL ||
+                reactiveObject[COLLECTED_KEYS_SYMBOL].has(propString)
+            ) {
+                return Reflect.set(target, prop, newValue, target);
+            }
+        }
+        const prev = (target as any)[prop];
+        const hasChanged = prev !== newValue;
+        if (hasChanged) {
+            let valueToSet = newValue;
+            const nodeRemoved = handleNodeRemoved(baseProxy, prop);
+            if (newValue !== null && typeof newValue === "object") {
+                if (prop === "constructor")
+                    return Reflect.set(target, prop, newValue, receiver);
+
+                // If already a proxied object, we simply reparent
+                // Otherwise, build a new proxy object, unless this is a plain
+                // object/array child that can be proxied lazily on first read.
+                const parentToSet: IProxyParent<any> = {
+                    proxyNode: baseProxy,
+                    propName: prop,
+                };
+                if (isCustomProxy(newValue)) {
+                    valueToSet = reparentProxy(newValue, parentToSet);
+                    setProxiedChild(this, prop, valueToSet);
+                } else if (
+                    getManagedProxyForUnproxiedNode(newValue) !== undefined
+                ) {
+                    valueToSet = createStructuralProxyForValue(
+                        newValue,
+                        parentToSet,
+                        this.emitter
+                    );
+                    setProxiedChild(this, prop, valueToSet);
+                } else if (shouldCreatePlainObjectProxyLazily(newValue)) {
+                    deleteProxiedChild(this, prop);
+                } else {
+                    valueToSet = createStructuralProxyForValue(
+                        newValue,
+                        parentToSet,
+                        this.emitter
+                    );
+                    setProxiedChild(this, prop, valueToSet);
+                }
+            } else {
+                deleteProxiedChild(this, prop);
+            }
+            let returnValue: boolean;
+            this.isApplyingSet = true;
+            try {
+                returnValue = Reflect.set(target, prop, valueToSet, receiver);
+            } finally {
+                this.isApplyingSet = false;
+            }
+            // If in a skip reproxy transaction, do not reproxy node
+            if (!Transactions.skipReproxy) {
+                const reproxy = updateReproxyNode(baseProxy);
+                const changes = createNodeFieldChanges(prop, prev, newValue);
+                // Still emit here if in a `skipEmit` transaction so that parents get reproxied
+                this.emitter.emit(
+                    "nodeChanged",
+                    this[unproxiedBaseNodeKey],
+                    baseProxy,
+                    reproxy,
+                    changes
+                );
+                // nodeRemoved events do not reproxy parents, so we skip
+                if (nodeRemoved && !Transactions.skipEmit) {
+                    const removedUnproxied = getUnproxiedNode(nodeRemoved);
+                    this.emitter.emit(
+                        "nodeRemoved",
+                        removedUnproxied ?? nodeRemoved,
+                        nodeRemoved
+                    );
+                }
+            }
+
+            return returnValue;
+        }
+        return true;
+    }
+
+    public defineProperty(
+        target: T,
+        prop: string | symbol,
+        descriptor: PropertyDescriptor
+    ): boolean {
+        const reactiveObject = this.reactiveObject;
+        if (this.isApplyingSet) {
+            return Reflect.defineProperty(target, prop, descriptor);
+        }
+        const currentProxyForWrite = isCustomProxy(target)
+            ? target
+            : getManagedProxyForUnproxiedNode(target);
+        const baseProxyForWrite = currentProxyForWrite
+            ? getBaseProxy(currentProxyForWrite)
+            : undefined;
+        if (baseProxyForWrite !== undefined) {
+            trackPropertyWriteIfNeeded(baseProxyForWrite, prop);
+        }
+        if (reactiveObject !== undefined) {
+            const propString = String(prop);
+            // Check for ignore keys
+            if (
+                propString === COLLECTED_KEYS_SYMBOL ||
+                reactiveObject[COLLECTED_KEYS_SYMBOL].has(propString)
+            ) {
+                return Reflect.defineProperty(target, prop, descriptor);
+            }
+        }
+        const currentProxy = currentProxyForWrite;
+        const baseProxy = currentProxy
+            ? getBaseProxy(currentProxy)
+            : currentProxy;
+        const descriptorToDefine: PropertyDescriptor = { ...descriptor };
+        const currentDescriptor = Reflect.getOwnPropertyDescriptor(
+            target,
+            prop
+        );
+        const previousValue = currentDescriptorHasValue(currentDescriptor)
+            ? currentDescriptor.value
+            : undefined;
+        const nextValue = descriptorHasValue(descriptor)
+            ? descriptor.value
+            : descriptor;
+        let nodeRemoved: object | undefined;
+
+        if (descriptorHasValue(descriptorToDefine)) {
+            const shouldKeepRawValue =
+                isProxyableObject(descriptorToDefine.value) &&
+                !isCustomProxy(descriptorToDefine.value) &&
+                descriptorRequiresExactDefinedValue(
+                    currentDescriptor,
+                    descriptorToDefine
+                );
+            if (
+                baseProxy &&
+                Reflect.get(baseProxy, prop) !== descriptorToDefine.value
+            ) {
+                nodeRemoved = handleNodeRemoved(baseProxy, prop);
+            }
+            if (shouldKeepRawValue) {
+                deleteProxiedChild(this, prop);
+            } else {
+                descriptorToDefine.value = preparePropertyValue(
+                    descriptorToDefine.value,
+                    prop,
+                    baseProxy,
+                    this.emitter,
+                    this
+                );
+            }
+        } else if (descriptorHasAccessor(descriptorToDefine)) {
+            if (baseProxy) {
+                nodeRemoved = handleNodeRemoved(baseProxy, prop);
+            }
+            deleteProxiedChild(this, prop);
+        } else {
+            const cachedChild = this[proxiedChildrenKey]?.[prop];
+            if (cachedChild && currentDescriptorHasValue(currentDescriptor)) {
+                descriptorToDefine.value = cachedChild;
+            }
+        }
+
+        const returnValue = Reflect.defineProperty(
+            target,
+            prop,
+            descriptorToDefine
+        );
+        // If in a skip reproxy transaction, do not reproxy node
+        if (returnValue && !Transactions.skipReproxy) {
+            if (baseProxy) {
+                const reproxy = updateReproxyNode(baseProxy);
+                // Still emit here if in a `skipEmit` transaction so that parents get reproxied
+                this.emitter.emit(
+                    "nodeChanged",
+                    this[unproxiedBaseNodeKey],
+                    baseProxy,
+                    reproxy,
+                    createNodeFieldChanges(prop, previousValue, nextValue)
+                );
+            } else {
+                console.warn(
+                    `buildProxy.defineProperty: cannot find baseProxy for target`
+                );
+            }
+            // nodeRemoved events do not reproxy parents, so we skip
+            if (nodeRemoved && !Transactions.skipEmit) {
+                const removedUnproxied = getUnproxiedNode(nodeRemoved);
+                this.emitter.emit(
+                    "nodeRemoved",
+                    removedUnproxied ?? nodeRemoved,
+                    nodeRemoved
+                );
+            }
+        }
+        return returnValue;
+    }
+
+    public deleteProperty(target: T, prop: string | symbol): boolean {
+        const reactiveObject = this.reactiveObject;
+        if (reactiveObject !== undefined) {
+            const propString = String(prop);
+            // Check for ignore keys
+            if (
+                propString === COLLECTED_KEYS_SYMBOL ||
+                reactiveObject[COLLECTED_KEYS_SYMBOL].has(propString)
+            ) {
+                return Reflect.deleteProperty(target, prop);
+            }
+        }
+        // Good example of `deleteProperty` is when an item is removed / moved in a list.
+        // `deleteProperty` does not expose the receiver...get the latest reproxy instead.
+        // TODO: should revisit this at some point...
+        const currentProxy = isCustomProxy(target)
+            ? target
+            : getManagedProxyForUnproxiedNode(target);
+        const baseProxy = currentProxy
+            ? getBaseProxy(currentProxy)
+            : currentProxy;
+        const nodeRemoved = handleNodeRemoved(baseProxy, prop);
+        const previousValue = Reflect.get(target, prop, target);
+        const returnValue = Reflect.deleteProperty(target, prop);
+        if (returnValue) {
+            deleteProxiedChild(this, prop);
+        }
+        // If in a skip reproxy transaction, do not reproxy node
+        if (!Transactions.skipReproxy) {
+            if (baseProxy) {
+                const reproxy = updateReproxyNode(baseProxy);
+                // Still emit here if in a `skipEmit` transaction so that parents get reproxied
+                this.emitter.emit(
+                    "nodeChanged",
+                    this[unproxiedBaseNodeKey],
+                    baseProxy,
+                    reproxy,
+                    createNodeFieldChanges(prop, previousValue, undefined)
+                );
+            } else {
+                console.warn(
+                    `buildProxy.deleteProperty: cannot find baseProxy for target`
+                );
+            }
+            // nodeRemoved events do not reproxy parents, so we skip
+            if (nodeRemoved && !Transactions.skipEmit) {
+                const removedUnproxied = getUnproxiedNode(nodeRemoved);
+                this.emitter.emit(
+                    "nodeRemoved",
+                    removedUnproxied ?? nodeRemoved,
+                    nodeRemoved
+                );
+            }
+        }
+        return returnValue;
+    }
+}
+
+/**
+ * @internal
  * Builds a proxied object that emits changes when any value changes.
  * Also ensures `this` references are bound properly to functions, among other things.
  *
@@ -209,494 +740,16 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     emitter: TreeChangeEmitter,
     parent?: IProxyParent<any>
 ): T {
-    let isApplyingSet = false;
     if (object === null) return object;
-    const reactiveObject = object instanceof ReactiveNode ? object : undefined;
-    const mapObject = object instanceof Map ? object : undefined;
-    const setObject = object instanceof Set ? object : undefined;
-    const dateObject = object instanceof Date ? object : undefined;
-    const hasInternalSlots =
-        mapObject !== undefined ||
-        setObject !== undefined ||
-        dateObject !== undefined;
-    let boundFunctionCache: Map<
-        string | symbol,
-        BoundFunctionCacheEntry
-    > | null = null;
-    let baseProxy: TCustomProxy<T>;
-    const getBoundFunction = <TFunction extends Function>(
-        prop: string | symbol,
-        source: TFunction,
-        thisArg: unknown
-    ): TFunction => {
-        boundFunctionCache ??= new Map();
-        return getCachedBoundFunction(
-            boundFunctionCache,
-            prop,
-            source,
-            thisArg
-        );
-    };
-    const proxyHandler: ProxyHandler<T> & ICustomProxyHandler<T> = {
-        // Add some extra stuff into the handler so we can store the original TreeNode and access it later
-        // Without overriding the rest of the getters in the object.
-        [unproxiedBaseNodeKey]: object,
-        [proxiedChildrenKey]: {},
-        [proxiedParentKey]: parent ?? null,
-        get: (target, prop, receiver) => {
-            if (prop === "[[Handler]]") {
-                return proxyHandler;
-            }
-            if (prop === "[[Target]]") {
-                return object;
-            }
-            if (reactiveObject !== undefined) {
-                // Collected/ignore keys are always strings; symbol props skip
-                // these checks without paying a String(prop) allocation.
-                if (typeof prop === "string") {
-                    if (prop.startsWith("RETREE_")) {
-                        return Reflect.get(target, prop, target);
-                    }
-                    if (reactiveObject[COLLECTED_KEYS_SYMBOL].has(prop)) {
-                        return trackPropertyAccessIfNeeded(
-                            baseProxy,
-                            prop,
-                            getLatestIgnoredValue(
-                                Reflect.get(target, prop, target)
-                            )
-                        );
-                    }
-                }
-                if (reactiveObject[LINKED_KEYS_SYMBOL].has(prop)) {
-                    return trackPropertyAccessIfNeeded(
-                        baseProxy,
-                        prop,
-                        getLatestLinkedValue(Reflect.get(target, prop, target))
-                    );
-                }
-            }
-            if (
-                typeof prop === "string" &&
-                proxyHandler[proxiedChildrenKey][prop]
-            ) {
-                const value = proxyHandler[proxiedChildrenKey][prop];
-                if (typeof value !== "function") {
-                    return trackPropertyAccessIfNeeded(baseProxy, prop, value);
-                }
-            }
-            if (hasInternalSlots) {
-                // Methods on Map/Set must run with the raw target as `this` because they read
-                // internal slots that the proxy does not expose.
-                const value = Reflect.get(target, prop, target);
-                if (typeof value === "function") {
-                    if (
-                        mapObject !== undefined &&
-                        typeof prop === "string" &&
-                        MAP_MUTATING_METHODS.has(prop)
-                    ) {
-                        return wrapMapMutation(
-                            prop,
-                            mapObject,
-                            baseProxy,
-                            emitter
-                        );
-                    }
-                    if (mapObject !== undefined) {
-                        return wrapMapRead(prop, mapObject, baseProxy, emitter);
-                    }
-                    if (
-                        setObject !== undefined &&
-                        typeof prop === "string" &&
-                        SET_MUTATING_METHODS.has(prop)
-                    ) {
-                        return wrapSetMutation(
-                            prop,
-                            setObject,
-                            baseProxy,
-                            emitter
-                        );
-                    }
-                    if (setObject !== undefined) {
-                        return wrapSetRead(prop, setObject, baseProxy, emitter);
-                    }
-                    if (
-                        dateObject !== undefined &&
-                        typeof prop === "string" &&
-                        isDateMutatingMethod(prop)
-                    ) {
-                        return wrapDateMutation(
-                            prop,
-                            dateObject,
-                            baseProxy,
-                            emitter
-                        );
-                    }
-                    return trackAccessIfNeeded(
-                        getBoundFunction(prop, value, target)
-                    );
-                }
-                return trackPropertyAccessIfNeeded(baseProxy, prop, value);
-            }
-            let value: any;
-            if (
-                reactiveObject !== undefined &&
-                getReactiveNodeGetter(reactiveObject, prop)
-            ) {
-                // For ReactiveNode getters, push the getter name onto the memo-getter
-                // stack so a keyless `this.memo(fn, deps)` inside the getter can derive
-                // its cache key from `prop`. Pop in `finally` so a throwing getter
-                pushMemoGetter(reactiveObject, prop);
-                try {
-                    value = Reflect.get(target, prop, receiver);
-                } finally {
-                    popMemoGetter(reactiveObject);
-                }
-            } else {
-                value = Reflect.get(target, prop, receiver);
-            }
-            if (typeof value === "function") {
-                if (FUNCTION_NAMES_BIND_TO_RAW.has(prop)) {
-                    return trackAccessIfNeeded(
-                        getBoundFunction(prop, value, target)
-                    );
-                }
-                return trackAccessIfNeeded(
-                    getBoundFunction(prop, value, baseProxy)
-                );
-            }
-            if (shouldLazilyProxyProperty(target, prop, value)) {
-                const descriptor = Reflect.getOwnPropertyDescriptor(
-                    target,
-                    prop
-                );
-                if (!descriptor || !descriptorHasValue(descriptor)) {
-                    return trackPropertyAccessIfNeeded(baseProxy, prop, value);
-                }
-                // shouldLazilyProxyProperty already established the value is a
-                // proxyable non-proxy object; only the descriptor lock check
-                // from shouldKeepRawPropertyValue remains.
-                if (
-                    !descriptorRequiresExactDefinedValue(descriptor, descriptor)
-                ) {
-                    return trackPropertyAccessIfNeeded(
-                        baseProxy,
-                        prop,
-                        getOrCreateProxiedChild(
-                            proxyHandler,
-                            prop,
-                            value,
-                            baseProxy,
-                            emitter
-                        )
-                    );
-                }
-            }
-            return trackPropertyAccessIfNeeded(baseProxy, prop, value);
-        },
-        set(target, prop, newValue, receiver) {
-            trackPropertyWriteIfNeeded(baseProxy, prop);
-            if (reactiveObject !== undefined) {
-                const propString = String(prop);
-                if (reactiveObject[LINKED_KEYS_SYMBOL].has(prop)) {
-                    assertValidLinkedValue(prop, newValue);
-                    const prev = Reflect.get(target, prop, target);
-                    if (prev === newValue) {
-                        return true;
-                    }
-                    let returnValue: boolean;
-                    isApplyingSet = true;
-                    try {
-                        returnValue = Reflect.set(
-                            target,
-                            prop,
-                            newValue,
-                            target
-                        );
-                    } finally {
-                        isApplyingSet = false;
-                    }
-                    if (!Transactions.skipReproxy) {
-                        const reproxy = updateReproxyNode(baseProxy);
-                        const changes = createNodeFieldChanges(
-                            prop,
-                            prev,
-                            newValue
-                        );
-                        emitter.emit(
-                            "nodeChanged",
-                            proxyHandler[unproxiedBaseNodeKey],
-                            baseProxy,
-                            reproxy,
-                            changes
-                        );
-                    }
-                    return returnValue;
-                }
-                // Check for ignore keys
-                if (
-                    propString === COLLECTED_KEYS_SYMBOL ||
-                    reactiveObject[COLLECTED_KEYS_SYMBOL].has(propString)
-                ) {
-                    return Reflect.set(target, prop, newValue, target);
-                }
-            }
-            const prev = (target as any)[prop];
-            const hasChanged = prev !== newValue;
-            if (hasChanged) {
-                let valueToSet = newValue;
-                const nodeRemoved = handleNodeRemoved(baseProxy, prop);
-                if (newValue !== null && typeof newValue === "object") {
-                    if (prop === "constructor")
-                        return Reflect.set(target, prop, newValue, receiver);
-
-                    // If already a proxied object, we simply reparent
-                    // Otherwise, build a new proxy object, unless this is a plain
-                    // object/array child that can be proxied lazily on first read.
-                    const parentToSet: IProxyParent<any> = {
-                        proxyNode: baseProxy,
-                        propName: prop,
-                    };
-                    if (isCustomProxy(newValue)) {
-                        valueToSet = reparentProxy(newValue, parentToSet);
-                        proxyHandler[proxiedChildrenKey][prop] = valueToSet;
-                    } else if (
-                        getManagedProxyForUnproxiedNode(newValue) !== undefined
-                    ) {
-                        valueToSet = createStructuralProxyForValue(
-                            newValue,
-                            parentToSet,
-                            emitter
-                        );
-                        proxyHandler[proxiedChildrenKey][prop] = valueToSet;
-                    } else if (shouldCreatePlainObjectProxyLazily(newValue)) {
-                        deleteProxiedChild(proxyHandler, prop);
-                    } else {
-                        valueToSet = createStructuralProxyForValue(
-                            newValue,
-                            parentToSet,
-                            emitter
-                        );
-                        proxyHandler[proxiedChildrenKey][prop] = valueToSet;
-                    }
-                } else {
-                    deleteProxiedChild(proxyHandler, prop);
-                }
-                let returnValue: boolean;
-                isApplyingSet = true;
-                try {
-                    returnValue = Reflect.set(
-                        target,
-                        prop,
-                        valueToSet,
-                        receiver
-                    );
-                } finally {
-                    isApplyingSet = false;
-                }
-                // If in a skip reproxy transaction, do not reproxy node
-                if (!Transactions.skipReproxy) {
-                    const reproxy = updateReproxyNode(baseProxy);
-                    const changes = createNodeFieldChanges(
-                        prop,
-                        prev,
-                        newValue
-                    );
-                    // Still emit here if in a `skipEmit` transaction so that parents get reproxied
-                    emitter.emit(
-                        "nodeChanged",
-                        proxyHandler[unproxiedBaseNodeKey],
-                        baseProxy,
-                        reproxy,
-                        changes
-                    );
-                    // nodeRemoved events do not reproxy parents, so we skip
-                    if (nodeRemoved && !Transactions.skipEmit) {
-                        const removedUnproxied = getUnproxiedNode(nodeRemoved);
-                        emitter.emit(
-                            "nodeRemoved",
-                            removedUnproxied ?? nodeRemoved,
-                            nodeRemoved
-                        );
-                    }
-                }
-
-                return returnValue;
-            }
-            return true;
-        },
-        defineProperty(target, prop, descriptor) {
-            if (isApplyingSet) {
-                return Reflect.defineProperty(target, prop, descriptor);
-            }
-            const currentProxyForWrite = isCustomProxy(target)
-                ? target
-                : getManagedProxyForUnproxiedNode(target);
-            const baseProxyForWrite = currentProxyForWrite
-                ? getBaseProxy(currentProxyForWrite)
-                : undefined;
-            if (baseProxyForWrite !== undefined) {
-                trackPropertyWriteIfNeeded(baseProxyForWrite, prop);
-            }
-            if (reactiveObject !== undefined) {
-                const propString = String(prop);
-                // Check for ignore keys
-                if (
-                    propString === COLLECTED_KEYS_SYMBOL ||
-                    reactiveObject[COLLECTED_KEYS_SYMBOL].has(propString)
-                ) {
-                    return Reflect.defineProperty(target, prop, descriptor);
-                }
-            }
-            const currentProxy = currentProxyForWrite;
-            const baseProxy = currentProxy
-                ? getBaseProxy(currentProxy)
-                : currentProxy;
-            const descriptorToDefine: PropertyDescriptor = { ...descriptor };
-            const currentDescriptor = Reflect.getOwnPropertyDescriptor(
-                target,
-                prop
-            );
-            const previousValue = currentDescriptorHasValue(currentDescriptor)
-                ? currentDescriptor.value
-                : undefined;
-            const nextValue = descriptorHasValue(descriptor)
-                ? descriptor.value
-                : descriptor;
-            let nodeRemoved: object | undefined;
-
-            if (descriptorHasValue(descriptorToDefine)) {
-                const shouldKeepRawValue =
-                    isProxyableObject(descriptorToDefine.value) &&
-                    !isCustomProxy(descriptorToDefine.value) &&
-                    descriptorRequiresExactDefinedValue(
-                        currentDescriptor,
-                        descriptorToDefine
-                    );
-                if (
-                    baseProxy &&
-                    Reflect.get(baseProxy, prop) !== descriptorToDefine.value
-                ) {
-                    nodeRemoved = handleNodeRemoved(baseProxy, prop);
-                }
-                if (shouldKeepRawValue) {
-                    deleteProxiedChild(proxyHandler, prop);
-                } else {
-                    descriptorToDefine.value = preparePropertyValue(
-                        descriptorToDefine.value,
-                        prop,
-                        baseProxy,
-                        emitter,
-                        proxyHandler
-                    );
-                }
-            } else if (descriptorHasAccessor(descriptorToDefine)) {
-                if (baseProxy) {
-                    nodeRemoved = handleNodeRemoved(baseProxy, prop);
-                }
-                deleteProxiedChild(proxyHandler, prop);
-            } else {
-                const cachedChild = proxyHandler[proxiedChildrenKey][prop];
-                if (
-                    cachedChild &&
-                    currentDescriptorHasValue(currentDescriptor)
-                ) {
-                    descriptorToDefine.value = cachedChild;
-                }
-            }
-
-            const returnValue = Reflect.defineProperty(
-                target,
-                prop,
-                descriptorToDefine
-            );
-            // If in a skip reproxy transaction, do not reproxy node
-            if (returnValue && !Transactions.skipReproxy) {
-                if (baseProxy) {
-                    const reproxy = updateReproxyNode(baseProxy);
-                    // Still emit here if in a `skipEmit` transaction so that parents get reproxied
-                    emitter.emit(
-                        "nodeChanged",
-                        proxyHandler[unproxiedBaseNodeKey],
-                        baseProxy,
-                        reproxy,
-                        createNodeFieldChanges(prop, previousValue, nextValue)
-                    );
-                } else {
-                    console.warn(
-                        `buildProxy.defineProperty: cannot find baseProxy for target`
-                    );
-                }
-                // nodeRemoved events do not reproxy parents, so we skip
-                if (nodeRemoved && !Transactions.skipEmit) {
-                    const removedUnproxied = getUnproxiedNode(nodeRemoved);
-                    emitter.emit(
-                        "nodeRemoved",
-                        removedUnproxied ?? nodeRemoved,
-                        nodeRemoved
-                    );
-                }
-            }
-            return returnValue;
-        },
-        deleteProperty(target, prop) {
-            if (reactiveObject !== undefined) {
-                const propString = String(prop);
-                // Check for ignore keys
-                if (
-                    propString === COLLECTED_KEYS_SYMBOL ||
-                    reactiveObject[COLLECTED_KEYS_SYMBOL].has(propString)
-                ) {
-                    return Reflect.deleteProperty(target, prop);
-                }
-            }
-            // Good example of `deleteProperty` is when an item is removed / moved in a list.
-            // `deleteProperty` does not expose the receiver...get the latest reproxy instead.
-            // TODO: should revisit this at some point...
-            const currentProxy = isCustomProxy(target)
-                ? target
-                : getManagedProxyForUnproxiedNode(target);
-            const baseProxy = currentProxy
-                ? getBaseProxy(currentProxy)
-                : currentProxy;
-            const nodeRemoved = handleNodeRemoved(baseProxy, prop);
-            const previousValue = Reflect.get(target, prop, target);
-            const returnValue = Reflect.deleteProperty(target, prop);
-            if (returnValue) {
-                deleteProxiedChild(proxyHandler, prop);
-            }
-            // If in a skip reproxy transaction, do not reproxy node
-            if (!Transactions.skipReproxy) {
-                if (baseProxy) {
-                    const reproxy = updateReproxyNode(baseProxy);
-                    // Still emit here if in a `skipEmit` transaction so that parents get reproxied
-                    emitter.emit(
-                        "nodeChanged",
-                        proxyHandler[unproxiedBaseNodeKey],
-                        baseProxy,
-                        reproxy,
-                        createNodeFieldChanges(prop, previousValue, undefined)
-                    );
-                } else {
-                    console.warn(
-                        `buildProxy.deleteProperty: cannot find baseProxy for target`
-                    );
-                }
-                // nodeRemoved events do not reproxy parents, so we skip
-                if (nodeRemoved && !Transactions.skipEmit) {
-                    const removedUnproxied = getUnproxiedNode(nodeRemoved);
-                    emitter.emit(
-                        "nodeRemoved",
-                        removedUnproxied ?? nodeRemoved,
-                        nodeRemoved
-                    );
-                }
-            }
-            return returnValue;
-        },
-    };
     if (isCustomProxy(object)) return getBaseProxy(object);
+    const proxyHandler = new BaseProxyHandler<T>(
+        object,
+        emitter,
+        parent ?? null
+    );
     const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
-    baseProxy = proxy;
+    proxyHandler.baseProxy = proxy;
+    const reactiveObject = proxyHandler.reactiveObject;
     registerCustomProxyMetadata(proxy, proxyHandler, object);
     registerBaseProxy(object, proxy);
     if (object instanceof Map) {
@@ -745,7 +798,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         reactiveObject[COLLECTED_KEYS_SYMBOL].has(prop) ||
                         reactiveObject[LINKED_KEYS_SYMBOL].has(prop)))
             ) {
-                proxyHandler[proxiedChildrenKey][prop] = value;
+                setProxiedChild(proxyHandler, prop, value);
             } else if (typeof value === "object") {
                 if (shouldCreatePlainObjectProxyLazily(value)) {
                     continue;
@@ -761,7 +814,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     proxyNode: proxy,
                     propName: prop,
                 });
-                proxyHandler[proxiedChildrenKey][prop] = getBaseProxy(cProxy);
+                setProxiedChild(proxyHandler, prop, getBaseProxy(cProxy));
             }
         }
     }
@@ -786,7 +839,19 @@ function deleteProxiedChild(
     proxyHandler: ICustomProxyHandler<any>,
     prop: string | symbol
 ) {
-    Reflect.deleteProperty(proxyHandler[proxiedChildrenKey], prop);
+    const children = proxyHandler[proxiedChildrenKey];
+    if (children === null) {
+        return;
+    }
+    Reflect.deleteProperty(children, prop);
+}
+
+function setProxiedChild(
+    proxyHandler: ICustomProxyHandler<any>,
+    prop: string | symbol,
+    value: unknown
+) {
+    (proxyHandler[proxiedChildrenKey] ??= {})[prop] = value;
 }
 
 function isReactiveNodeProxy(node: object): node is TCustomProxy<ReactiveNode> {
@@ -903,7 +968,7 @@ function getOrCreateProxiedChild(
     baseProxy: TCustomProxy<any>,
     emitter: TreeChangeEmitter
 ): object {
-    const cachedChild = proxyHandler[proxiedChildrenKey][prop];
+    const cachedChild = proxyHandler[proxiedChildrenKey]?.[prop];
     if (cachedChild) {
         return cachedChild;
     }
@@ -917,11 +982,11 @@ function getOrCreateProxiedChild(
     if (existingManagedProxy === undefined) {
         // buildProxy returns the base proxy for a fresh raw object.
         const builtChildProxy = buildProxy(value, emitter, parentToSet);
-        proxyHandler[proxiedChildrenKey][prop] = builtChildProxy;
+        setProxiedChild(proxyHandler, prop, builtChildProxy);
         return builtChildProxy;
     }
     const baseChildProxy = getBaseProxy(existingManagedProxy);
-    proxyHandler[proxiedChildrenKey][prop] = baseChildProxy;
+    setProxiedChild(proxyHandler, prop, baseChildProxy);
     return baseChildProxy;
 }
 
@@ -977,7 +1042,7 @@ function preparePropertyValue(
         parentToSet,
         emitter
     );
-    proxyHandler[proxiedChildrenKey][prop] = valueToSet;
+    setProxiedChild(proxyHandler, prop, valueToSet);
     return valueToSet;
 }
 

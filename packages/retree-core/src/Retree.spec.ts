@@ -845,7 +845,7 @@ describe("Retree", () => {
             throw new Error("Expected root to expose proxy metadata.");
         }
 
-        expect(Object.keys(rootHandler[proxiedChildrenKey])).toEqual([]);
+        expect(Object.keys(rootHandler[proxiedChildrenKey] ?? {})).toEqual([]);
 
         const child = root.child;
         const list = root.list;
