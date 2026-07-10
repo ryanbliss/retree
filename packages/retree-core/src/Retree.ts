@@ -62,6 +62,7 @@ import {
     TRetreeListeners,
     TreeNode,
     TRetreeChangedEvents,
+    INodeFieldChanges,
 } from "./types";
 
 export interface RetreeSelectOptions<TSelected = unknown> {
@@ -72,7 +73,8 @@ export interface RetreeSelectOptions<TSelected = unknown> {
 type TInternalNodeChangedListener = (
     node: TreeNode,
     proxyNode: TCustomProxy<TreeNode>,
-    reproxiedNode: TreeNode
+    reproxiedNode: TreeNode,
+    changes: INodeFieldChanges[]
 ) => void;
 
 /**
@@ -150,9 +152,10 @@ export class Retree {
         new Map();
     private static nodeChangeEmitter = new TreeChangeEmitter();
     private static reactiveDependentNodeChangedListener = (
-        reproxy: TreeNode
+        reproxy: TreeNode,
+        changes: INodeFieldChanges[]
     ) => {
-        this.handleReactiveDependentNodeChanged(reproxy);
+        this.handleReactiveDependentNodeChanged(reproxy, changes);
     };
 
     /**
@@ -383,7 +386,7 @@ export class Retree {
         node: T,
         listenerType: TEvent,
         callback: TEvent extends TRetreeChangedEvents
-            ? (reproxiedNode: T) => void
+            ? (reproxiedNode: T, changes: INodeFieldChanges[]) => void
             : () => void
     ): () => void {
         if (!this.nodeChangeListener) {
@@ -800,18 +803,19 @@ export class Retree {
 
     private static notifyChangedListeners(
         listeners: TNodeChangedListener[],
-        reproxyNode: TreeNode
+        reproxyNode: TreeNode,
+        changes: INodeFieldChanges[]
     ): void {
         const firstListener = listeners[0];
         if (firstListener === undefined) {
             return;
         }
         if (listeners.length === 1) {
-            firstListener(reproxyNode);
+            firstListener(reproxyNode, changes);
             return;
         }
         for (const callback of [...listeners]) {
-            callback(reproxyNode);
+            callback(reproxyNode, changes);
         }
     }
 
@@ -833,6 +837,7 @@ export class Retree {
         node: TreeNode,
         proxyNode: TCustomProxy<TreeNode>,
         proxyNodeThatChanged: TCustomProxy<TreeNode>,
+        changes: INodeFieldChanges[],
         topProxyNodeListenedTo: TreeNode | null = null,
         confirmedCallbacksToNotify: Map<
             TreeNode,
@@ -860,13 +865,16 @@ export class Retree {
             // Skip emitting for proxyNodeThatChanged if in skipEmit transaction
             if (!Transactions.skipEmit) {
                 // Handle callbacks for the node that originally changed
-                const handleEmitTreeChanged = () => {
+                const handleEmitTreeChanged = (
+                    changesToNotify: INodeFieldChanges[]
+                ) => {
                     const listeners =
                         confirmedCallbacksToNotify.get(proxyNodeThatChanged) ??
                         [];
                     this.notifyChangedListeners(
                         listeners,
-                        getReproxyNode(proxyNodeThatChanged)
+                        getReproxyNode(proxyNodeThatChanged),
+                        changesToNotify
                     );
                 };
                 // If running a transaction, schedule this to emit later.
@@ -882,10 +890,11 @@ export class Retree {
                     }
                     Transactions.upsertPendingTransaction(unproxiedNode, {
                         emitTreeChanged: handleEmitTreeChanged,
+                        treeChanges: changes,
                     });
                 } else {
                     // Emit immediately
-                    handleEmitTreeChanged();
+                    handleEmitTreeChanged(changes);
                 }
             }
             // If our "treeChanged" listener was for the node that changed, skip parents
@@ -900,10 +909,16 @@ export class Retree {
                 const pReproxyNode = updateReproxyNode(getBaseProxy(pNode));
                 // Skip emitting if in skipEmit transaction
                 if (!Transactions.skipEmit) {
-                    const handlePNodeEmitTreeChanged = () => {
+                    const handlePNodeEmitTreeChanged = (
+                        changesToNotify: INodeFieldChanges[]
+                    ) => {
                         const listeners =
                             confirmedCallbacksToNotify.get(pNode) ?? [];
-                        this.notifyChangedListeners(listeners, pReproxyNode);
+                        this.notifyChangedListeners(
+                            listeners,
+                            pReproxyNode,
+                            changesToNotify
+                        );
                     };
                     // If running a transaction, schedule this to emit later.
                     // That way if this same node gets changed later, we can only emit once for that node.
@@ -917,10 +932,11 @@ export class Retree {
                         }
                         Transactions.upsertPendingTransaction(unproxiedPNode, {
                             emitTreeChanged: handlePNodeEmitTreeChanged,
+                            treeChanges: changes,
                         });
                     } else {
                         // Emit immediately
-                        handlePNodeEmitTreeChanged();
+                        handlePNodeEmitTreeChanged(changes);
                     }
                 }
                 // If this checked pNode was the top-most node the app is listening to, skip reproxying rest of parents
@@ -934,6 +950,7 @@ export class Retree {
             parent.rawNode,
             parent.proxyNode,
             proxyNodeThatChanged,
+            changes,
             topProxyNodeListenedTo,
             confirmedCallbacksToNotify,
             checkedParentProxyNodes
@@ -944,7 +961,8 @@ export class Retree {
         const _nodeChangeListener = (
             unproxiedNode: TreeNode,
             proxyNode: TCustomProxy<TreeNode>,
-            reproxyNode: TreeNode
+            reproxyNode: TreeNode,
+            changes: INodeFieldChanges[]
         ) => {
             if (
                 proxyNode instanceof ReactiveNode &&
@@ -954,13 +972,19 @@ export class Retree {
                     this.handleNodeChanged(
                         unproxiedNode,
                         proxyNode,
-                        reproxyNode
+                        reproxyNode,
+                        changes
                     );
                 });
                 return;
             }
 
-            this.handleNodeChanged(unproxiedNode, proxyNode, reproxyNode);
+            this.handleNodeChanged(
+                unproxiedNode,
+                proxyNode,
+                reproxyNode,
+                changes
+            );
         };
         this.nodeChangeListener = _nodeChangeListener.bind(this);
         this.nodeChangeEmitter.on("nodeChanged", this.nodeChangeListener);
@@ -992,7 +1016,8 @@ export class Retree {
     private static handleNodeChanged(
         unproxiedNode: TreeNode,
         proxyNode: TCustomProxy<TreeNode>,
-        reproxyNode: TreeNode
+        reproxyNode: TreeNode,
+        changes: INodeFieldChanges[]
     ) {
         return runWithIsolatedDependencyTracking(() => {
             const isReactiveNode = proxyNode instanceof ReactiveNode;
@@ -1000,12 +1025,15 @@ export class Retree {
                 this.handleReactiveNode(proxyNode, unproxiedNode);
             }
 
-            const emitNodeChangedListeners = () => {
+            const emitNodeChangedListeners = (
+                changesToNotify: INodeFieldChanges[]
+            ) => {
                 const nodeChangedListnersToNotify =
                     this.nodeChangedListeners.get(unproxiedNode) ?? [];
                 this.notifyChangedListeners(
                     nodeChangedListnersToNotify,
-                    reproxyNode
+                    reproxyNode,
+                    changesToNotify
                 );
             };
 
@@ -1015,12 +1043,13 @@ export class Retree {
                 if (Transactions.runningTransaction) {
                     Transactions.upsertPendingTransaction(unproxiedNode, {
                         emitNodeChanged: emitNodeChangedListeners,
+                        nodeChanges: changes,
                     });
                     return;
                 }
 
                 // emit immediately
-                emitNodeChangedListeners();
+                emitNodeChangedListeners(changes);
             };
 
             if (!Transactions.skipEmit) {
@@ -1034,12 +1063,13 @@ export class Retree {
                 this.handleNotifyTreeChanged(
                     unproxiedNode,
                     proxyNode,
-                    proxyNode
+                    proxyNode,
+                    changes
                 );
             }
 
             if (isReactiveNode) {
-                ReactiveNode[RUN_CHANGED_EFFECT_SYMBOL](proxyNode);
+                ReactiveNode[RUN_CHANGED_EFFECT_SYMBOL](proxyNode, changes);
             }
         });
     }
@@ -1640,7 +1670,10 @@ export class Retree {
      * Handler for when a dependent node changed for a reactive node
      * @param reproxy the reproxied node that changed
      */
-    private static handleReactiveDependentNodeChanged(reproxy: TreeNode) {
+    private static handleReactiveDependentNodeChanged(
+        reproxy: TreeNode,
+        changes: INodeFieldChanges[]
+    ) {
         // I could get unproxied node from scope...tradeoff between memory and runtime hit
         // It's cheap to get unproxied node, so doing that for now
         const _unproxy = getUnproxiedNode(reproxy);
@@ -1679,7 +1712,8 @@ export class Retree {
             this.nodeChangeListener?.(
                 dependentUnproxied,
                 dependentBaseProxy,
-                dependentReproxy
+                dependentReproxy,
+                changes
             );
         });
     }

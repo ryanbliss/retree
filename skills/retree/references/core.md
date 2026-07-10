@@ -74,8 +74,8 @@ class TodoList {
 const tree = Retree.root(new TodoList());
 
 // Listen for changes to the todo list (e.g., todo created)
-const unsubscribe = Retree.on(tree.todos, "treeChanged", (todos) => {
-    console.log("list updated", todos);
+const unsubscribe = Retree.on(tree.todos, "treeChanged", (todos, changes) => {
+    console.log("list updated", todos, changes);
 });
 tree.add();
 tree.todos[0].toggle();
@@ -87,14 +87,20 @@ unsubscribe();
 
 `Retree.on` is the core subscription primitive. `nodeChanged` fires for direct changes to that node. `treeChanged` fires for the node and descendant changes. `nodeRemoved` fires when that node is detached from its parent.
 
+`nodeChanged` and `treeChanged` callbacks receive `(reproxiedNode, changes)`, where `changes` is an array of `{ key, previous, new }` records.
+
 ```ts
 const board = Retree.root({
     title: "Roadmap",
     cards: [{ text: "Ship docs", done: false }],
 });
 
-Retree.on(board, "nodeChanged", () => console.log("board changed"));
-Retree.on(board, "treeChanged", () => console.log("board subtree changed"));
+Retree.on(board, "nodeChanged", (_board, changes) =>
+    console.log("board changed", changes)
+);
+Retree.on(board, "treeChanged", (_board, changes) =>
+    console.log("board subtree changed", changes)
+);
 Retree.on(board.cards[0], "nodeRemoved", () => console.log("card removed"));
 
 board.title = "Q2 Roadmap"; // ✅ nodeChanged(board), ✅ treeChanged(board)
@@ -545,9 +551,11 @@ class SubscriptionNode extends ReactiveNode {
 }
 ```
 
-`onChanged()` is useful for synchronizing derived state after Retree knows a change really happened. Retree runs it before listener callbacks flush. If no transaction is already active, Retree starts one so state updates made in `onChanged()` are bundled with the change that triggered it.
+`onChanged(changes)` is useful for synchronizing derived state after Retree knows a change really happened. Retree runs it before listener callbacks flush. `changes` is an array of `{ key, previous, new }` records.
 
 ```ts
+import type { INodeFieldChanges } from "@retreejs/core";
+
 class SearchNode extends ReactiveNode {
     public query = "";
     public normalizedQuery = "";
@@ -556,7 +564,7 @@ class SearchNode extends ReactiveNode {
         return [];
     }
 
-    protected onChanged(): void {
+    protected onChanged(_changes: INodeFieldChanges[]): void {
         const next = this.query.trim().toLowerCase();
         if (this.normalizedQuery === next) {
             return;

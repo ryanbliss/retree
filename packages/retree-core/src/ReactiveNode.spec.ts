@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
+import { INodeFieldChanges } from "./types";
 import { ignore, link } from "./decorators";
 import { getCustomProxyHandler, getUnproxiedNode } from "./internals";
 import { proxiedChildrenKey } from "./internals/proxy-types";
@@ -77,6 +78,20 @@ class ChangedEffectNode extends ReactiveNode {
 
         this.syncedValue = this.value;
         this.effectRuns++;
+    }
+}
+
+class ChangedTelemetryNode extends ReactiveNode {
+    public value = 0;
+    @ignore
+    public changes: INodeFieldChanges[] = [];
+
+    get dependencies() {
+        return [];
+    }
+
+    protected onChanged(changes: INodeFieldChanges[]): void {
+        this.changes.push(...changes);
     }
 }
 
@@ -444,6 +459,21 @@ describe("ReactiveNode", () => {
 
         expect(root.effectRuns).toBe(1);
         expect(nodeChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("passes field changes to onChanged", () => {
+        const root = trackRoot(Retree.root(new ChangedTelemetryNode()));
+        Retree.on(root, "nodeChanged", vi.fn());
+
+        root.value = 1;
+
+        expect(root.changes).toEqual([
+            {
+                key: "value",
+                previous: 0,
+                new: 1,
+            },
+        ]);
     });
 
     it("adds changed effect updates to an existing transaction", () => {
