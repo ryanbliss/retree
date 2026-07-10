@@ -120,7 +120,7 @@ trustworthy signals at this sample count.
 | Related write with tracked `select` active | ~85 ms | ~9–14 ms | ~7×; remaining cost is the legitimate selector re-run + O(N) resubscription |
 | 100 writes, ReactiveNode with 50 dependency edges on one node | 92.7 ms | 15.0 ms | 6.2× (dependencies getter runs once per group, not per edge) |
 | First-touch materialization, 10k items | ~55 ms | ~38 ms | ~30% (descriptor-lookup elimination, flattened lazy path, metadata record removal) |
-| `Retree.peek` scan, 10k items | n/a | 0.21–0.25 ms | ≈ raw speed (proxied steady-state scan is ~5.3 ms) |
+| `Retree.raw` scan, 10k items | n/a | 0.21–0.25 ms | ≈ raw speed (proxied steady-state scan is ~5.3 ms) |
 | Steady-state proxied scan | 5.6 ms | 5.3 ms | inherent trap dispatch; `peek` is the designed escape |
 
 **What changed:**
@@ -147,9 +147,19 @@ trustworthy signals at this sample count.
    fresh children directly; proxy metadata stores the handler itself instead of
    allocating a `{handler, target}` record per proxy (reproxy handlers carry a
    `proxyTargetKey`).
-5. New public APIs: `Retree.peek(node)` (raw read escape hatch) and
-   `Retree.untracked(fn)` (pause dependency collection). Both documented with
-   read-only / caveat guidance and covered by tests.
+5. New public APIs: `Retree.raw(node)` (raw read escape hatch),
+   `Retree.untracked(fn)` (pause dependency collection), and
+   `Retree.peekInto(node, fn)` (run a read-only query against the raw object,
+   then resolve the result to its managed node — latest reproxy or base proxy
+   — when one exists). `ReactiveNode` exposes instance conveniences `raw()`,
+   `untracked(fn)`, and `peekInto(fn)` that delegate to the static APIs via
+   the existing implementation-injection pattern. (`query` was considered as
+   the name for `peekInto` but is reserved by `ConvexNode.query`.) All
+   documented with read-only / caveat guidance and covered by tests. Caveat:
+   `peekInto` resolves only the returned value itself (not container
+   elements), and children never read through the managed tree have no proxy
+   yet, so they resolve raw — traverse once or `prepareTree` when a managed
+   result is required.
 6. Hygiene: `FUNCTION_NAMES_BIND_TO_RAW` is a `Set`; ReactiveNode get-trap key
    checks avoid `String(prop)` allocation for symbols.
 

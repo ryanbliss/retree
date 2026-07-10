@@ -108,7 +108,7 @@ describe("perf probe", () => {
             throw new Error("perf-probe: expected managed tree to unwrap");
         }
         time("scan via getUnproxiedNode", () => scan(raw), 5);
-        time("scan via Retree.peek", () => scan(Retree.peek(tree)), 5);
+        time("scan via Retree.raw", () => scan(Retree.raw(tree)), 5);
     });
 
     it("dependency-tracked scan scaling", () => {

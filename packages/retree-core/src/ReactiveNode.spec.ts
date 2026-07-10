@@ -814,3 +814,72 @@ describe("ReactiveNode", () => {
         expect(nodeChanged).toHaveBeenCalledTimes(1);
     });
 });
+
+describe("ReactiveNode raw/untracked/peekInto", () => {
+    class TaskList extends ReactiveNode {
+        public tasks: { id: string; done: boolean }[] = [
+            { id: "a", done: false },
+            { id: "b", done: true },
+        ];
+
+        get dependencies() {
+            return [this.dependency(this.tasks)];
+        }
+
+        public rawSelf() {
+            return this.raw();
+        }
+
+        public findTask(id: string) {
+            return this.peekInto((raw) =>
+                raw.tasks.find((task) => task.id === id)
+            );
+        }
+
+        public untrackedDoneCount() {
+            return this.untracked(
+                () => this.tasks.filter((task) => task.done).length
+            );
+        }
+    }
+
+    it("raw() returns the unproxied instance", () => {
+        const instance = new TaskList();
+        const node = Retree.root(instance);
+        expect(node.rawSelf()).toBe(instance);
+        expect(node.raw()).toBe(instance);
+    });
+
+    it("raw() throws for a detached (unmanaged) instance", () => {
+        const instance = new TaskList();
+        expect(() => instance.raw()).toThrowError(/Retree.raw/);
+    });
+
+    it("peekInto() scans raw and resolves managed results", () => {
+        const node = Retree.root(new TaskList());
+        node.tasks.forEach(() => {}); // materialize children
+        const task = node.findTask("b");
+        expect(task).toBeDefined();
+        if (task === undefined) {
+            throw new Error("expected findTask to locate task b");
+        }
+        const changed = vi.fn();
+        const unsubscribe = Retree.on(task, "nodeChanged", changed);
+        task.done = false;
+        expect(changed).toHaveBeenCalledTimes(1);
+        unsubscribe();
+    });
+
+    it("untracked() pauses dependency collection in tracked contexts", () => {
+        const node = Retree.root(new TaskList());
+        node.tasks.forEach(() => {});
+        const callback = vi.fn();
+        const unsubscribe = Retree.select(
+            () => node.untrackedDoneCount(),
+            callback
+        );
+        node.tasks[0].done = true;
+        expect(callback).not.toHaveBeenCalled();
+        unsubscribe();
+    });
+});
