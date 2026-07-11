@@ -216,13 +216,11 @@ unsubscribe();
 
 When you own *all* the listeners on a node, `Retree.clearListeners(node)`
 removes them at once. Pass `false` as the second argument to also clear
-listeners on the node's **direct child nodes** (deeper descendants keep
-theirs — clear them per node, or hold on to the unsubscribe functions
-returned by `Retree.on`):
+listeners on **every descendant node**, all the way down the subtree:
 
 ```ts
 Retree.clearListeners(tree.lists);        // clear the lists node's own listeners
-Retree.clearListeners(tree.lists, false); // also clear each list's listeners
+Retree.clearListeners(tree.lists, false); // also clear every descendant's listeners
 ```
 
 ## Guard with `Retree.isNode`

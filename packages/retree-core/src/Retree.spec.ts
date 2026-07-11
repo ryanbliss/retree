@@ -1316,6 +1316,50 @@ describe("Retree", () => {
     });
 });
 
+describe("Retree.clearListeners", () => {
+    it("shallow (default) clears the node's listeners but leaves children subscribed", () => {
+        const root = trackRoot(
+            Retree.root({ flag: 0, child: { grandchild: { value: 0 } } })
+        );
+        const rootChanged = vi.fn();
+        const childChanged = vi.fn();
+        Retree.on(root, "nodeChanged", rootChanged);
+        Retree.on(root.child, "nodeChanged", childChanged);
+
+        Retree.clearListeners(root);
+
+        root.flag = 1;
+        expect(rootChanged).not.toHaveBeenCalled();
+
+        root.child.grandchild = { value: 2 };
+        expect(childChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("shallow=false clears listeners at every depth, not just direct children", () => {
+        // Regression: the recursion used to call clearListeners(child)
+        // without passing shallow=false through, so grandchildren and
+        // deeper descendants kept their listeners.
+        const root = trackRoot(
+            Retree.root({ child: { grandchild: { value: 0 } } })
+        );
+        const rootChanged = vi.fn();
+        const childChanged = vi.fn();
+        const grandchildChanged = vi.fn();
+        Retree.on(root, "nodeChanged", rootChanged);
+        Retree.on(root.child, "nodeChanged", childChanged);
+        Retree.on(root.child.grandchild, "nodeChanged", grandchildChanged);
+
+        Retree.clearListeners(root, false);
+
+        root.child.grandchild.value = 1;
+        root.child.grandchild = { value: 2 };
+        root.child = { grandchild: { value: 3 } };
+        expect(rootChanged).not.toHaveBeenCalled();
+        expect(childChanged).not.toHaveBeenCalled();
+        expect(grandchildChanged).not.toHaveBeenCalled();
+    });
+});
+
 describe("Retree.isNode", () => {
     it("returns true for roots, children, and reproxies", () => {
         const root = Retree.root({ child: { value: 1 } });

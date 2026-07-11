@@ -68,7 +68,7 @@ export function DemoLog({
             className={`flex max-h-72 min-h-24 flex-col overflow-hidden rounded-lg border border-border-token bg-background p-3 ${className}`}
         >
             <p className="shrink-0 font-mono text-[11px] text-faint">
-                write log — a Retree tree too: useNode(log.entries)
+                write log — useNode(log.entries)
             </p>
             {entries.length === 0 ? (
                 <p className="mt-2 font-mono text-[11px] text-faint">

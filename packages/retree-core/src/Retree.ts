@@ -942,15 +942,17 @@ export class Retree {
      * teardown of a Retree-managed integration.
      *
      * @param node node to clear all listeners for
-     * @param shallow when false, will unsubscribe to all child nodes as well.
+     * @param shallow when false, also unsubscribes every descendant node —
+     * the full subtree, not just direct children.
      *
      * @example
      * ```ts
-     * const root = Retree.root({ child: { count: 0 } });
+     * const root = Retree.root({ child: { grandchild: { count: 0 } } });
      * Retree.on(root, "nodeChanged", () => {});
      * Retree.on(root.child, "nodeChanged", () => {});
+     * Retree.on(root.child.grandchild, "nodeChanged", () => {});
      *
-     * Retree.clearListeners(root, false); // clears root and child listeners
+     * Retree.clearListeners(root, false); // clears all three
      * ```
      */
     public static clearListeners(node: TreeNode, shallow: boolean = true) {
@@ -979,12 +981,35 @@ export class Retree {
             this.stopListening();
         }
         if (shallow) return;
+        this.clearDescendantListeners(node, new Set([rawNode]));
+    }
+
+    /**
+     * Recursive half of `clearListeners(node, false)`: shallow-clears every
+     * node reachable from `node`'s fields. `seen` is keyed by unproxied
+     * nodes (stable across reproxies) so cycles — e.g. a `Retree.link`
+     * pointing back at an ancestor — are visited exactly once.
+     */
+    private static clearDescendantListeners(
+        node: TreeNode,
+        seen: Set<TreeNode>
+    ) {
         Object.values(node).forEach((child) => {
             if (child === null || typeof child !== "object") {
                 return;
             }
-
+            const rawChild = getUnproxiedNode(child);
+            if (!rawChild) {
+                // Unmanaged plain value (e.g. behind @ignore) — nothing can
+                // be subscribed to it, so there is nothing to clear.
+                return;
+            }
+            if (seen.has(rawChild)) {
+                return;
+            }
+            seen.add(rawChild);
             this.clearListeners(child);
+            this.clearDescendantListeners(child, seen);
         });
     }
 

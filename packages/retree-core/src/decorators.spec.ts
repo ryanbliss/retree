@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode";
 import { Retree } from "./Retree";
-import { ignore, link, memo, select } from "./decorators";
+import { fnMemo, ignore, link, memo, select } from "./decorators";
 import { getUnproxiedNode } from "./internals";
 import { getReproxyNode } from "./internals/reproxy";
 import { Transactions } from "./internals/transactions";
@@ -699,5 +699,116 @@ describe("select", () => {
         expect(root.tasks.map((task) => task.text)).toEqual([
             "Fresh task object",
         ]);
+    });
+});
+
+describe("legacy decorator transpilation detection", () => {
+    /**
+     * Simulates what TypeScript's `experimentalDecorators` / Babel's legacy
+     * decorator transform actually calls at runtime: `(target, propertyKey,
+     * descriptor)` — reproduced July 2026 inside Sandpack's react-ts
+     * template. The cast is deliberate: the whole point is calling the
+     * decorator with the wrong (legacy) shape.
+     */
+    type LegacyDecoratorCall = (
+        target: object,
+        propertyKey: string,
+        descriptor?: PropertyDescriptor
+    ) => unknown;
+
+    function asLegacyCall(decorator: unknown): LegacyDecoratorCall {
+        return decorator as LegacyDecoratorCall;
+    }
+
+    const prototype = {};
+    const getterDescriptor: PropertyDescriptor = {
+        get: () => 1,
+        configurable: true,
+        enumerable: false,
+    };
+    const methodDescriptor: PropertyDescriptor = {
+        value: () => 1,
+        configurable: true,
+        enumerable: false,
+        writable: true,
+    };
+
+    it("@memo names the decorator-config mismatch instead of blaming Retree", () => {
+        expect(() =>
+            asLegacyCall(memo)(prototype, "filtered", getterDescriptor)
+        ).toThrow(
+            '@memo on "filtered" was invoked with legacy decorator semantics'
+        );
+        expect(() =>
+            asLegacyCall(memo)(prototype, "filtered", getterDescriptor)
+        ).toThrow('{ "version": "2023-11" }');
+    });
+
+    it("@memo(...) factory form detects the legacy shape too", () => {
+        expect(() =>
+            asLegacyCall(memo())(prototype, "filtered", getterDescriptor)
+        ).toThrow(
+            '@memo(...) on "filtered" was invoked with legacy decorator semantics'
+        );
+    });
+
+    it("@select names the decorator-config mismatch", () => {
+        expect(() =>
+            asLegacyCall(select)(prototype, "doneCount", getterDescriptor)
+        ).toThrow(
+            '@select on "doneCount" was invoked with legacy decorator semantics'
+        );
+    });
+
+    it("@select(...) factory form detects the legacy shape too", () => {
+        expect(() =>
+            asLegacyCall(select(() => []))(
+                prototype,
+                "doneCount",
+                getterDescriptor
+            )
+        ).toThrow(
+            '@select(...) on "doneCount" was invoked with legacy decorator semantics'
+        );
+    });
+
+    it("@fnMemo names the decorator-config mismatch", () => {
+        expect(() =>
+            asLegacyCall(fnMemo)(prototype, "filterBy", methodDescriptor)
+        ).toThrow(
+            '@fnMemo on "filterBy" was invoked with legacy decorator semantics'
+        );
+    });
+
+    it("@fnMemo(...) factory form detects the legacy shape too", () => {
+        expect(() =>
+            asLegacyCall(fnMemo())(prototype, "filterBy", methodDescriptor)
+        ).toThrow(
+            '@fnMemo(...) on "filterBy" was invoked with legacy decorator semantics'
+        );
+    });
+
+    it("@ignore names the decorator-config mismatch", () => {
+        expect(() => asLegacyCall(ignore)(prototype, "cache")).toThrow(
+            '@ignore on "cache" was invoked with legacy decorator semantics'
+        );
+    });
+
+    it("@link names the decorator-config mismatch", () => {
+        expect(() => asLegacyCall(link)(prototype, "selected")).toThrow(
+            '@link on "selected" was invoked with legacy decorator semantics'
+        );
+    });
+
+    it("keeps the likely-a-Retree-bug error for a 2023-11 context with a non-function target", () => {
+        const context = {
+            kind: "getter",
+            name: "broken",
+        } as ClassGetterDecoratorContext<ReactiveNode, unknown>;
+        const callMemo = memo as unknown as (
+            target: unknown,
+            decoratorContext: unknown
+        ) => unknown;
+        expect(() => callMemo(123, context)).toThrow("likely a Retree bug");
     });
 });

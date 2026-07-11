@@ -509,13 +509,13 @@ export default function Home() {
                             title="Derive values with useSelect"
                             body={
                                 <p>
-                                    <code>useSelect</code> re-renders a
-                                    component only when the selected value
-                                    changes. Title edits don&apos;t touch a
-                                    done-count; neither does anything else that
-                                    leaves the selection equal. It can even
-                                    infer dependencies from the reads inside the
-                                    selector.
+                                    <code>useSelect</code>
+                                    {` `}re-renders a component only when the
+                                    selected value changes. Title edits
+                                    don&apos;t touch a done-count; neither does
+                                    anything else that leaves the selection
+                                    equal. It can even infer dependencies from
+                                    the reads inside the selector.
                                 </p>
                             }
                             code={
@@ -611,10 +611,10 @@ export default function Home() {
                         <p className="mt-3 text-muted">
                             Toggle tasks on either side. With a top-level store,
                             the owning component re-renders on every write —{" "}
-                            <code>React.memo</code> keeps siblings quiet, but
-                            the owner still runs. With Retree, each row
-                            subscribes to its own node, so the parent&apos;s
-                            counter never moves.
+                            <code>React.memo</code>
+                            {` `}keeps siblings quiet, but the owner still runs.
+                            With Retree, each row subscribes to its own node, so
+                            the parent&apos;s counter never moves.
                         </p>
                     </Reveal>
                     <Reveal delay={0.08} className="mt-8">

@@ -119,7 +119,7 @@ Call the unsubscribe returned by `Retree.on(...)` when you only want to remove o
 const unsubscribe = Retree.on(board, "nodeChanged", () => {});
 unsubscribe();
 
-Retree.clearListeners(board.cards, false); // clear the list and child listeners
+Retree.clearListeners(board.cards, false); // clear the list and every descendant's listeners
 ```
 
 ## Select derived values
