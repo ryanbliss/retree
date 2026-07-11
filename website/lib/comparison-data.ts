@@ -49,7 +49,7 @@ export interface ComparisonLibrary {
 }
 
 export const COMPARISON_LIBRARIES: ComparisonLibrary[] = [
-    { id: "retree", name: "Retree", detail: "@retreejs/core + react 0.5.0" },
+    { id: "retree", name: "Retree", detail: "@retreejs/core + react 0.5.1" },
     { id: "mobx", name: "MobX", detail: "6.16 + mobx-react-lite 4.1" },
     { id: "valtio", name: "Valtio", detail: "2.3" },
 ];
