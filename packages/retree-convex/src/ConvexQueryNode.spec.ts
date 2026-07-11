@@ -21,6 +21,7 @@ import {
     reconcileArrayById,
 } from "./index";
 import { reconcileArray } from "./internals/reconcile";
+import { getCustomProxyHandler } from "@retreejs/core/internal";
 
 type TasksQuery = FunctionReference<
     "query",
@@ -984,6 +985,55 @@ describe("ConvexQueryNode", () => {
             text: "Buy groceries",
             isCompleted: true,
         });
+    });
+
+    it("passes a raw read view to custom reconcilers (read raw, write current)", () => {
+        const client = new FakeConvexClient();
+        const seen: {
+            current: unknown;
+            rawCurrent: unknown;
+        }[] = [];
+        const node = Retree.root(
+            new ConvexQueryNode(client, tasksQuery, {
+                args: { listId: "today" },
+                reconcile: {
+                    reconcile(current, next, rawCurrent) {
+                        seen.push({ current, rawCurrent });
+                        if (current === undefined) {
+                            return next;
+                        }
+                        // Read from rawCurrent, write to current.
+                        if (rawCurrent?.[0]?.text !== next[0]?.text) {
+                            current[0]!.text = next[0]!.text;
+                        }
+                        return current;
+                    },
+                },
+            })
+        );
+        Retree.on(node, "nodeChanged", () => undefined);
+        client.subscriptions[0].callback([
+            { id: "task-1", text: "Buy groceries", isCompleted: false },
+        ]);
+        const task = node.state?.[0];
+        client.subscriptions[0].callback([
+            { id: "task-1", text: "Buy oat milk", isCompleted: false },
+        ]);
+
+        // First call: no current state yet.
+        expect(seen[0].current).toBeUndefined();
+        expect(seen[0].rawCurrent).toBeUndefined();
+        // Second call: rawCurrent is the proxy-free raw view of current.
+        expect(seen[1].current).toBeDefined();
+        expect(seen[1].rawCurrent).toBe(
+            Retree.raw(seen[1].current as { id: string }[])
+        );
+        expect(getCustomProxyHandler(seen[1].rawCurrent as object)).toBe(
+            undefined
+        );
+        // Writes through current kept identity and applied the diff.
+        expect(node.state?.[0]).toBe(task);
+        expect(node.state?.[0]?.text).toBe("Buy oat milk");
     });
 
     it("keeps unchanged array item proxies stable when another item changes", () => {

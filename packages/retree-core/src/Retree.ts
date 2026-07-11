@@ -11,7 +11,11 @@ import {
     getUnproxiedNodeFromProxy,
 } from "./internals";
 import { TreeChangeEmitter } from "./internals/NodeChangeEmitter";
-import { proxiedParentKey, TCustomProxy } from "./internals/proxy-types";
+import {
+    isCustomProxy,
+    proxiedParentKey,
+    TCustomProxy,
+} from "./internals/proxy-types";
 import {
     deleteReactiveDependencies,
     deleteReactiveDependent,
@@ -24,6 +28,7 @@ import {
     setReactiveDependents,
 } from "./internals/reactive-node-utils";
 import {
+    getManagedProxyForUnproxiedNode,
     getReproxyNode,
     getReproxyNodeForUnproxiedNode,
     updateReproxyNode,
@@ -37,7 +42,10 @@ import {
     RetreeSelectSelector,
     RetreeTrackedSelectSelector,
 } from "./internals/select";
-import { runWithIsolatedDependencyTracking } from "./internals/dependency-tracking";
+import {
+    runWithIsolatedDependencyTracking,
+    runWithoutDependencyTracking,
+} from "./internals/dependency-tracking";
 import {
     areDependencyValuesEqual,
     getDependencyComparisonValues,
@@ -54,6 +62,9 @@ import {
     SELECT_GETTERS_SYMBOL,
     setReactiveNodeLinkImplementation,
     setReactiveNodeMoveImplementation,
+    setReactiveNodeRawImplementation,
+    setReactiveNodePeekIntoImplementation,
+    setReactiveNodeUntrackedImplementation,
 } from "./ReactiveNode";
 import {
     RetreeObjectMoveKey,
@@ -132,6 +143,11 @@ export class Retree {
         setReactiveNodeLinkImplementation((node) => Retree.link(node));
         setReactiveNodeMoveImplementation((node, destination, key) =>
             Retree.moveInternal(node, destination, key)
+        );
+        setReactiveNodeRawImplementation((node) => Retree.raw(node));
+        setReactiveNodeUntrackedImplementation((fn) => Retree.untracked(fn));
+        setReactiveNodePeekIntoImplementation((node, fn) =>
+            Retree.peekInto(node, fn)
         );
     }
 
@@ -603,6 +619,194 @@ export class Retree {
     static parent(node: TreeNode): TreeNode | null {
         const response = this.getParentInternal(node);
         return response?.proxyNode ?? null;
+    }
+
+    /**
+     * Get the raw, unproxied object behind a Retree-managed node for
+     * read-only, non-reactive access.
+     *
+     * @remarks
+     * Reads through Retree proxies pay per-property trap overhead. That is
+     * usually irrelevant, but algorithms that scan large collections of
+     * deeply nested nodes can read the raw object at native speed instead.
+     *
+     * Treat the returned object as read-only. Mutating it directly skips
+     * Retree change emission and can desynchronize memoized comparisons; make
+     * all writes through the managed node. Reads through `raw` are invisible
+     * to reactivity: they are not trapped by `useSelect`/`Retree.select`
+     * selectors or `@memo` dependency collection, and children read this way
+     * are not prepared for `Retree.parent` / `Retree.on` usage.
+     *
+     * **Raw purity guarantee:** the returned subtree contains zero Retree
+     * proxies, under every write path — including reparenting assignments,
+     * `Retree.move`, Map/Set value reads, and post-construction assignment of
+     * class instances or collections. Every value is plain data, every read
+     * is native speed, and `structuredClone(Retree.raw(node))` is a valid
+     * point-in-time copy. Use {@link Retree.source} to resolve a raw value
+     * back to its managed node.
+     *
+     * @param node Retree-managed node to unwrap.
+     * @returns The raw object behind the node.
+     *
+     * @example
+     * ```ts
+     * const project = Retree.root({ items: [{ score: 1 }, { score: 92 }] });
+     *
+     * const rawItems = Retree.raw(project.items);
+     * const total = rawItems.reduce((sum, item) => sum + item.score, 0); // ✅ native-speed read
+     *
+     * project.items[0].score = 50; // ✅ writes stay on the managed tree
+     * ```
+     */
+    static raw<TNode extends TreeNode>(node: TNode): TNode {
+        this.assertRetreeManagedNode(node, "Retree.raw");
+        return getUnproxiedNode(node) as TNode;
+    }
+
+    /**
+     * Resolve a raw value back to its Retree-managed node.
+     *
+     * @remarks
+     * This is the inverse of {@link Retree.raw} for values that belong to a
+     * Retree tree: given a raw object (for example an element read while
+     * scanning a {@link Retree.raw} subtree, or a `previous`/`new` value from
+     * a change payload), it returns the latest managed node — ready for
+     * mutation, subscription, or navigation. Passing a managed node returns
+     * its latest managed identity.
+     *
+     * Returns `undefined` when the value has never been materialized as a
+     * Retree node or is not part of a Retree tree; a miss is a normal query
+     * outcome, not an error. Values become materialized when they are read
+     * through a managed node, so scanning via managed proxies first (or using
+     * `useRaw`'s `toSource`, which materializes direct children on demand)
+     * guarantees resolution.
+     *
+     * @param value Raw object to resolve.
+     * @returns The managed node, or `undefined` when none exists.
+     *
+     * @example
+     * ```ts
+     * const project = Retree.root({ items: [{ score: 1 }] });
+     * project.items.forEach(() => {}); // materialize
+     *
+     * const rawItem = Retree.raw(project.items)[0];
+     * const item = Retree.source(rawItem);
+     * if (item) item.score = 2; // ✅ emits normally
+     * ```
+     */
+    static source<TNode extends TreeNode>(value: TNode): TNode | undefined {
+        if (value === null || typeof value !== "object") {
+            return undefined;
+        }
+        const managed = getManagedProxyForUnproxiedNode(
+            getUnproxiedNode(value) as TreeNode
+        );
+        return managed as TNode | undefined;
+    }
+
+    /**
+     * Run a synchronous function with Retree dependency tracking paused.
+     *
+     * @remarks
+     * Inside tracked contexts — `Retree.select(() => ...)`, `useSelect`
+     * selectors, and auto-trapped `@memo` / `@fnMemo` / `@select` bodies —
+     * every Retree read is recorded as a dependency. Wrap bulk reads in
+     * `untracked` when they should not subscribe, such as a wide scan whose
+     * result is already covered by a narrower dependency.
+     *
+     * Reads inside `untracked` still go through Retree proxies (combine with
+     * {@link Retree.raw} for native-speed scans). Writes inside `untracked`
+     * still emit normally; this pauses dependency collection, not change
+     * emission.
+     *
+     * @param fn Function to run without dependency tracking.
+     * @returns The function's return value.
+     *
+     * @example
+     * ```ts
+     * const doneCount = Retree.select(
+     *     () => {
+     *         const tasks = project.tasks; // ✅ tracked: subscribes to tasks
+     *         return Retree.untracked(
+     *             () => tasks.filter((task) => task.done).length
+     *         );
+     *     },
+     *     (count) => console.log(count)
+     * );
+     * ```
+     */
+    static untracked<T>(fn: () => T): T {
+        return runWithoutDependencyTracking(fn);
+    }
+
+    /**
+     * Run a read-only query against a node's raw object at native speed, then
+     * resolve the result back to its Retree-managed node when one exists.
+     *
+     * @remarks
+     * `peekInto` combines {@link Retree.raw} and {@link Retree.untracked}:
+     * the callback receives the raw object behind `node`, so every read
+     * inside it skips proxy traps and dependency tracking. If the callback
+     * returns an object that belongs to a Retree tree, the latest managed
+     * node (reproxy, or base proxy when the node has never reproxied) is
+     * returned instead, ready for mutation or subscription. Primitives,
+     * `null`, `undefined`, and unmanaged objects are returned as-is.
+     *
+     * Only the returned value itself is resolved. A container built inside
+     * the callback — a `filter` result, a tuple, an object literal — is
+     * returned unchanged with raw elements; resolve elements individually
+     * when they must be managed. Children that have never been read through
+     * the managed tree are not yet materialized and resolve to their raw
+     * value; traverse the path once, or use `prepareTree` / `autoPrepare`,
+     * when a managed result is required.
+     *
+     * @param node Retree-managed node to query.
+     * @param fn Read-only callback that receives the raw object behind
+     * `node`.
+     * @returns The callback result, resolved to its managed node when one
+     * exists.
+     *
+     * @example
+     * ```ts
+     * const project = Retree.root({
+     *     tasks: [
+     *         { id: "a", done: false },
+     *         { id: "b", done: true },
+     *     ],
+     * });
+     * project.tasks.forEach(() => {}); // materialize once (or prepareTree)
+     *
+     * const task = Retree.peekInto(project.tasks, (rawTasks) =>
+     *     rawTasks.find((candidate) => candidate.id === "b")
+     * );
+     * // `task` is the managed node: mutations emit normally.
+     * if (task) task.done = false; // ✅ emits
+     *
+     * const doneCount = Retree.peekInto(
+     *     project.tasks,
+     *     (rawTasks) => rawTasks.filter((candidate) => candidate.done).length
+     * ); // ✅ primitive result returned as-is
+     * ```
+     */
+    static peekInto<TNode extends TreeNode, TResult>(
+        node: TNode,
+        fn: (raw: TNode) => TResult
+    ): TResult {
+        const raw = this.raw(node);
+        const result = runWithoutDependencyTracking(() => fn(raw));
+        if (result === null || typeof result !== "object") {
+            return result;
+        }
+        if (isCustomProxy(result)) {
+            return getReproxyNode(result) as TResult;
+        }
+        const managedProxy = getManagedProxyForUnproxiedNode(
+            result as TreeNode
+        );
+        if (managedProxy !== undefined) {
+            return managedProxy as TResult;
+        }
+        return result;
     }
 
     /**
@@ -1689,9 +1893,33 @@ export class Retree {
         }
         const groupedDependents = this.groupReactiveDependents(dependents);
         groupedDependents.forEach((group) => {
+            // All dependents in a group share one ReactiveNode, so its current
+            // dependency list is computed at most once per group. Recomputing it
+            // per dependent re-runs the `dependencies` getter and every @select
+            // getter M times for a node with M edges onto the changed node.
+            let latestDependenciesByKey:
+                | Map<string, IActiveReactiveDependency>
+                | undefined;
+            const getLatestDependenciesByKey = () => {
+                if (latestDependenciesByKey === undefined) {
+                    latestDependenciesByKey = new Map();
+                    const latestDependencies = this.getReactiveNodeDependencies(
+                        group.reactiveNode,
+                        false
+                    );
+                    for (const dependency of latestDependencies) {
+                        latestDependenciesByKey.set(dependency.key, dependency);
+                    }
+                }
+                return latestDependenciesByKey;
+            };
             if (
                 !group.dependents.some((dependent) =>
-                    this.shouldNotifyReactiveDependent(dependent, _unproxy)
+                    this.shouldNotifyReactiveDependent(
+                        dependent,
+                        _unproxy,
+                        getLatestDependenciesByKey
+                    )
                 )
             ) {
                 return;
@@ -1745,11 +1973,13 @@ export class Retree {
 
     private static shouldNotifyReactiveDependent(
         dependent: IPreviousReactiveDependent,
-        changedUnproxiedNode: TreeNode
+        changedUnproxiedNode: TreeNode,
+        getLatestDependenciesByKey: () => Map<string, IActiveReactiveDependency>
     ) {
         const dependencyChanged = this.hasReactiveDependencyChanged(
             dependent,
-            changedUnproxiedNode
+            changedUnproxiedNode,
+            getLatestDependenciesByKey
         );
         if (!dependencyChanged) {
             return false;
@@ -1764,16 +1994,14 @@ export class Retree {
 
     private static hasReactiveDependencyChanged(
         dependent: IPreviousReactiveDependent,
-        changedUnproxiedNode: TreeNode
+        changedUnproxiedNode: TreeNode,
+        getLatestDependenciesByKey: () => Map<string, IActiveReactiveDependency>
     ) {
         const previousComparisons = dependent.comparisons;
         if (previousComparisons === undefined) {
             return true;
         }
-        const latest = this.getReactiveNodeDependencies(
-            dependent.reactiveNode,
-            false
-        ).find((dependency) => dependency.key === dependent.key);
+        const latest = getLatestDependenciesByKey().get(dependent.key);
         if (latest === undefined) {
             return true;
         }

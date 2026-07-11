@@ -845,7 +845,7 @@ describe("Retree", () => {
             throw new Error("Expected root to expose proxy metadata.");
         }
 
-        expect(Object.keys(rootHandler[proxiedChildrenKey])).toEqual([]);
+        expect(Object.keys(rootHandler[proxiedChildrenKey] ?? {})).toEqual([]);
 
         const child = root.child;
         const list = root.list;
@@ -1313,5 +1313,179 @@ describe("Retree", () => {
         expect(Transactions.skipReproxy).toBe(false);
         root.count = 2;
         expect(nodeChanged).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe("Retree.raw", () => {
+    it("returns the raw object behind a root node", () => {
+        const raw = { count: 0, child: { value: 1 } };
+        const root = Retree.root(raw);
+        expect(Retree.raw(root)).toBe(raw);
+    });
+
+    it("returns the raw object behind a child node and a reproxy", () => {
+        const raw = { child: { value: 1 } };
+        const root = Retree.root(raw);
+        expect(Retree.raw(root.child)).toBe(raw.child);
+
+        let latest: typeof root | undefined;
+        const unsubscribe = Retree.on(root, "nodeChanged", (reproxy) => {
+            latest = reproxy;
+        });
+        (root as { count?: number }).count = 1;
+        expect(latest).toBeDefined();
+        if (latest === undefined) {
+            throw new Error("expected nodeChanged listener to run");
+        }
+        expect(Retree.raw(latest)).toBe(raw);
+        unsubscribe();
+    });
+
+    it("throws for unmanaged values", () => {
+        expect(() => Retree.raw({ count: 0 })).toThrowError(/Retree.raw/);
+    });
+
+    it("reads via raw do not subscribe a tracked select", () => {
+        const root = Retree.root({ items: [{ score: 1 }, { score: 2 }] });
+        // Materialize children before selecting.
+        expect(root.items[1].score).toBe(2);
+        const callback = vi.fn();
+        const unsubscribe = Retree.select(() => {
+            const rawItems = Retree.raw(root.items);
+            let total = 0;
+            for (const item of rawItems) {
+                total += item.score;
+            }
+            return total;
+        }, callback);
+        root.items[0].score = 100;
+        expect(callback).not.toHaveBeenCalled();
+        unsubscribe();
+    });
+});
+
+describe("Retree.untracked", () => {
+    it("pauses dependency collection inside tracked selectors", () => {
+        const root = Retree.root({
+            flag: false,
+            items: [{ score: 1 }, { score: 2 }],
+        });
+        const callback = vi.fn();
+        const unsubscribe = Retree.select(() => {
+            const flag = root.flag;
+            const total = Retree.untracked(() =>
+                root.items.reduce((sum, item) => sum + item.score, 0)
+            );
+            return flag ? total : -1;
+        }, callback);
+
+        // Untracked reads must not subscribe: item mutations are invisible.
+        root.items[0].score = 100;
+        expect(callback).not.toHaveBeenCalled();
+
+        // Tracked reads still subscribe.
+        root.flag = true;
+        expect(callback).toHaveBeenCalledTimes(1);
+        expect(callback).toHaveBeenLastCalledWith(102, -1);
+        unsubscribe();
+    });
+
+    it("returns the callback result and still emits writes", () => {
+        const root = Retree.root({ count: 0 });
+        const nodeChanged = vi.fn();
+        const unsubscribe = Retree.on(root, "nodeChanged", nodeChanged);
+        const result = Retree.untracked(() => {
+            root.count = 5;
+            return root.count * 2;
+        });
+        expect(result).toBe(10);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        unsubscribe();
+    });
+});
+
+describe("Retree.peekInto", () => {
+    it("resolves a found raw child back to its managed node", () => {
+        const project = Retree.root({
+            tasks: [
+                { id: "a", done: false },
+                { id: "b", done: true },
+            ],
+        });
+        // Materialize children so managed proxies exist.
+        project.tasks.forEach(() => {});
+
+        const task = Retree.peekInto(project.tasks, (rawTasks) =>
+            rawTasks.find((candidate) => candidate.id === "b")
+        );
+        expect(task).toBeDefined();
+        if (task === undefined) {
+            throw new Error("expected peekInto to find task b");
+        }
+        // The result is managed: mutations emit.
+        const nodeChanged = vi.fn();
+        const unsubscribe = Retree.on(task, "nodeChanged", nodeChanged);
+        task.done = false;
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        unsubscribe();
+    });
+
+    it("returns the latest reproxy for nodes that have reproxied", () => {
+        const project = Retree.root({ settings: { theme: "light" } });
+        project.settings.theme = "dark"; // forces a reproxy of settings
+        const settings = Retree.peekInto(project, (raw) => raw.settings);
+        expect(settings).toBe(getReproxyNode(project.settings));
+        expect(settings.theme).toBe("dark");
+    });
+
+    it("returns primitives and callback-built containers as-is", () => {
+        const project = Retree.root({
+            tasks: [
+                { id: "a", done: false },
+                { id: "b", done: true },
+            ],
+        });
+        project.tasks.forEach(() => {});
+
+        const count = Retree.peekInto(
+            project.tasks,
+            (rawTasks) => rawTasks.filter((candidate) => candidate.done).length
+        );
+        expect(count).toBe(1);
+
+        const rawTasks = Retree.raw(project.tasks);
+        const filtered = Retree.peekInto(project.tasks, (raw) =>
+            raw.filter((candidate) => candidate.done)
+        );
+        // A fresh array is not a managed node; elements stay raw.
+        expect(Array.isArray(filtered)).toBe(true);
+        expect(filtered[0]).toBe(rawTasks[1]);
+    });
+
+    it("returns raw values for children that were never materialized", () => {
+        const project = Retree.root({ hidden: { value: 1 } });
+        // No traversal of project.hidden through the proxy.
+        const hidden = Retree.peekInto(project, (raw) => raw.hidden);
+        expect(hidden).toBe(Retree.raw(project).hidden);
+    });
+
+    it("does not subscribe reads inside the callback to tracked selects", () => {
+        const project = Retree.root({
+            tasks: [{ done: false }],
+            label: "x",
+        });
+        project.tasks.forEach(() => {});
+        const callback = vi.fn();
+        const unsubscribe = Retree.select(() => {
+            void project.label; // tracked
+            return Retree.peekInto(
+                project.tasks,
+                (rawTasks) =>
+                    rawTasks.filter((candidate) => candidate.done).length
+            );
+        }, callback);
+        project.tasks[0].done = true;
+        expect(callback).not.toHaveBeenCalled();
+        unsubscribe();
     });
 });

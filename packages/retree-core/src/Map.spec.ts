@@ -210,7 +210,10 @@ describe("Map within Retree proxy", () => {
             expect(sourceMap.get("a")).toBe(inner);
             const stored = root.map.get("a")!;
             expect(stored).not.toBe(inner);
-            expect(sourceMap.get("a")).toBe(stored);
+            // Raw purity: the raw map keeps the raw value; reads through the
+            // proxy serve the managed child from the handler's side cache.
+            expect(sourceMap.get("a")).toBe(inner);
+            expect(Retree.raw(stored)).toBe(inner);
             expect(Retree.parent(stored)).toBe(root.map);
 
             const treeChanged = vi.fn();
@@ -439,8 +442,11 @@ describe("Map within Retree proxy", () => {
                 throw new Error("Expected an original Set object value.");
             }
             expect(original).not.toBe(raw);
-            expect(sourceSet.has(raw)).toBe(false);
-            expect(sourceSet.has(original)).toBe(true);
+            // Raw purity: the raw set keeps the raw member; the managed child
+            // is served from the handler's side cache.
+            expect(sourceSet.has(raw)).toBe(true);
+            expect(sourceSet.has(original)).toBe(false);
+            expect(Retree.raw(original)).toBe(raw);
             const removed = vi.fn();
             Retree.on(original, "nodeRemoved", removed);
 

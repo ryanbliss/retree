@@ -53,6 +53,63 @@ export function setReactiveNodeMoveImplementation(
     moveReactiveNode = implementation;
 }
 
+type RawReactiveNode = <TNode extends ReactiveNode>(node: TNode) => TNode;
+
+let rawReactiveNode: RawReactiveNode = () => {
+    // @retree-throws
+    throw new Error(
+        "ReactiveNode.raw: Retree raw support has not been initialized. This is unexpected and likely a Retree packaging or module-loading bug. Fix: import ReactiveNode and Retree from the same @retreejs/core package instance. If your app already does that, please file a Retree issue with your package manager lockfile and a minimal reproduction."
+    );
+};
+
+type UntrackedReactiveNode = <T>(fn: () => T) => T;
+
+let untrackedReactiveNode: UntrackedReactiveNode = () => {
+    // @retree-throws
+    throw new Error(
+        "ReactiveNode.untracked: Retree untracked support has not been initialized. This is unexpected and likely a Retree packaging or module-loading bug. Fix: import ReactiveNode and Retree from the same @retreejs/core package instance. If your app already does that, please file a Retree issue with your package manager lockfile and a minimal reproduction."
+    );
+};
+
+type PeekIntoReactiveNode = <TNode extends ReactiveNode, TResult>(
+    node: TNode,
+    fn: (raw: TNode) => TResult
+) => TResult;
+
+let peekIntoReactiveNode: PeekIntoReactiveNode = () => {
+    // @retree-throws
+    throw new Error(
+        "ReactiveNode.peekInto: Retree peekInto support has not been initialized. This is unexpected and likely a Retree packaging or module-loading bug. Fix: import ReactiveNode and Retree from the same @retreejs/core package instance. If your app already does that, please file a Retree issue with your package manager lockfile and a minimal reproduction."
+    );
+};
+
+/**
+ * @internal
+ */
+export function setReactiveNodeRawImplementation(
+    implementation: RawReactiveNode
+) {
+    rawReactiveNode = implementation;
+}
+
+/**
+ * @internal
+ */
+export function setReactiveNodeUntrackedImplementation(
+    implementation: UntrackedReactiveNode
+) {
+    untrackedReactiveNode = implementation;
+}
+
+/**
+ * @internal
+ */
+export function setReactiveNodePeekIntoImplementation(
+    implementation: PeekIntoReactiveNode
+) {
+    peekIntoReactiveNode = implementation;
+}
+
 /**
  * A dependency for {@link ReactiveNode}.
  * @remarks
@@ -283,6 +340,107 @@ export abstract class ReactiveNode {
      */
     public link<TNode extends TreeNode>(node: TNode): RetreeLink<TNode> {
         return linkReactiveNode(node);
+    }
+
+    /**
+     * Get the raw, unproxied object behind this node for read-only,
+     * non-reactive access.
+     *
+     * @remarks
+     * This is a convenience wrapper around {@link Retree.raw} for `this`.
+     * Reads on the returned object skip proxy traps entirely, so algorithms
+     * that scan large collections owned by this node can run at native speed.
+     *
+     * Treat the result as read-only: direct mutations skip Retree change
+     * emission. Reads are invisible to reactivity, including this node's own
+     * auto-trapped `@memo` / `@select` dependency collection. Throws when the
+     * node is not yet Retree-managed (for example inside the constructor,
+     * before `Retree.root(...)` or tree attachment).
+     *
+     * @returns The raw object behind this node.
+     *
+     * @example
+     * ```ts
+     * class Leaderboard extends ReactiveNode {
+     *     public scores: number[] = [];
+     *
+     *     get dependencies() {
+     *         return [this.dependency(this.scores)];
+     *     }
+     *
+     *     get total() {
+     *         // Raw scan; reactivity comes from `dependencies`.
+     *         return this.raw().scores.reduce((sum, s) => sum + s, 0);
+     *     }
+     * }
+     * ```
+     */
+    public raw(): this {
+        return rawReactiveNode(this);
+    }
+
+    /**
+     * Run a synchronous function with Retree dependency tracking paused.
+     *
+     * @remarks
+     * This is a convenience wrapper around {@link Retree.untracked}. Use it
+     * inside auto-trapped `@memo`, `@fnMemo`, and `@select` bodies when bulk
+     * reads should not become dependencies. Reads still go through Retree
+     * proxies; writes still emit normally.
+     *
+     * @param fn Function to run without dependency tracking.
+     * @returns The function's return value.
+     */
+    public untracked<T>(fn: () => T): T {
+        return untrackedReactiveNode(fn);
+    }
+
+    /**
+     * Run a read-only query against this node's raw object at native speed,
+     * then resolve the result back to its Retree-managed node when one
+     * exists.
+     *
+     * @remarks
+     * This is a convenience wrapper around {@link Retree.peekInto} for
+     * `this`. The callback receives the raw object behind this node
+     * ({@link ReactiveNode.raw}), so reads inside it skip proxy traps and are
+     * not tracked as dependencies. If the returned value is an object that
+     * belongs to a Retree tree, the latest managed node (reproxy or base
+     * proxy) is returned instead; primitives and unmanaged objects are
+     * returned as-is.
+     *
+     * Only the returned value itself is resolved. Containers built inside the
+     * callback (for example `filter` results) are returned unchanged, with
+     * raw elements. Children that have never been read through the managed
+     * tree have no proxy yet and resolve to their raw value; traverse the
+     * path once, or use `prepareTree` / `autoPrepare`, when a managed result
+     * is required.
+     *
+     * @param fn Read-only callback that receives the raw object behind this
+     * node.
+     * @returns The callback result, resolved to its managed node when one
+     * exists.
+     *
+     * @example
+     * ```ts
+     * class TaskList extends ReactiveNode {
+     *     public tasks: Task[] = [];
+     *
+     *     get dependencies() {
+     *         return [this.dependency(this.tasks)];
+     *     }
+     *
+     *     public findTask(id: string): Task | undefined {
+     *         // Scans raw at native speed; returns the managed task node.
+     *         return this.peekInto((raw) =>
+     *             raw.tasks.find((task) => task.id === id)
+     *         );
+     *     }
+     * }
+     * ```
+     */
+    public peekInto<TResult>(fn: (raw: this) => TResult): TResult {
+        return peekIntoReactiveNode(this, fn);
     }
 
     /**

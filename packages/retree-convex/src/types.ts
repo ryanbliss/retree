@@ -323,11 +323,25 @@ export interface IStateReconciler<TState> {
     /**
      * Reconcile `next` into `current`.
      *
-     * @param current Current query state, if any.
-     * @param next Newly emitted query state.
+     * @remarks
+     * Reconciliation is read-dominated: it compares every field and writes
+     * only the diffs. **Read from `rawCurrent`, write to `current`.**
+     * `rawCurrent` is the raw object behind `current` (`Retree.raw`) —
+     * native-speed, proxy-free reads. Writes must go through `current` so
+     * changed rows emit `nodeChanged` and item identity stays stable for
+     * `useNode` rows; writes to `rawCurrent` skip emission entirely.
+     *
+     * @param current Current query state, if any. Write surface.
+     * @param next Newly emitted query state (raw server data).
+     * @param rawCurrent Raw view of `current` for fast reads; `undefined`
+     * when `current` is `undefined` or not object-valued.
      * @returns The state object that should be assigned to the query node.
      */
-    reconcile(current: TState | undefined, next: TState): TState;
+    reconcile(
+        current: TState | undefined,
+        next: TState,
+        rawCurrent?: TState
+    ): TState;
 }
 
 /**

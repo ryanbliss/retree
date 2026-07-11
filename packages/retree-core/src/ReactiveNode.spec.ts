@@ -549,8 +549,8 @@ describe("ReactiveNode", () => {
         nested.prepareTree({ depth: 0 });
 
         expect(root.dependenciesReadCount).toBe(0);
-        expect(nestedHandler[proxiedChildrenKey].payload).toBeDefined();
-        expect(nestedHandler[proxiedChildrenKey].items).toBeDefined();
+        expect(nestedHandler[proxiedChildrenKey]?.payload).toBeDefined();
+        expect(nestedHandler[proxiedChildrenKey]?.items).toBeDefined();
 
         const payloadHandler = getCustomProxyHandler(nested.payload);
         if (payloadHandler === undefined) {
@@ -558,7 +558,7 @@ describe("ReactiveNode", () => {
                 "ReactiveNode prepareTree test expected payload to expose proxy metadata."
             );
         }
-        expect(payloadHandler[proxiedChildrenKey].stats).toBeUndefined();
+        expect(payloadHandler[proxiedChildrenKey]?.stats).toBeUndefined();
     });
 
     it("auto prepares lazy ReactiveNode data fields when configured", () => {
@@ -570,8 +570,8 @@ describe("ReactiveNode", () => {
             );
         }
 
-        expect(rootHandler[proxiedChildrenKey].payload).toBeDefined();
-        expect(rootHandler[proxiedChildrenKey].items).toBeDefined();
+        expect(rootHandler[proxiedChildrenKey]?.payload).toBeDefined();
+        expect(rootHandler[proxiedChildrenKey]?.items).toBeDefined();
 
         const payloadHandler = getCustomProxyHandler(root.payload);
         if (payloadHandler === undefined) {
@@ -579,7 +579,7 @@ describe("ReactiveNode", () => {
                 "ReactiveNode auto prepare test expected payload to expose proxy metadata."
             );
         }
-        expect(payloadHandler[proxiedChildrenKey].stats).toBeUndefined();
+        expect(payloadHandler[proxiedChildrenKey]?.stats).toBeUndefined();
     });
 
     it("shares one Retree listener for many dependents on the same dependency node", () => {
@@ -812,5 +812,74 @@ describe("ReactiveNode", () => {
         root.project.changeTracker.valueChangeCountsById.valueA++;
 
         expect(nodeChanged).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe("ReactiveNode raw/untracked/peekInto", () => {
+    class TaskList extends ReactiveNode {
+        public tasks: { id: string; done: boolean }[] = [
+            { id: "a", done: false },
+            { id: "b", done: true },
+        ];
+
+        get dependencies() {
+            return [this.dependency(this.tasks)];
+        }
+
+        public rawSelf() {
+            return this.raw();
+        }
+
+        public findTask(id: string) {
+            return this.peekInto((raw) =>
+                raw.tasks.find((task) => task.id === id)
+            );
+        }
+
+        public untrackedDoneCount() {
+            return this.untracked(
+                () => this.tasks.filter((task) => task.done).length
+            );
+        }
+    }
+
+    it("raw() returns the unproxied instance", () => {
+        const instance = new TaskList();
+        const node = Retree.root(instance);
+        expect(node.rawSelf()).toBe(instance);
+        expect(node.raw()).toBe(instance);
+    });
+
+    it("raw() throws for a detached (unmanaged) instance", () => {
+        const instance = new TaskList();
+        expect(() => instance.raw()).toThrowError(/Retree.raw/);
+    });
+
+    it("peekInto() scans raw and resolves managed results", () => {
+        const node = Retree.root(new TaskList());
+        node.tasks.forEach(() => {}); // materialize children
+        const task = node.findTask("b");
+        expect(task).toBeDefined();
+        if (task === undefined) {
+            throw new Error("expected findTask to locate task b");
+        }
+        const changed = vi.fn();
+        const unsubscribe = Retree.on(task, "nodeChanged", changed);
+        task.done = false;
+        expect(changed).toHaveBeenCalledTimes(1);
+        unsubscribe();
+    });
+
+    it("untracked() pauses dependency collection in tracked contexts", () => {
+        const node = Retree.root(new TaskList());
+        node.tasks.forEach(() => {});
+        const callback = vi.fn();
+        const unsubscribe = Retree.select(
+            () => node.untrackedDoneCount(),
+            callback
+        );
+        node.tasks[0].done = true;
+        expect(callback).not.toHaveBeenCalled();
+        unsubscribe();
     });
 });

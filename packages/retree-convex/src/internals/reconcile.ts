@@ -1,15 +1,30 @@
+import { getUnproxiedNode } from "@retreejs/core/internal";
+import { TreeNode } from "@retreejs/core";
+
+function unwrapRaw<T>(value: T): T {
+    if (value === null || typeof value !== "object") {
+        return value;
+    }
+    return (getUnproxiedNode(value as unknown as TreeNode) ?? value) as T;
+}
+
 export function tryReconcileConvexDocuments(
     current: unknown,
     next: unknown
 ): boolean {
-    if (!isConvexDocumentArray(current)) {
+    // Validation reads run against the raw array (raw purity guarantees it
+    // is proxy-free); reconciliation writes still go through `current`.
+    if (!isConvexDocumentArray(unwrapRaw(current))) {
         return false;
     }
     if (!isConvexDocumentArray(next)) {
         return false;
     }
 
-    reconcileDocumentArrayById(current, next);
+    reconcileDocumentArrayById(
+        current as Array<Record<"_id", PropertyKey>>,
+        next as Array<Record<"_id", PropertyKey>>
+    );
     return true;
 }
 
@@ -18,12 +33,17 @@ export function reconcileArray<TItem extends object>(
     next: TItem[],
     getId: (item: TItem) => PropertyKey
 ): void {
-    if (current.length === next.length) {
+    // Reconciliation is read-dominated: compare every field of every item,
+    // write only the diffs. Reads (ids, field comparisons) run against the
+    // raw array at native speed; writes go through the managed `current` so
+    // changed rows emit and item identity stays stable for useNode rows.
+    const rawCurrent = unwrapRaw(current);
+    if (rawCurrent.length === next.length) {
         let allItemsStayedInPlace = true;
         for (let index = 0; index < next.length; index++) {
-            const currentItem = current[index];
+            const rawItem = rawCurrent[index];
             const nextItem = next[index];
-            if (currentItem === undefined) {
+            if (rawItem === undefined) {
                 allItemsStayedInPlace = false;
                 break;
             }
@@ -31,12 +51,12 @@ export function reconcileArray<TItem extends object>(
                 allItemsStayedInPlace = false;
                 break;
             }
-            if (getId(currentItem) !== getId(nextItem)) {
+            if (getId(rawItem) !== getId(nextItem)) {
                 allItemsStayedInPlace = false;
                 break;
             }
 
-            reconcileObject(currentItem, nextItem);
+            reconcileObject(current[index]!, nextItem, rawItem);
         }
 
         if (allItemsStayedInPlace) {
@@ -45,11 +65,13 @@ export function reconcileArray<TItem extends object>(
     }
 
     const currentById = new Map<PropertyKey, TItem>();
-    for (const currentItem of current) {
-        if (currentItem === undefined) {
+    for (let index = 0; index < rawCurrent.length; index++) {
+        const rawItem = rawCurrent[index];
+        if (rawItem === undefined) {
             continue;
         }
-        currentById.set(getId(currentItem), currentItem);
+        // Managed item for writes; raw id for the key.
+        currentById.set(getId(rawItem), current[index]!);
     }
 
     for (let index = 0; index < next.length; index++) {
@@ -64,10 +86,12 @@ export function reconcileArray<TItem extends object>(
         }
 
         reconcileObject(currentItem, nextItem);
-        const currentSlot = current[index];
+        // rawCurrent is a live view of `current`, so this reads the latest
+        // slot state even after earlier assignments in this loop.
+        const rawSlot = rawCurrent[index];
         if (
-            currentSlot !== undefined &&
-            getId(currentSlot) === getId(currentItem)
+            rawSlot !== undefined &&
+            getId(rawSlot) === getId(unwrapRaw(currentItem))
         ) {
             continue;
         }
@@ -121,14 +145,23 @@ function reconcileDocumentArrayById(
     reconcileArray(current, next, (item) => item._id);
 }
 
-function reconcileObject<T extends object>(target: T, source: T): void {
-    for (const key of Object.keys(target)) {
+function reconcileObject<T extends object>(
+    target: T,
+    source: T,
+    rawTarget?: T
+): void {
+    const raw = rawTarget ?? unwrapRaw(target);
+    for (const key of Object.keys(raw)) {
         if (!Object.prototype.hasOwnProperty.call(source, key)) {
             Reflect.deleteProperty(target, key);
         }
     }
 
     for (const [key, value] of Object.entries(source)) {
-        Reflect.set(target, key, value);
+        // Compare against raw at native speed; dispatch a trapped write only
+        // for fields that actually changed.
+        if ((raw as Record<string, unknown>)[key] !== value) {
+            Reflect.set(target, key, value);
+        }
     }
 }

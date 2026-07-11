@@ -3,6 +3,15 @@ import { TreeNode } from "../types";
 export const unproxiedBaseNodeKey = Symbol("retree-base-node");
 export const proxiedParentKey = Symbol("retree-parent");
 export const proxiedChildrenKey = Symbol("retree-children");
+export const proxyTargetKey = Symbol("retree-proxy-target");
+/**
+ * @internal
+ * Sentinel symbol intercepted first in Retree proxy get traps. Reading it on
+ * a Retree proxy returns the proxy's handler; on any other value it misses.
+ * This lets proxy-identity checks work without a per-proxy `WeakMap.set`
+ * registration, which was ~14% of large-tree materialization.
+ */
+export const proxyHandlerSentinel = Symbol("retree-proxy-sentinel");
 
 /**
  * @internal
@@ -18,8 +27,21 @@ export interface IProxyParent<T extends TreeNode = TreeNode> {
  */
 export interface ICustomProxyHandler<TNode extends TreeNode = TreeNode> {
     [unproxiedBaseNodeKey]: TNode;
-    [proxiedChildrenKey]: Record<string | symbol, any>;
+    [proxiedChildrenKey]: Record<string | symbol, any> | null;
     [proxiedParentKey]: IProxyParent | null;
+    /**
+     * Map/Set child proxies keyed by map key / raw member (raw purity: raw
+     * collections store raw values only). Base handlers own this; reproxy
+     * handlers never need it because internal-slot reads delegate to the
+     * base proxy.
+     */
+    collectionProxies?: Map<any, TCustomProxy<TreeNode>> | null;
+    /**
+     * The proxy's direct target when it differs from the raw node. Base proxy
+     * handlers omit this (their target is the raw node); reproxy handlers set
+     * it to the base proxy they wrap.
+     */
+    [proxyTargetKey]?: TNode;
 }
 
 /**
@@ -45,22 +67,19 @@ export interface ICustomProxy<TNode extends TreeNode = TreeNode> {
 export type TCustomProxy<TNode extends TreeNode = TreeNode> =
     ICustomProxy<TNode> & TNode;
 
-interface CustomProxyMetadata<TNode extends TreeNode = TreeNode> {
-    handler: ICustomProxyHandler<TNode>;
-    target: TNode;
-}
-
-const customProxyMetadata = new WeakMap<
-    object,
-    CustomProxyMetadata<TreeNode>
->();
-
 export function registerCustomProxyMetadata<TNode extends TreeNode = TreeNode>(
     proxy: TCustomProxy<TNode>,
     handler: ICustomProxyHandler<TNode>,
     target: TNode
 ): void {
-    customProxyMetadata.set(proxy, { handler, target });
+    // No registry write happens here: the proxy's get trap answers
+    // proxyHandlerSentinel reads with its handler, so proxy identity is
+    // discoverable without a per-proxy WeakMap.set. Only reproxies need the
+    // wrapped target recorded (base proxies target their raw node).
+    if (target !== handler[unproxiedBaseNodeKey]) {
+        handler[proxyTargetKey] = target;
+    }
+    void proxy;
 }
 
 export function getCustomProxyHandlerFromMetadata<
@@ -69,18 +88,36 @@ export function getCustomProxyHandlerFromMetadata<
     if (value === null || typeof value !== "object") {
         return undefined;
     }
-    return customProxyMetadata.get(value)?.handler as
-        | ICustomProxyHandler<TNode>
-        | undefined;
+    let handler: unknown;
+    try {
+        // Retree proxies intercept this sentinel and return their handler.
+        // Plain objects miss. Foreign proxies see one unknown-symbol read,
+        // which well-behaved traps answer with undefined.
+        handler = (value as { [proxyHandlerSentinel]?: unknown })[
+            proxyHandlerSentinel
+        ];
+    } catch {
+        // Revoked proxies throw on any property read.
+        return undefined;
+    }
+    if (handler === undefined) {
+        return undefined;
+    }
+    // Guard against foreign proxies that answer arbitrary keys.
+    if (!isCustomProxyHandler<TNode>(handler)) {
+        return undefined;
+    }
+    return handler;
 }
 
 export function getCustomProxyTargetFromMetadata<
     TNode extends TreeNode = TreeNode
 >(value: unknown): TNode | undefined {
-    if (value === null || typeof value !== "object") {
+    const handler = getCustomProxyHandlerFromMetadata(value);
+    if (handler === undefined) {
         return undefined;
     }
-    return customProxyMetadata.get(value)?.target as TNode | undefined;
+    return (handler[proxyTargetKey] ?? handler[unproxiedBaseNodeKey]) as TNode;
 }
 
 /**

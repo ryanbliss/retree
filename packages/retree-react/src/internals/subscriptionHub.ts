@@ -3,9 +3,17 @@
  * Licensed under the MIT License.
  */
 
-import { Retree, TRetreeChangedEvents, TreeNode } from "@retreejs/core";
+import {
+    INodeFieldChanges,
+    Retree,
+    TRetreeChangedEvents,
+    TreeNode,
+} from "@retreejs/core";
 
-type HubListener<T extends TreeNode = TreeNode> = (node: T) => void;
+type HubListener<T extends TreeNode = TreeNode> = (
+    node: T,
+    changes?: INodeFieldChanges[]
+) => void;
 
 interface SubscriptionHubEntry<T extends TreeNode = TreeNode> {
     listeners: Set<HubListener<T>>;
@@ -34,9 +42,9 @@ export function subscribeToNode<T extends TreeNode = TreeNode>(
         const unsubscribeRetree = Retree.on<T>(
             baseProxy,
             listenerType,
-            (reproxy) => {
+            (reproxy, changes) => {
                 for (const callback of [...listeners]) {
-                    callback(reproxy);
+                    callback(reproxy, changes);
                 }
             }
         );
