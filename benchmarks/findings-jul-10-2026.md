@@ -265,6 +265,31 @@ code shape; the next meaningful lever for algorithmic reads remains
 version-cached snapshots (`Retree.snapshot`), with `Retree.raw`/`peekInto`
 already covering the escape-hatch cases.
 
+## Results — raw purity + useRaw (same day, third pass)
+
+Implemented per `specs/retree-raw.md` (status: implemented). Summary:
+
+- **Raw purity invariant:** raw targets and raw collections now store raw
+  values only; proxies live in handler caches (children record + new Map/Set
+  side caches keyed by map key / raw member). All ten impurity repro cases
+  (reparent, move, map read write-back, set iteration, post-construction
+  non-plain assignment, linked fields) now read pure; enforced by
+  `packages/retree-core/src/raw-purity.spec.ts` (15 tests + payload/no-op
+  semantics).
+- **Change payloads are consistently raw** (`previous` and `new`), and
+  reassigning the node already stored at a property is now a no-op (raw-to-raw
+  comparison). `structuredClone(Retree.raw(n))` is now a valid point-in-time
+  copy.
+- **New APIs:** `Retree.source(rawValue)` (raw→managed resolution) and
+  `useRaw(node) → [raw, toSource]` in `@retreejs/react` (nodeChanged default,
+  toSource materialize-on-miss guarantee for direct children incl. Map/Set).
+- **Convex reconcilers** read raw / write proxied; `IStateReconciler.reconcile`
+  gained a backward-compatible `rawCurrent` third parameter.
+- **Perf:** bundle probes within noise or better (materialize/steady improved
+  again — Map/Set read write-backs and `findSetStoredValue`'s linear scan are
+  gone); wide-table render 200×40: `useRaw` 1.1 ms vs `useNode` 9.2 ms (~8×);
+  2k-row mount with `toSource` per row at parity with `useNode`.
+
 ## Recommended order
 
 1. De-quadratic dependency tracking (side indexes + tombstones) — biggest algorithmic win, no semantic change.

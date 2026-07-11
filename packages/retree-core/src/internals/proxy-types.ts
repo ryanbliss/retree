@@ -30,6 +30,13 @@ export interface ICustomProxyHandler<TNode extends TreeNode = TreeNode> {
     [proxiedChildrenKey]: Record<string | symbol, any> | null;
     [proxiedParentKey]: IProxyParent | null;
     /**
+     * Map/Set child proxies keyed by map key / raw member (raw purity: raw
+     * collections store raw values only). Base handlers own this; reproxy
+     * handlers never need it because internal-slot reads delegate to the
+     * base proxy.
+     */
+    collectionProxies?: Map<any, TCustomProxy<TreeNode>> | null;
+    /**
      * The proxy's direct target when it differs from the raw node. Base proxy
      * handlers omit this (their target is the raw node); reproxy handlers set
      * it to the base proxy they wrap.

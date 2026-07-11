@@ -3,7 +3,8 @@
  * Licensed under the MIT License.
  */
 
-import { ignore, Retree } from "@retreejs/core";
+import { ignore, Retree, TreeNode } from "@retreejs/core";
+import { getUnproxiedNode } from "@retreejs/core/internal";
 import type { FunctionReturnType } from "convex/server";
 import { BaseConvexNode } from "./BaseConvexNode";
 import { tryReconcileConvexDocuments } from "./internals/reconcile";
@@ -409,7 +410,14 @@ export class ConvexQueryNode<
         }
 
         const current = this.state;
-        const reconciled = this.reconciler.reconcile(current, next);
+        // Read from raw, write through the managed state (raw purity makes
+        // the raw view proxy-free and native-speed).
+        const rawCurrent =
+            current !== null && typeof current === "object"
+                ? ((getUnproxiedNode(current as TreeNode) ??
+                      current) as typeof current)
+                : current;
+        const reconciled = this.reconciler.reconcile(current, next, rawCurrent);
         if (reconciled === current) {
             return;
         }

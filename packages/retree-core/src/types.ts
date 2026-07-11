@@ -29,6 +29,13 @@ export type TRetreeEvents = TRetreeChangedEvents | "nodeRemoved";
 
 /**
  * Field-level change metadata passed to Retree change listeners.
+ *
+ * @remarks
+ * `previous` and `new` are **raw values, always** — change records are
+ * descriptions of the past, not live handles. Listeners that need the
+ * managed node for an object value opt in with `Retree.source(value)`.
+ * Identity comparisons against payload values should be raw-to-raw:
+ * `change.previous === Retree.raw(candidate)`.
  */
 export interface INodeFieldChanges<TValue = unknown> {
     key: string;

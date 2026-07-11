@@ -637,11 +637,13 @@ export class Retree {
      * selectors or `@memo` dependency collection, and children read this way
      * are not prepared for `Retree.parent` / `Retree.on` usage.
      *
-     * Children that were assigned into the tree as already-managed nodes are
-     * stored as proxies, so a raw traversal may still encounter Retree
-     * proxies on some branches. Values read from `raw` results should not be
-     * assumed to be raw; normalize per node with another `raw` call when
-     * identity matters.
+     * **Raw purity guarantee:** the returned subtree contains zero Retree
+     * proxies, under every write path — including reparenting assignments,
+     * `Retree.move`, Map/Set value reads, and post-construction assignment of
+     * class instances or collections. Every value is plain data, every read
+     * is native speed, and `structuredClone(Retree.raw(node))` is a valid
+     * point-in-time copy. Use {@link Retree.source} to resolve a raw value
+     * back to its managed node.
      *
      * @param node Retree-managed node to unwrap.
      * @returns The raw object behind the node.
@@ -659,6 +661,47 @@ export class Retree {
     static raw<TNode extends TreeNode>(node: TNode): TNode {
         this.assertRetreeManagedNode(node, "Retree.raw");
         return getUnproxiedNode(node) as TNode;
+    }
+
+    /**
+     * Resolve a raw value back to its Retree-managed node.
+     *
+     * @remarks
+     * This is the inverse of {@link Retree.raw} for values that belong to a
+     * Retree tree: given a raw object (for example an element read while
+     * scanning a {@link Retree.raw} subtree, or a `previous`/`new` value from
+     * a change payload), it returns the latest managed node — ready for
+     * mutation, subscription, or navigation. Passing a managed node returns
+     * its latest managed identity.
+     *
+     * Returns `undefined` when the value has never been materialized as a
+     * Retree node or is not part of a Retree tree; a miss is a normal query
+     * outcome, not an error. Values become materialized when they are read
+     * through a managed node, so scanning via managed proxies first (or using
+     * `useRaw`'s `toSource`, which materializes direct children on demand)
+     * guarantees resolution.
+     *
+     * @param value Raw object to resolve.
+     * @returns The managed node, or `undefined` when none exists.
+     *
+     * @example
+     * ```ts
+     * const project = Retree.root({ items: [{ score: 1 }] });
+     * project.items.forEach(() => {}); // materialize
+     *
+     * const rawItem = Retree.raw(project.items)[0];
+     * const item = Retree.source(rawItem);
+     * if (item) item.score = 2; // ✅ emits normally
+     * ```
+     */
+    static source<TNode extends TreeNode>(value: TNode): TNode | undefined {
+        if (value === null || typeof value !== "object") {
+            return undefined;
+        }
+        const managed = getManagedProxyForUnproxiedNode(
+            getUnproxiedNode(value) as TreeNode
+        );
+        return managed as TNode | undefined;
     }
 
     /**

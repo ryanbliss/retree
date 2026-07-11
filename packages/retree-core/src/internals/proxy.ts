@@ -225,6 +225,12 @@ class BaseProxyHandler<T extends TreeNode>
         string | symbol,
         BoundFunctionCacheEntry
     > | null = null;
+    /**
+     * Raw purity: Map/Set targets store raw values only; their child proxies
+     * live here, keyed by map key (Map) or raw member (Set). Lazily
+     * allocated for collections with object values.
+     */
+    public collectionProxies: Map<any, TCustomProxy<any>> | null = null;
 
     constructor(
         object: T,
@@ -321,6 +327,7 @@ class BaseProxyHandler<T extends TreeNode>
                     MAP_MUTATING_METHODS.has(prop)
                 ) {
                     return wrapMapMutation(
+                        this,
                         prop,
                         mapObject,
                         baseProxy,
@@ -329,6 +336,7 @@ class BaseProxyHandler<T extends TreeNode>
                 }
                 if (mapObject !== undefined) {
                     return wrapMapRead(
+                        this,
                         prop,
                         mapObject,
                         baseProxy,
@@ -341,6 +349,7 @@ class BaseProxyHandler<T extends TreeNode>
                     SET_MUTATING_METHODS.has(prop)
                 ) {
                     return wrapSetMutation(
+                        this,
                         prop,
                         setObject,
                         baseProxy,
@@ -349,6 +358,7 @@ class BaseProxyHandler<T extends TreeNode>
                 }
                 if (setObject !== undefined) {
                     return wrapSetRead(
+                        this,
                         prop,
                         setObject,
                         baseProxy,
@@ -434,18 +444,29 @@ class BaseProxyHandler<T extends TreeNode>
         const baseProxy = this.baseProxy;
         const reactiveObject = this.reactiveObject;
         trackPropertyWriteIfNeeded(baseProxy, prop);
+        // Raw purity: targets store raw values only; proxies live in the
+        // children cache. Change payloads are raw on both sides.
+        const rawNewValue =
+            newValue !== null && typeof newValue === "object"
+                ? getUnproxiedNode(newValue) ?? newValue
+                : newValue;
         if (reactiveObject !== undefined) {
             const propString = String(prop);
             if (reactiveObject[LINKED_KEYS_SYMBOL].has(prop)) {
                 assertValidLinkedValue(prop, newValue);
                 const prev = Reflect.get(target, prop, target);
-                if (prev === newValue) {
+                if (prev === rawNewValue) {
                     return true;
                 }
                 let returnValue: boolean;
                 this.isApplyingSet = true;
                 try {
-                    returnValue = Reflect.set(target, prop, newValue, target);
+                    returnValue = Reflect.set(
+                        target,
+                        prop,
+                        rawNewValue,
+                        target
+                    );
                 } finally {
                     this.isApplyingSet = false;
                 }
@@ -454,7 +475,7 @@ class BaseProxyHandler<T extends TreeNode>
                     const changes = createNodeFieldChanges(
                         prop,
                         prev,
-                        newValue
+                        rawNewValue
                     );
                     this.emitter.emit(
                         "nodeChanged",
@@ -475,9 +496,10 @@ class BaseProxyHandler<T extends TreeNode>
             }
         }
         const prev = (target as any)[prop];
-        const hasChanged = prev !== newValue;
+        // Raw-to-raw comparison: reassigning the node already stored at this
+        // property (via its base proxy or any reproxy) is a no-op.
+        const hasChanged = prev !== rawNewValue;
         if (hasChanged) {
-            let valueToSet = newValue;
             const nodeRemoved = handleNodeRemoved(baseProxy, prop);
             if (newValue !== null && typeof newValue === "object") {
                 if (prop === "constructor")
@@ -491,26 +513,35 @@ class BaseProxyHandler<T extends TreeNode>
                     propName: prop,
                 };
                 if (isCustomProxy(newValue)) {
-                    valueToSet = reparentProxy(newValue, parentToSet);
-                    setProxiedChild(this, prop, valueToSet);
+                    setProxiedChild(
+                        this,
+                        prop,
+                        reparentProxy(newValue, parentToSet)
+                    );
                 } else if (
                     getManagedProxyForUnproxiedNode(newValue) !== undefined
                 ) {
-                    valueToSet = createStructuralProxyForValue(
-                        newValue,
-                        parentToSet,
-                        this.emitter
+                    setProxiedChild(
+                        this,
+                        prop,
+                        createStructuralProxyForValue(
+                            newValue,
+                            parentToSet,
+                            this.emitter
+                        )
                     );
-                    setProxiedChild(this, prop, valueToSet);
                 } else if (shouldCreatePlainObjectProxyLazily(newValue)) {
                     deleteProxiedChild(this, prop);
                 } else {
-                    valueToSet = createStructuralProxyForValue(
-                        newValue,
-                        parentToSet,
-                        this.emitter
+                    setProxiedChild(
+                        this,
+                        prop,
+                        createStructuralProxyForValue(
+                            newValue,
+                            parentToSet,
+                            this.emitter
+                        )
                     );
-                    setProxiedChild(this, prop, valueToSet);
                 }
             } else {
                 deleteProxiedChild(this, prop);
@@ -518,14 +549,14 @@ class BaseProxyHandler<T extends TreeNode>
             let returnValue: boolean;
             this.isApplyingSet = true;
             try {
-                returnValue = Reflect.set(target, prop, valueToSet, receiver);
+                returnValue = Reflect.set(target, prop, rawNewValue, receiver);
             } finally {
                 this.isApplyingSet = false;
             }
             // If in a skip reproxy transaction, do not reproxy node
             if (!Transactions.skipReproxy) {
                 const reproxy = updateReproxyNode(baseProxy);
-                const changes = createNodeFieldChanges(prop, prev, newValue);
+                const changes = createNodeFieldChanges(prop, prev, rawNewValue);
                 // Still emit here if in a `skipEmit` transaction so that parents get reproxied
                 this.emitter.emit(
                     "nodeChanged",
@@ -590,9 +621,14 @@ class BaseProxyHandler<T extends TreeNode>
         const previousValue = currentDescriptorHasValue(currentDescriptor)
             ? currentDescriptor.value
             : undefined;
-        const nextValue = descriptorHasValue(descriptor)
-            ? descriptor.value
+        // Raw purity: payload values are raw on both sides (§9.1 of the raw
+        // spec); the defined value stored in the target is raw as well.
+        const rawNextValue = descriptorHasValue(descriptor)
+            ? descriptor.value !== null && typeof descriptor.value === "object"
+                ? getUnproxiedNode(descriptor.value) ?? descriptor.value
+                : descriptor.value
             : descriptor;
+        const nextValue = rawNextValue;
         let nodeRemoved: object | undefined;
 
         if (descriptorHasValue(descriptorToDefine)) {
@@ -625,11 +661,10 @@ class BaseProxyHandler<T extends TreeNode>
                 nodeRemoved = handleNodeRemoved(baseProxy, prop);
             }
             deleteProxiedChild(this, prop);
-        } else {
-            const cachedChild = this[proxiedChildrenKey]?.[prop];
-            if (cachedChild && currentDescriptorHasValue(currentDescriptor)) {
-                descriptorToDefine.value = cachedChild;
-            }
+        } else if (currentDescriptorHasValue(currentDescriptor)) {
+            // Attribute-only redefinition of a data property: the target
+            // already stores the raw child; keep it in place.
+            descriptorToDefine.value = currentDescriptor.value;
         }
 
         const returnValue = Reflect.defineProperty(
@@ -760,7 +795,13 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     propName: mapKeyAsPropName(key),
                 };
                 const childProxy = reparentProxy(value, parentToSet);
-                Map.prototype.set.call(object, key, childProxy);
+                cacheCollectionChildProxy(proxyHandler, key, childProxy);
+                // Raw purity: the raw map stores the raw node.
+                Map.prototype.set.call(
+                    object,
+                    key,
+                    getUnproxiedNode(childProxy)
+                );
             }
         }
     } else if (object instanceof Set) {
@@ -772,10 +813,13 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                     propName: null,
                 };
                 const childProxy = reparentProxy(value, parentToSet);
-                if (childProxy !== value) {
+                const rawChild = getUnproxiedNode(childProxy);
+                cacheCollectionChildProxy(proxyHandler, rawChild, childProxy);
+                // Raw purity: the raw set stores the raw node.
+                if (rawChild !== value) {
                     replacements.push({
                         previous: value,
-                        next: childProxy,
+                        next: rawChild,
                     });
                 }
             }
@@ -1012,6 +1056,10 @@ function isProxyableObject(value: unknown): value is object {
     return typeof value === "object";
 }
 
+/**
+ * Prepare a value being defined onto a node: parent/cache its proxy and
+ * return the **raw** value to store in the target (raw purity).
+ */
 function preparePropertyValue(
     value: unknown,
     prop: string | symbol,
@@ -1043,10 +1091,87 @@ function preparePropertyValue(
         emitter
     );
     setProxiedChild(proxyHandler, prop, valueToSet);
-    return valueToSet;
+    return getUnproxiedNode(valueToSet as TreeNode) ?? valueToSet;
+}
+
+/**
+ * @internal
+ * Force-materialize the direct children of a managed node by reading each
+ * object-valued child through the proxy once. Used by `useRaw`'s `toSource`
+ * to guarantee raw direct children (including Map values and Set members)
+ * resolve to managed nodes. Idempotent: already-materialized children are
+ * cache hits.
+ */
+export function materializeDirectChildren(node: TreeNode): void {
+    const baseProxy = getBaseProxy(node);
+    const rawNode = getUnproxiedNode(baseProxy);
+    if (rawNode === undefined) {
+        return;
+    }
+    if (rawNode instanceof Map) {
+        const mapProxy = baseProxy as unknown as Map<unknown, unknown>;
+        for (const key of Map.prototype.keys.call(rawNode)) {
+            void mapProxy.get(key);
+        }
+        return;
+    }
+    if (rawNode instanceof Set) {
+        const setProxy = baseProxy as unknown as Set<unknown>;
+        for (const value of setProxy.values()) {
+            void value;
+        }
+        return;
+    }
+    if (rawNode instanceof Date) {
+        return;
+    }
+    const record = baseProxy as unknown as Record<string, unknown>;
+    for (const key of Object.keys(rawNode)) {
+        const rawValue = (rawNode as Record<string, unknown>)[key];
+        if (rawValue !== null && typeof rawValue === "object") {
+            void record[key];
+        }
+    }
+}
+
+function unwrapCollectionValue(value: any): any {
+    if (value === null || typeof value !== "object") {
+        return value;
+    }
+    return getUnproxiedNode(value) ?? value;
+}
+
+function resolveCollectionChildProxy(
+    handler: ICustomProxyHandler<any>,
+    cacheKey: any,
+    rawValue: unknown
+): TCustomProxy<any> | undefined {
+    const cached = handler.collectionProxies?.get(cacheKey);
+    if (
+        cached !== undefined &&
+        getUnproxiedNodeFromProxy(cached) === rawValue
+    ) {
+        return cached;
+    }
+    if (rawValue === null || typeof rawValue !== "object") {
+        return undefined;
+    }
+    return getManagedProxyForUnproxiedNode(rawValue as TreeNode);
+}
+
+function cacheCollectionChildProxy(
+    handler: ICustomProxyHandler<any>,
+    cacheKey: any,
+    childProxy: object
+): void {
+    (handler.collectionProxies ??= new Map()).set(
+        cacheKey,
+        getBaseProxy(childProxy as TreeNode)
+    );
 }
 
 function wrapMapRead(
+    handler: ICustomProxyHandler<any>,
     prop: string | symbol,
     target: Map<any, any>,
     baseProxy: TCustomProxy<any>,
@@ -1056,7 +1181,7 @@ function wrapMapRead(
         return function getWrapper(key: any) {
             const value = Map.prototype.get.call(target, key);
             return getOrCreateMapValueProxy(
-                target,
+                handler,
                 key,
                 value,
                 baseProxy,
@@ -1066,12 +1191,12 @@ function wrapMapRead(
     }
     if (prop === "values") {
         return function valuesWrapper() {
-            return mapValuesIterator(target, baseProxy, emitter);
+            return mapValuesIterator(handler, target, baseProxy, emitter);
         };
     }
     if (prop === "entries" || prop === Symbol.iterator) {
         return function entriesWrapper() {
-            return mapEntriesIterator(target, baseProxy, emitter);
+            return mapEntriesIterator(handler, target, baseProxy, emitter);
         };
     }
     if (prop === "forEach") {
@@ -1081,7 +1206,7 @@ function wrapMapRead(
         ) {
             Map.prototype.forEach.call(target, (value, key) => {
                 const valueToRead = getOrCreateMapValueProxy(
-                    target,
+                    handler,
                     key,
                     value,
                     baseProxy,
@@ -1095,16 +1220,18 @@ function wrapMapRead(
 }
 
 function* mapValuesIterator(
+    handler: ICustomProxyHandler<any>,
     target: Map<any, any>,
     baseProxy: TCustomProxy<any>,
     emitter: TreeChangeEmitter
 ) {
     for (const [key, value] of Map.prototype.entries.call(target)) {
-        yield getOrCreateMapValueProxy(target, key, value, baseProxy, emitter);
+        yield getOrCreateMapValueProxy(handler, key, value, baseProxy, emitter);
     }
 }
 
 function* mapEntriesIterator(
+    handler: ICustomProxyHandler<any>,
     target: Map<any, any>,
     baseProxy: TCustomProxy<any>,
     emitter: TreeChangeEmitter
@@ -1112,13 +1239,13 @@ function* mapEntriesIterator(
     for (const [key, value] of Map.prototype.entries.call(target)) {
         yield [
             key,
-            getOrCreateMapValueProxy(target, key, value, baseProxy, emitter),
+            getOrCreateMapValueProxy(handler, key, value, baseProxy, emitter),
         ];
     }
 }
 
 function getOrCreateMapValueProxy(
-    target: Map<any, any>,
+    handler: ICustomProxyHandler<any>,
     key: any,
     value: any,
     baseProxy: TCustomProxy<any>,
@@ -1126,6 +1253,12 @@ function getOrCreateMapValueProxy(
 ) {
     if (value === null || typeof value !== "object") {
         return value;
+    }
+    // Raw purity: the raw map stores raw values; the child proxy lives in
+    // the handler's side cache keyed by map key.
+    const cached = handler.collectionProxies?.get(key);
+    if (cached !== undefined && getUnproxiedNodeFromProxy(cached) === value) {
+        return cached;
     }
     const parentToSet: IProxyParent<any> = {
         proxyNode: baseProxy,
@@ -1136,13 +1269,12 @@ function getOrCreateMapValueProxy(
         parentToSet,
         emitter
     );
-    if (valueToRead !== value) {
-        Map.prototype.set.call(target, key, valueToRead);
-    }
+    cacheCollectionChildProxy(handler, key, valueToRead);
     return valueToRead;
 }
 
 function wrapMapMutation(
+    handler: ICustomProxyHandler<any>,
     prop: string,
     target: Map<any, any>,
     baseProxy: TCustomProxy<any>,
@@ -1151,33 +1283,52 @@ function wrapMapMutation(
     if (prop === "set") {
         return function setWrapper(key: any, value: any) {
             const previous = target.get(key);
+            const rawValue = unwrapCollectionValue(value);
             const removedNodes: object[] = [];
             // If we are replacing an existing object child of this map, detach it.
             if (
-                previous !== value &&
+                previous !== rawValue &&
                 previous !== null &&
                 typeof previous === "object"
             ) {
-                const removed = detachCollectionChild(previous, baseProxy);
-                if (removed) removedNodes.push(removed);
+                const previousProxy = resolveCollectionChildProxy(
+                    handler,
+                    key,
+                    previous
+                );
+                if (previousProxy !== undefined) {
+                    const removed = detachCollectionChild(
+                        previousProxy,
+                        baseProxy
+                    );
+                    if (removed) removedNodes.push(removed);
+                }
             }
-            let valueToStore: any = value;
             if (value !== null && typeof value === "object") {
                 const parentToSet: IProxyParent<any> = {
                     proxyNode: baseProxy,
                     propName: mapKeyAsPropName(key),
                 };
                 if (isCustomProxy(value)) {
-                    valueToStore = reparentProxy(value, parentToSet);
+                    cacheCollectionChildProxy(
+                        handler,
+                        key,
+                        reparentProxy(value, parentToSet)
+                    );
+                } else {
+                    // Plain or managed-raw values resolve lazily on read.
+                    handler.collectionProxies?.delete(key);
                 }
+            } else {
+                handler.collectionProxies?.delete(key);
             }
-            Map.prototype.set.call(target, key, valueToStore);
+            Map.prototype.set.call(target, key, rawValue);
             emitCollectionChange(
                 target,
                 baseProxy,
                 emitter,
                 removedNodes,
-                createNodeFieldChanges(key, previous, value)
+                createNodeFieldChanges(key, previous, rawValue)
             );
             // Map.prototype.set returns the map itself; return the proxy so chaining stays reactive.
             return baseProxy;
@@ -1192,11 +1343,22 @@ function wrapMapMutation(
                 previous !== undefined &&
                 typeof previous === "object"
             ) {
-                const removed = detachCollectionChild(previous, baseProxy);
-                if (removed) removedNodes.push(removed);
+                const previousProxy = resolveCollectionChildProxy(
+                    handler,
+                    key,
+                    previous
+                );
+                if (previousProxy !== undefined) {
+                    const removed = detachCollectionChild(
+                        previousProxy,
+                        baseProxy
+                    );
+                    if (removed) removedNodes.push(removed);
+                }
             }
             const result = Map.prototype.delete.call(target, key);
             if (result) {
+                handler.collectionProxies?.delete(key);
                 emitCollectionChange(
                     target,
                     baseProxy,
@@ -1212,14 +1374,25 @@ function wrapMapMutation(
         return function clearWrapper() {
             if (target.size === 0) return;
             const removedNodes: object[] = [];
-            target.forEach((value) => {
+            Map.prototype.forEach.call(target, (value, key) => {
                 if (value !== null && typeof value === "object") {
-                    const removed = detachCollectionChild(value, baseProxy);
-                    if (removed) removedNodes.push(removed);
+                    const valueProxy = resolveCollectionChildProxy(
+                        handler,
+                        key,
+                        value
+                    );
+                    if (valueProxy !== undefined) {
+                        const removed = detachCollectionChild(
+                            valueProxy,
+                            baseProxy
+                        );
+                        if (removed) removedNodes.push(removed);
+                    }
                 }
             });
             const previousSize = target.size;
             Map.prototype.clear.call(target);
+            handler.collectionProxies?.clear();
             emitCollectionChange(
                 target,
                 baseProxy,
@@ -1236,6 +1409,7 @@ function wrapMapMutation(
 }
 
 function wrapSetRead(
+    handler: ICustomProxyHandler<any>,
     prop: string | symbol,
     target: Set<any>,
     baseProxy: TCustomProxy<any>,
@@ -1246,12 +1420,12 @@ function wrapSetRead(
     }
     if (prop === "values" || prop === "keys" || prop === Symbol.iterator) {
         return function valuesWrapper() {
-            return setValuesIterator(target, baseProxy, emitter);
+            return setValuesIterator(handler, target, baseProxy, emitter);
         };
     }
     if (prop === "entries") {
         return function entriesWrapper() {
-            return setEntriesIterator(target, baseProxy, emitter);
+            return setEntriesIterator(handler, target, baseProxy, emitter);
         };
     }
     if (prop === "forEach") {
@@ -1261,7 +1435,7 @@ function wrapSetRead(
         ) {
             for (const value of Set.prototype.values.call(target)) {
                 const valueToRead = getOrCreateSetValueProxy(
-                    target,
+                    handler,
                     value,
                     baseProxy,
                     emitter
@@ -1273,26 +1447,28 @@ function wrapSetRead(
     return (Reflect.get(target, prop, target) as Function).bind(target);
 }
 
+// Raw purity removed the read-time write-backs that used to mutate the set
+// during iteration, so these iterators no longer need an Array.from copy.
 function* setValuesIterator(
+    handler: ICustomProxyHandler<any>,
     target: Set<any>,
     baseProxy: TCustomProxy<any>,
     emitter: TreeChangeEmitter
 ) {
-    const values = Array.from(Set.prototype.values.call(target));
-    for (const value of values) {
-        yield getOrCreateSetValueProxy(target, value, baseProxy, emitter);
+    for (const value of Set.prototype.values.call(target)) {
+        yield getOrCreateSetValueProxy(handler, value, baseProxy, emitter);
     }
 }
 
 function* setEntriesIterator(
+    handler: ICustomProxyHandler<any>,
     target: Set<any>,
     baseProxy: TCustomProxy<any>,
     emitter: TreeChangeEmitter
 ) {
-    const values = Array.from(Set.prototype.values.call(target));
-    for (const value of values) {
+    for (const value of Set.prototype.values.call(target)) {
         const valueToRead = getOrCreateSetValueProxy(
-            target,
+            handler,
             value,
             baseProxy,
             emitter
@@ -1302,13 +1478,19 @@ function* setEntriesIterator(
 }
 
 function getOrCreateSetValueProxy(
-    target: Set<any>,
+    handler: ICustomProxyHandler<any>,
     value: any,
     baseProxy: TCustomProxy<any>,
     emitter: TreeChangeEmitter
 ) {
     if (value === null || typeof value !== "object") {
         return value;
+    }
+    // Raw purity: the raw set stores raw members; the child proxy lives in
+    // the handler's side cache keyed by the raw member.
+    const cached = handler.collectionProxies?.get(value);
+    if (cached !== undefined) {
+        return cached;
     }
     const parentToSet: IProxyParent<any> = {
         proxyNode: baseProxy,
@@ -1319,14 +1501,12 @@ function getOrCreateSetValueProxy(
         parentToSet,
         emitter
     );
-    if (valueToRead !== value) {
-        Set.prototype.delete.call(target, value);
-        Set.prototype.add.call(target, valueToRead);
-    }
+    cacheCollectionChildProxy(handler, value, valueToRead);
     return valueToRead;
 }
 
 function wrapSetMutation(
+    handler: ICustomProxyHandler<any>,
     prop: string,
     target: Set<any>,
     baseProxy: TCustomProxy<any>,
@@ -1334,27 +1514,30 @@ function wrapSetMutation(
 ) {
     if (prop === "add") {
         return function addWrapper(value: any) {
-            const hadValue = findSetStoredValue(target, value) !== undefined;
-            if (hadValue) {
+            const rawValue = unwrapCollectionValue(value);
+            if (findSetStoredValue(target, rawValue) !== undefined) {
                 return baseProxy;
             }
-            let valueToStore = value;
             if (value !== null && typeof value === "object") {
                 const parentToSet: IProxyParent<any> = {
                     proxyNode: baseProxy,
                     propName: null,
                 };
                 if (isCustomProxy(value)) {
-                    valueToStore = reparentProxy(value, parentToSet);
+                    cacheCollectionChildProxy(
+                        handler,
+                        rawValue,
+                        reparentProxy(value, parentToSet)
+                    );
                 }
             }
-            Set.prototype.add.call(target, valueToStore);
+            Set.prototype.add.call(target, rawValue);
             emitCollectionChange(
                 target,
                 baseProxy,
                 emitter,
                 [],
-                createNodeFieldChanges("add", undefined, value)
+                createNodeFieldChanges("add", undefined, rawValue)
             );
             return baseProxy;
         };
@@ -1365,16 +1548,28 @@ function wrapSetMutation(
             const removedNodes: object[] = [];
             if (
                 valueToDelete !== undefined &&
+                valueToDelete !== null &&
                 typeof valueToDelete === "object"
             ) {
-                const removed = detachCollectionChild(valueToDelete, baseProxy);
-                if (removed) removedNodes.push(removed);
+                const valueProxy = resolveCollectionChildProxy(
+                    handler,
+                    valueToDelete,
+                    valueToDelete
+                );
+                if (valueProxy !== undefined) {
+                    const removed = detachCollectionChild(
+                        valueProxy,
+                        baseProxy
+                    );
+                    if (removed) removedNodes.push(removed);
+                }
             }
             const result =
                 valueToDelete === undefined
                     ? false
                     : Set.prototype.delete.call(target, valueToDelete);
             if (result) {
+                handler.collectionProxies?.delete(valueToDelete);
                 emitCollectionChange(
                     target,
                     baseProxy,
@@ -1390,14 +1585,25 @@ function wrapSetMutation(
         return function clearWrapper() {
             if (target.size === 0) return;
             const removedNodes: object[] = [];
-            target.forEach((value) => {
+            Set.prototype.forEach.call(target, (value) => {
                 if (value !== null && typeof value === "object") {
-                    const removed = detachCollectionChild(value, baseProxy);
-                    if (removed) removedNodes.push(removed);
+                    const valueProxy = resolveCollectionChildProxy(
+                        handler,
+                        value,
+                        value
+                    );
+                    if (valueProxy !== undefined) {
+                        const removed = detachCollectionChild(
+                            valueProxy,
+                            baseProxy
+                        );
+                        if (removed) removedNodes.push(removed);
+                    }
                 }
             });
             const previousSize = target.size;
             Set.prototype.clear.call(target);
+            handler.collectionProxies?.clear();
             emitCollectionChange(
                 target,
                 baseProxy,
@@ -1419,6 +1625,10 @@ function wrapSetHas(target: Set<any>) {
     };
 }
 
+/**
+ * Raw purity: sets store raw members, so membership checks reduce to at most
+ * two `Set.prototype.has` calls (the value as given, then its raw node).
+ */
 function findSetStoredValue(target: Set<any>, value: any) {
     if (Set.prototype.has.call(target, value)) {
         return value;
@@ -1427,17 +1637,12 @@ function findSetStoredValue(target: Set<any>, value: any) {
         return undefined;
     }
     const rawValue = getUnproxiedNode(value);
-    for (const storedValue of target.values()) {
-        if (storedValue === value) {
-            return storedValue;
-        }
-        if (
-            storedValue !== null &&
-            typeof storedValue === "object" &&
-            getUnproxiedNode(storedValue) === rawValue
-        ) {
-            return storedValue;
-        }
+    if (
+        rawValue !== undefined &&
+        rawValue !== value &&
+        Set.prototype.has.call(target, rawValue)
+    ) {
+        return rawValue;
     }
     return undefined;
 }
