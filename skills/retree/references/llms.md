@@ -35,6 +35,7 @@ Read the full [Retree Docs Home](https://ryanbliss.github.io/retree/) or the [Re
 -   DO use `Retree.raw(node)` / `Retree.peekInto(node, fn)` (or React's `useRaw`) for wide, read-only scans. Raw subtrees are guaranteed proxy-free and read at native speed.
 -   DO resolve raw values back to managed nodes with `Retree.source(rawValue)` (or `useRaw`'s `toSource`) before writing, subscribing, or passing them as component props.
 -   DO use `Retree.untracked(fn)` for bulk reads inside tracked selectors/memo getters that should not become dependencies.
+-   DO guard `Retree.raw` with `Retree.isNode(value)` when a value may be managed or plain (`Retree.isNode(value) ? Retree.raw(value) : value`). `Retree.raw` throws for unmanaged values.
 -   DO read `rawCurrent` and write `current` inside custom Convex reconcilers (`reconcile(current, next, rawCurrent)`).
 -   DO dispose Convex query, paginated query, and connection-state nodes when their owner is torn down.
 -   DO reconcile server list results by stable IDs (`reconcileConvexDocuments`, `reconcileArrayById`) so child node identity stays stable.
@@ -70,7 +71,8 @@ Read the full [Retree Docs Home](https://ryanbliss.github.io/retree/) or the [Re
 -   `Retree.on`: Subscribes to `nodeChanged`, `treeChanged`, or `nodeRemoved`. Use it outside React and inside integrations.
 -   `Retree.select`: Subscribes to a selected value or ordered dependency list. Reactive entries are subscribed to and primitive entries are compared. Use `Retree.select(node, selector, callback)` for an explicit root, or `Retree.select(() => value, callback)` for automatic dependency trapping. It is not a cache.
 -   `Retree.parent`: Returns the structural parent of a node. Use it for tree-local operations like deleting yourself from a list.
--   `Retree.raw`: Returns the raw, proxy-free object behind a node for native-speed, read-only access. Guaranteed proxy-free at any depth (raw purity); `structuredClone(Retree.raw(node))` is a valid point-in-time copy. `ReactiveNode` exposes `this.raw()`.
+-   `Retree.isNode`: Type guard that returns `true` only for Retree-managed nodes. Use it to guard `Retree.raw` (which throws for unmanaged values) when a value may be managed or plain.
+-   `Retree.raw`: Returns the raw, proxy-free object behind a node for native-speed, read-only access. Guaranteed proxy-free at any depth (raw purity); `structuredClone(Retree.raw(node))` is a valid point-in-time copy. Throws for unmanaged values — guard with `Retree.isNode` when unsure. `ReactiveNode` exposes `this.raw()`.
 -   `Retree.source`: Resolves a raw value back to its managed node (the inverse of `Retree.raw`). Returns `undefined` for values never materialized as nodes.
 -   `Retree.peekInto`: Runs a read-only query against a node's raw object and resolves the returned value to its managed node when one exists. `ReactiveNode` exposes `this.peekInto(fn)`.
 -   `Retree.untracked`: Pauses dependency tracking during a synchronous callback. Use it for bulk reads inside tracked selectors and memo getters. `ReactiveNode` exposes `this.untracked(fn)`.

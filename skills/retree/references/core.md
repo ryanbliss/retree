@@ -29,6 +29,7 @@ Use this as a quick map before choosing an API:
 -   [`Retree.on`](#listen-to-nodechanged-treechanged-and-noderemoved) subscribes to `nodeChanged`, `treeChanged`, or `nodeRemoved`. Use it outside React or inside lower-level integrations.
 -   [`Retree.select`](#select-derived-values) subscribes to a selected value or ordered dependency list. Use it to narrow notifications; it is not a cache.
 -   [`Retree.parent`](#find-a-parent) returns the structural parent of a node. Use it for tree-local actions like deleting yourself from an array.
+-   [`Retree.isNode`](#read-fast-with-raw) checks whether a value is a Retree-managed node. Use it to guard `Retree.raw` when a value may be managed or plain.
 -   [`Retree.raw`](#read-fast-with-raw) returns the raw, proxy-free object behind a node for native-speed, read-only access. Use it for algorithms that scan large trees.
 -   [`Retree.source`](#read-fast-with-raw) resolves a raw value back to its managed node. Use it to recover the write surface after a raw scan or from a change payload.
 -   [`Retree.peekInto`](#read-fast-with-raw) runs a read-only query against a node's raw object and resolves the result to its managed node when one exists.
@@ -311,6 +312,10 @@ const found = Retree.peekInto(project.items, (raw) =>
 
 // Pause dependency tracking for bulk reads inside tracked selectors/memos.
 const count = Retree.untracked(() => project.items.length);
+
+// Guard values that may come from either side of the proxy boundary.
+declare const value: object; // sometimes managed, sometimes plain wire data
+const rawValue = Retree.isNode(value) ? Retree.raw(value) : value;
 ```
 
 Rules that keep raw reads safe:
@@ -332,6 +337,9 @@ Rules that keep raw reads safe:
 -   `Retree.source` returns `undefined` for values never materialized as
     nodes; traverse the path once (or use `useRaw`'s `toSource` in React)
     when a managed result is required.
+-   `Retree.raw` throws for values that are not managed nodes. When a value
+    may be managed or plain, guard with `Retree.isNode(value)` instead of
+    catching the error.
 -   `ReactiveNode` exposes instance conveniences: `this.raw()`,
     `this.untracked(fn)`, and `this.peekInto(fn)`.
 
