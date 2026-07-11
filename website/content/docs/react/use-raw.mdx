@@ -1,0 +1,254 @@
+---
+title: useRaw
+description: Subscribe like useNode, read raw — native-speed, proxy-free reads for render bodies that read wide, with toManaged to get the managed node back for child props, writes, and method calls deep in the tree.
+---
+
+`useRaw` subscribes exactly like [`useNode`](/docs/react/use-node)
+(`nodeChanged` by default) but returns the node's data *raw* — the live,
+proxy-free object behind it. Use it when the render body itself reads wide:
+big tables, canvas layers, subtree serialization.
+
+<Callout title="When to use">
+    Use `useRaw` for components that read wide during render and want
+    native-speed, proxy-free reads. Siblings:
+    [`useNode`](/docs/react/use-node) for focused components that own one node,
+    [`useTree`](/docs/react/use-tree) for small subtrees that re-render
+    together, [`useSelect`](/docs/react/use-select) for narrow derived values,
+    [`useRoot`](/docs/react/use-root) for component-lifetime roots — or compare
+    them all in [Choosing a hook](/docs/react).
+</Callout>
+
+## Signature
+
+```ts nocopy
+function useRaw<TNode extends TreeNode>(
+    node: TNode | NodeFactory<TNode>,
+    options?: UseRawOptions
+): [TNode, ToManaged];
+
+interface UseRawOptions {
+    /** Defaults to "nodeChanged", exactly like useNode. */
+    listenerType?: "nodeChanged" | "treeChanged";
+}
+
+/** Resolves a raw value back to its Retree-managed node. */
+type ToManaged = <T extends TreeNode>(rawValue: T) => T | undefined;
+```
+
+## The `[raw, toManaged]` tuple
+
+- **`raw`** is the live raw object behind the node (`Retree.raw`) —
+  zero-copy and guaranteed proxy-free. Every property read skips the proxy
+  entirely. Because it is live, any render — including renders triggered by a
+  parent — reads current state.
+- **`toManaged`** resolves a raw value back to its managed node. Direct
+  children of the subscribed node always resolve (object and array children,
+  Map values, and Set members are materialized on demand). Use it to pass
+  *nodes* to child components while mapping over raw content — or to write
+  and [call methods](#functions-deep-in-the-tree) through the managed node
+  after a raw scan finds the value you want.
+
+Invalidation follows the same contract as `useNode`: the component
+re-renders when the node's own data changes. Deep changes re-render only
+when declared — via the node's `dependencies` / `@select`, via
+[`useSelect`](/docs/react/use-select) for derived views, or via the
+`listenerType: "treeChanged"` opt-in.
+
+## The wide-read pattern, three levels deep
+
+The demo below is a board whose cards are **class instances with methods**,
+living three levels down: board → columns → cards. The column view maps over
+raw cards — proxy-free reads — while each row still receives a managed node
+via `toManaged`, keeping its own subscription and write surface. The
+"Complete next" button is the pattern to steal: a native-speed scan over
+`raw` finds the card, then `toManaged(rawCard)` resolves the managed node so
+the code can call `card.complete()` — a method on an object deep in the
+tree, mutating through Retree like any other write:
+
+<Sandbox height={560}>
+
+```tsx name="/App.tsx" active
+import { Retree } from "@retreejs/core";
+import { useNode, useRaw } from "@retreejs/react";
+import React from "react";
+
+let nextId = 4;
+
+class Card {
+    constructor(
+        public id: number,
+        public title: string,
+        public done = false
+    ) {}
+    complete() {
+        this.done = true;
+    }
+}
+
+const board = Retree.root({
+    name: "Launch",
+    columns: [
+        {
+            name: "Doing",
+            cards: [
+                new Card(1, "Write the docs", true),
+                new Card(2, "Ship the site"),
+                new Card(3, "Record the demo"),
+            ],
+        },
+    ],
+});
+
+type Column = (typeof board.columns)[number];
+
+// Inline render counter.
+function useRenders() {
+    const count = React.useRef(0);
+    count.current += 1;
+    return count.current;
+}
+
+function ColumnView({ column }: { column: Column }) {
+    // Subscribe to the deep cards array; read it raw. Re-renders only when
+    // the array itself changes: add / remove / reorder.
+    const [rawCards, toManaged] = useRaw(column.cards);
+    const renders = useRenders();
+
+    function completeNext() {
+        // Native-speed scan over raw...
+        const rawCard = rawCards.find((card) => !card.done);
+        if (!rawCard) return;
+        // ...then resolve the managed node and call its method. The write
+        // emits like any other — only that card's row re-renders.
+        toManaged(rawCard)?.complete();
+    }
+
+    return (
+        <div>
+            <p>
+                {column.name} column renders: {renders}
+            </p>
+            <button onClick={completeNext}>
+                Complete next (raw scan → toManaged)
+            </button>
+            <ul>
+                {rawCards.map((rawCard) => (
+                    <CardRow key={rawCard.id} card={toManaged(rawCard)!} />
+                ))}
+            </ul>
+        </div>
+    );
+}
+
+const CardRow = React.memo(function CardRow({ card }: { card: Card }) {
+    // Node prop: own subscription, write surface.
+    const state = useNode(card);
+    const renders = useRenders();
+    return (
+        <li>
+            <label>
+                <input
+                    type="checkbox"
+                    checked={state.done}
+                    onChange={() => (state.done = !state.done)}
+                />
+                {state.title}
+            </label>{" "}
+            row renders: {renders}
+        </li>
+    );
+});
+
+export default function App() {
+    const column = board.columns[0];
+    return (
+        <div>
+            <button
+                onClick={() =>
+                    column.cards.push(new Card(nextId, `Card ${nextId++}`))
+                }
+            >
+                Add card
+            </button>{" "}
+            <button onClick={() => column.cards.pop()}>Remove last</button>
+            <ColumnView column={column} />
+        </div>
+    );
+}
+```
+
+</Sandbox>
+
+Toggle a row (or click "Complete next") and only that row re-renders; add or
+remove a card and only the column re-renders. Depth costs nothing here: the
+subscription is on `column.cards` no matter how far from the root it lives.
+
+## Functions deep in the tree
+
+The `toManaged(rawCard)?.complete()` line above is the important one. Raw
+values are plain data — calling a method through them would bypass Retree
+entirely — but `toManaged` hands back the managed node, so class methods keep
+working at any depth in the tree: the write emits, the node reproxies, and
+exactly the right components re-render.
+
+One constraint to respect, stated plainly: **`toManaged` guarantees
+resolution only for direct children of the node you subscribed to** (object
+and array children, Map values, and Set members are materialized on demand).
+That's why the demo subscribes to `column.cards` and resolves cards — one
+level apart. Deeper raw values resolve only once they've been materialized
+by a managed read.
+
+Outside a component — or when the value you need is deeper than one level —
+core has the same bridge:
+
+```ts
+// Scan raw at native speed, get the managed node back in one call.
+const card = Retree.peekInto(board.columns[0].cards, (rawCards) =>
+    rawCards.find((candidate) => candidate.title === "Ship the site")
+);
+card?.complete(); // ✅ a managed-node method call — emits like any write
+```
+
+[`Retree.peekInto(node, fn)`](/api/core/classes/Retree) runs `fn` against
+the raw object and resolves the returned value to its managed node when one
+exists; [`Retree.managed(rawValue)`](/docs/thinking-in-retree#managed-node) is the
+lower-level inverse of `Retree.raw`. The same materialization rule applies:
+values resolve once they've been read through the managed tree (the rendered
+cards here already have been) — for cold subtrees, traverse the path once or
+use `prepareTree`. Both APIs are covered in
+[Performance — read wide with raw](/docs/performance#read-wide-with-raw).
+
+## The rules of raw
+
+- **Never write to raw values.** Writes go through nodes — raw is a
+  read-only view, and writing to it bypasses events, reproxying, and every
+  subscriber.
+- **Pass nodes to children via `toManaged`, never raw values.** Nodes carry
+  subscriptions, writes, navigation, and identity; raw is a local read view.
+- **Never use raw references as `React.memo` props, `useMemo` deps, or
+  equality tokens.** Raw references keep the same identity across changes,
+  so comparisons against them never see a change. Nodes remain the identity
+  currency.
+- **Don't filter or aggregate raw content inline** when membership must stay
+  in lockstep with deep fields — that is derived state; use
+  [`useSelect`](/docs/react/use-select).
+
+Raw purity is a guarantee: raw subtrees stay proxy-free under every write
+path, so something like `structuredClone(raw)` is a valid point-in-time
+copy. The managed-vs-raw distinction is covered in
+[Thinking in Retree](/docs/thinking-in-retree).
+
+## Pitfalls
+
+- Everything in the rules list above — each one produces silent staleness
+  rather than an error, which makes them the sharpest-edged mistakes in
+  [Common pitfalls](/docs/common-pitfalls).
+- `toManaged` returns `undefined` for values that are not (or not yet)
+  resolvable to a managed node. Direct children of the subscribed node are
+  guaranteed to resolve; deeper raw values resolve only once materialized.
+
+## Reference
+
+Full signature and remarks: [`useRaw` API reference](/api/react/functions/useRaw),
+[`UseRawOptions`](/api/react/interfaces/UseRawOptions), and
+[`ToManaged`](/api/react/type-aliases/ToManaged).

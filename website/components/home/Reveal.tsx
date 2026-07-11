@@ -1,6 +1,3 @@
-"use client";
-
-import { motion, useReducedMotion } from "motion/react";
 import type { ReactNode } from "react";
 
 export interface RevealProps {
@@ -8,42 +5,31 @@ export interface RevealProps {
     /** Seconds to wait before animating — use for stagger (e.g. index * 0.06). */
     delay?: number;
     /**
-     * "in-view" fades up when scrolled into view (default). "mount" animates
-     * immediately on mount — use for above-the-fold content.
+     * Kept for call-site compatibility. Both modes now animate on load via
+     * pure CSS (see .reveal-fade in globals.css).
      */
     mode?: "in-view" | "mount";
     className?: string;
 }
 
 /**
- * Staggered fade-up wrapper for marketing sections. Under
- * prefers-reduced-motion it renders a plain, fully visible div.
+ * Staggered fade-up wrapper for marketing sections, implemented as a pure
+ * CSS animation (see `.reveal-fade` in globals.css).
+ *
+ * Deliberately NOT a motion/JS animation: the entrance state must never
+ * depend on JavaScript executing. A dropped or truncated script (dev chunk
+ * races, flaky networks, aggressive extensions) previously left the whole
+ * page at the SSR'd `opacity: 0` — CSS animations run on static HTML, so
+ * content is always visible even if hydration never happens.
+ * prefers-reduced-motion is handled in the stylesheet.
  */
-export function Reveal({
-    children,
-    delay = 0,
-    mode = "in-view",
-    className,
-}: RevealProps) {
-    const reduceMotion = useReducedMotion();
-
-    if (reduceMotion) {
-        return <div className={className}>{children}</div>;
-    }
-
-    const target = { opacity: 1, y: 0 };
-    const inView = mode === "in-view";
-
+export function Reveal({ children, delay = 0, className }: RevealProps) {
     return (
-        <motion.div
-            className={className}
-            initial={{ opacity: 0, y: 14 }}
-            animate={inView ? undefined : target}
-            whileInView={inView ? target : undefined}
-            viewport={inView ? { once: true, margin: "-60px" } : undefined}
-            transition={{ duration: 0.28, ease: "easeOut", delay }}
+        <div
+            className={`reveal-fade ${className ?? ""}`}
+            style={delay > 0 ? { animationDelay: `${delay}s` } : undefined}
         >
             {children}
-        </motion.div>
+        </div>
     );
 }

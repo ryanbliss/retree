@@ -1,0 +1,148 @@
+---
+title: useRoot
+description: Create one Retree root for a React component lifetime — Strict Mode safe, factory runs exactly once. Pair it with useNode, useTree, or useSelect.
+---
+
+`useRoot` creates and retains a Retree root for the lifetime of a component.
+The factory runs exactly once per mounted instance. It creates state — it
+does not subscribe to anything, so pair it with
+[`useNode`](/docs/react/use-node), [`useTree`](/docs/react/use-tree), or
+[`useSelect`](/docs/react/use-select) to decide what re-renders.
+
+<Callout title="When to use">
+    Use `useRoot` when state belongs to one React subtree. Siblings:
+    [`useNode`](/docs/react/use-node) for focused components that own one node,
+    [`useTree`](/docs/react/use-tree) for small subtrees that re-render
+    together, [`useSelect`](/docs/react/use-select) for narrow derived values,
+    [`useRaw`](/docs/react/use-raw) for wide proxy-free render reads — or
+    compare them all in [Choosing a hook](/docs/react).
+</Callout>
+
+## Signature
+
+```ts nocopy
+function useRoot<T extends TreeNode>(factory: () => T): T;
+```
+
+Pass a factory returning a plain object (or class instance); `useRoot` wraps
+the result in `Retree.root` and returns the same managed root on every
+render.
+
+```tsx
+import { useNode, useRoot } from "@retreejs/react";
+
+function CounterPanel() {
+    const counter = useRoot(() => ({ count: 0 }));
+    const state = useNode(counter);
+
+    return <button onClick={() => (state.count += 1)}>{state.count}</button>;
+}
+```
+
+## Why not `useState(() => Retree.root(...))`?
+
+Under React Strict Mode, `useState` and `useMemo` initializers are invoked
+twice to detect impurity. `Retree.root(...)` registers state keyed by the
+raw object's identity, so wrapping the same raw inputs twice can leave the
+first tree's children reading stale state. `useRoot` guards the factory with
+a `useRef` null check — the one React init primitive that is not
+double-invoked within a mount — so the root is created exactly once.
+
+The same goes for calling `Retree.root` directly during render: don't. Roots
+are created once — at module scope, or through `useRoot`.
+
+## Component lifetime, demonstrated
+
+Each `CounterPanel` below owns an independent root. Click the counters, then
+remount — both panels' state resets, because their roots live and die with
+the component instances:
+
+<Sandbox height={480}>
+
+```tsx name="/App.tsx" active
+import { useNode, useRoot } from "@retreejs/react";
+import React from "react";
+
+// Inline render counter.
+function useRenders() {
+    const count = React.useRef(0);
+    count.current += 1;
+    return count.current;
+}
+
+function CounterPanel({ name }: { name: string }) {
+    // Factory runs once per mounted instance of this component.
+    const counter = useRoot(() => ({ count: 0 }));
+    const state = useNode(counter);
+    const renders = useRenders();
+    return (
+        <fieldset>
+            <legend>
+                {name} — renders: {renders}
+            </legend>
+            <button onClick={() => (state.count += 1)}>
+                Clicked {state.count} times
+            </button>
+        </fieldset>
+    );
+}
+
+export default function App() {
+    const [generation, setGeneration] = React.useState(0);
+    return (
+        <div>
+            <button onClick={() => setGeneration(generation + 1)}>
+                Remount panels (state resets)
+            </button>
+            {/* Changing the key unmounts and remounts both panels. */}
+            <div key={generation}>
+                <CounterPanel name="Panel A" />
+                <CounterPanel name="Panel B" />
+            </div>
+        </div>
+    );
+}
+```
+
+</Sandbox>
+
+Note the two panels never affect each other: two instances of the same
+component get two independent trees.
+
+## `useRoot` vs module-scope `Retree.root`
+
+| State belongs to...       | Create the root with...                                    |
+| ------------------------- | ---------------------------------------------------------- |
+| one React subtree         | `useRoot(() => ...)` inside the component                   |
+| the whole app / module    | `const root = Retree.root(...)` at module scope             |
+
+If the state should outlive the component — survive unmounts, be shared
+across routes, be written to from outside React — a module-scope root is the
+right tool. `useRoot` is deliberately scoped: a fresh mount gets a fresh
+tree.
+
+## On unmount
+
+`useRoot` performs no explicit teardown on unmount. Subscribing hooks like
+`useNode` release their observers when the component unmounts, and the root
+itself is garbage-collected once nothing references it. If you hand the root
+to long-lived code outside the component (module state, external
+subscriptions), that reference keeps the tree alive — clean it up yourself
+in an effect.
+
+## Pitfalls
+
+- **Don't use `useRoot` for state other components need.** Each mounted
+  instance gets its own tree; siblings can't see it. Lift the root to module
+  scope instead.
+- **The factory result is fixed for the component lifetime.** Like
+  `useState` initializers, changing the factory's captured props later does
+  not rebuild the tree.
+- **Don't call `Retree.root` in render as an alternative** — that creates a
+  new tree every render. `useRoot` exists precisely to avoid this.
+
+More in [Common pitfalls](/docs/common-pitfalls).
+
+## Reference
+
+Full signature and remarks: [`useRoot` API reference](/api/react/functions/useRoot).

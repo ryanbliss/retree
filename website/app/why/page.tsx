@@ -12,8 +12,15 @@ import { ComparativeVisualizer } from "@/components/visualizer/ComparativeVisual
 export const metadata: Metadata = {
     title: "Why Retree — state that matches your component tree",
     description:
-        "The one idea behind Retree, a live re-render comparison against an idiomatic React store, an honest feature table vs MobX and Valtio, and the trade-offs — including when not to use Retree.",
+        "The one idea behind Retree, a live re-render comparison against an idiomatic React store, an honest feature table vs MobX and Valtio, and the trade-offs — what Retree trades away and what you get back.",
 };
+
+const deepWrite = `// A board, three levels deep — plain assignment:
+board.columns[2].cards[0].checklist[1].done = true;
+
+// Exactly one component re-renders: the row that called
+// useNode(item) on that checklist item. No observer()
+// wrapper, no snapshot juggling, no memoization pass.`;
 
 const demosDir = path.join(process.cwd(), "components", "compare", "demos");
 
@@ -57,6 +64,21 @@ export default function WhyPage() {
                     <code>useSelect</code> / <code>useRaw</code>.
                 </p>
                 <p>
+                    The payoff is largest where state runs deep. This is the
+                    write Retree is built for:
+                </p>
+            </div>
+
+            <div className="mt-6 max-w-3xl">
+                <CodeBlock
+                    code={deepWrite}
+                    lang="ts"
+                    title="One deep write, one re-render"
+                />
+            </div>
+
+            <div className="mt-6 max-w-3xl space-y-4 text-base leading-7 text-muted">
+                <p>
                     Don&apos;t take the claim on faith — count the renders
                     yourself. Both implementations below are complete,
                     unsimplified, and shown in full under &quot;View
@@ -95,7 +117,8 @@ export default function WhyPage() {
                 </h2>
                 <p className="mt-3 max-w-3xl text-base leading-7 text-muted">
                     One table, verified against MobX 6.16 and Valtio 2.3 in July
-                    2026 — including the rows Retree loses. Pairwise write-ups:{" "}
+                    2026 — including the rows where Retree is behind. Pairwise
+                    write-ups:{" "}
                     <Link
                         href="/compare/mobx"
                         className="text-accent underline underline-offset-2 hover:no-underline"
@@ -135,24 +158,28 @@ export default function WhyPage() {
                 <div className="mt-4 max-w-3xl space-y-4 text-base leading-7 text-muted">
                     <p>
                         MobX has a decade of production hardening and a
-                        best-in-class computed engine. If your app is built
-                        around derived data and you accept{" "}
-                        <code>observer()</code> and actions as the price, MobX
-                        remains an excellent, battle-tested choice.
+                        best-in-class computed engine — on derived data, it sets
+                        the bar. The price is <code>observer()</code> around
+                        every reading component and actions around writes.
+                        Retree&apos;s bet is that you can keep the mutable model
+                        and drop both: hooks pick the subscription, plain
+                        assignment does the writing.
                     </p>
                     <p>
-                        Valtio is admirably minimal — 2.7 kB min+gzip in our
-                        measurements against Retree&apos;s 19.6 kB for core +
-                        react — and it ships Redux DevTools support, which
-                        Retree does not have. If bundle size or DevTools matter
-                        most to you, Valtio is the better pick today.
+                        Valtio is 2.7 kB min+gzip in our measurements to
+                        Retree&apos;s 19.6 kB for core + react, and it ships
+                        Redux DevTools support, which Retree does not yet. What
+                        Retree&apos;s bytes buy: per-node subscriptions, tree
+                        operations (parent / move / clone / link), view models
+                        with optional decorators, transactions, and a
+                        first-party Convex integration — all in one object, with
+                        no state/snapshot split.
                     </p>
                     <p>
-                        And if your store is small and flat — a handful of
-                        top-level fields, no nesting — use Zustand (0.4 kB in
-                        the same measurement). Retree earns its bytes when your
-                        state is genuinely a tree; a flat store doesn&apos;t
-                        need tree semantics.
+                        For a small, flat store — a handful of top-level fields,
+                        no nesting — Zustand (0.4 kB in the same measurement)
+                        covers it; Retree earns its bytes when your state is
+                        genuinely a tree.
                     </p>
                 </div>
             </section>
@@ -163,11 +190,11 @@ export default function WhyPage() {
                     id="tradeoffs-heading"
                     className="text-2xl font-semibold tracking-tight text-foreground"
                 >
-                    Trade-offs — when not to use Retree
+                    Trade-offs — what Retree trades, and what you get back
                 </h2>
                 <p className="mt-3 max-w-3xl text-base leading-7 text-muted">
                     The questions a skeptical senior engineer should ask,
-                    answered without spin.
+                    answered without spin. Every trade here is deliberate.
                 </p>
 
                 <div className="mt-6 space-y-8">
@@ -195,9 +222,12 @@ export default function WhyPage() {
                             validated behavior under heavy concurrent rendering
                             (<code>useTransition</code>, Suspense-driven
                             interruptions), and we won&apos;t claim
-                            tearing-safety we haven&apos;t tested. If your app
-                            leans hard on concurrent features, test before
-                            adopting.
+                            tearing-safety we haven&apos;t tested. What you get
+                            in exchange for that missing checkbox: a
+                            subscription core small enough to audit in an
+                            afternoon — if your app leans hard on concurrent
+                            features, run it against your workload and read
+                            exactly what it does.
                         </p>
                     </div>
 
@@ -213,8 +243,9 @@ export default function WhyPage() {
                             compiler skips memoizing the hooks&apos; own
                             internals instead of mis-optimizing their
                             subscription mechanics; your compiled components
-                            call them normally. That opt-out is a pragmatic
-                            coexistence story, not a deep integration.
+                            call them normally. It is an opt-out, not a deep
+                            integration — and it works: this compiled site
+                            dogfoods Retree&apos;s hooks for its own state.
                         </p>
                     </div>
 
@@ -249,9 +280,9 @@ export default function WhyPage() {
                         <p className="mt-2 text-base leading-7 text-muted">
                             Retree is v0.4.x, MIT-licensed, and built by a solo
                             maintainer. It is pre-1.0: minor versions may move
-                            APIs, and there is no ecosystem of tutorials or
-                            Stack Overflow answers to lean on yet. What you can
-                            audit today: the{" "}
+                            APIs, and the ecosystem of tutorials and Stack
+                            Overflow answers is still growing. What you can
+                            audit today instead of taking on faith: the{" "}
                             <a
                                 href="https://github.com/ryanbliss/retree/tree/main/packages"
                                 target="_blank"
@@ -269,9 +300,10 @@ export default function WhyPage() {
                             >
                                 benchmark harness and findings
                             </a>{" "}
-                            are open. If that risk profile doesn&apos;t fit your
-                            project, the established options above are the
-                            honest recommendation.
+                            are open. Pre-1.0 cuts both ways: the surface area
+                            is small enough to read in a sitting, and issues you
+                            file go straight to the person who wrote the code.
+                            Evaluate the code, not the star count.
                         </p>
                     </div>
                 </div>
@@ -280,7 +312,7 @@ export default function WhyPage() {
             {/* Next steps */}
             <section className="mt-16 rounded-xl border border-border-token bg-surface p-6">
                 <h2 className="text-lg font-semibold text-foreground">
-                    Convinced enough to try it?
+                    See it on your own state
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-muted">
                     The quickstart gets you from install to a working app —

@@ -2,7 +2,14 @@ import Link from "next/link";
 
 const COLUMNS: {
     title: string;
-    links: { href: string; label: string; external?: boolean }[];
+    links: {
+        href: string;
+        label: string;
+        external?: boolean;
+        /** Static public/ file, not an app route — use a plain anchor so the
+         * router never tries to prefetch or client-navigate to it. */
+        plainFile?: boolean;
+    }[];
 }[] = [
     {
         title: "Docs",
@@ -36,7 +43,7 @@ const COLUMNS: {
                 label: "npm",
                 external: true,
             },
-            { href: "/llms.txt", label: "llms.txt" },
+            { href: "/llms.txt", label: "llms.txt", plainFile: true },
         ],
     },
 ];
@@ -63,12 +70,20 @@ export function SiteFooter() {
                         </p>
                         <ul className="mt-3 space-y-2">
                             {column.links.map((link) =>
-                                link.external ? (
+                                link.external || link.plainFile ? (
                                     <li key={link.href}>
                                         <a
                                             href={link.href}
-                                            target="_blank"
-                                            rel="noreferrer"
+                                            target={
+                                                link.external
+                                                    ? "_blank"
+                                                    : undefined
+                                            }
+                                            rel={
+                                                link.external
+                                                    ? "noreferrer"
+                                                    : undefined
+                                            }
                                             className="text-sm text-muted transition-colors hover:text-foreground"
                                         >
                                             {link.label}

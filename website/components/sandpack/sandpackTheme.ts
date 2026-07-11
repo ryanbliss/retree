@@ -47,6 +47,6 @@ export const retreeSandpackTheme: SandpackTheme = {
  * Sandpack bundler does not install peers transitively.
  */
 export const SANDPACK_RETREE_DEPENDENCIES = {
-    "@retreejs/core": "0.4.17",
-    "@retreejs/react": "0.4.17",
+    "@retreejs/core": "0.5.0",
+    "@retreejs/react": "0.5.0",
 } as const;

@@ -1,10 +1,10 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Retree } from "@retreejs/core";
 import { useNode } from "@retreejs/react";
 import { RenderBadge } from "@/components/visualizer/RenderBadge";
 import { useRenderGlow } from "@/components/visualizer/useRenderGlow";
-import { DemoButton } from "./DemoButton";
 
 interface OpsTask {
     id: number;
@@ -26,14 +26,54 @@ function createInitialColumns(): { backlog: OpsTask[]; active: OpsTask[] } {
 const board = Retree.root(createInitialColumns());
 
 /**
+ * An operation button. Unmistakably a button: raised surface, strong
+ * border, a leading run glyph, hover/active states, and a pointer cursor.
+ * Non-interactive annotations in this demo are plain unbordered text.
+ */
+function OpButton({
+    onClick,
+    children,
+    ariaLabel,
+    danger = false,
+}: {
+    onClick: () => void;
+    children: ReactNode;
+    ariaLabel: string;
+    danger?: boolean;
+}) {
+    const hoverTone = danger
+        ? "hover:border-[color:var(--danger)] hover:text-danger"
+        : "hover:border-[color:var(--accent-glow)] hover:text-accent";
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            aria-label={ariaLabel}
+            className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border-strong bg-surface-raised px-2 py-1 font-mono text-[11px] text-foreground shadow-sm transition-[color,border-color,transform] duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:scale-[0.97] ${hoverTone}`}
+        >
+            <span
+                aria-hidden
+                className={`text-[9px] ${
+                    danger ? "text-danger" : "text-accent"
+                }`}
+            >
+                ▶
+            </span>
+            {children}
+        </button>
+    );
+}
+
+/**
  * Feature-walk demo 3: `Retree.move` transfers a task between the two list
  * nodes, and `Retree.parent` + `splice` removes one in place. Only the
  * lists whose contents changed re-render.
+ *
+ * The shell deliberately carries no render badge: it has no subscription,
+ * so its count would sit at 1 forever — a number that helps nobody compare
+ * anything. The per-list badges below are the evidence.
  */
 export function TreeOpsDemo() {
-    // Shell has no subscription: its render counter should stay at 1.
-    const { ref, renders } = useRenderGlow<HTMLDivElement>();
-
     const reset = (): void => {
         const fresh = createInitialColumns();
         board.backlog.splice(0, board.backlog.length, ...fresh.backlog);
@@ -41,16 +81,20 @@ export function TreeOpsDemo() {
     };
 
     return (
-        <div
-            ref={ref}
-            className="rounded-xl border border-border-token bg-surface p-3 sm:p-4"
-        >
+        <div className="rounded-xl border border-border-token bg-surface p-3 sm:p-4">
             <div className="flex items-center justify-between gap-2">
                 <span className="font-mono text-xs uppercase tracking-widest text-faint">
-                    parent — no subscription
+                    {"<Parent />"} — no subscription
                 </span>
-                <RenderBadge renders={renders} />
             </div>
+            <p className="mt-1.5 text-xs leading-5 text-muted">
+                Click an operation (
+                <span aria-hidden className="font-mono text-[10px] text-accent">
+                    ▶
+                </span>
+                ) to run it against the tree below — then check which render
+                counters moved.
+            </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <BoardColumn
                     label="backlog"
@@ -66,9 +110,9 @@ export function TreeOpsDemo() {
                 />
             </div>
             <div className="mt-3">
-                <DemoButton onClick={reset} ariaLabel="Reset the demo board">
+                <OpButton onClick={reset} ariaLabel="Reset the demo board">
                     reset()
-                </DemoButton>
+                </OpButton>
             </div>
         </div>
     );
@@ -155,28 +199,25 @@ function BoardRow({
     return (
         <li
             ref={ref}
-            className="flex items-center gap-1.5 rounded-md border border-border-token bg-surface px-2 py-1.5"
+            className="flex flex-wrap items-center gap-1.5 rounded-md border border-border-token bg-surface px-2 py-1.5"
         >
             <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
                 {state.title}
             </span>
             <RenderBadge renders={renders} />
-            <button
-                type="button"
+            <OpButton
                 onClick={move}
-                aria-label={`Move "${state.title}" to ${otherLabel}`}
-                className="rounded border border-border-token px-1.5 py-0.5 font-mono text-[10px] text-muted transition-colors hover:border-border-strong hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+                ariaLabel={`Move "${state.title}" to ${otherLabel}`}
             >
                 move
-            </button>
-            <button
-                type="button"
+            </OpButton>
+            <OpButton
                 onClick={remove}
-                aria-label={`Delete "${state.title}"`}
-                className="rounded border border-border-token px-1.5 py-0.5 font-mono text-[10px] text-muted transition-colors hover:border-border-strong hover:text-danger focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+                ariaLabel={`Delete "${state.title}"`}
+                danger
             >
-                ×
-            </button>
+                ✕
+            </OpButton>
         </li>
     );
 }

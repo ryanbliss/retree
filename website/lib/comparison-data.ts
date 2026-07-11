@@ -49,7 +49,7 @@ export interface ComparisonLibrary {
 }
 
 export const COMPARISON_LIBRARIES: ComparisonLibrary[] = [
-    { id: "retree", name: "Retree", detail: "@retreejs/core + react 0.4.17" },
+    { id: "retree", name: "Retree", detail: "@retreejs/core + react 0.5.0" },
     { id: "mobx", name: "MobX", detail: "6.16 + mobx-react-lite 4.1" },
     { id: "valtio", name: "Valtio", detail: "2.3" },
 ];
@@ -68,17 +68,17 @@ export const FOOTNOTES = {
     backendClaim:
         "The precise claim: no official backend integration exists for MobX or Valtio, while @retreejs/convex is first-party. Community-built bindings may exist for either library.",
     bundleMethod:
-        "Measured by us with esbuild, minified + gzip, react and react-dom externalized, July 2026 — same method for every library. Full set: @retreejs/core 18.6 kB; core + react 19.6 kB; mobx 18.5 kB; mobx + mobx-react-lite 20.2 kB; valtio 2.7 kB; zustand 0.4 kB. Honest reading: Retree is comparable to the MobX stack; Valtio and Zustand are far smaller — if minimal bytes matter most, use them.",
+        "Measured by us with esbuild, minified + gzip, react and react-dom externalized, July 2026 — same method for every library. Full set: @retreejs/core 18.6 kB; core + react 19.6 kB; mobx 18.5 kB; mobx + mobx-react-lite 20.2 kB; valtio 2.7 kB; zustand 0.4 kB. Retree is comparable to the MobX stack; Valtio and Zustand are far smaller. The difference is what ships in the bytes: per-node subscriptions, tree operations, view models, transactions, and the Convex integration.",
     notScored:
-        "Not scored: we have not verified this library's current behavior for this row and would rather leave a blank than guess from memory. Corrections via PR are welcome.",
+        "Not scored: every scored cell in this table was verified against the listed versions, and this one has not been through that check yet — a blank beats a guess. Corrections via PR are welcome.",
     concurrentReact:
-        "Retree's hooks subscribe with useState + useEffect, not useSyncExternalStore. See the trade-offs section on /why for the full, honest status.",
+        "Retree's hooks subscribe with useState + useEffect, not useSyncExternalStore. See the trade-offs section on /why for exactly what has and has not been validated.",
     retreeCoreOutsideReact:
         "@retreejs/core runs without React (Retree.root, Retree.on, Retree.select), but React is the only first-class view binding today.",
     retreeLoses:
-        "A row Retree loses on purpose: MobX and Valtio are established projects with real production mileage; Retree is v0.4.x with a solo maintainer.",
+        "MobX and Valtio have years of production mileage; Retree is v0.4.x. The counterweight is auditability: the API surface is small, and the test suite and benchmark harness are open in the repo.",
     devtoolsNote:
-        "Retree has no devtools today. Valtio ships Redux DevTools support; that is a genuine advantage.",
+        "Valtio ships Redux DevTools support; Retree has no devtools today. Retree.on subscriptions are the current way to observe changes programmatically.",
 } as const;
 
 export type FootnoteId = keyof typeof FOOTNOTES;
@@ -359,7 +359,7 @@ export const COMPARISON_ROWS: ComparisonRow[] = [
         cells: {
             retree: {
                 tier: "absent",
-                label: "Sparse — new project, solo maintainer",
+                label: "Young — this site and the repo are the resources today",
                 footnotes: ["retreeLoses"],
             },
             mobx: { tier: "first-class", label: "Established" },

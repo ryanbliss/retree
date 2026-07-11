@@ -9,15 +9,21 @@
  * keeps untouched rows quiet; the store owner still re-renders on every
  * update because the store lives in its state.
  *
+ * Both implementations render side by side, and every interaction is
+ * mirrored: local inputs call `mirror.*`, which applies the same logical
+ * change to BOTH stores (this one via the setStore updaters registered
+ * below). The store itself stays a plain useState store.
+ *
  * The useRenderProbe(...) lines are shared instrumentation (render counter,
  * glow, diagram mirroring) and are identical on the Retree side.
  */
 
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { RenderBadge } from "@/components/visualizer/RenderBadge";
 import {
     createProbeSet,
     useRenderProbe,
+    type DemoMirror,
 } from "@/components/compare/renderProbes";
 
 export const reactProbes = createProbeSet();
@@ -123,15 +129,16 @@ const DoneCount = memo(function DoneCount({ tasks }: { tasks: Task[] }) {
     );
 });
 
-export function ReactTasksDemo() {
+export function ReactTasksDemo({ mirror }: { mirror: DemoMirror }) {
     const [store, setStore] = useState(initialStore);
     const { ref, renders } = useRenderProbe<HTMLDivElement>(reactProbes.app);
 
-    const setListName = useCallback((listName: string) => {
+    // The two write paths of this store — ordinary useState updaters.
+    const applyListName = useCallback((listName: string) => {
         setStore((current) => ({ ...current, listName }));
     }, []);
 
-    const toggleTask = useCallback((id: number) => {
+    const applyToggle = useCallback((id: number) => {
         setStore((current) => ({
             ...current,
             tasks: current.tasks.map((task) =>
@@ -139,6 +146,25 @@ export function ReactTasksDemo() {
             ),
         }));
     }, []);
+
+    // Register the write paths so interactions started in EITHER pane land
+    // in this store too — that keeps the two implementations comparable.
+    useEffect(() => {
+        return mirror.register("react", {
+            setListName: applyListName,
+            toggleTask: applyToggle,
+        });
+    }, [mirror, applyListName, applyToggle]);
+
+    // Local inputs go through the mirror so the other pane sees them too.
+    const setListName = useCallback(
+        (listName: string) => mirror.setListName(listName),
+        [mirror]
+    );
+    const toggleTask = useCallback(
+        (id: number) => mirror.toggleTask(id),
+        [mirror]
+    );
 
     return (
         <div ref={ref} className="space-y-2 rounded-lg p-1">

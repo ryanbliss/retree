@@ -3,11 +3,12 @@
     "version": "0.1.0",
     "private": true,
     "scripts": {
-        "dev": "next dev",
-        "build": "npm run generate:api && npm run check:links && next build && npm run postbuild:search",
+        "dev": "npm run generate:sandpack-css && next dev -p 51235",
+        "build": "npm run generate:api && npm run generate:sandpack-css && npm run check:links && next build && npm run postbuild:search",
         "check:links": "node scripts/check-links.mjs",
         "postbuild:search": "pagefind --site .next/server/app --output-path public/_pagefind",
         "generate:api": "node scripts/generate-api-docs.mjs",
+        "generate:sandpack-css": "node scripts/generate-sandpack-css.mjs",
         "start": "next start",
         "lint": "eslint"
     },

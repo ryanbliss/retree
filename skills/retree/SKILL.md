@@ -1,6 +1,6 @@
 ---
 name: retree
-description: Build, debug, or review Retree code for object-tree state management, React hooks, and Convex integration. Use when working with @retreejs/core, @retreejs/react, @retreejs/convex, @retreejs/react-convex, Retree.root, ReactiveNode, useNode, useTree, useSelect, useRoot, useRaw, Retree.select, Retree.raw, Retree.isNode, Retree.peekInto, Retree.source, Retree.untracked, Retree.move, Retree.link, memo decorators, or Retree Convex query nodes.
+description: Build, debug, or review Retree code for object-tree state management, React hooks, and Convex integration. Use when working with @retreejs/core, @retreejs/react, @retreejs/convex, @retreejs/react-convex, Retree.root, ReactiveNode, useNode, useTree, useSelect, useRoot, useRaw, Retree.select, Retree.raw, Retree.isNode, Retree.peekInto, Retree.managed, Retree.untracked, Retree.move, Retree.link, memo decorators, or Retree Convex query nodes.
 ---
 
 # Retree
@@ -105,23 +105,23 @@ const doneCount = useSelect(
 
 Whole Retree-managed values read by an inferred selector subscribe broadly. Property reads subscribe to the owner and compare that property value.
 
-Use `useRaw` for components that read wide during render (big tables, canvas layers, serialization). It subscribes exactly like `useNode` (`nodeChanged` default) but returns `[raw, toSource]` — the live raw object for native-speed, proxy-free reads, plus a resolver back to managed nodes:
+Use `useRaw` for components that read wide during render (big tables, canvas layers, serialization). It subscribes exactly like `useNode` (`nodeChanged` default) but returns `[raw, toManaged]` — the live raw object for native-speed, proxy-free reads, plus a resolver back to managed nodes:
 
 ```tsx
 function TaskListView({ list }: { list: TaskList }) {
     // Re-renders only when the array itself changes: add / remove / reorder.
-    const [tasksRaw, toSource] = useRaw(list.tasks);
+    const [tasksRaw, toManaged] = useRaw(list.tasks);
     return (
         <ul>
             {tasksRaw.map((rawTask) => (
-                <TaskRow key={rawTask.id} task={toSource(rawTask)!} />
+                <TaskRow key={rawTask.id} task={toManaged(rawTask)!} />
             ))}
         </ul>
     );
 }
 ```
 
-Pass **nodes** to children via `toSource`, never raw values. `toSource` always resolves direct children of the subscribed node (object/array children, Map values, Set members). Deep changes re-render only when declared — via the node's `dependencies` / `@select`, via `useSelect` for derived views, or via `listenerType: "treeChanged"`. Never write to raw values or use raw references as `React.memo` props or `useMemo` deps.
+Pass **nodes** to children via `toManaged`, never raw values. `toManaged` always resolves direct children of the subscribed node (object/array children, Map values, Set members). Deep changes re-render only when declared — via the node's `dependencies` / `@select`, via `useSelect` for derived views, or via `listenerType: "treeChanged"`. Never write to raw values or use raw references as `React.memo` props or `useMemo` deps.
 
 ## Core APIs
 
@@ -170,7 +170,7 @@ const rawTasks = Retree.raw(project.tasks); // proxy-free, native-speed reads
 const found = Retree.peekInto(project.tasks, (raw) =>
     raw.find((task) => task.id === id)
 ); // raw query, managed result
-const managed = Retree.source(rawTasks[0]); // raw value → managed node
+const managed = Retree.managed(rawTasks[0]); // raw value → managed node
 const total = Retree.untracked(() => scan(project)); // no dependency tracking
 const rawValue = Retree.isNode(value) ? Retree.raw(value) : value; // maybe-managed guard
 ```
@@ -180,7 +180,7 @@ Rules:
 -   **Raw purity guarantee:** `Retree.raw(node)` subtrees contain zero proxies under every write path; `structuredClone(Retree.raw(node))` is a valid point-in-time copy.
 -   Raw values are **read-only** — writes go through managed nodes, or they silently skip emission.
 -   Raw references never change identity; do not use them as memo/equality tokens. Nodes are the identity currency.
--   Change payloads (`changes[].previous` / `changes[].new`) are always raw values; use `Retree.source(value)` to opt back into the managed node.
+-   Change payloads (`changes[].previous` / `changes[].new`) are always raw values; use `Retree.managed(value)` to opt back into the managed node.
 -   `Retree.raw` throws for unmanaged values. Guard with the `Retree.isNode(value)` type guard when a value may be managed or plain.
 -   `ReactiveNode` exposes instance forms: `this.raw()`, `this.untracked(fn)`, `this.peekInto(fn)`.
 
@@ -321,7 +321,7 @@ Pass the same client into Retree state that extends `ConvexNode`.
 -   Do not put expensive side effects in React render through `ReactiveNode` getters or functions.
 -   Do not expect Convex action, mutation, or query-once helpers to emit unless their results mutate Retree state.
 -   Do not write to values returned by `Retree.raw` / `useRaw`; raw is a read-only view and raw writes skip emission.
--   Do not use raw references as `React.memo` props, `useMemo` deps, or equality tokens; resolve to nodes with `Retree.source` / `toSource`.
+-   Do not use raw references as `React.memo` props, `useMemo` deps, or equality tokens; resolve to nodes with `Retree.managed` / `toManaged`.
 -   Do not expect `changes[].previous` / `changes[].new` payload values to be managed nodes; they are always raw.
 
 ## Documentation Lookup

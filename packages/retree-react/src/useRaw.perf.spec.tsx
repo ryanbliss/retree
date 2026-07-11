@@ -6,7 +6,7 @@
 /**
  * Wide-table render measurement for the raw-purity spec's performance gates
  * (specs/retree-raw.md §6): `useRaw` vs `useNode` for read-wide renders, and
- * `useRaw` mount with `toSource` per row vs the `useNode` equivalent.
+ * `useRaw` mount with `toManaged` per row vs the `useNode` equivalent.
  * Prints timings with `--disable-console-intercept`; assertions are loose
  * sanity bounds so machine speed never gates CI.
  */
@@ -82,7 +82,7 @@ describe("useRaw perf probe", () => {
         expect(rawMs).toBeLessThanOrEqual(nodeMs * 1.5);
     });
 
-    it("useRaw mount with toSource per row vs useNode list", () => {
+    it("useRaw mount with toManaged per row vs useNode list", () => {
         const ROWS = 2000;
 
         const nodeRoot = Retree.root({ rows: makeRows(ROWS, 1) });
@@ -97,12 +97,12 @@ describe("useRaw perf probe", () => {
         const rawRoot = Retree.root({ rows: makeRows(ROWS, 1) });
         let resolvedCount = 0;
         function RawList() {
-            const [rows, toSource] = useRaw(rawRoot.rows);
+            const [rows, toManaged] = useRaw(rawRoot.rows);
             return (
                 <div>
                     {rows
                         .map((row) => {
-                            const source = toSource(row);
+                            const source = toManaged(row);
                             if (source !== undefined) {
                                 resolvedCount++;
                             }
@@ -113,7 +113,7 @@ describe("useRaw perf probe", () => {
             );
         }
         const rawMs = time(
-            "useRaw list mount + toSource all (2000 rows)",
+            "useRaw list mount + toManaged all (2000 rows)",
             () => {
                 render(<RawList />);
             }

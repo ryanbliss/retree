@@ -1,0 +1,268 @@
+---
+title: Performance
+description: Retree's cost model and how to work with it — narrow subscriptions, raw reads, lazy materialization, transactions, and how to profile.
+---
+
+Retree is built on JavaScript proxies plus stable base proxies and fresh
+[reproxy](/docs/thinking-in-retree) identities after changes. That model is
+ergonomic, but the cost is not uniform. One rule of thumb explains most of
+this page: **subscribe and read as narrowly as your UI or workflow allows.**
+
+## Subscribe to the narrowest node you need
+
+From the README's performance guidance, in priority order:
+
+-   Prefer `useNode(child)` for item rows and focused panels.
+-   Prefer `useSelect(node, selector)` for selected values or dependency lists
+    that should only re-render when the selection changes.
+-   Treat `useTree` / `treeChanged` as broad subtree invalidation, especially in
+    hot paths.
+-   Keep `ReactiveNode.dependencies` deterministic. Length/order can change;
+    Retree treats shape changes as invalidation and refreshes subscriptions.
+-   Prefer `@select` for hot filtered lists where one getter should listen to a
+    broad collection but only emit when the selected items or selected order
+    changes.
+-   Avoid constructing large Retree roots or `ReactiveNode` graphs during React
+    render; create them once, or initialize them through `useRoot` / `useMemo` /
+    `useState`.
+
+Each listener is work. Many listeners on the exact same broad node can be
+slower than fewer listeners on narrower children or selected values. This is
+why `useNode(child)` and `useSelect(node, selector)` usually scale better than
+many components all reading the same broad parent.
+
+## The `treeChanged` / `useTree` cost model
+
+`nodeChanged` is the cheap event: it fires only for direct changes to one
+node's own fields. `treeChanged` fires for the node _and every descendant
+change_, which means an ancestor subscription is asking Retree to propagate
+each child change upward.
+
+`treeChanged` is most expensive when the listener also performs deep reads
+across the subtree — the listener asks Retree to propagate the ancestor change
+_and then_ traverse the changed graph. If a component or selector only needs
+one selected value, prefer `useSelect` / `Retree.select` on the narrowest node
+that owns that value, or a [`ReactiveNode`](/docs/view-models) whose
+`dependencies` bridge the gap.
+
+`useTree` is fine where it's cheap — small leaf subtrees like a header row or
+a tag list. Keep it low in the view hierarchy, and measure before putting it
+anywhere hot.
+
+## Keep `dependencies` deterministic
+
+`ReactiveNode.dependencies` is the narrow bridge between nodes: one node
+emits when another changes, without any broad tree subscription. To keep it
+cheap:
+
+-   The dependency list's length/order _may_ change at runtime — Retree treats
+    shape changes as invalidation and refreshes subscriptions — but gratuitous
+    reshuffling churns subscriptions for no benefit.
+-   Use comparison values (`this.dependency(node, comparisons)`) when only some
+    changes should emit.
+-   Never do setup, network subscriptions, or synchronization inside
+    `dependencies`; use `onObserved()` / `onUnobserved()` / `onChanged()`.
+-   Prefer one dependency on a narrow child node over a dependency on a broad
+    parent.
+
+Retree shares dependency listeners across many dependents observing the same
+node, but fan-out still has real work: every dependent may need comparison
+checks and a reproxy when it should emit.
+
+## `@select` for hot filtered lists
+
+When one getter needs to _listen_ to a broad collection but should only
+_emit_ when its selection changes, `@select` with an `equals` option is the
+recommended shape:
+
+```ts
+import { ReactiveNode, select } from "@retreejs/core";
+
+class VisibleTaskList extends ReactiveNode {
+    public tasks: { id: string; isArchived: boolean }[] = [];
+
+    @select({
+        equals: (_self, previous, next) =>
+            previous.length === next.length &&
+            previous.every((task, index) => task.id === next[index].id),
+    })
+    get visibleTasks() {
+        return this.tasks.filter((task) => !task.isArchived);
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+```
+
+Unrelated churn in the collection (title edits, field updates that don't
+change membership or order) never reaches the components rendering
+`visibleTasks`. See [View models](/docs/view-models) for the full `@select`
+forms, and note that `@select` needs
+[decorator setup](/docs/setup-and-decorators).
+
+<Warning>
+    Tracked selectors over large collections have a real cost: a selector or
+    trapped getter that reads every item of a big list pays for every one of
+    those reads, and it re-evaluates when its dependencies change. Retree
+    gives you four levers, in order of preference: subscribe narrower
+    (per-item `useNode`), select cheaper values (ids, counts — not whole
+    mapped arrays), cache the expensive part behind `@memo`, and move bulk
+    scans to [raw reads](#read-wide-with-raw) with `Retree.untracked`.
+</Warning>
+
+## Read wide with raw
+
+Reads through Retree proxies pay a per-property trap cost. That's the right
+trade for UI reads; for algorithms — big tables, deep scans, serialization —
+skip the proxy entirely and read the raw object:
+
+```ts
+const rawTasks = Retree.raw(tree.todos); // ✅ proxy-free, native-speed reads
+const found = Retree.peekInto(tree.todos, (raw) =>
+    raw.find((todo) => todo.id === id)
+);
+found?.toggle(); // ✅ peekInto resolved the managed node
+
+const managed = Retree.managed(rawTasks[0]); // raw → managed node
+
+// Pause dependency tracking for bulk reads inside tracked selectors/memos.
+const count = Retree.untracked(() => tree.todos.length);
+```
+
+The tools:
+
+-   **`Retree.raw(node)`** — the raw, proxy-free object behind a node, for
+    native-speed read-only access. **Raw purity guarantee:** raw subtrees
+    contain zero Retree proxies under every write path, so
+    `structuredClone(Retree.raw(node))` is a valid point-in-time copy.
+-   **`Retree.managed(rawValue)`** — resolves a raw value back to its managed
+    node; the inverse of `Retree.raw`. Returns `undefined` for values never
+    materialized as nodes.
+-   **`Retree.peekInto(node, fn)`** — query raw and get the managed result in
+    one call: runs `fn` against the raw object and resolves the returned value
+    to its managed node when one exists.
+-   **`Retree.untracked(fn)`** — pauses dependency tracking during a
+    synchronous callback, so a bulk read inside a tracked selector or memo
+    getter doesn't become a dependency on everything it touched.
+-   **`useRaw(node)`** in React — subscribes like `useNode` but returns
+    `[raw, toManaged]` for proxy-free render reads. Use it for components that
+    read wide; pass **nodes** (via `toManaged`) to children, never raw values.
+
+Rules that keep raw reads safe: treat raw values as **read-only** (writes
+through raw skip emission entirely); never use raw references as `React.memo`
+props, `useMemo` deps, or equality tokens (raw identity never changes — nodes
+are the identity currency); and remember change payloads
+(`INodeFieldChanges.previous` / `.new`) are always raw values —
+`Retree.managed(change.previous)` opts back into the managed node.
+
+`Retree.raw` throws for values that are not managed nodes. Guard with
+`Retree.isNode` when a value may come from either side of the proxy boundary:
+
+```ts
+const rawValue = Retree.isNode(value) ? Retree.raw(value) : value;
+```
+
+API references: [`Retree.raw` and friends live on the `Retree`
+class](/api/core/classes/Retree); [`useRaw`](/api/react/functions/useRaw).
+
+## Lazy materialization and `prepareTree`
+
+Large `ReactiveNode` object and array fields are prepared **lazily**. This
+makes root creation and initial setup cheaper, and subtrees that are never
+read are never proxied — but the first nested read pays the preparation cost.
+That first-touch cost is real: the repository's benchmark findings
+(`benchmarks/findings-jul-10-2026.md`) measured first-touch traversal of a
+large tree at a large multiple of the steady-state proxied scan, which is
+itself well above a raw scan. Laziness mostly changes _when_ the cost is
+paid:
+
+-   Untouched assigned subtrees are cheaper because they are never prepared.
+-   Touched paths are prepared once, on first access.
+-   Loops that repeatedly create and immediately traverse fresh objects still
+    pay for those fresh objects.
+
+If you'd rather pay during a controlled phase (a loading spinner, app boot)
+than on first interaction, warm the proxies explicitly:
+
+```ts
+const root = Retree.root(new ProjectState());
+root.prepareTree(); // warm all reachable non-ignored child proxies
+root.prepareTree({ depth: 1 }); // or bound the depth
+```
+
+Or opt a node into automatic preparation when Retree proxies it:
+
+```ts
+class EagerNode extends ReactiveNode {
+    constructor() {
+        super({
+            prepare: {
+                autoPrepare: true,
+                depth: 0,
+            },
+        });
+    }
+
+    public sections = [{ title: "Intro", cards: [] }];
+
+    get dependencies() {
+        return [];
+    }
+}
+```
+
+`prepareTree()` walks own data fields only — it skips computed getters like
+`dependencies` and fields marked `@ignore`.
+
+## Batch writes with `runTransaction`
+
+When several synchronous writes are one logical update, wrap them in
+`Retree.runTransaction`. Retree still updates every changed node, but listener
+callbacks flush once per changed node after the transaction finishes:
+
+```ts
+Retree.runTransaction(() => {
+    counter.count += 1;
+    counter.count *= 2;
+}); // ✅ one nodeChanged emit, not two
+```
+
+Transactions coalesce _emission_, not mutation — they don't make the writes
+themselves free, and they help least when each write targets unrelated nodes
+that all need distinct notifications. They help most for bulk inserts and
+multi-field updates on hot nodes. For writes that shouldn't notify at all
+(telemetry counters, bookkeeping), see `Retree.runSilent` in
+[Transactions & silent writes](/docs/transactions).
+
+## Profiling
+
+Two tools, in this order:
+
+1. **React DevTools' Profiler tab.** Retree's whole value proposition is
+   render narrowness, so measure renders first. Record an interaction and
+   check which components re-rendered and why. This is especially worth doing
+   anywhere you've used `useTree`.
+2. **The Retree benchmark harness.** The repository ships a deterministic
+   benchmark CLI (`@retreejs/benchmark-cli`, results in
+   [`benchmarks/`](https://github.com/ryanbliss/retree/tree/main/benchmarks))
+   covering `nodeChanged` / `treeChanged` emission, `ReactiveNode`
+   dependency fan-out, listener fan-out, and `Retree.select`. Run it from a
+   repo checkout with `npm run benchmark`, and compare saved runs with
+   `retree-benchmark --compare <a> <b>`. If you believe you've hit a Retree
+   bottleneck, a benchmark scenario is the most useful thing to attach to an
+   issue.
+
+We deliberately don't print milliseconds here: absolute numbers depend on
+hardware, tree shape, and workload, and stale numbers mislead. The harness
+exists so you can measure your own shape.
+
+## Where next
+
+-   [Thinking in Retree](/docs/thinking-in-retree) — the mental model behind
+    the cost model: trees, events, reproxying, managed vs raw.
+-   [View models](/docs/view-models) — `dependencies`, `@select`, and
+    memoization in depth.
+-   [Choosing a hook](/docs/react) — `useNode` vs `useTree` vs `useSelect` vs
+    `useRaw`.

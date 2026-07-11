@@ -680,7 +680,7 @@ export class Retree {
      * `Retree.move`, Map/Set value reads, and post-construction assignment of
      * class instances or collections. Every value is plain data, every read
      * is native speed, and `structuredClone(Retree.raw(node))` is a valid
-     * point-in-time copy. Use {@link Retree.source} to resolve a raw value
+     * point-in-time copy. Use {@link Retree.managed} to resolve a raw value
      * back to its managed node.
      *
      * Throws when the value is not a Retree-managed node. When a value may
@@ -720,7 +720,7 @@ export class Retree {
      * Retree node or is not part of a Retree tree; a miss is a normal query
      * outcome, not an error. Values become materialized when they are read
      * through a managed node, so scanning via managed proxies first (or using
-     * `useRaw`'s `toSource`, which materializes direct children on demand)
+     * `useRaw`'s `toManaged`, which materializes direct children on demand)
      * guarantees resolution.
      *
      * @param value Raw object to resolve.
@@ -732,11 +732,11 @@ export class Retree {
      * project.items.forEach(() => {}); // materialize
      *
      * const rawItem = Retree.raw(project.items)[0];
-     * const item = Retree.source(rawItem);
+     * const item = Retree.managed(rawItem);
      * if (item) item.score = 2; // ✅ emits normally
      * ```
      */
-    static source<TNode extends TreeNode>(value: TNode): TNode | undefined {
+    static managed<TNode extends TreeNode>(value: TNode): TNode | undefined {
         if (value === null || typeof value !== "object") {
             return undefined;
         }

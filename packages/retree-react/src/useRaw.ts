@@ -22,7 +22,7 @@ import { NodeFactory } from "./types";
  * guaranteed to resolve (they are materialized on demand); deeper raw values
  * resolve when they have been materialized.
  */
-export type ToSource = <T extends TreeNode>(rawValue: T) => T | undefined;
+export type ToManaged = <T extends TreeNode>(rawValue: T) => T | undefined;
 
 export interface UseRawOptions {
     /**
@@ -45,14 +45,14 @@ function getNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>) {
  * proxy-free reads for render bodies that read wide.
  *
  * @remarks
- * Returns `[raw, toSource]`:
+ * Returns `[raw, toManaged]`:
  *
  * - `raw` is the live raw object behind the node ({@link Retree.raw}) —
  *   zero-copy and guaranteed proxy-free. Treat it as **read-only**: writes go
  *   through nodes. Raw references keep the same identity across changes, so
  *   never use them as `React.memo` props, `useMemo` deps, or equality
  *   tokens — nodes remain the identity currency.
- * - `toSource` resolves a raw value back to its managed node. Direct children
+ * - `toManaged` resolves a raw value back to its managed node. Direct children
  *   of the subscribed node always resolve (object/array children, Map
  *   values, and Set members are materialized on demand); use it to pass
  *   nodes to child components while mapping raw content.
@@ -66,17 +66,17 @@ function getNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>) {
  *
  * @param node Retree-managed node or node factory to observe.
  * @param options Optional listener type.
- * @returns `[raw, toSource]` tuple.
+ * @returns `[raw, toManaged]` tuple.
  *
  * @example
  * ```tsx
  * function TaskListView({ list }: { list: TaskList }) {
  *     // Re-renders only when the array itself changes.
- *     const [tasksRaw, toSource] = useRaw(list.tasks);
+ *     const [tasksRaw, toManaged] = useRaw(list.tasks);
  *     return (
  *         <ul>
  *             {tasksRaw.map((rawTask) => (
- *                 <TaskRow key={rawTask.id} task={toSource(rawTask)!} />
+ *                 <TaskRow key={rawTask.id} task={toManaged(rawTask)!} />
  *             ))}
  *         </ul>
  *     );
@@ -91,7 +91,7 @@ function getNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>) {
 export function useRaw<TNode extends TreeNode>(
     node: TNode | NodeFactory<TNode>,
     options?: UseRawOptions
-): [TNode, ToSource] {
+): [TNode, ToManaged] {
     const memoNode = useMemo(() => {
         return getNode(node);
     }, [node]);
@@ -113,9 +113,9 @@ export function useRaw<TNode extends TreeNode>(
     const materializedThisRender = useRef(false);
     materializedThisRender.current = false;
 
-    const toSource: ToSource = useCallback(
+    const toManaged: ToManaged = useCallback(
         <T extends TreeNode>(rawValue: T) => {
-            const existing = Retree.source(rawValue);
+            const existing = Retree.managed(rawValue);
             if (existing !== undefined) {
                 return existing;
             }
@@ -124,11 +124,11 @@ export function useRaw<TNode extends TreeNode>(
             }
             materializedThisRender.current = true;
             materializeDirectChildren(baseProxy);
-            return Retree.source(rawValue);
+            return Retree.managed(rawValue);
         },
         [baseProxy]
     );
 
     const raw = getUnproxiedNode(baseProxy) as TNode;
-    return useMemo(() => [raw, toSource], [raw, toSource]);
+    return useMemo(() => [raw, toManaged], [raw, toManaged]);
 }

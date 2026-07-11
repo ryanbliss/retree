@@ -125,7 +125,7 @@ export function ComparisonTable({ columns }: ComparisonTableProps) {
                                     {row.feature}
                                     {row.retreeLoses === true ? (
                                         <span className="mt-0.5 block font-mono text-[10px] font-normal uppercase tracking-widest text-faint">
-                                            Retree loses this one
+                                            Retree trails here
                                         </span>
                                     ) : null}
                                 </th>

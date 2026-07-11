@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 interface SearchResult {
     id: string;
@@ -158,7 +159,10 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
         }
     };
 
-    return (
+    // Portal to <body>: the trigger lives inside the sticky header, whose
+    // backdrop-blur creates a containing block that would clip this
+    // fixed-position overlay to the header's box.
+    return createPortal(
         <div
             className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-[12vh]"
             onClick={onClose}
@@ -240,6 +244,7 @@ export function SearchDialog({ onClose }: { onClose: () => void }) {
                     )}
                 </ul>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }

@@ -1,11 +1,29 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { CodeBlock } from "@/components/code/CodeBlock";
-import { CopyButton } from "@/components/code/CopyButton";
 import { CompareVisualizer } from "@/components/home/CompareVisualizer";
+import { DecoratorShowcase } from "@/components/home/DecoratorShowcase";
 import { GranularityDemo } from "@/components/home/GranularityDemo";
+import { InstallTabs } from "@/components/home/InstallTabs";
 import { Reveal } from "@/components/home/Reveal";
 import { TreeOpsDemo } from "@/components/home/TreeOpsDemo";
+import {
+    ArrowRightIcon,
+    AtSignIcon,
+    BoltIcon,
+    BookIcon,
+    BranchIcon,
+    ColumnsIcon,
+    GaugeIcon,
+    LayersIcon,
+    PackageIcon,
+    PencilIcon,
+    PlugIcon,
+    SignalIcon,
+    TargetIcon,
+    TreeIcon,
+} from "@/components/home/icons";
+import { HeroBackground } from "@/components/visualizer/HeroBackground";
 import { HeroVisualizer } from "@/components/visualizer/HeroVisualizer";
 
 export const metadata: Metadata = {
@@ -14,24 +32,26 @@ export const metadata: Metadata = {
         "Mutate a plain TypeScript object; exactly the components that read it re-render. Reactive object trees for React with per-node subscriptions.",
 };
 
-const INSTALL_COMMAND = "npm i @retreejs/core @retreejs/react";
-
 /* ------------------------------ code samples ------------------------------ */
 /* Every sample below is grounded in the repo README (the published API). */
 
 /* Mirrors components/visualizer/HeroVisualizer.tsx — the code that drives
  * the hero demo. Keep in sync if the demo state changes. */
 const HERO_CODE = `const demo = Retree.root({
-    tasks: [{ id: 1, title: "Ship the quickstart", done: false }],
+    tasks: [
+        { id: 1, title: "Ship the quickstart", done: false, subtasks: [] },
+        { id: 2, title: "Write tests", done: true, subtasks: [/* 3 deep */] },
+    ],
     stats: { count: 0 },
 });
 
-function TaskRow({ task }: { task: (typeof demo.tasks)[number] }) {
+function TaskRow({ task }: { task: HeroTask }) {
     const state = useNode(task); // subscribes to this task only
     return <li onClick={() => (state.done = !state.done)}>{state.title}</li>;
 }
 
-demo.tasks[0].done = true; // ✅ that row re-renders — nothing else`;
+demo.tasks[1].subtasks[0].subtasks[0].done = true;
+// ✅ that one deep row re-renders — no ancestor moves`;
 
 const GRANULARITY_CODE = `const dashboard = Retree.root({
     header: { title: "Team dashboard" },
@@ -73,26 +93,52 @@ project.tasks[0].title = "Better docs"; // ❌ no re-render: doneCount stayed 2`
 const TREE_OPS_CODE = `const task = board.backlog[0];
 
 Retree.move(task, board.active); // transfer ownership
-Retree.parent(task); // -> board.active
-
 board.selected = Retree.link(task); // reactive pointer, no reparenting
-board.backlog.push(Retree.clone(task)); // detached, independent copy`;
+board.backlog.push(Retree.clone(task)); // detached, independent copy
 
-const CONVEX_CODE = `import { useNode, useRoot } from "@retreejs/react";
-import { ConvexNode, ConvexQueryNode } from "@retreejs/convex";
-import { RetreeConvexReactClient } from "@retreejs/react-convex";
-import { api } from "../convex/_generated/api";
+// The ✕ button in the demo: delete a task without knowing
+// which list owns it by now — ask for its parent.
+const owner = Retree.parent(task); // -> board.active
+owner.splice(owner.indexOf(task), 1);`;
 
-const convex = new RetreeConvexReactClient(
-    process.env.NEXT_PUBLIC_CONVEX_URL!
-);
+/* Decorator showcase code — each block is exactly the code running in the
+ * matching components/home/DecoratorShowcase.tsx mode. Keep them in sync. */
 
-class TasksState extends ConvexNode {
-    public readonly tasks: ConvexQueryNode<typeof api.tasks.get>;
+const DEPENDENCIES_CODE = `import { ReactiveNode, Retree } from "@retreejs/core";
 
-    constructor() {
-        super(convex);
-        this.tasks = this.query(api.tasks.get, { initialState: [] });
+class EvenCounter extends ReactiveNode {
+    public numbers: number[] = [];
+
+    get evenCount(): number {
+        return this.numbers.filter((value) => value % 2 === 0).length;
+    }
+
+    get dependencies() {
+        // Subscribe to the numbers array, but emit only when the
+        // compared value — evenCount — actually changes.
+        return [this.dependency(this.numbers, [this.evenCount])];
+    }
+}
+
+const counter = Retree.root(new EvenCounter());
+const state = useNode(counter); // in the badge panel
+
+counter.numbers.push(2); // ✅ evenCount changed — the panel re-renders
+counter.numbers.push(3); // ❌ evenCount unchanged — the panel stays quiet`;
+
+const SELECT_CODE = `import { ReactiveNode, Retree, select } from "@retreejs/core";
+
+class TaskBoard extends ReactiveNode {
+    public tasks = [
+        { title: "Write the docs", done: true },
+        { title: "Ship the site", done: false },
+    ];
+
+    // Traps the reads inside the getter — the board emits only when
+    // the selected dependencies (each task's done) change.
+    @select()
+    get doneCount(): number {
+        return this.tasks.filter((task) => task.done).length;
     }
 
     get dependencies() {
@@ -100,18 +146,53 @@ class TasksState extends ConvexNode {
     }
 }
 
-export function TaskList() {
-    const root = useRoot(() => new TasksState());
-    const state = useNode(root);
+const board = Retree.root(new TaskBoard());
 
-    return (
-        <ul>
-            {state.tasks.state?.map((task) => (
-                <li key={task._id}>{task.text}</li>
-            ))}
-        </ul>
-    );
-}`;
+board.tasks[0].done = false; // ✅ doneCount changed — the board emits
+board.tasks[0].title = "Docs v2"; // ❌ board silent — only the row re-renders`;
+
+const MEMO_CODE = `import { ReactiveNode, Retree, memo } from "@retreejs/core";
+
+let filterComputations = 0;
+
+class CardFilter extends ReactiveNode {
+    public cards = [{ text: "alpha" }, { text: "beta" }, { text: "alphabet" }];
+    public searchText = "alpha";
+    public label = "cards"; // unrelated to the memoized getter
+
+    @memo
+    get filtered(): { text: string }[] {
+        filterComputations += 1; // instrumentation shown in the demo
+        return this.cards.filter((card) => card.text.includes(this.searchText));
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+const filter = Retree.root(new CardFilter());
+
+filter.label = "cards (touched)"; // ✅ re-renders — ❌ cache hit, no recompute
+filter.searchText = "beta"; // ✅ re-renders and recomputes once`;
+
+const IGNORE_CODE = `import { ReactiveNode, Retree, ignore } from "@retreejs/core";
+
+class Draft extends ReactiveNode {
+    public count = 0;
+
+    // Reads and writes still work — listener emission is skipped.
+    @ignore public scratch = { writes: 0 };
+
+    get dependencies() {
+        return [];
+    }
+}
+
+const draft = Retree.root(new Draft());
+
+draft.scratch.writes += 1; // ❌ no emission — nothing re-renders
+draft.count += 1; // ✅ re-renders — and the panel catches up on scratch`;
 
 /* The comparison side, unabridged, so skeptics can audit it (spec §5.1). */
 const COMPARE_STORE_CODE = `// "idiomatic top-level store" pane — the exact pattern running above.
@@ -174,26 +255,51 @@ function DoneCount() {
 
 /* ------------------------------ page content ------------------------------ */
 
-const CLAIMS: { title: React.ReactNode; detail: string }[] = [
+const CLAIMS: {
+    icon: React.ReactNode;
+    title: React.ReactNode;
+    detail: React.ReactNode;
+}[] = [
     {
+        icon: <PencilIcon />,
         title: (
             <>
                 No <code>observer()</code> HOCs, no action wrappers
             </>
         ),
-        detail: "Components are plain functions. Writes are plain assignments.",
+        detail: "Components are plain functions; writes are plain assignments.",
     },
     {
+        icon: <SignalIcon />,
+        title: "Subscriptions at any depth",
+        detail: (
+            <>
+                <code>useNode</code> subscribes to any node in the tree — a row,
+                a field, a whole panel — not a top-level store.
+            </>
+        ),
+    },
+    {
+        icon: <BranchIcon />,
         title: "Tree operations built in",
-        detail: "parent, move, link, clone — ownership is explicit, not a separate library.",
+        detail: (
+            <>
+                <code>parent</code>, <code>move</code>, <code>link</code>,{" "}
+                <code>clone</code> — ownership is explicit, not a data-modeling
+                exercise.
+            </>
+        ),
     },
     {
-        title: "React 16.8 → 19",
-        detail: "One hooks API across every React release since hooks existed.",
-    },
-    {
-        title: "Class view models and plain objects",
-        detail: "Mix ReactiveNode classes with plain objects, arrays, Maps, and Sets in one tree.",
+        icon: <AtSignIcon />,
+        title: "Class view models with decorators",
+        detail: (
+            <>
+                <code>@select</code>, <code>@memo</code>, and{" "}
+                <code>@ignore</code> on your own <code>ReactiveNode</code>{" "}
+                classes, mixed freely with plain objects.
+            </>
+        ),
     },
 ];
 
@@ -246,23 +352,20 @@ const PACKAGES: PackageCard[] = [
     },
 ];
 
-function InstallCommand() {
+function Eyebrow({
+    icon,
+    children,
+}: {
+    icon?: React.ReactNode;
+    children: React.ReactNode;
+}) {
     return (
-        <figure className="relative overflow-hidden rounded-lg border border-border-token bg-code-bg">
-            <pre className="overflow-x-auto py-3 pl-4 pr-12 font-mono text-[13px] text-foreground">
-                <span aria-hidden className="select-none text-faint">
-                    ${" "}
+        <p className="flex items-center gap-1.5 font-mono text-xs uppercase tracking-widest text-faint">
+            {icon !== undefined ? (
+                <span aria-hidden className="text-accent">
+                    {icon}
                 </span>
-                {INSTALL_COMMAND}
-            </pre>
-            <CopyButton text={INSTALL_COMMAND} alwaysVisible />
-        </figure>
-    );
-}
-
-function Eyebrow({ children }: { children: React.ReactNode }) {
-    return (
-        <p className="font-mono text-xs uppercase tracking-widest text-faint">
+            ) : null}
             {children}
         </p>
     );
@@ -272,51 +375,56 @@ export default function Home() {
     return (
         <main>
             {/* 1 — Hero */}
-            <section className="mx-auto max-w-7xl px-4 pb-16 pt-14 sm:px-6 lg:pb-24 lg:pt-20">
-                <div className="grid items-center gap-10 lg:grid-cols-2">
-                    <Reveal mode="mount">
-                        <h1 className="max-w-xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
-                            Your state tree, shaped like your component tree.
-                        </h1>
-                        <p className="mt-4 max-w-xl text-lg text-muted">
-                            Mutate a plain TypeScript object; exactly the
-                            components that read it re-render.
-                        </p>
-                        <div className="mt-6 max-w-md">
-                            <InstallCommand />
-                        </div>
-                        <div className="mt-6 flex flex-wrap items-center gap-3">
-                            <Link
-                                href="/docs/quick-start"
-                                className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                            >
-                                Get started
-                            </Link>
-                            <a
-                                href="https://github.com/ryanbliss/retree"
-                                target="_blank"
-                                rel="noreferrer"
-                                className="rounded-md border border-border-token px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-border-strong hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                            >
-                                GitHub
-                            </a>
-                        </div>
-                        <div className="mt-8 max-w-xl">
-                            <CodeBlock
-                                code={HERO_CODE}
-                                lang="tsx"
-                                title="the entire state layer of the demo →"
-                            />
-                        </div>
-                    </Reveal>
-                    <Reveal mode="mount" delay={0.08}>
-                        <HeroVisualizer />
-                        <p className="mt-2 text-xs text-faint">
-                            A real Retree tree running in this page — the loop
-                            mutates it with plain assignments until you take
-                            over.
-                        </p>
-                    </Reveal>
+            <section className="relative overflow-hidden">
+                <HeroBackground />
+                <div className="relative z-10 mx-auto max-w-7xl px-4 pb-16 pt-14 sm:px-6 lg:pb-24 lg:pt-20">
+                    <div className="grid items-center gap-10 lg:grid-cols-2">
+                        <Reveal mode="mount">
+                            <h1 className="max-w-xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+                                Your state tree, shaped like your component
+                                tree.
+                            </h1>
+                            <p className="mt-4 max-w-xl text-lg text-muted">
+                                Mutate a plain TypeScript object; exactly the
+                                components that read it re-render.
+                            </p>
+                            <div className="mt-6 max-w-md">
+                                <InstallTabs />
+                            </div>
+                            <div className="mt-6 flex flex-wrap items-center gap-3">
+                                <Link
+                                    href="/docs/quick-start"
+                                    className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                                >
+                                    Get started
+                                    <ArrowRightIcon size={14} />
+                                </Link>
+                                <a
+                                    href="https://github.com/ryanbliss/retree"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="rounded-md border border-border-token px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-border-strong hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                                >
+                                    GitHub
+                                </a>
+                            </div>
+                            <div className="mt-8 max-w-xl">
+                                <CodeBlock
+                                    code={HERO_CODE}
+                                    lang="tsx"
+                                    title="the entire state layer of the demo →"
+                                />
+                            </div>
+                        </Reveal>
+                        <Reveal mode="mount" delay={0.08}>
+                            <HeroVisualizer />
+                            <p className="mt-2 text-xs text-faint">
+                                A real Retree tree running in this page — the
+                                loop mutates it with plain assignments until you
+                                take over.
+                            </p>
+                        </Reveal>
+                    </div>
                 </div>
             </section>
 
@@ -325,81 +433,41 @@ export default function Home() {
                 aria-label="What you get"
                 className="border-y border-border-token bg-surface"
             >
-                <div className="mx-auto grid max-w-7xl gap-px px-4 py-8 sm:grid-cols-2 sm:px-6 lg:grid-cols-4">
+                <div className="mx-auto grid max-w-7xl gap-4 px-4 py-10 sm:grid-cols-2 sm:px-6 lg:grid-cols-4">
                     {CLAIMS.map((claim, index) => (
                         <Reveal
                             key={index}
                             delay={index * 0.06}
-                            className="px-2 py-3 lg:px-4"
+                            className="h-full"
                         >
-                            <p className="font-mono text-sm text-foreground">
-                                {claim.title}
-                            </p>
-                            <p className="mt-1.5 text-sm text-muted">
-                                {claim.detail}
-                            </p>
+                            <article className="flex h-full flex-col rounded-lg border border-border-token bg-background p-4 [&_code]:font-mono [&_code]:text-[0.95em]">
+                                <span
+                                    aria-hidden
+                                    className="mb-3 inline-flex size-8 items-center justify-center rounded-md border border-border-token bg-surface text-accent"
+                                >
+                                    {claim.icon}
+                                </span>
+                                <p className="font-mono text-sm text-foreground">
+                                    {claim.title}
+                                </p>
+                                <p className="mt-1.5 text-sm text-muted [&_code]:text-foreground">
+                                    {claim.detail}
+                                </p>
+                            </article>
                         </Reveal>
                     ))}
                 </div>
             </section>
 
-            {/* 3 — Comparative re-render visualizer */}
-            <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:py-24">
-                <Reveal className="max-w-2xl">
-                    <Eyebrow>the difference</Eyebrow>
-                    <h2 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
-                        Same app. Watch the render counters.
-                    </h2>
-                    <p className="mt-3 text-muted">
-                        Toggle tasks on either side. With a top-level store, the
-                        owning component re-renders on every write —{" "}
-                        <code>React.memo</code> keeps siblings quiet, but the
-                        owner still runs. With Retree, each row subscribes to
-                        its own node, so the parent&apos;s counter never moves.
-                    </p>
-                </Reveal>
-                <Reveal delay={0.08} className="mt-8">
-                    <CompareVisualizer />
-                </Reveal>
-                <Reveal delay={0.1} className="mt-6">
-                    <details className="group rounded-lg border border-border-token bg-surface px-4 py-3">
-                        <summary className="cursor-pointer font-mono text-sm text-muted transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-                            Audit both panes — the comparison side is a single{" "}
-                            <code>useState</code> store with immutable updates
-                            and <code>React.memo</code> rows, not a strawman
-                        </summary>
-                        <div className="mt-2 grid gap-4 lg:grid-cols-2">
-                            <CodeBlock
-                                code={COMPARE_STORE_CODE}
-                                lang="tsx"
-                                title="top-level-store.tsx"
-                            />
-                            <CodeBlock
-                                code={COMPARE_RETREE_CODE}
-                                lang="tsx"
-                                title="retree.tsx"
-                            />
-                        </div>
-                    </details>
-                    <p className="mt-6">
-                        <Link
-                            href="/why"
-                            className="font-mono text-sm text-accent underline-offset-4 hover:underline"
-                        >
-                            Why Retree — the full comparison, trade-offs
-                            included →
-                        </Link>
-                    </p>
-                </Reveal>
-            </section>
-
-            {/* 4 — Feature walk */}
-            <section className="border-t border-border-token">
+            {/* 3 — Feature walk */}
+            <section className="border-b border-border-token">
                 <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:py-24">
                     <Reveal className="max-w-2xl">
-                        <Eyebrow>how it works</Eyebrow>
+                        <Eyebrow icon={<TreeIcon size={14} />}>
+                            how it works
+                        </Eyebrow>
                         <h2 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
-                            Four ideas, in adoption order.
+                            Three ideas, in adoption order.
                         </h2>
                     </Reveal>
 
@@ -407,26 +475,27 @@ export default function Home() {
                         {/* 01 — plain-assignment mutation, live demo */}
                         <FeatureItem
                             number="01"
+                            icon={<PencilIcon size={18} />}
                             title="Mutate with plain assignments"
-                            demo={<GranularityDemo />}
                             body={
-                                <>
-                                    <p>
-                                        Pass any object to{" "}
-                                        <code>Retree.root</code>, read a node
-                                        with <code>useNode</code>, and assign to
-                                        it like ordinary TypeScript. A component
-                                        re-renders only when a node it
-                                        subscribed to changes — writes to a
-                                        nested child emit on that child, not on
-                                        every ancestor.
-                                    </p>
-                                    <CodeBlock
-                                        code={GRANULARITY_CODE}
-                                        lang="tsx"
-                                    />
-                                </>
+                                <p>
+                                    Pass any object to <code>Retree.root</code>,
+                                    read a node with <code>useNode</code>, and
+                                    assign to it like ordinary TypeScript. A
+                                    component re-renders only when a node it
+                                    subscribed to changes — writes to a nested
+                                    child emit on that child, not on every
+                                    ancestor.
+                                </p>
                             }
+                            code={
+                                <CodeBlock
+                                    code={GRANULARITY_CODE}
+                                    lang="tsx"
+                                    title="granularity.tsx"
+                                />
+                            }
+                            demo={<GranularityDemo />}
                             link={{
                                 href: "/docs/react/use-node",
                                 label: "useNode guide",
@@ -436,15 +505,8 @@ export default function Home() {
                         {/* 02 — useSelect, static code */}
                         <FeatureItem
                             number="02"
+                            icon={<TargetIcon size={18} />}
                             title="Derive values with useSelect"
-                            reversed
-                            demo={
-                                <CodeBlock
-                                    code={USE_SELECT_CODE}
-                                    lang="tsx"
-                                    title="done-count.tsx"
-                                />
-                            }
                             body={
                                 <p>
                                     <code>useSelect</code> re-renders a
@@ -456,6 +518,13 @@ export default function Home() {
                                     selector.
                                 </p>
                             }
+                            code={
+                                <CodeBlock
+                                    code={USE_SELECT_CODE}
+                                    lang="tsx"
+                                    title="done-count.tsx"
+                                />
+                            }
                             link={{
                                 href: "/docs/react/use-select",
                                 label: "useSelect guide",
@@ -465,64 +534,32 @@ export default function Home() {
                         {/* 03 — tree semantics, live demo */}
                         <FeatureItem
                             number="03"
+                            icon={<BranchIcon size={18} />}
                             title="Tree semantics are built in"
-                            demo={<TreeOpsDemo />}
                             body={
-                                <>
-                                    <p>
-                                        Every node has one structural parent,
-                                        and changing that is a first-class
-                                        operation — not a data-modeling
-                                        exercise. <code>Retree.move</code>{" "}
-                                        transfers ownership,{" "}
-                                        <code>Retree.link</code> points without
-                                        reparenting, <code>Retree.clone</code>{" "}
-                                        copies, and <code>Retree.parent</code>{" "}
-                                        lets a node operate on its own
-                                        container.
-                                    </p>
-                                    <CodeBlock code={TREE_OPS_CODE} lang="ts" />
-                                </>
+                                <p>
+                                    Every node has one structural parent, and
+                                    changing that is a first-class operation —
+                                    not a data-modeling exercise.{" "}
+                                    <code>Retree.move</code> transfers
+                                    ownership, <code>Retree.link</code> points
+                                    without reparenting,{" "}
+                                    <code>Retree.clone</code> copies, and{" "}
+                                    <code>Retree.parent</code> lets a node
+                                    operate on its own container.
+                                </p>
                             }
+                            code={
+                                <CodeBlock
+                                    code={TREE_OPS_CODE}
+                                    lang="ts"
+                                    title="tree-ops.ts"
+                                />
+                            }
+                            demo={<TreeOpsDemo />}
                             link={{
                                 href: "/docs/tree-operations",
                                 label: "Tree operations guide",
-                            }}
-                        />
-
-                        {/* 04 — Convex teaser, static code */}
-                        <FeatureItem
-                            number="04"
-                            title="Sync a tree to a backend"
-                            reversed
-                            demo={
-                                <CodeBlock
-                                    code={CONVEX_CODE}
-                                    lang="tsx"
-                                    title="tasks-state.tsx"
-                                />
-                            }
-                            body={
-                                <p>
-                                    <code>@retreejs/convex</code> writes{" "}
-                                    <a
-                                        href="https://convex.dev"
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-accent underline-offset-4 hover:underline"
-                                    >
-                                        Convex
-                                    </a>{" "}
-                                    query results into Retree nodes: documents
-                                    reconcile by <code>_id</code>, optimistic
-                                    updates apply narrowly to existing query
-                                    state, and your components keep reading the
-                                    same tree they always did.
-                                </p>
-                            }
-                            link={{
-                                href: "/docs/convex",
-                                label: "Convex integration guide",
                             }}
                         />
                     </div>
@@ -530,22 +567,28 @@ export default function Home() {
                     {/* when you need more */}
                     <Reveal className="mt-16">
                         <div className="rounded-xl border border-border-token bg-surface p-6">
-                            <h3 className="font-mono text-sm uppercase tracking-widest text-faint">
+                            <h3 className="flex items-center gap-2 font-mono text-sm uppercase tracking-widest text-faint">
+                                <span aria-hidden className="text-accent">
+                                    <BookIcon size={15} />
+                                </span>
                                 when you need more
                             </h3>
                             <div className="mt-4 grid gap-6 sm:grid-cols-3">
                                 <MoreLink
-                                    href="/docs/view-models"
-                                    title="View models & decorators"
-                                    detail="ReactiveNode, @select, @memo, @fnMemo, @ignore, @link — keep logic on the node while renders stay selective."
+                                    href="/docs/events-and-subscriptions"
+                                    icon={<SignalIcon size={15} />}
+                                    title="Events outside React"
+                                    detail="Retree.on subscribes to nodeChanged, treeChanged, or nodeRemoved from any code — integrations don't need hooks."
                                 />
                                 <MoreLink
                                     href="/docs/transactions"
+                                    icon={<LayersIcon size={15} />}
                                     title="Transactions & silent writes"
                                     detail="Retree.runTransaction batches writes into one flush; Retree.runSilent skips emission entirely."
                                 />
                                 <MoreLink
                                     href="/docs/performance"
+                                    icon={<BoltIcon size={15} />}
                                     title="Raw escape hatches"
                                     detail="Retree.raw, useRaw, peekInto, and untracked for native-speed, proxy-free reads."
                                 />
@@ -555,11 +598,176 @@ export default function Home() {
                 </div>
             </section>
 
-            {/* 5 — Per-package cards */}
+            {/* 4 — Comparative re-render visualizer */}
+            <section className="border-b border-border-token">
+                <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:py-24">
+                    <Reveal className="max-w-2xl">
+                        <Eyebrow icon={<ColumnsIcon size={14} />}>
+                            the difference
+                        </Eyebrow>
+                        <h2 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
+                            Same app. Watch the render counters.
+                        </h2>
+                        <p className="mt-3 text-muted">
+                            Toggle tasks on either side. With a top-level store,
+                            the owning component re-renders on every write —{" "}
+                            <code>React.memo</code> keeps siblings quiet, but
+                            the owner still runs. With Retree, each row
+                            subscribes to its own node, so the parent&apos;s
+                            counter never moves.
+                        </p>
+                    </Reveal>
+                    <Reveal delay={0.08} className="mt-8">
+                        <CompareVisualizer />
+                    </Reveal>
+                    <Reveal delay={0.1} className="mt-6">
+                        <details className="group rounded-lg border border-border-token bg-surface px-4 py-3">
+                            <summary className="cursor-pointer font-mono text-sm text-muted transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+                                Audit both panes — the comparison side is a
+                                single <code>useState</code> store with
+                                immutable updates and <code>React.memo</code>{" "}
+                                rows, not a strawman
+                            </summary>
+                            <div className="mt-2 grid gap-4 lg:grid-cols-2">
+                                <CodeBlock
+                                    code={COMPARE_STORE_CODE}
+                                    lang="tsx"
+                                    title="top-level-store.tsx"
+                                />
+                                <CodeBlock
+                                    code={COMPARE_RETREE_CODE}
+                                    lang="tsx"
+                                    title="retree.tsx"
+                                />
+                            </div>
+                        </details>
+                        <p className="mt-6">
+                            <Link
+                                href="/why"
+                                className="font-mono text-sm text-accent underline-offset-4 hover:underline"
+                            >
+                                Why Retree — the full comparison, trade-offs
+                                included →
+                            </Link>
+                        </p>
+                    </Reveal>
+                </div>
+            </section>
+
+            {/* 5 — View models: ReactiveNode + decorators */}
+            <section className="border-b border-border-token">
+                <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:py-24">
+                    <Reveal className="max-w-2xl">
+                        <Eyebrow icon={<AtSignIcon size={14} />}>
+                            view models
+                        </Eyebrow>
+                        <h2 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
+                            View models: ReactiveNode + decorators.
+                        </h2>
+                        <p className="mt-3 text-muted [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground">
+                            Extend <code>ReactiveNode</code> when a node should
+                            carry its own logic. Declared dependencies decide
+                            when the node emits, and the decorators keep renders
+                            selective while getters and methods stay on the
+                            class — designed to be used together, with{" "}
+                            <code>useNode</code> on the component side. Every
+                            demo below is live; the code shown is the code
+                            running.
+                        </p>
+                    </Reveal>
+                    <Reveal delay={0.08} className="mt-8">
+                        <DecoratorShowcase
+                            codeBlocks={{
+                                dependencies: (
+                                    <CodeBlock
+                                        code={DEPENDENCIES_CODE}
+                                        lang="tsx"
+                                        title="even-counter.tsx"
+                                    />
+                                ),
+                                "@select": (
+                                    <CodeBlock
+                                        code={SELECT_CODE}
+                                        lang="ts"
+                                        title="task-board.ts"
+                                    />
+                                ),
+                                "@memo": (
+                                    <CodeBlock
+                                        code={MEMO_CODE}
+                                        lang="ts"
+                                        title="card-filter.ts"
+                                    />
+                                ),
+                                "@ignore": (
+                                    <CodeBlock
+                                        code={IGNORE_CODE}
+                                        lang="ts"
+                                        title="draft.ts"
+                                    />
+                                ),
+                            }}
+                        />
+                    </Reveal>
+                    <Reveal delay={0.1} className="mt-6">
+                        <p>
+                            <Link
+                                href="/docs/view-models"
+                                className="font-mono text-sm text-accent underline-offset-4 hover:underline"
+                            >
+                                View models &amp; decorators — the full guide →
+                            </Link>
+                        </p>
+                    </Reveal>
+                </div>
+            </section>
+
+            {/* 6 — Convex callout */}
+            <section
+                aria-label="Convex integration"
+                className="border-t border-border-token"
+            >
+                <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:py-12">
+                    <Reveal>
+                        <aside className="flex flex-col gap-4 rounded-xl border border-border-token bg-surface p-6 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="max-w-2xl">
+                                <Eyebrow icon={<PlugIcon size={14} />}>
+                                    convex
+                                </Eyebrow>
+                                <p className="mt-2 text-sm text-muted">
+                                    Retree ships an official{" "}
+                                    <a
+                                        href="https://convex.dev"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-accent underline-offset-4 hover:underline"
+                                    >
+                                        Convex
+                                    </a>{" "}
+                                    integration: queries, mutations, and
+                                    optimistic updates are written straight into
+                                    Retree nodes, so your components keep
+                                    reading the same tree they always did.
+                                </p>
+                            </div>
+                            <Link
+                                href="/docs/convex"
+                                className="shrink-0 font-mono text-sm text-accent underline-offset-4 hover:underline"
+                            >
+                                Convex integration →
+                            </Link>
+                        </aside>
+                    </Reveal>
+                </div>
+            </section>
+
+            {/* 7 — Per-package cards */}
             <section className="border-t border-border-token bg-surface">
                 <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:py-20">
                     <Reveal className="max-w-2xl">
-                        <Eyebrow>packages</Eyebrow>
+                        <Eyebrow icon={<PackageIcon size={14} />}>
+                            packages
+                        </Eyebrow>
                         <h2 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
                             Four packages, one tree.
                         </h2>
@@ -568,7 +776,13 @@ export default function Home() {
                         {PACKAGES.map((pkg, index) => (
                             <Reveal key={pkg.slug} delay={index * 0.06}>
                                 <article className="flex h-full flex-col rounded-xl border border-border-token bg-background p-5">
-                                    <h3 className="font-mono text-sm font-semibold text-foreground">
+                                    <h3 className="flex items-center gap-2 font-mono text-sm font-semibold text-foreground">
+                                        <span
+                                            aria-hidden
+                                            className="shrink-0 text-faint"
+                                        >
+                                            <PackageIcon size={15} />
+                                        </span>
                                         {pkg.name}
                                     </h3>
                                     <p className="mt-2 text-sm text-muted">
@@ -598,11 +812,13 @@ export default function Home() {
                 </div>
             </section>
 
-            {/* 6 — Performance philosophy strip */}
+            {/* 8 — Performance philosophy strip */}
             <section className="border-t border-border-token">
                 <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:py-20">
                     <Reveal className="max-w-3xl">
-                        <Eyebrow>performance</Eyebrow>
+                        <Eyebrow icon={<GaugeIcon size={14} />}>
+                            performance
+                        </Eyebrow>
                         <h2 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
                             Measured in the open.
                         </h2>
@@ -632,7 +848,7 @@ export default function Home() {
                 </div>
             </section>
 
-            {/* 7 — Final CTA */}
+            {/* 9 — Final CTA */}
             <section className="border-t border-border-token bg-surface">
                 <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:py-24">
                     <Reveal className="mx-auto max-w-xl text-center">
@@ -644,14 +860,15 @@ export default function Home() {
                             plain TypeScript.
                         </p>
                         <div className="mx-auto mt-6 max-w-md text-left">
-                            <InstallCommand />
+                            <InstallTabs />
                         </div>
                         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
                             <Link
                                 href="/docs/quick-start"
-                                className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                                className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                             >
                                 Get started
+                                <ArrowRightIcon size={14} />
                             </Link>
                             <a
                                 href="https://github.com/ryanbliss/retree"
@@ -669,61 +886,82 @@ export default function Home() {
     );
 }
 
+/**
+ * One feature: number/title/prose span the full width above, and the code
+ * block and live demo share a single aligned row below (code left, demo
+ * right — consistent order on every feature). `min-w-0` on both grid children
+ * prevents code blocks from forcing horizontal overflow on mobile.
+ */
 function FeatureItem({
     number,
+    icon,
     title,
     body,
+    code,
     demo,
     link,
-    reversed = false,
 }: {
     number: string;
+    icon: React.ReactNode;
     title: string;
     body: React.ReactNode;
-    demo: React.ReactNode;
+    code: React.ReactNode;
+    demo?: React.ReactNode;
     link: { href: string; label: string };
-    reversed?: boolean;
 }) {
     return (
         <Reveal>
-            <div className="grid items-start gap-8 lg:grid-cols-2 lg:gap-12">
-                <div className={`min-w-0 ${reversed ? "lg:order-2" : ""}`}>
-                    <p className="font-mono text-sm text-accent">{number}</p>
-                    <h3 className="mt-2 text-xl font-semibold tracking-tight text-foreground">
-                        {title}
-                    </h3>
-                    <div className="mt-3 space-y-4 text-sm leading-relaxed text-muted [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground">
-                        {body}
-                    </div>
-                    <p className="mt-4">
-                        <Link
-                            href={link.href}
-                            className="font-mono text-xs text-accent underline-offset-4 hover:underline"
-                        >
-                            {link.label} →
-                        </Link>
-                    </p>
+            <div className="max-w-2xl">
+                <p className="font-mono text-sm text-accent">{number}</p>
+                <h3 className="mt-2 flex items-center gap-2 text-xl font-semibold tracking-tight text-foreground">
+                    <span aria-hidden className="shrink-0 text-accent">
+                        {icon}
+                    </span>
+                    {title}
+                </h3>
+                <div className="mt-3 space-y-4 text-sm leading-relaxed text-muted [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground">
+                    {body}
                 </div>
-                <div className={`min-w-0 ${reversed ? "lg:order-1" : ""}`}>
-                    {demo}
-                </div>
+                <p className="mt-4">
+                    <Link
+                        href={link.href}
+                        className="font-mono text-xs text-accent underline-offset-4 hover:underline"
+                    >
+                        {link.label} →
+                    </Link>
+                </p>
             </div>
+            {demo !== undefined ? (
+                // items-stretch (the default): code and demo share the row's
+                // height, and each demo's DemoLog absorbs the difference.
+                <div className="mt-6 grid gap-6 lg:grid-cols-2 lg:gap-8">
+                    <div className="min-w-0 [&>figure]:my-0">{code}</div>
+                    <div className="min-w-0">{demo}</div>
+                </div>
+            ) : (
+                <div className="mt-6 max-w-3xl [&>figure]:my-0">{code}</div>
+            )}
         </Reveal>
     );
 }
 
 function MoreLink({
     href,
+    icon,
     title,
     detail,
 }: {
     href: string;
+    icon: React.ReactNode;
     title: string;
     detail: string;
 }) {
     return (
         <Link href={href} className="group block">
-            <p className="text-sm font-medium text-foreground group-hover:text-accent">
+            <p className="flex items-center gap-2 text-sm font-medium text-foreground group-hover:text-accent">
+                <span aria-hidden className="shrink-0 text-accent">
+                    {icon}
+                </span>
                 {title}
             </p>
             <p className="mt-1 text-xs text-muted">{detail}</p>

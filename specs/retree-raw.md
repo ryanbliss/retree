@@ -146,12 +146,12 @@ or faster.
 function useRaw<TNode extends TreeNode>(
     node: TNode | NodeFactory<TNode>,
     options?: { listenerType?: TRetreeChangedEvents }
-): [TNode, ToSource];
+): [TNode, ToManaged];
 
-type ToSource = <T extends TreeNode>(rawValue: T) => T | undefined;
+type ToManaged = <T extends TreeNode>(rawValue: T) => T | undefined;
 ```
 
--   Returns a **tuple** `[raw, toSource]`.
+-   Returns a **tuple** `[raw, toManaged]`.
 -   `raw` is `Retree.raw(node)` — the live raw subtree, zero-copy, native
     reads, guaranteed proxy-free by §3. Read-only by contract (writes go
     through nodes; writing raw skips emission and is the documented
@@ -167,19 +167,19 @@ type ToSource = <T extends TreeNode>(rawValue: T) => T | undefined;
     `useNode`. Tearing exposure under concurrent rendering is the same as
     `useNode` today (live reads during render).
 
-### 4.2 `Retree.source` and `toSource`
+### 4.2 `Retree.managed` and `toManaged`
 
 ```ts
 static source<TNode extends TreeNode>(rawValue: TNode): TNode | undefined;
 ```
 
-`Retree.source` is **public API** (resolved): it resolves a raw value back to
+`Retree.managed` is **public API** (resolved): it resolves a raw value back to
 its managed node — the latest managed proxy, the same resolution `peekInto`
 uses for return values. O(1); returns `undefined` when the value has never
 been materialized or is not Retree data (a miss is a normal query outcome,
 not an error).
 
-`toSource` (from the hook) is `Retree.source` plus a materialization
+`toManaged` (from the hook) is `Retree.managed` plus a materialization
 guarantee scoped to the subscribed node:
 
 -   **Guarantee for the canonical pattern (resolved: applies to collections
@@ -187,7 +187,7 @@ guarantee scoped to the subscribed node:
     object/array children, **Map values, and Set members** alike. On a lookup
     miss, the hook materializes the subscribed node's direct children once
     (memoized per version of the node) and retries — so mapping `raw`
-    children and calling `toSource` per item never returns `undefined` for
+    children and calling `toManaged` per item never returns `undefined` for
     them, even for never-touched children.
 -   Deeper raw values resolve iff they have been materialized; in the intended
     composition they belong to child components' own hooks, which materialize
@@ -198,11 +198,11 @@ guarantee scoped to the subscribed node:
 ```tsx
 function TaskListView({ list }: { list: TaskList }) {
     // Re-renders only when the array itself changes: add / remove / reorder.
-    const [tasksRaw, toSource] = useRaw(list.tasks);
+    const [tasksRaw, toManaged] = useRaw(list.tasks);
     return (
         <ul>
             {tasksRaw.map((rawTask) => (
-                <TaskRow key={rawTask.id} task={toSource(rawTask)!} />
+                <TaskRow key={rawTask.id} task={toManaged(rawTask)!} />
             ))}
         </ul>
     );
@@ -216,7 +216,7 @@ const TaskRow = React.memo(function TaskRow({ task }: { task: Task }) {
 
 Granularity: the list re-renders on structural changes only; rows re-render
 on their own content via their own subscription; memo'd rows bail because
-`toSource` returns stable node references. A task's `isComplete` flip
+`toManaged` returns stable node references. A task's `isComplete` flip
 re-renders that row and nothing else.
 
 ### 4.4 Opting in to deep invalidation
@@ -296,7 +296,7 @@ Split the two:
 ### 4.6 What `useRaw` values are not for
 
 -   **Not a prop currency between subscribed components** — pass nodes;
-    `toSource` closes the loop when mapping raw content.
+    `toManaged` closes the loop when mapping raw content.
 -   **Not identity/memo tokens** — raw references are stable across changes by
     design. Use nodes (reproxy identity) for `React.memo` props, `useMemo`
     deps, and equality checks.
@@ -327,20 +327,20 @@ React (`useRaw.spec.tsx`):
 -   deliberate deep invalidation (§4.4 mechanism 1): `ReactiveNode` owner with
     `@select` — deep dependency change re-renders the default-`nodeChanged`
     `useRaw` consumer; an undeclared deep change does not.
--   `toSource` resolves never-materialized direct children (fresh tree, no
+-   `toManaged` resolves never-materialized direct children (fresh tree, no
     prior traversal); stable node identity across re-renders.
 -   freshness-on-render: after a deep change with no re-render, a
     parent-triggered re-render reads current raw data.
 
 ## 6. Performance gates (probe + bundle harness, medians)
 
-| Measurement                                        | Gate                               | Measured (2026-07-10)                                                      |
-| -------------------------------------------------- | ---------------------------------- | -------------------------------------------------------------------------- |
-| Existing probe suite after purity change           | within noise                       | ✅ within noise (materialize/steady improved: Map/Set write-backs removed) |
-| 20k scalar writes / 10k pushes                     | within noise                       | ✅ ~15.5 ms / ~14 ms (was ~16 / ~14)                                       |
-| 10k-item scan via `Retree.raw` post-purity         | ≈ native (~0.25 ms), no proxy hits | ✅ 0.25 ms                                                                 |
-| Wide-table render: `useRaw` vs `useNode` (200×40)  | faster                             | ✅ 1.1 ms vs 9.2 ms (~8×) — `useRaw.perf.spec.tsx`                         |
-| `useRaw` mount, 2k-row list (`toSource` every row) | ≤ `useNode` list equivalent        | ✅ 3.0 ms vs 3.0 ms (parity)                                               |
+| Measurement                                         | Gate                               | Measured (2026-07-10)                                                      |
+| --------------------------------------------------- | ---------------------------------- | -------------------------------------------------------------------------- |
+| Existing probe suite after purity change            | within noise                       | ✅ within noise (materialize/steady improved: Map/Set write-backs removed) |
+| 20k scalar writes / 10k pushes                      | within noise                       | ✅ ~15.5 ms / ~14 ms (was ~16 / ~14)                                       |
+| 10k-item scan via `Retree.raw` post-purity          | ≈ native (~0.25 ms), no proxy hits | ✅ 0.25 ms                                                                 |
+| Wide-table render: `useRaw` vs `useNode` (200×40)   | faster                             | ✅ 1.1 ms vs 9.2 ms (~8×) — `useRaw.perf.spec.tsx`                         |
+| `useRaw` mount, 2k-row list (`toManaged` every row) | ≤ `useNode` list equivalent        | ✅ 3.0 ms vs 3.0 ms (parity)                                               |
 
 The wide-table measurement lives in
 `packages/retree-react/src/useRaw.perf.spec.tsx` (loose sanity bounds so CI
@@ -353,7 +353,7 @@ follow-up.
    tests for those paths, probe gates.
 2. Raw purity — Map/Set side caches, `findSetStoredValue` simplification,
    remaining invariant tests, Convex audit.
-3. `Retree.source` (public) + `useRaw`/`toSource` with the direct-children
+3. `Retree.managed` (public) + `useRaw`/`toManaged` with the direct-children
    guarantee (object/array/Map/Set), React tests, wide-table benchmark.
 4. Convex reconcilers (§4.5): built-ins read raw / write proxied; add the
    backward-compatible `rawCurrent` third parameter to `IStateReconciler`;
@@ -382,15 +382,15 @@ purity is a prerequisite for that design too, so no work here is wasted.
    values, always** (`previous` naturally post-purity; `new` unwrapped at
    capture when it is a managed proxy). Change records are descriptions of
    the past — data, not handles; listeners that want a live node opt in with
-   `Retree.source(change.previous)`. Rationale: this is the only option that
+   `Retree.managed(change.previous)`. Rationale: this is the only option that
    yields a uniform contract (normalize-to-managed still returns raw for
    never-materialized values), it is free on the write path, it avoids
    handing listeners reproxy identities that churn by design, and it matches
    the doctrine everywhere else in this spec: nodes are handles, raw is data,
    records are data. Identity comparisons on payload values are raw-to-raw:
    `change.previous === Retree.raw(candidate)`.
-2. `Retree.source` is public (§4.2).
-3. The `toSource` materialize-on-miss guarantee covers Map values and Set
+2. `Retree.managed` is public (§4.2).
+3. The `toManaged` materialize-on-miss guarantee covers Map values and Set
    members (§4.2).
 4. Convex reconcilers read raw and write proxied, with a backward-compatible
    `rawCurrent` parameter for dev-provided reconcilers (§4.5).

@@ -1,0 +1,278 @@
+---
+title: Common pitfalls
+description: The mistakes everyone makes in the first hour with Retree — what the symptom looks like, why it happens, and the idiomatic fix.
+---
+
+Every pitfall on this page follows from one of the rules in
+[Thinking in Retree](/docs/thinking-in-retree). Each section gives the
+symptom, the reason, and the fix — in the ✅/❌ format used throughout the
+docs.
+
+## Writes to a nested node don't re-render
+
+**Symptom.** You mutate something a couple of levels deep and the UI doesn't
+update, even though top-level writes work fine.
+
+```ts
+const whiteboardRoot = Retree.root({
+    selectedColor: "red",
+    visible: false,
+    canvasSize: { width: "0px", height: "0px" },
+    shapes: [],
+});
+
+function App() {
+    const whiteboard = useNode(whiteboardRoot);
+    // ...
+    return <>{JSON.stringify(whiteboard)}</>;
+}
+
+// ✅ will re-render
+whiteboardRoot.selectedColor = "blue";
+// ✅ will re-render
+whiteboardRoot.visible = true;
+// ✅ will re-render
+whiteboardRoot.canvasSize = { width: "100px", height: "100px" };
+// ❌ no re-render
+whiteboardRoot.canvasSize.width = "200px";
+// ❌ no re-render
+whiteboardRoot.shapes.push({ type: "circle" });
+```
+
+**Why.** [`useNode`](/api/react/functions/useNode) is a `nodeChanged`
+subscription: it re-renders for changes to *that node's own fields*.
+`canvasSize.width = "200px"` changes the `canvasSize`
+[node](/docs/thinking-in-retree#node), not the root — the root's `canvasSize`
+field still points at the same object. This is the deliberate granularity
+model, not a bug: it's what keeps unrelated components from re-rendering.
+
+**Fix.** Subscribe to each child node the component reads:
+
+```tsx
+function App() {
+    const whiteboard = useNode(whiteboardRoot);
+    const canvasSize = useNode(whiteboard.canvasSize);
+    const shapes = useNode(whiteboard.shapes);
+    // ...
+    return <>{JSON.stringify(whiteboard)}</>;
+}
+
+// ✅ will re-render
+whiteboardRoot.canvasSize.width = "200px";
+// ✅ will re-render
+whiteboardRoot.shapes.push({ type: "circle" });
+```
+
+Better still, give each child node its own component with its own `useNode`,
+so subscriptions match the component tree — see
+[Subscriptions match the component tree](/docs/thinking-in-retree#subscriptions-match-the-component-tree).
+If a component genuinely needs *every* descendant change, that's what
+[`useTree`](/docs/react/use-tree) is for — used sparingly.
+
+## Writing to raw values
+
+**Symptom.** You mutate state and nothing happens: no events, no re-renders,
+but the data did change when you look at it later.
+
+```ts
+const rawTasks = Retree.raw(project.tasks);
+
+rawTasks[0].done = true;            // ❌ silent: no event, no re-render
+
+const task = Retree.managed(rawTasks[0]);
+if (task) task.done = true;         // ✅ emits normally
+```
+
+**Why.** [Raw values](/docs/thinking-in-retree#raw-value) are the proxy-free
+objects behind nodes. That's what makes them fast — and it also means Retree
+cannot see writes to them. Emission only happens through
+[managed](/docs/thinking-in-retree#managed-value) nodes.
+
+**Fix.** Treat raw as a read-only view. Resolve back to the managed node with
+[`Retree.managed`](/docs/thinking-in-retree#managed-node) (or
+[`useRaw`](/docs/react/use-raw)'s `toManaged`) before writing.
+
+## Raw references as memo props or deps
+
+**Symptom.** A `React.memo` component never re-renders, or a `useMemo` never
+recomputes, even though the underlying data changes.
+
+```tsx
+const [tasksRaw, toManaged] = useRaw(list.tasks);
+
+<TaskRow task={tasksRaw[0]} />;            // ❌ raw identity never changes —
+                                           //    memo bails out forever
+<TaskRow task={toManaged(tasksRaw[0])!} />; // ✅ node identity reproxies on
+                                           //    change — memo works
+```
+
+**Why.** Raw references keep the same identity across changes. Managed nodes
+are the identity currency:
+[reproxy identity](/docs/thinking-in-retree#reproxy-identity) is what makes
+`React.memo` and dependency arrays see changes. Raw values opt out of exactly
+that machinery.
+
+**Fix.** Pass nodes to children and use nodes in deps — never raw values.
+`useRaw` exists for wide render *reads*; its `toManaged` gives you the node to
+hand to a child. See [useRaw](/docs/react/use-raw).
+
+## Expecting `@ignore` fields to behave like tree state
+
+**Symptom.** Writes under an `@ignore` field don't emit or re-render;
+`Retree.parent(...)` doesn't work for objects stored inside it; the field's
+contents never show up in `treeChanged` notifications.
+
+```ts
+class Counter extends ReactiveNode {
+    public count = 0;
+    @ignore public cache: Record<string, unknown> = {};
+
+    get dependencies() {
+        return [];
+    }
+}
+
+const node = Retree.root(new Counter());
+
+node.cache.something = 1;  // ❌ no emit, no re-render
+node.cache = { other: 2 }; // ❌ replacing the field also skips emission
+node.count += 1;           // ✅ emits
+```
+
+**Why.** That's the contract: `@ignore` excludes the field from reactivity
+entirely. The proxy doesn't wrap the value or build child proxies under it,
+so plain objects stored there lose `Retree.parent(...)` and never appear in
+`treeChanged`.
+
+**Fix.** Use `@ignore` only for state that *shouldn't* participate in the
+tree — caches, scratch buffers, unsubscribe handles, framework objects. If
+what you actually want is a reactive reference to a node owned elsewhere,
+that is `@link` / `Retree.link(...)`, not `@ignore`:
+
+```ts
+class EditorState extends ReactiveNode {
+    // ❌ replacing an @ignore field never emits — nothing re-renders
+    // @ignore public selectedTask: Task | null = null;
+
+    // ✅ replacing a @link field emits on EditorState;
+    //    the task keeps its structural parent
+    @link public selectedTask: Task | null = null;
+
+    get dependencies() {
+        return [];
+    }
+}
+```
+
+See [View models](/docs/view-models) for the full `@ignore` and `@link`
+treatment, and [Tree operations](/docs/tree-operations) for links vs moves.
+
+## Using `useSelect` as a memo cache
+
+**Symptom.** An expensive selector runs more often than you expected, or you
+reached for `useSelect` purely to "cache" a computation.
+
+**Why.** [`useSelect`](/api/react/functions/useSelect) (and core's
+`Retree.select`) is a *subscription* primitive: it narrows **when you get
+notified** — the component re-renders only when the selected value changes.
+It does not cache expensive work for reuse across callers or renders.
+
+**Fix.** Cache computation with `memo`, `@memo`, or `@fnMemo` on a
+[`ReactiveNode`](/api/core/classes/ReactiveNode), then select the cached
+value when you also want narrower renders:
+
+```ts
+class ProjectVM extends ReactiveNode {
+    public tasks: Task[] = [];
+
+    @memo // ✅ caches the computation
+    get doneTasks() {
+        return this.tasks.filter((task) => task.done);
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+```
+
+```tsx
+// ✅ narrows notification; reads the cached value
+const doneCount = useSelect(() => vm.doneTasks.length);
+```
+
+The two are complementary: memoization caches, selection narrows. Neither
+substitutes for the other. See [useSelect](/docs/react/use-select) and
+[View models](/docs/view-models).
+
+## Putting one node in two places
+
+**Symptom.** An assignment throws:
+`"Retree cannot assign this node because it already has a structural parent."`
+
+```ts
+const task = projectA.tasks[0];
+
+projectB.tasks.push(task);              // ❌ throws — task is owned by
+                                        //    projectA.tasks
+
+Retree.move(task, projectB.tasks);      // ✅ ownership transfers
+projectA.selected = Retree.link(task);  // ✅ reactive pointer, no reparenting
+projectB.tasks.push(Retree.clone(task)); // ✅ independent copy
+```
+
+**Why.** Retree is a
+[pure ownership tree](/docs/thinking-in-retree#everything-is-a-tree): one
+structural parent per node. That invariant is what makes events, `parent`,
+and removal semantics unambiguous, so aliasing is an error rather than a
+silent surprise.
+
+**Fix.** Say what you mean: `move` when ownership should transfer, `link`
+when one place should point at a node owned elsewhere, `clone` when two
+places need independent state. The decision list is in
+[Tree operations](/docs/tree-operations#which-operation-do-i-want).
+
+## A `nodeChanged` listener that reads descendants
+
+**Symptom.** A listener (or selector) reads fields from child nodes, but
+doesn't fire when those children change.
+
+```ts
+// ❌ nodeChanged fires only when the list itself changes —
+//    todo.checked writes never run this selector
+Retree.select(
+    tree.todos,
+    (todos) => todos.filter((todo) => todo.checked).length,
+    (doneCount) => console.log(doneCount)
+);
+
+// ✅ treeChanged covers descendant writes
+Retree.select(
+    tree.todos,
+    (todos) => todos.filter((todo) => todo.checked).length,
+    (doneCount) => console.log(doneCount),
+    { listenerType: "treeChanged" }
+);
+```
+
+**Why.** `nodeChanged` is scoped to one node's own fields — that's its whole
+point. `todos.filter((todo) => todo.checked)` reads *descendant* fields, so
+a `nodeChanged` subscription on the list can't see the writes that matter to
+it.
+
+**Fix.** Match the subscription to what the listener reads: pass
+`listenerType: "treeChanged"` when a selector intentionally reads
+descendants, or subscribe to the narrower child node directly when only one
+child matters. The selector-only inference form
+(`Retree.select(() => ..., callback)` / `useSelect(() => ...)`) sidesteps
+the problem by trapping the reads and subscribing to the right nodes for
+you. Full details in
+[Events & subscriptions](/docs/events-and-subscriptions).
+
+## Where next
+
+- [Thinking in Retree](/docs/thinking-in-retree) — the model these rules
+  fall out of.
+- [Choosing a hook](/docs/react) — `useNode` vs `useTree` vs `useSelect` vs
+  `useRaw`.
+- [Tree operations](/docs/tree-operations) — move, link, and clone in depth.

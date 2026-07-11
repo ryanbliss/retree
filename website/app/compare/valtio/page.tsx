@@ -12,6 +12,91 @@ export const metadata: Metadata = {
         "An honest comparison of Valtio 2 and Retree as a Valtio alternative: proxy/useSnapshot and the state/snap split vs one mutable tree, subscription granularity, tree operations, Redux DevTools, and measured bundle sizes. Verified July 2026.",
 };
 
+const retreeNested = `import { Retree } from "@retreejs/core";
+import { useNode } from "@retreejs/react";
+
+const board = Retree.root({
+    columns: [
+        {
+            title: "In progress",
+            cards: [
+                {
+                    title: "Ship v1",
+                    checklist: [
+                        { text: "Write docs", done: false },
+                        { text: "Cut release", done: false },
+                    ],
+                },
+            ],
+        },
+        // ...more columns
+    ],
+});
+
+type ChecklistItem = { text: string; done: boolean };
+
+function ChecklistRow({ item }: { item: ChecklistItem }) {
+    // One object: read it, write it, subscribe to it.
+    const row = useNode(item);
+    return (
+        <label>
+            <input
+                type="checkbox"
+                checked={row.done}
+                onChange={() => (row.done = !row.done)}
+            />
+            {row.text}
+        </label>
+    );
+}
+
+// Three levels deep, plain assignment, from anywhere:
+board.columns[2].cards[0].checklist[1].done = true;
+// Exactly one ChecklistRow re-renders.`;
+
+const valtioNested = `import { proxy, useSnapshot } from "valtio";
+
+const board = proxy({
+    columns: [
+        {
+            title: "In progress",
+            cards: [
+                {
+                    title: "Ship v1",
+                    checklist: [
+                        { text: "Write docs", done: false },
+                        { text: "Cut release", done: false },
+                    ],
+                },
+            ],
+        },
+        // ...more columns
+    ],
+});
+
+type ChecklistItem = { text: string; done: boolean };
+
+function ChecklistRow({ item }: { item: ChecklistItem }) {
+    // Two objects per row: read the frozen snap,
+    // write the mutable proxy.
+    const snap = useSnapshot(item);
+    return (
+        <label>
+            <input
+                type="checkbox"
+                checked={snap.done}
+                onChange={() => (item.done = !item.done)}
+            />
+            {snap.text}
+        </label>
+    );
+}
+
+board.columns[2].cards[0].checklist[1].done = true;
+// Access tracking keeps this narrow too — the cost is
+// the state/snap split in every component, and memo'd
+// children handed un-accessed snapshots can over-render.`;
+
 const retreeCounter = `import { Retree } from "@retreejs/core";
 import { useNode } from "@retreejs/react";
 
@@ -74,20 +159,44 @@ export default function CompareValtioPage() {
                     .
                 </p>
                 <p>
-                    The defining difference is how many objects you juggle.
-                    Valtio splits state in two: you mutate the{" "}
-                    <code>proxy</code> object and render from the frozen{" "}
-                    <code>snap</code> that <code>useSnapshot</code> returns.
-                    Valtio&apos;s own docs list the gotchas that follow from the
-                    split: <code>React.memo</code> children can over-render when
-                    handed snapshot objects they never accessed, controlled
-                    inputs need <code>sync: true</code>, and object getters are
-                    uncached and resolve against siblings only. Retree gives you
-                    one object — the same reference is read in render and
-                    mutated in handlers, and the subscription comes from which
-                    node you pass to <code>useNode</code>.
+                    Start where the two diverge most: a deeply nested tree. Both
+                    versions below re-render exactly one row per write — the
+                    difference is how many objects each component has to hold to
+                    get there.
                 </p>
-                <p>Here is the same counter in both libraries.</p>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <CodeBlock
+                    code={retreeNested}
+                    lang="tsx"
+                    title="Deeply nested write — Retree 0.4"
+                />
+                <CodeBlock
+                    code={valtioNested}
+                    lang="tsx"
+                    title="Deeply nested write — Valtio 2.3"
+                />
+            </div>
+
+            <div className="mt-8 max-w-3xl space-y-4 text-base leading-7 text-muted">
+                <p>
+                    That split is the defining difference. Valtio keeps state in
+                    two objects: you mutate the <code>proxy</code> and render
+                    from the frozen <code>snap</code> that{" "}
+                    <code>useSnapshot</code> returns. Valtio&apos;s own docs
+                    list the gotchas that follow: <code>React.memo</code>{" "}
+                    children can over-render when handed snapshot objects they
+                    never accessed, controlled inputs need{" "}
+                    <code>sync: true</code>, and object getters are uncached and
+                    resolve against siblings only. Retree gives you one object —
+                    the same reference is read in render and mutated in
+                    handlers, and the subscription comes from which node you
+                    pass to <code>useNode</code>.
+                </p>
+                <p>
+                    Even the simplest case shows it. The same counter in both:
+                </p>
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -112,15 +221,17 @@ export default function CompareValtioPage() {
                     node&apos;s own fields, <code>useTree</code> widens to a
                     subtree, <code>useSelect</code> narrows to a projection, and{" "}
                     <code>useRaw</code> gives proxy-free reads for hot paths.
-                    Explicit means you choose it — and choosing the wrong node
-                    is on you (see{" "}
+                    Explicit means the granularity is visible in the code — you
+                    can read which node a component subscribes to instead of
+                    inferring it from access patterns. It also means picking the
+                    node is a real decision;{" "}
                     <Link
                         href="/docs/common-pitfalls"
                         className="text-accent underline underline-offset-2 hover:no-underline"
                     >
                         common pitfalls
-                    </Link>
-                    ).
+                    </Link>{" "}
+                    covers every known trap.
                 </p>
                 <p>
                     Trees are Retree&apos;s home turf. Valtio has no tree
@@ -134,11 +245,13 @@ export default function CompareValtioPage() {
                 <p>
                     Now the other side of the ledger, stated plainly. Valtio is
                     2.7 kB min+gzip in our measurements; Retree core + react is
-                    19.6 kB. That is not close — if minimal bytes matter most,
-                    use Valtio. Valtio also supports Redux DevTools, which
-                    Retree does not, and it is an established project with real
-                    production mileage, where Retree is v0.4.x with a solo
-                    maintainer. The{" "}
+                    19.6 kB. What those bytes buy: per-node subscriptions, tree
+                    operations, view models with optional decorators,
+                    transactions, and the Convex integration — the things you
+                    would otherwise build yourself on top of a minimal proxy.
+                    Valtio also supports Redux DevTools, which Retree does not
+                    yet, and it has production mileage where Retree is v0.4.x.
+                    The{" "}
                     <Link
                         href="/why"
                         className="text-accent underline underline-offset-2 hover:no-underline"
@@ -148,11 +261,12 @@ export default function CompareValtioPage() {
                     covers the rest.
                 </p>
                 <p>
-                    The honest summary: reach for Valtio when you want the
-                    smallest possible proxy-state library and DevTools; reach
-                    for Retree when your state is a tree — nested nodes,
-                    per-node subscriptions, parent/move/clone/link — and you
-                    want one object instead of a state/snapshot pair.
+                    The summary: Valtio optimizes for the smallest possible
+                    proxy-state core. Retree optimizes for state shaped like
+                    your component tree — nested nodes, per-node subscriptions,
+                    parent / move / clone / link — with one object instead of a
+                    state/snapshot pair. If your state is a tree, that is the
+                    problem Retree was built to win.
                 </p>
             </div>
 

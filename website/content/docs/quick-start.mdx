@@ -1,0 +1,134 @@
+---
+title: Quickstart
+description: Install Retree, create a root, and watch exactly one component re-render — in under five minutes, with zero configuration.
+---
+
+Retree manages state as a plain object tree. You mutate it like any JavaScript
+object; components subscribe to the nodes they read. No actions, no reducers,
+no selectors required — and nothing on this page needs build configuration.
+
+## Install
+
+<PMTabs packages="@retreejs/core @retreejs/react" />
+
+Retree works with React 16.8 through 19.
+
+## Create a root and subscribe
+
+`Retree.root` makes one object the root of a managed tree. `useNode`
+subscribes a component to one node of it:
+
+<Sandbox height={380}>
+
+```tsx name="/App.tsx" active
+import { Retree } from "@retreejs/core";
+import { useNode } from "@retreejs/react";
+
+const counter = Retree.root({ count: 0 });
+
+export default function App() {
+    const state = useNode(counter);
+    return (
+        <button onClick={() => (state.count += 1)}>
+            Clicked {state.count} times
+        </button>
+    );
+}
+```
+
+</Sandbox>
+
+That is the whole model: mutate the object (`state.count += 1`), and the
+components subscribed to that node re-render.
+
+## Grow the tree
+
+State rarely stays one counter. Add a list, and give each item its own
+component with its own subscription:
+
+<Sandbox height={480}>
+
+```tsx name="/App.tsx" active
+import { Retree } from "@retreejs/core";
+import { useNode } from "@retreejs/react";
+import React from "react";
+
+const project = Retree.root({
+    title: "Launch checklist",
+    tasks: [
+        { id: 1, text: "Write the docs", done: true },
+        { id: 2, text: "Ship the site", done: false },
+    ],
+});
+let nextId = 3;
+
+const Task = React.memo(function Task({
+    task,
+}: {
+    task: (typeof project.tasks)[number];
+}) {
+    // Subscribes to this task only. Other tasks' changes don't render it.
+    const state = useNode(task);
+    return (
+        <li>
+            <label>
+                <input
+                    type="checkbox"
+                    checked={state.done}
+                    onChange={() => (state.done = !state.done)}
+                />
+                {state.text}
+            </label>
+        </li>
+    );
+});
+
+export default function App() {
+    // Subscribes to the root for `title`, and to the list for add/remove.
+    const state = useNode(project);
+    const tasks = useNode(state.tasks);
+    return (
+        <div>
+            <h3>{state.title}</h3>
+            <ul>
+                {tasks.map((task) => (
+                    <Task key={task.id} task={task} />
+                ))}
+            </ul>
+            <button
+                onClick={() =>
+                    tasks.push({ id: nextId++, text: "New task", done: false })
+                }
+            >
+                Add task
+            </button>
+        </div>
+    );
+}
+```
+
+</Sandbox>
+
+Toggle a checkbox and only that row re-renders. Push a task and only the list
+re-renders. The subscription boundaries follow the component boundaries —
+that's the core idea, and it's covered properly in
+[Thinking in Retree](/docs/thinking-in-retree).
+
+<Note>
+    A **node** is any non-primitive value in the tree — objects, arrays, Maps,
+    Sets. Primitive fields like `state.count` don't need their own
+    subscription; reading them through a subscribed node is enough.
+</Note>
+
+## One rule to remember
+
+`useNode(node)` re-renders for changes to *that node's own fields*. Changes
+inside child objects need their own subscription — pass each child you render
+to `useNode`, exactly like `Task` does above. When that surprises you, read
+[Common pitfalls](/docs/common-pitfalls).
+
+## Where next
+
+- [Thinking in Retree](/docs/thinking-in-retree) — the mental model: trees, events, reproxying, managed vs raw.
+- [Common pitfalls](/docs/common-pitfalls) — the mistakes everyone makes in the first hour, with fixes.
+- [Choosing a hook](/docs/react) — `useNode` vs `useTree` vs `useSelect` vs `useRaw`, with a live playground.

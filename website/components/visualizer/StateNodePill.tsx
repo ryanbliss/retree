@@ -26,7 +26,12 @@ export function StateNodePill({
         >
             {label}
             {showRenders ? (
-                <span className="tabular-nums text-faint">·{renders}</span>
+                <span
+                    suppressHydrationWarning
+                    className="tabular-nums text-faint"
+                >
+                    ·{renders}
+                </span>
             ) : null}
         </span>
     );

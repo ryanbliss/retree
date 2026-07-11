@@ -28,5 +28,8 @@ next-env.d.ts
 /content/api/
 /public/llms.txt
 
+# generated Sandpack stylesheet (rebuilt by generate:sandpack-css)
+/public/sandpack.css
+
 # pagefind search index (rebuilt postbuild)
 /public/_pagefind/

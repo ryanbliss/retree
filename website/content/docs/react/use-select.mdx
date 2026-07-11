@@ -1,0 +1,279 @@
+---
+title: useSelect
+description: Subscribe a component to a selected value or ordered dependency list, and re-render only when that selection changes.
+---
+
+`useSelect` narrows React updates to a projection of the tree: a count, a
+total, a boolean, a label. The component re-renders when the selected value
+changes — and stays put for every other write, no matter how close by.
+
+<Callout title="When to use">
+    Use `useSelect` for counts, totals, booleans, and other narrow projections
+    that should only re-render when the selection changes — including
+    projections computed across an entire deep subtree via
+    `listenerType: "treeChanged"`. Siblings:
+    [`useNode`](/docs/react/use-node) for focused components that own one node,
+    [`useTree`](/docs/react/use-tree) for small subtrees that re-render
+    together, [`useRaw`](/docs/react/use-raw) for wide proxy-free render reads,
+    [`useRoot`](/docs/react/use-root) for component-lifetime roots — or compare
+    them all in [Choosing a hook](/docs/react).
+</Callout>
+
+## Signature
+
+```ts nocopy
+// Node + selector form
+function useSelect<TNode extends TreeNode, TSelected>(
+    node: TNode | NodeFactory<TNode>,
+    selector: (node: TNode) => TSelected,
+    options?: UseSelectOptions<TSelected>
+): TSelected;
+
+// Inference-only form: no node, reads are trapped automatically
+function useSelect<TSelected>(
+    selector: () => TSelected,
+    options?: UseSelectOptions<TSelected>
+): TSelected;
+
+interface UseSelectOptions<TSelected> {
+    /** Custom equality for the selected value. Return true to skip the update. */
+    equals?: (previous: TSelected, next: TSelected) => boolean;
+    /** Defaults to "nodeChanged". */
+    listenerType?: "nodeChanged" | "treeChanged";
+}
+```
+
+## The three forms
+
+### 1. Node + selector
+
+Pass a node and a function of it. Here the selector reads descendant fields
+(`task.done` on each task), so it opts into `listenerType: "treeChanged"`:
+
+```tsx
+import { Retree } from "@retreejs/core";
+import { useSelect } from "@retreejs/react";
+
+const project = Retree.root({
+    tasks: [
+        { title: "Docs", done: false },
+        { title: "Tests", done: true },
+    ],
+});
+
+function DoneCount() {
+    const doneCount = useSelect(
+        project.tasks,
+        (tasks) => tasks.filter((task) => task.done).length,
+        { listenerType: "treeChanged" }
+    );
+
+    return <span>{doneCount}</span>;
+}
+
+project.tasks[0].done = true; // ✅ re-renders DoneCount: 1 -> 2
+project.tasks[0].title = "Better docs"; // ❌ no re-render: doneCount stayed 2
+```
+
+### 2. Inference-only
+
+Pass just a selector and Retree traps the reads automatically. Whole
+Retree-managed values read by the selector subscribe broadly. Property reads
+subscribe to the owner node but compare the specific property value — so
+`task.done` reacts to task replacement or `done` changes without reacting to
+unrelated task fields. Primitive reads compare.
+
+```tsx
+const doneCount = useSelect(
+    () => project.tasks.filter((task) => task.done).length
+);
+```
+
+### 3. Ordered dependency list
+
+A selector may return an array of dependencies. Reactive entries are
+subscribed to; primitive entries are compared. This lets a component listen
+broadly enough to stay fresh without re-rendering for unrelated changes:
+
+```tsx
+const [, , attribute] = useSelect(row, (self) => [
+    self.attributes,
+    self.attributeId,
+    self.attribute,
+]);
+```
+
+## Listener type
+
+`useSelect` listens with `nodeChanged` by default — best when the selector
+reads values directly owned by the node, including `ReactiveNode` getters
+that already emit when their dependencies change. Pass
+`listenerType: "treeChanged"` when the selector intentionally reads
+descendant nodes (like `DoneCount` above, which reads `done` on each task).
+The event types are defined in
+[Events & subscriptions](/docs/events-and-subscriptions).
+
+If the selector returns a fresh object or array each run, pass `equals` so
+logically-unchanged selections don't re-render.
+
+## A projection over a deep subtree
+
+This is `useSelect` doing what it's for: one component derives a value from
+an entire deep subtree — every task under every epic — and re-renders only
+when that value changes. Type in any title field and the row re-renders on
+every keystroke while `ProjectProgress` holds still; toggle any checkbox,
+two levels down from the subscribed node, and the count updates:
+
+<Sandbox height={560}>
+
+```tsx name="/App.tsx" active
+import { Retree } from "@retreejs/core";
+import { useNode, useSelect } from "@retreejs/react";
+import React from "react";
+
+const project = Retree.root({
+    epics: [
+        {
+            title: "Docs",
+            tasks: [
+                { text: "Write the quickstart", done: true },
+                { text: "Record the demo", done: false },
+            ],
+        },
+        {
+            title: "Site",
+            tasks: [
+                { text: "Ship the playground", done: false },
+                { text: "Wire up analytics", done: false },
+            ],
+        },
+    ],
+});
+
+type Epic = (typeof project.epics)[number];
+type Task = Epic["tasks"][number];
+
+// Inline render counter.
+function useRenders() {
+    const count = React.useRef(0);
+    count.current += 1;
+    return count.current;
+}
+
+function ProjectProgress() {
+    // The selector reads `done` on every task, two levels below the
+    // subscribed node — hence listenerType: "treeChanged". The returned
+    // tuple is an ordered dependency list: its primitive entries compare
+    // by value, so only a changed count re-renders this component.
+    const [done, total] = useSelect(
+        project.epics,
+        (epics) => {
+            const tasks = epics.flatMap((epic) => epic.tasks);
+            return [tasks.filter((task) => task.done).length, tasks.length];
+        },
+        { listenerType: "treeChanged" }
+    );
+    const renders = useRenders();
+    return (
+        <p>
+            <strong>
+                {done} of {total} tasks done
+            </strong>{" "}
+            — ProjectProgress renders: {renders}
+        </p>
+    );
+}
+
+const TaskRow = React.memo(function TaskRow({ task }: { task: Task }) {
+    const state = useNode(task);
+    const renders = useRenders();
+    return (
+        <li>
+            <input
+                type="checkbox"
+                checked={state.done}
+                onChange={() => (state.done = !state.done)}
+            />
+            <input
+                value={state.text}
+                onChange={(event) => (state.text = event.target.value)}
+            />{" "}
+            row renders: {renders}
+        </li>
+    );
+});
+
+function EpicSection({ epic }: { epic: Epic }) {
+    const state = useNode(epic);
+    const tasks = useNode(state.tasks);
+    return (
+        <fieldset>
+            <legend>{state.title}</legend>
+            <ul>
+                {tasks.map((task, index) => (
+                    <TaskRow key={index} task={task} />
+                ))}
+            </ul>
+            <button
+                onClick={() => tasks.push({ text: "New task", done: false })}
+            >
+                Add task
+            </button>
+        </fieldset>
+    );
+}
+
+export default function App() {
+    const epics = useNode(project.epics);
+    return (
+        <div>
+            <ProjectProgress />
+            {epics.map((epic, index) => (
+                <EpicSection key={index} epic={epic} />
+            ))}
+        </div>
+    );
+}
+```
+
+</Sandbox>
+
+One subscription observes writes at any depth under `project.epics`, and the
+component pays a re-render only when the projection changes. Adding a task
+updates the total; renaming one never reaches `ProjectProgress`.
+
+## Observational semantics
+
+Dependency-list subscriptions in `useSelect` are *observational*: when a
+selected dependency changes, this component can re-render, but the node you
+passed to `useSelect` is **not** forced to receive a fresh reproxy. Other
+subscribers and memo comparisons of that node see no change. When the owner
+node itself should emit `nodeChanged` for a selection, put the logic in the
+node with the `@select` decorator on a `ReactiveNode` getter — see
+[ReactiveNode & decorators](/docs/view-models).
+
+<Warning title="Not a memo cache">
+    `useSelect` is a subscription primitive, not a memo cache — the selector
+    can run on candidate changes to decide whether the selection changed, and
+    its result is not shared or cached for reuse elsewhere. Put expensive
+    computation behind `memo`, `@memo`, or `@fnMemo`, then select the cached
+    value when you want narrower renders.
+</Warning>
+
+## Pitfalls
+
+- **Using `useSelect` to cache computation.** See the caveat above — caching
+  is `memo`'s job, narrowing renders is `useSelect`'s.
+- **Reading descendants under the default `nodeChanged` listener.** The
+  selection can go stale because deep writes never reach the listener. Pass
+  `listenerType: "treeChanged"` or return the descendants as dependencies.
+- **Selecting fresh objects without `equals`.** A selector that returns a new
+  array every run never compares equal — supply `equals` for structural
+  comparison.
+
+More in [Common pitfalls](/docs/common-pitfalls).
+
+## Reference
+
+Full signature and remarks: [`useSelect` API reference](/api/react/functions/useSelect)
+and [`UseSelectOptions`](/api/react/type-aliases/UseSelectOptions).

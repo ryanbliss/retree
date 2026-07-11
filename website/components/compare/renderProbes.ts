@@ -16,6 +16,7 @@
 
 import { useEffect } from "react";
 import { Retree } from "@retreejs/core";
+import { useSelect } from "@retreejs/react";
 import {
     useRenderGlow,
     type RenderGlow,
@@ -72,4 +73,65 @@ export function useRenderProbe<T extends HTMLElement>(
         probe.renders = renders;
     }, [probe, renders]);
     return glow;
+}
+
+/**
+ * Live sum of every counter in a probe set — the "renders this session"
+ * total shown per implementation. Subscribes via useSelect, so it updates
+ * whenever any probed component commits.
+ */
+export function useProbeSetTotal(probes: DemoProbeSet): number {
+    return useSelect(
+        probes,
+        (set) =>
+            set.app.renders +
+            set.name.renders +
+            set.done.renders +
+            set.rows.reduce((sum, row) => sum + row.renders, 0),
+        { listenerType: "treeChanged" }
+    );
+}
+
+/* ----------------------- mirrored interactions ----------------------- */
+
+/** The logical interactions the comparison demos support. */
+export interface MirrorActions {
+    toggleTask(id: number): void;
+    setListName(name: string): void;
+}
+
+/**
+ * Fan-out bus that applies one logical interaction to every registered
+ * implementation at once. Both demo apps register their own store's write
+ * path and route their local inputs through the bus, so a click or a
+ * keystroke in either pane updates BOTH stores — the render counters always
+ * compare the exact same interaction, side by side and in real time.
+ */
+export interface DemoMirror extends MirrorActions {
+    /** Register one implementation; returns its unregister function. */
+    register(sideId: string, actions: MirrorActions): () => void;
+}
+
+export function createDemoMirror(): DemoMirror {
+    const sides = new Map<string, MirrorActions>();
+    return {
+        register(sideId, actions) {
+            sides.set(sideId, actions);
+            return () => {
+                if (sides.get(sideId) === actions) {
+                    sides.delete(sideId);
+                }
+            };
+        },
+        toggleTask(id) {
+            for (const side of sides.values()) {
+                side.toggleTask(id);
+            }
+        },
+        setListName(name) {
+            for (const side of sides.values()) {
+                side.setListName(name);
+            }
+        },
+    };
 }

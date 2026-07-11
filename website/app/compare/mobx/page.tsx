@@ -12,6 +12,103 @@ export const metadata: Metadata = {
         "An honest comparison of Retree and MobX 6: observer() and actions vs plain hooks and assignment, computed values, tree semantics, mobx-state-tree, and measured bundle sizes. Verified July 2026.",
 };
 
+const retreeNested = `import { Retree } from "@retreejs/core";
+import { useNode } from "@retreejs/react";
+
+const board = Retree.root({
+    columns: [
+        {
+            title: "In progress",
+            cards: [
+                {
+                    title: "Ship v1",
+                    checklist: [
+                        { text: "Write docs", done: false },
+                        { text: "Cut release", done: false },
+                    ],
+                },
+            ],
+        },
+        // ...more columns
+    ],
+});
+
+type ChecklistItem = { text: string; done: boolean };
+
+function ChecklistRow({ item }: { item: ChecklistItem }) {
+    // Subscribe to this row's node — nothing else.
+    const row = useNode(item);
+    return (
+        <label>
+            <input
+                type="checkbox"
+                checked={row.done}
+                onChange={() => (row.done = !row.done)}
+            />
+            {row.text}
+        </label>
+    );
+}
+
+// Three levels deep, plain assignment, from anywhere:
+board.columns[2].cards[0].checklist[1].done = true;
+// Exactly one ChecklistRow re-renders. No observer(),
+// no action, no memoization pass.`;
+
+const mobxNested = `import { makeAutoObservable } from "mobx";
+import { observer } from "mobx-react-lite";
+
+class BoardStore {
+    columns = [
+        {
+            title: "In progress",
+            cards: [
+                {
+                    title: "Ship v1",
+                    checklist: [
+                        { text: "Write docs", done: false },
+                        { text: "Cut release", done: false },
+                    ],
+                },
+            ],
+        },
+        // ...more columns
+    ];
+    constructor() {
+        makeAutoObservable(this);
+    }
+    toggle(item: { done: boolean }) {
+        // Writes go through an action —
+        // enforceActions is on by default.
+        item.done = !item.done;
+    }
+}
+
+const board = new BoardStore();
+
+type ChecklistItem = { text: string; done: boolean };
+
+// Fine-grained tracking works here too — as long as
+// every component reading the board is wrapped:
+const ChecklistRow = observer(function ChecklistRow({
+    item,
+}: {
+    item: ChecklistItem;
+}) {
+    return (
+        <label>
+            <input
+                type="checkbox"
+                checked={item.done}
+                onChange={() => board.toggle(item)}
+            />
+            {item.text}
+        </label>
+    );
+});
+// Miss observer() on one child and that child
+// silently stops updating.`;
+
 const retreeCounter = `import { Retree } from "@retreejs/core";
 import { useNode } from "@retreejs/react";
 
@@ -83,7 +180,34 @@ export default function CompareMobxPage() {
                     .
                 </p>
                 <p>
-                    The central difference is the contract with React. MobX 6
+                    Start with the case Retree is built for: a write three
+                    levels deep in a nested tree, and exactly one row
+                    re-rendering. Both versions below achieve fine-grained
+                    updates — the difference is what each one demands from every
+                    component along the way. The MobX version uses its current,
+                    documented APIs — <code>makeAutoObservable</code> in the
+                    constructor (which also marks methods as actions) and{" "}
+                    <code>observer()</code> from mobx-react-lite — not the
+                    legacy decorator style.
+                </p>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <CodeBlock
+                    code={retreeNested}
+                    lang="tsx"
+                    title="Deeply nested write — Retree 0.4"
+                />
+                <CodeBlock
+                    code={mobxNested}
+                    lang="tsx"
+                    title="Deeply nested write — MobX 6.16 + mobx-react-lite 4.1"
+                />
+            </div>
+
+            <div className="mt-8 max-w-3xl space-y-4 text-base leading-7 text-muted">
+                <p>
+                    That is the central difference in one example. MobX 6
                     requires <code>observer()</code> around every component that
                     reads observables, and writes are expected to go through{" "}
                     <code>action</code> — <code>enforceActions</code> is on by
@@ -97,11 +221,8 @@ export default function CompareMobxPage() {
                     no action requirement.
                 </p>
                 <p>
-                    Here is the same counter in both libraries. The MobX version
-                    uses its current, documented APIs —{" "}
-                    <code>makeAutoObservable</code> in the constructor (which
-                    also marks methods as actions) and <code>observer()</code>{" "}
-                    from mobx-react-lite — not the legacy decorator style.
+                    The simplest case shows the same contract with less ceremony
+                    on both sides. Here is a counter in each:
                 </p>
             </div>
 
@@ -140,17 +261,19 @@ export default function CompareMobxPage() {
                     on your plain objects directly.
                 </p>
                 <p>
-                    Where MobX clearly wins: a decade of production hardening, a
-                    best-in-class computed engine, a large ecosystem, and
-                    framework-agnostic usage well beyond React. Retree is v0.4.x
-                    with a solo maintainer and no devtools yet — read the{" "}
+                    What MobX brings that Retree doesn&apos;t: a decade of
+                    production hardening, a best-in-class computed engine, a
+                    large ecosystem, and framework-agnostic usage well beyond
+                    React. Retree is v0.4.x — what it offers against that
+                    maturity is a smaller surface you can audit directly, with
+                    the test suite and benchmark harness open in the repo. The{" "}
                     <Link
                         href="/why"
                         className="text-accent underline underline-offset-2 hover:no-underline"
                     >
-                        full trade-offs on /why
-                    </Link>{" "}
-                    before betting a large project on it.
+                        full trade-offs are on /why
+                    </Link>
+                    , stated plainly.
                 </p>
                 <p>
                     Bundle size is a wash, and we&apos;ll say so plainly: in our

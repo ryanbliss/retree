@@ -80,7 +80,7 @@ const CAPTIONS: Record<Mode, string> = {
     useTree:
         "useTree: subscribed to tasks and every descendant — toggle, rename, and add all re-render the panel and every row.",
     useSelect:
-        "useSelect: subscribed to doneCount only — toggle re-renders the panel, but the rows keep their old props, so titles and checkboxes stay stale even when the count refreshes.",
+        "useSelect: the panel subscribes to one derived value — the remaining count — while each row keeps its own useNode. Toggle re-renders the row and the panel (the selection changed); rename re-renders just that row and never the panel.",
     useRaw: "useRaw: subscribed to the tasks array like useNode, but the panel reads raw (proxy-free) — add re-renders the panel; toggle and rename re-render one row via its useNode.",
 };
 
@@ -225,9 +225,12 @@ function TreeMode() {
 }
 
 function SelectMode() {
-    const doneCount = useSelect(
+    // A live projection over the subtree: the selector reads every task's
+    // `done` (listenerType: "treeChanged"), but the panel re-renders only
+    // when the selected number itself changes.
+    const remaining = useSelect(
         project.tasks,
-        (tasks) => tasks.filter((task) => task.done).length,
+        (tasks) => tasks.filter((task) => !task.done).length,
         { listenerType: "treeChanged" }
     );
     const { ref, renders } = useRenderGlow<HTMLDivElement>();
@@ -235,18 +238,18 @@ function SelectMode() {
         <PanelShell
             glowRef={ref}
             renders={renders}
-            label="useSelect(project.tasks, doneCount)"
-            doneSummary={`done: ${doneCount}/${project.tasks.length} (the selected value — the only thing this panel re-renders for)`}
+            label="useSelect(project.tasks, remaining)"
+            doneSummary={`remaining: ${remaining} (the selected value — the only change that re-renders this panel)`}
         >
             {project.tasks.map((task, index) => (
-                <PlainRow key={index} task={task} />
+                <SubscribedRow key={index} task={task} />
             ))}
         </PanelShell>
     );
 }
 
 function RawMode() {
-    const [rawTasks, toSource] = useRaw(project.tasks);
+    const [rawTasks, toManaged] = useRaw(project.tasks);
     const { ref, renders } = useRenderGlow<HTMLDivElement>();
     const doneCount = rawTasks.filter((task) => task.done).length;
     return (
@@ -257,7 +260,7 @@ function RawMode() {
             doneSummary={`done: ${doneCount}/${rawTasks.length} (read from raw — proxy-free)`}
         >
             {rawTasks.map((rawTask, index) => {
-                const task = toSource(rawTask);
+                const task = toManaged(rawTask);
                 if (task === undefined) return null;
                 return <SubscribedRow key={index} task={task} />;
             })}
@@ -303,7 +306,7 @@ const LEGENDS: Record<Mode, string> = {
         "boundary: nodeChanged subscription on tasks, plus one per row task",
     useTree: "boundary: treeChanged subscription — tasks and every descendant",
     useSelect:
-        "dashed boundary: selector listens across the subtree (treeChanged) but re-renders only when doneCount changes",
+        "dashed boundary: the selector listens across the subtree (treeChanged) but re-renders the panel only when the remaining count changes; solid row boundaries: each row's own useNode",
     useRaw: "boundary: nodeChanged subscription on tasks (read raw), plus one per row task via useNode",
 };
 
@@ -311,7 +314,7 @@ function SchematicTree({ mode }: { mode: Mode }) {
     // Subscribes to the list so newly added tasks get pills.
     const tasks = useNode(project.tasks);
     const listBoundary = mode === "useNode" || mode === "useRaw";
-    const rowBoundary = mode === "useNode" || mode === "useRaw";
+    const rowBoundary = mode !== "useTree";
     const subtreeBoundary = mode === "useTree" || mode === "useSelect";
     const subtreeDashed = mode === "useSelect";
     return (

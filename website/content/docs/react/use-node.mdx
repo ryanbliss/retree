@@ -1,0 +1,267 @@
+---
+title: useNode
+description: Subscribe a component to one node's own fields. The default hook for rows, panels, forms, and focused child components.
+---
+
+`useNode` re-renders a React component for direct `nodeChanged` events on one
+node — changes to that node's *own fields*. Changes inside child nodes do not
+re-render it. This is the hook to reach for first, and the one the rest of
+the model is built around.
+
+<Callout title="When to use">
+    Use `useNode` for focused components that own one node: list rows, panels,
+    forms. Siblings: [`useTree`](/docs/react/use-tree) for small subtrees that
+    re-render together, [`useSelect`](/docs/react/use-select) for narrow derived
+    values, [`useRaw`](/docs/react/use-raw) for wide proxy-free render reads,
+    [`useRoot`](/docs/react/use-root) for component-lifetime roots — or compare
+    them all in [Choosing a hook](/docs/react).
+</Callout>
+
+## Signature
+
+```ts nocopy
+function useNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>): T;
+```
+
+Pass any Retree-managed node (or a factory returning one) and get back a
+stateful version of it. The root of the node must have been passed to
+`Retree.root` (or created with [`useRoot`](/docs/react/use-root)) first.
+
+## The rules of useNode
+
+`useNode(node)` subscribes to *that node's own fields* — including replacing
+a child object wholesale — but not to writes *inside* child nodes:
+
+```ts
+const whiteboardRoot = Retree.root({
+    selectedColor: "red",
+    visible: false,
+    canvasSize: { width: "0px", height: "0px" },
+    shapes: [],
+});
+function App() {
+    const whiteboard = useNode(whiteboardRoot);
+    // ...
+    return <>{JSON.stringify(whiteboard)}</>;
+}
+// ✅ will re-render
+whiteboardRoot.selectedColor = "blue";
+// ✅ will re-render
+whiteboardRoot.visible = true;
+// ✅ will re-render — canvasSize itself was replaced
+whiteboardRoot.canvasSize = { width: "100px", height: "100px" };
+// ❌ no re-render — a field *inside* the child node changed
+whiteboardRoot.canvasSize.width = "200px";
+// ❌ no re-render — the shapes array's contents changed, not root's fields
+whiteboardRoot.shapes.push({ type: "circle" });
+```
+
+The fix is to pass each child node the component reads into its own
+`useNode`:
+
+```tsx
+function App() {
+    const whiteboard = useNode(whiteboardRoot);
+    const canvasSize = useNode(whiteboard.canvasSize);
+    const shapes = useNode(whiteboard.shapes);
+    // ...
+    return <>{JSON.stringify(whiteboard)}</>;
+}
+// ✅ will re-render
+whiteboardRoot.canvasSize.width = "200px";
+// ✅ will re-render
+whiteboardRoot.shapes.push({ type: "circle" });
+```
+
+<Note>
+    A **node** is any non-primitive value: objects, arrays, Maps, Sets, class
+    instances. Primitive fields like `whiteboard.visible` never need their own
+    subscription — reading them through a subscribed node is enough.
+</Note>
+
+## See the boundary in a deep tree
+
+This is where the model earns its keep. The demo below is three levels of
+state — project → epics → tasks — rendered by three levels of components,
+each with its own `useNode`. Toggle or rename a task (the deepest write in
+the tree) and watch the counters: only that row re-renders, while its epic
+and the app shell stay idle. Add a task and only that epic's counter moves.
+No memoized selectors were written to get this — the subscriptions *are* the
+granularity:
+
+<Sandbox height={560}>
+
+```tsx name="/App.tsx" active
+import { Retree } from "@retreejs/core";
+import { useNode } from "@retreejs/react";
+import React from "react";
+
+const project = Retree.root({
+    name: "Atlas launch",
+    epics: [
+        {
+            title: "Docs",
+            tasks: [
+                { text: "Write the quickstart", done: true },
+                { text: "Record the demo", done: false },
+            ],
+        },
+        {
+            title: "Site",
+            tasks: [{ text: "Ship the playground", done: false }],
+        },
+    ],
+});
+
+type Epic = (typeof project.epics)[number];
+type Task = Epic["tasks"][number];
+
+// Inline render counter — the same evidence React DevTools would give you.
+function useRenders() {
+    const count = React.useRef(0);
+    count.current += 1;
+    return count.current;
+}
+
+const TaskRow = React.memo(function TaskRow({ task }: { task: Task }) {
+    // Level 3: subscribes to this task only.
+    const state = useNode(task);
+    const renders = useRenders();
+    return (
+        <li>
+            <input
+                type="checkbox"
+                checked={state.done}
+                onChange={() => (state.done = !state.done)}
+            />
+            <input
+                value={state.text}
+                onChange={(event) => (state.text = event.target.value)}
+            />{" "}
+            renders: {renders}
+        </li>
+    );
+});
+
+const EpicSection = React.memo(function EpicSection({ epic }: { epic: Epic }) {
+    // Level 2: subscribes to the epic (title) and its task list (add/remove).
+    const state = useNode(epic);
+    const tasks = useNode(state.tasks);
+    const renders = useRenders();
+    return (
+        <fieldset>
+            <legend>
+                {state.title} — renders: {renders}
+            </legend>
+            <ul>
+                {tasks.map((task, index) => (
+                    <TaskRow key={index} task={task} />
+                ))}
+            </ul>
+            <button
+                onClick={() => tasks.push({ text: "New task", done: false })}
+            >
+                Add task
+            </button>
+        </fieldset>
+    );
+});
+
+export default function App() {
+    // Level 1: subscribes to the root (name) and the epic list.
+    const state = useNode(project);
+    const epics = useNode(state.epics);
+    const renders = useRenders();
+    return (
+        <div>
+            <h3>
+                {state.name} — App renders: {renders}
+            </h3>
+            {epics.map((epic, index) => (
+                <EpicSection key={index} epic={epic} />
+            ))}
+        </div>
+    );
+}
+```
+
+</Sandbox>
+
+Every keystroke in a task's title field lands on a node two parents removed
+from the app shell, and nothing above the row notices — exactly one
+subscription fires, the row's. There is no selector layer to keep in sync
+with the nesting: the nesting *is* the subscription structure. The deeper
+the tree, the more this matters.
+
+## Child subscriptions and React.memo
+
+Passing child nodes to their own components — each with its own `useNode` —
+is the idiomatic pattern. With `React.memo` (or the React compiler), it cuts
+both directions: a change to one item re-renders only that item, and changes
+to the parent node don't re-render unaffected items.
+
+```tsx
+import React from "react";
+import { Retree } from "@retreejs/core";
+import { useNode } from "@retreejs/react";
+
+class Todo {
+    public text = "";
+    public checked = false;
+    toggle() {
+        this.checked = !this.checked;
+    }
+}
+
+const ViewTodo = React.memo(function ViewTodo({ todo }: { todo: Todo }) {
+    // Changes to this todo re-render only this component.
+    const _todo = useNode(todo);
+    return (
+        <input type="checkbox" checked={_todo.checked} onChange={_todo.toggle} />
+    );
+});
+
+class TodoList {
+    public readonly todos: Todo[] = [];
+    add() {
+        this.todos.push(new Todo());
+    }
+}
+
+const root = Retree.root(new TodoList());
+
+function App() {
+    // Subscribes to the list: add/remove/reorder re-renders here.
+    const todos = useNode(root.todos);
+    return (
+        <div>
+            <button onClick={root.add}>Add</button>
+            {todos.map((todo, index) => (
+                <ViewTodo key={index} todo={todo} />
+            ))}
+        </div>
+    );
+}
+```
+
+This works because a write reproxies the changed node and its ancestors —
+so the changed `todo` fails `React.memo`'s comparison while its untouched
+siblings pass it. The identity rules are covered in
+[Thinking in Retree](/docs/thinking-in-retree).
+
+## Pitfalls
+
+- **Nested writes don't re-render the parent subscriber.** The whiteboard
+  example above is the single most common surprise in the first hour. If a
+  component reads a child node, subscribe to that child node.
+- **Don't create roots during render.** `useNode(Retree.root({ ... }))`
+  builds a new tree every render. Create roots at module scope or with
+  [`useRoot`](/docs/react/use-root).
+- If a component only needs a derived value (a count, a boolean), `useNode`
+  over-subscribes — use [`useSelect`](/docs/react/use-select).
+
+More in [Common pitfalls](/docs/common-pitfalls).
+
+## Reference
+
+Full signature and remarks: [`useNode` API reference](/api/react/functions/useNode).

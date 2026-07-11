@@ -292,7 +292,7 @@ describe("raw change payloads (§9.1: consistently raw)", () => {
         expect(captured[0].new).toBe(nextMap);
     });
 
-    it("a listener can opt back into the managed node via Retree.source", () => {
+    it("a listener can opt back into the managed node via Retree.managed", () => {
         const first = Retree.root({ v: 1 });
         const root = Retree.root({ child: null as { v: number } | null });
         root.child = first;
@@ -302,7 +302,7 @@ describe("raw change payloads (§9.1: consistently raw)", () => {
         });
         root.child = { v: 99 };
         off();
-        const managed = Retree.source(previousRaw as TreeNode);
+        const managed = Retree.managed(previousRaw as TreeNode);
         expect(managed).toBeDefined();
         expect(Retree.raw(managed!)).toBe(previousRaw);
     });

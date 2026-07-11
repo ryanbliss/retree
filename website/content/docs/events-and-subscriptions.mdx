@@ -1,0 +1,246 @@
+---
+title: Events & subscriptions
+description: Using @retreejs/core outside React — Retree.root, the three event types with Retree.on, change payloads, Retree.select, and unsubscribe patterns.
+---
+
+`@retreejs/core` has no React dependency. Everything the hooks do is built on
+the primitives on this page: create a tree with `Retree.root`, subscribe with
+`Retree.on`, narrow with `Retree.select`. Use them for services, tests,
+integrations, and any code that runs outside a component. (The Convex
+integration is built this way — see [Convex integration](/docs/convex).)
+
+This page assumes the vocabulary from
+[Thinking in Retree](/docs/thinking-in-retree):
+[node](/docs/thinking-in-retree#node),
+[reproxy](/docs/thinking-in-retree#reproxy), and
+[raw value](/docs/thinking-in-retree#raw-value) in particular.
+
+## Create a tree
+
+`Retree.root(object)` makes one object the root of a managed tree. Class
+instances work as well as plain objects — this three-level workspace
+(workspace → lists → todos) is the running example for the rest of the page:
+
+```ts
+import { Retree } from "@retreejs/core";
+
+class Todo {
+    public text = "";
+    public checked = false;
+    toggle() {
+        this.checked = !this.checked;
+    }
+}
+
+class TodoList {
+    public title = "";
+    public todos: Todo[] = [];
+    add() {
+        this.todos.push(new Todo());
+    }
+}
+
+class Workspace {
+    public name = "";
+    public lists: TodoList[] = [];
+    addList() {
+        this.lists.push(new TodoList());
+    }
+}
+
+const tree = Retree.root(new Workspace());
+tree.addList();
+tree.lists[0].add();
+```
+
+## Subscribe with `Retree.on`
+
+[`Retree.on(node, event, callback)`](/api/core/classes/Retree) subscribes to
+one of three events and returns an unsubscribe function:
+
+- **`nodeChanged`** — the node's own fields changed.
+- **`treeChanged`** — the node or any descendant changed.
+- **`nodeRemoved`** — the node was detached from its structural parent.
+
+```ts
+Retree.on(tree, "nodeChanged", (_tree, changes) =>
+    console.log("workspace's own fields changed", changes)
+);
+Retree.on(tree, "treeChanged", (_tree, changes) =>
+    console.log("something in the tree changed", changes)
+);
+
+tree.name = "Q3 planning";  // ✅ nodeChanged, ✅ treeChanged — an own field
+tree.addList();             // ❌ nodeChanged, ✅ treeChanged — the lists
+                            //    array changed, one level down
+tree.lists[0].todos[0].toggle();
+                            // ❌ nodeChanged, ✅ treeChanged — three levels down
+```
+
+One `treeChanged` listener at the root observes writes at any depth — Retree
+propagates each change up through the node's ancestors, so there is no
+per-level wiring to maintain. `nodeChanged` stays scoped to the node's own
+fields no matter how deep the tree grows: even `addList()`, one level down,
+never reaches the workspace's `nodeChanged` listener, because the
+workspace's `lists` field still points at the same array. This is the same
+rule that drives which React hook re-renders; if a listener reads descendant
+fields, it needs `treeChanged` (see
+[the matching pitfall](/docs/common-pitfalls#a-nodechanged-listener-that-reads-descendants)).
+
+`nodeRemoved` fires when the node is detached from its parent — `splice`,
+the `delete` keyword, or replacement by assignment. Its callback receives no
+arguments:
+
+```ts
+const todos = tree.lists[0].todos;
+Retree.on(todos[0], "nodeRemoved", () => console.log("todo removed"));
+
+todos.splice(0, 1); // ✅ nodeRemoved fires
+```
+
+## The change payload
+
+`nodeChanged` and `treeChanged` callbacks receive `(reproxiedNode, changes)`:
+
+- `reproxiedNode` is the node's fresh
+  [reproxy](/docs/thinking-in-retree#reproxy) — read current state through
+  it.
+- `changes` is an array of
+  [`INodeFieldChanges`](/api/core/interfaces/INodeFieldChanges) records:
+  `{ key, previous, new }`, one per changed field.
+
+`previous` and `new` are **always raw values** — change records describe the
+past, not live handles. When you need the managed node behind a payload
+value, opt back in with
+[`Retree.managed`](/docs/thinking-in-retree#managed-node):
+
+```ts
+Retree.on(tree.lists[0].todos, "nodeChanged", (todos, changes) => {
+    for (const change of changes) {
+        console.log(change.key, change.previous, change.new);
+
+        // ❌ change.new is raw — writing to it emits nothing
+        // ✅ resolve it to the managed node first
+        const managed = Retree.managed(change.new);
+    }
+});
+```
+
+Identity comparisons against payload values should be raw-to-raw:
+`change.previous === Retree.raw(candidate)`.
+
+## Narrow with `Retree.select`
+
+`Retree.select` runs a selector against the tree and only calls your callback
+when the *selected* value changes. It has three forms.
+
+**Explicit node + selector.** Pass the node to listen to, a selector, and a
+callback. By default it listens to `nodeChanged` on that node; pass
+`listenerType: "treeChanged"` when the selector reads descendants. Here the
+selector aggregates across the whole workspace — every todo under every
+list — and the callback runs only when that number changes:
+
+```ts
+const unsubscribeDoneCount = Retree.select(
+    tree,
+    (workspace) =>
+        workspace.lists
+            .flatMap((list) => list.todos)
+            .filter((todo) => todo.checked).length,
+    (doneCount) => console.log(doneCount),
+    { listenerType: "treeChanged" }
+);
+
+tree.lists[0].todos[0].toggle();      // ✅ emits if the done count changed
+tree.lists[0].todos[0].text = "Docs"; // ❌ no emit: the count stayed the same
+```
+
+**Inference form.** Pass only a selector and a callback, and Retree traps the
+reads the selector performs and subscribes for you. Whole managed values read
+by the selector subscribe; property reads subscribe to the owner node but
+compare that specific property's value; primitive reads compare:
+
+```ts
+Retree.select(
+    () =>
+        tree.lists
+            .flatMap((list) => list.todos)
+            .filter((todo) => todo.checked).length,
+    (doneCount) => console.log(doneCount)
+);
+```
+
+**Dependency-list form.** The selector can return an ordered list. Reactive
+entries are subscribed to; primitive entries are compared. Use it when a
+broad source changes often but only a narrow slice should notify:
+
+```ts
+Retree.select(
+    row,
+    (self) => [self.attributes, self.attributeId, self.attribute],
+    ([, , nextAttribute], [, , previousAttribute]) => {
+        console.log({ nextAttribute, previousAttribute });
+    }
+);
+```
+
+Two boundaries to keep in mind:
+
+- Dependency-list subscriptions are
+  [observational](/docs/thinking-in-retree#observational-subscription):
+  a selected dependency change can run the callback, but it does not force
+  the node you passed in to receive a fresh reproxy. When a `ReactiveNode`
+  owner should emit `nodeChanged` for a selection, use the `@select`
+  decorator instead — see [View models](/docs/view-models).
+- `Retree.select` narrows *notification*; it is **not a cache**. If the
+  selector is expensive and reused, put the expensive part behind `memo` /
+  `@memo` / `@fnMemo` and select the cached value (see
+  [the matching pitfall](/docs/common-pitfalls#using-useselect-as-a-memo-cache)).
+
+In React, [`useSelect`](/api/react/functions/useSelect) is the same
+primitive with a re-render instead of a callback.
+
+## Unsubscribing
+
+Every `Retree.on` and `Retree.select` call returns an unsubscribe function.
+Call it when the listener's owner goes away:
+
+```ts
+const unsubscribe = Retree.on(tree.lists, "treeChanged", (lists, changes) => {
+    console.log("a list or todo updated", lists, changes);
+});
+
+// later
+unsubscribe();
+```
+
+When you own *all* the listeners on a node, `Retree.clearListeners(node)`
+removes them at once. Pass `false` as the second argument to also clear
+listeners on the node's **direct child nodes** (deeper descendants keep
+theirs — clear them per node, or hold on to the unsubscribe functions
+returned by `Retree.on`):
+
+```ts
+Retree.clearListeners(tree.lists);        // clear the lists node's own listeners
+Retree.clearListeners(tree.lists, false); // also clear each list's listeners
+```
+
+## Guard with `Retree.isNode`
+
+`Retree.raw`, `Retree.parent`, `Retree.on`, and friends expect managed
+nodes — `Retree.raw` throws for values that aren't. When a value may come
+from either side of the proxy boundary (wire data, user callbacks), guard
+with the `Retree.isNode` type guard instead of catching:
+
+```ts
+const rawValue = Retree.isNode(value) ? Retree.raw(value) : value;
+```
+
+## Where next
+
+- [Tree operations](/docs/tree-operations) — parent, move, link, and clone,
+  plus how `nodeRemoved` ties in.
+- [Transactions & silent writes](/docs/transactions) — batching and
+  suppressing emission.
+- [View models](/docs/view-models) — `ReactiveNode`, `dependencies`, and the
+  decorators that build on these events.

@@ -63,11 +63,11 @@ describe("useRaw", () => {
         });
 
         function List() {
-            const [tasksRaw, toSource] = useRaw(root.tasks);
+            const [tasksRaw, toManaged] = useRaw(root.tasks);
             return (
                 <ul>
                     {tasksRaw.map((rawTask) => (
-                        <Row key={rawTask.id} task={toSource(rawTask)!} />
+                        <Row key={rawTask.id} task={toManaged(rawTask)!} />
                     ))}
                 </ul>
             );
@@ -84,7 +84,7 @@ describe("useRaw", () => {
         expect(rowRenders).toHaveBeenLastCalledWith("a");
         expect(screen.getByTestId("row-a").textContent).toBe("Alpha 2");
 
-        // A structural change re-renders the list. toSource hands each row
+        // A structural change re-renders the list. toManaged hands each row
         // the LATEST node identity (same semantics as a useNode list): new
         // row "c" renders, row "a" re-renders once because its identity
         // advanced when its title changed, and untouched row "b" bails.
@@ -97,14 +97,14 @@ describe("useRaw", () => {
         expect(renderedIds).toContain("c");
     });
 
-    it("toSource resolves never-materialized direct children", () => {
+    it("toManaged resolves never-materialized direct children", () => {
         // Fresh tree: no traversal has happened through the proxy.
         const root = Retree.root({ tasks: makeTasks() });
         let resolved: Task | undefined;
 
         function List() {
-            const [tasksRaw, toSource] = useRaw(root.tasks);
-            resolved = toSource(tasksRaw[0]);
+            const [tasksRaw, toManaged] = useRaw(root.tasks);
+            resolved = toManaged(tasksRaw[0]);
             return null;
         }
 
@@ -114,7 +114,7 @@ describe("useRaw", () => {
         expect(Retree.raw(resolved!)).toBe(Retree.raw(root.tasks)[0]);
     });
 
-    it("toSource resolves never-materialized Map values and Set members", () => {
+    it("toManaged resolves never-materialized Map values and Set members", () => {
         const root = Retree.root({
             map: new Map<string, { v: number }>([["k", { v: 1 }]]),
             set: new Set<{ v: number }>([{ v: 2 }]),
@@ -123,13 +123,13 @@ describe("useRaw", () => {
         let setResolved: { v: number } | undefined;
 
         function MapReader() {
-            const [rawMap, toSource] = useRaw(root.map);
-            mapResolved = toSource(rawMap.get("k")!);
+            const [rawMap, toManaged] = useRaw(root.map);
+            mapResolved = toManaged(rawMap.get("k")!);
             return null;
         }
         function SetReader() {
-            const [rawSet, toSource] = useRaw(root.set);
-            setResolved = toSource([...rawSet][0]);
+            const [rawSet, toManaged] = useRaw(root.set);
+            setResolved = toManaged([...rawSet][0]);
             return null;
         }
 

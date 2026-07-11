@@ -1,0 +1,57 @@
+---
+title: Choosing a hook
+description: useNode, useTree, useSelect, useRaw, and useRoot subscribe to the same tree with different granularity. Pick the narrowest one that answers "when should this component re-render?"
+---
+
+Every Retree hook answers the same question — *when should this component
+re-render?* — at a different granularity. They all read the same tree; the
+only thing you are choosing is the subscription.
+
+## The decision table
+
+| Hook                                 | Re-renders when                                                             | Use it for                                                                    | Avoid when                                                                                        |
+| ------------------------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| [`useNode`](/docs/react/use-node)     | direct `nodeChanged` events on one node — its own fields change              | rows, panels, forms, and focused child components                              | the component only needs a derived value — reach for `useSelect`                                   |
+| [`useTree`](/docs/react/use-tree)     | `treeChanged` events from a node **or any descendant**                       | small subtrees that truly need broad invalidation                              | hot paths and large app-level roots                                                                |
+| [`useSelect`](/docs/react/use-select) | a selected value or ordered dependency list changes                          | counts, totals, booleans, and other narrow projections — including ones computed across a deep subtree | you want to cache expensive computation — it is a subscription primitive, not a memo cache         |
+| [`useRaw`](/docs/react/use-raw)       | same events as `useNode` (`nodeChanged` by default), but you read raw        | components that read wide during render: big tables, canvas layers, serialization | children need node props and you skip `toManaged`, or you write to raw values                        |
+| [`useRoot`](/docs/react/use-root)     | never by itself — it creates a root; pair it with a subscribing hook         | state that belongs to one React subtree, for that component's lifetime         | state that should outlive the component — create a module-scope `Retree.root` instead              |
+
+## Try it
+
+The playground below runs one shared tree — `project.tasks` — through each
+hook. The render counters are real: switch modes, press the same mutation
+buttons, and compare which components re-render.
+
+<HookPlayground />
+
+## The narrowest subscription wins
+
+Retree performs best when components subscribe to the narrowest node or value
+they need:
+
+- Prefer `useNode(child)` for item rows and focused panels.
+- Prefer `useSelect(node, selector)` for selected values or dependency lists
+  that should only re-render when the selection changes.
+- Treat `useTree` (and `treeChanged` in general) as broad subtree
+  invalidation, especially in hot paths.
+- Use `useRaw` when the render body itself reads wide — the subscription
+  stays as narrow as `useNode`, but reads skip the proxy.
+- Avoid constructing Retree roots during render; create them at module scope
+  or with [`useRoot`](/docs/react/use-root).
+
+When two hooks would both work, pick the one further up this list. The
+subscription boundaries should follow your component boundaries — that idea
+is developed in [Thinking in Retree](/docs/thinking-in-retree), and the
+first-hour mistakes are catalogued in
+[Common pitfalls](/docs/common-pitfalls).
+
+## The five hooks
+
+- [`useRoot`](/docs/react/use-root) — create a root for a component lifetime.
+- [`useNode`](/docs/react/use-node) — subscribe to one node's own fields.
+- [`useTree`](/docs/react/use-tree) — subscribe to a node and all descendants.
+- [`useSelect`](/docs/react/use-select) — subscribe to a selected value.
+- [`useRaw`](/docs/react/use-raw) — subscribe like `useNode`, read proxy-free.
+
+Full signatures live in the [API reference](/api/react).
