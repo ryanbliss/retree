@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+/*
+ * Retree design tokens.
+ *
+ * Dark is the default theme (no data-theme attribute). Light is applied via
+ * html[data-theme="light"], set by the no-flash inline script in layout.tsx.
+ *
+ * Accent is split per spec §3:
+ * - --accent-text: safe for text/links; must hold >= 4.5:1 contrast against
+ *   --background and --surface in its theme.
+ * - --accent-glow: decorative only (render flashes, focus glows, borders).
+ */
+
+:root {
+    --background: #0a0d0b;
+    --surface: #101412;
+    --surface-raised: #171d1a;
+    --border: #232b27;
+    --border-strong: #33403a;
+    --foreground: #e9f0ec;
+    --muted: #a3b3ab;
+    --faint: #6e7d75;
+    --accent-text: #5fe08d;
+    --accent-glow: #22c55e;
+    --accent-glow-soft: rgba(34, 197, 94, 0.35);
+    --danger: #f87171;
+    --warning: #fbbf24;
+    --code-bg: #0d1210;
+    --selection: rgba(34, 197, 94, 0.25);
+
+    /* Shiki css-variables theme */
+    --shiki-foreground: #e9f0ec;
+    --shiki-background: transparent;
+    --shiki-token-constant: #7cd8ff;
+    --shiki-token-string: #9ce29c;
+    --shiki-token-comment: #6e7d75;
+    --shiki-token-keyword: #5fe08d;
+    --shiki-token-parameter: #e6c07b;
+    --shiki-token-function: #7cd8ff;
+    --shiki-token-string-expression: #9ce29c;
+    --shiki-token-punctuation: #a3b3ab;
+    --shiki-token-link: #5fe08d;
+
+    color-scheme: dark;
+}
+
+html[data-theme="light"] {
+    --background: #fafcfa;
+    --surface: #f0f5f1;
+    --surface-raised: #ffffff;
+    --border: #dbe4de;
+    --border-strong: #c1cec6;
+    --foreground: #17211b;
+    --muted: #52635a;
+    --faint: #5f6e66;
+    --accent-text: #107639;
+    --accent-glow: #22c55e;
+    --accent-glow-soft: rgba(34, 197, 94, 0.3);
+    --danger: #dc2626;
+    --warning: #b45309;
+    --code-bg: #f3f7f4;
+    --selection: rgba(34, 197, 94, 0.2);
+
+    --shiki-foreground: #17211b;
+    --shiki-background: transparent;
+    --shiki-token-constant: #0e63b4;
+    --shiki-token-string: #2c7a2c;
+    --shiki-token-comment: #7d8d84;
+    --shiki-token-keyword: #107639;
+    --shiki-token-parameter: #8a5a00;
+    --shiki-token-function: #0e63b4;
+    --shiki-token-string-expression: #2c7a2c;
+    --shiki-token-punctuation: #52635a;
+    --shiki-token-link: #107639;
+
+    color-scheme: light;
+}
+
+@theme inline {
+    --color-background: var(--background);
+    --color-surface: var(--surface);
+    --color-surface-raised: var(--surface-raised);
+    --color-border-token: var(--border);
+    --color-border-strong: var(--border-strong);
+    --color-foreground: var(--foreground);
+    --color-muted: var(--muted);
+    --color-faint: var(--faint);
+    --color-accent: var(--accent-text);
+    --color-accent-glow: var(--accent-glow);
+    --color-danger: var(--danger);
+    --color-warning: var(--warning);
+    --color-code-bg: var(--code-bg);
+    --font-sans: var(--font-geist-sans);
+    --font-mono: var(--font-geist-mono);
+}
+
+::selection {
+    background: var(--selection);
+}
+
+body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Render-flash pulse used by the re-render visualizers. Decays via motion in
+ * JS when available; this keyframe is the CSS-only fallback. */
+@keyframes render-flash {
+    0% {
+        box-shadow: 0 0 0 1.5px var(--accent-glow),
+            0 0 18px 2px var(--accent-glow-soft);
+    }
+    100% {
+        box-shadow: 0 0 0 1.5px transparent, 0 0 18px 2px transparent;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

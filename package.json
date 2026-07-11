@@ -12,7 +12,8 @@
         "samples/01.core-example",
         "samples/02.react-example",
         "samples/03.react-recursion",
-        "samples/04.convex-react-nextjs"
+        "samples/04.convex-react-nextjs",
+        "website"
     ],
     "scripts": {
         "benchmark": "npm run benchmark --workspace @retreejs/benchmark-cli -- --output-dir ../../benchmarks/results",
