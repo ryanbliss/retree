@@ -32,6 +32,10 @@ Read the full [Retree Docs Home](https://ryanbliss.github.io/retree/) or the [Re
 -   DO use `@ignore` for caches, unsubscribe handles, framework objects, and other non-rendered state on a `ReactiveNode`.
 -   DO use `Retree.runTransaction(...)` for several synchronous writes that represent one logical update.
 -   DO use `Retree.runSilent(...)` for synchronous writes that should skip emitting change events.
+-   DO use `Retree.raw(node)` / `Retree.peekInto(node, fn)` (or React's `useRaw`) for wide, read-only scans. Raw subtrees are guaranteed proxy-free and read at native speed.
+-   DO resolve raw values back to managed nodes with `Retree.source(rawValue)` (or `useRaw`'s `toSource`) before writing, subscribing, or passing them as component props.
+-   DO use `Retree.untracked(fn)` for bulk reads inside tracked selectors/memo getters that should not become dependencies.
+-   DO read `rawCurrent` and write `current` inside custom Convex reconcilers (`reconcile(current, next, rawCurrent)`).
 -   DO dispose Convex query, paginated query, and connection-state nodes when their owner is torn down.
 -   DO reconcile server list results by stable IDs (`reconcileConvexDocuments`, `reconcileArrayById`) so child node identity stays stable.
 -   DO set the lowest-level value and/or primitive that changed.
@@ -47,6 +51,9 @@ Read the full [Retree Docs Home](https://ryanbliss.github.io/retree/) or the [Re
 -   DON'T expect `useSelect(...)` or `Retree.select(...)` dependency lists to reproxy the node passed to the selector. They are observational; use `@select` when a `ReactiveNode` owner should emit.
 -   DON'T pass selector-only `useSelect(() => ...)` or `Retree.select(() => ..., callback)` when you need a fixed root listener with `listenerType: "treeChanged"`. The selector-only forms trap Retree-managed reads and subscribe to those nodes automatically.
 -   DON'T treat `memo`, `@memo`, or `@fnMemo` as subscriptions. They cache values only; they do not emit or re-render by themselves.
+-   DON'T write to values from `Retree.raw` / `useRaw`. Writes must go through managed nodes to emit; raw is a read-only view.
+-   DON'T use raw references as `React.memo` props, `useMemo` deps, or equality tokens. Raw identity never changes; nodes are the identity currency.
+-   DON'T expect `changes[].previous` / `changes[].new` in listener payloads to be managed nodes. Payload values are always raw; use `Retree.source(value)` to opt back in.
 -   DON'T rely on dependency reordering being silent. If `ReactiveNode.dependencies` or `@select` entries are added, removed, or reordered, Retree treats that as changed and emits when the owner is observed.
 -   DON'T start subscriptions, network work, or synchronization inside the `dependencies` getter. Use `onObserved()`, `onUnobserved()`, and `onChanged()`.
 -   DON'T manually delete a node from its old parent before calling `Retree.move(...)`; `move` finds the current parent and removes it safely.
@@ -63,6 +70,10 @@ Read the full [Retree Docs Home](https://ryanbliss.github.io/retree/) or the [Re
 -   `Retree.on`: Subscribes to `nodeChanged`, `treeChanged`, or `nodeRemoved`. Use it outside React and inside integrations.
 -   `Retree.select`: Subscribes to a selected value or ordered dependency list. Reactive entries are subscribed to and primitive entries are compared. Use `Retree.select(node, selector, callback)` for an explicit root, or `Retree.select(() => value, callback)` for automatic dependency trapping. It is not a cache.
 -   `Retree.parent`: Returns the structural parent of a node. Use it for tree-local operations like deleting yourself from a list.
+-   `Retree.raw`: Returns the raw, proxy-free object behind a node for native-speed, read-only access. Guaranteed proxy-free at any depth (raw purity); `structuredClone(Retree.raw(node))` is a valid point-in-time copy. `ReactiveNode` exposes `this.raw()`.
+-   `Retree.source`: Resolves a raw value back to its managed node (the inverse of `Retree.raw`). Returns `undefined` for values never materialized as nodes.
+-   `Retree.peekInto`: Runs a read-only query against a node's raw object and resolves the returned value to its managed node when one exists. `ReactiveNode` exposes `this.peekInto(fn)`.
+-   `Retree.untracked`: Pauses dependency tracking during a synchronous callback. Use it for bulk reads inside tracked selectors and memo getters. `ReactiveNode` exposes `this.untracked(fn)`.
 -   `Retree.move`: Transfers an existing node to a new structural parent. Use it when ownership should change.
 -   `Retree.link` and `@link`: Store a reactive pointer without reparenting the target. Use them for selected items and cross-references.
 -   `Retree.clone`: Creates a detached copy. Use it when two places need independent state.
@@ -77,13 +88,14 @@ Read the full [Retree Docs Home](https://ryanbliss.github.io/retree/) or the [Re
 -   `useNode`: Re-renders for direct `nodeChanged` events on one node. Use it for focused components and child rows.
 -   `useTree`: Re-renders for `treeChanged` events from a node or descendants. Use it sparingly for small subtrees.
 -   `useSelect`: Re-renders only when a selected value or ordered dependency list changes. Use `useSelect(node, selector)` for an explicit root, or `useSelect(() => value)` for automatic dependency trapping. Good for counts, totals, booleans, labels, and VM dependency arrays.
+-   `useRaw`: Subscribes like `useNode` (`nodeChanged` default) but returns `[raw, toSource]` for native-speed, proxy-free render reads. Use it for components that read wide (tables, canvas, serialization). Pass nodes to children via `toSource`, never raw values.
 -   `ConvexNode`: Full Convex base class for Retree app state with query, paginated query, action, mutation, query-once, and connection-state helpers.
 -   `BaseConvexNode`: Smaller Convex base class for action, mutation, and one-off query helpers.
 -   `ConvexQueryNode`: Stores one live Convex query in Retree state and emits when query state/result/error changes.
 -   `ConvexPaginatedQueryNode`: Stores one live paginated Convex query and exposes `loadMore(...)`.
 -   `ConvexConnectionStateNode`: Stores the Convex client's connection state in Retree state.
 -   `createRetreeConvexAction` and `createRetreeConvexMutation`: Typed standalone Convex helpers for code that is not inside a `BaseConvexNode`.
--   `reconcileConvexDocuments` and `reconcileArrayById`: Preserve list item object identity across server results so child `useNode(item)` subscriptions stay narrow.
+-   `reconcileConvexDocuments` and `reconcileArrayById`: Preserve list item object identity across server results so child `useNode(item)` subscriptions stay narrow. They read raw and write through the managed state internally; custom reconcilers receive `rawCurrent` as a third argument (read `rawCurrent`, write `current`).
 -   `RetreeConvexReactClient`: Extends Convex's `ConvexReactClient` with the Retree Convex subscription methods used by `ConvexNode` query, paginated query, and connection-state helpers.
 
 ## Documentation
@@ -106,6 +118,7 @@ Read the full [Retree Docs Home](https://ryanbliss.github.io/retree/) or the [Re
 -   [useNode](https://ryanbliss.github.io/retree/functions/_retreejs_react.useNode.html): React hook for subscribing to direct node changes with fine-grained re-rendering.
 -   [useTree](https://ryanbliss.github.io/retree/functions/_retreejs_react.useTree.html): React hook for subscribing to node and descendant-tree changes.
 -   [useRoot](https://ryanbliss.github.io/retree/functions/_retreejs_react.useRoot.html): React hook for creating and retaining a Retree root in a component.
+-   [useRaw](https://ryanbliss.github.io/retree/functions/_retreejs_react.useRaw.html): React hook returning `[raw, toSource]` for native-speed, proxy-free render reads with `useNode`-style invalidation.
 -   [@retreejs/convex API](https://ryanbliss.github.io/retree/modules/_retreejs_convex.html): Convex exports for `BaseConvexNode`, `ConvexNode`, `ConvexQueryNode`, `ConvexPaginatedQueryNode`, `ConvexConnectionStateNode`, action and mutation helpers, optimistic update contexts, and reconcilers.
 -   [BaseConvexNode class](https://ryanbliss.github.io/retree/classes/_retreejs_convex.BaseConvexNode.html): Base Retree node for classes that own a Convex client and need protected action, mutation, and one-off query helpers.
 -   [ConvexNode class](https://ryanbliss.github.io/retree/classes/_retreejs_convex.ConvexNode.html): Base class for Retree nodes that own a Convex client and create typed query, paginated query, action, mutation, query-once, and connection-state helpers.

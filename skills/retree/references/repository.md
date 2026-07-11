@@ -45,6 +45,11 @@ npx skills use ryanbliss/retree@retree
 -   [`Retree.on`](#core-api-examples) subscribes to `nodeChanged`, `treeChanged`, or `nodeRemoved`. Use it outside React and inside integrations.
 -   [`Retree.select`](#core-api-examples) is the non-React version of `useSelect`. Use it to narrow notifications; it is not a cache.
 -   [`Retree.parent`](#core-api-examples) returns the structural parent of a node. Use it for tree-local operations like deleting yourself from a list.
+-   [`Retree.raw`](#core-api-examples) returns the raw, proxy-free object behind a node for native-speed, read-only access. Raw subtrees are guaranteed proxy-free.
+-   [`Retree.source`](#core-api-examples) resolves a raw value back to its managed node — the inverse of `Retree.raw`.
+-   [`Retree.peekInto`](#core-api-examples) runs a read-only query against a node's raw object and resolves the result to its managed node when one exists.
+-   [`Retree.untracked`](#core-api-examples) pauses dependency tracking during a synchronous callback, for bulk reads inside tracked selectors and memo getters.
+-   [`useRaw`](#useraw-hook) subscribes like `useNode` but returns `[raw, toSource]` for native-speed, proxy-free render reads. Use it for components that read wide.
 -   [`Retree.move`](#core-api-examples) transfers an existing node to a new structural parent. Use it when ownership should change.
 -   [`Retree.link` and `@link`](#core-api-examples) store a reactive pointer without reparenting. Use them for selected items and cross-references.
 -   [`Retree.clone`](#core-api-examples) makes a detached copy. Use it when two places need independent state.
@@ -275,6 +280,43 @@ const [, , attribute] = useSelect(row, (self) => [
 Dependency-list subscriptions in `useSelect` are observational: selected dependency changes can re-render the component, but they do not force the node passed to `useSelect` to receive a fresh reproxy. Use `@select` when a `ReactiveNode` owner should emit `nodeChanged`.
 
 `useSelect` is a subscription primitive, not a memo cache. Use `memo`, `@memo`, or `@fnMemo` for expensive computation you want to cache, then select the cached value when you want narrower renders.
+
+#### useRaw hook
+
+Use `useRaw` when a component reads wide during render — big tables, canvas
+layers, subtree serialization. It subscribes exactly like `useNode`
+(`nodeChanged` by default) but returns `[raw, toSource]`: the live raw object
+for native-speed, proxy-free reads plus a resolver back to managed nodes.
+
+```tsx
+import React from "react";
+import { useNode, useRaw } from "@retreejs/react";
+
+function TaskListView({ list }: { list: TaskList }) {
+    // Re-renders only when the array itself changes: add / remove / reorder.
+    const [tasksRaw, toSource] = useRaw(list.tasks);
+    return (
+        <ul>
+            {tasksRaw.map((rawTask) => (
+                <TaskRow key={rawTask.id} task={toSource(rawTask)!} />
+            ))}
+        </ul>
+    );
+}
+
+const TaskRow = React.memo(function TaskRow({ task }: { task: Task }) {
+    const t = useNode(task); // node prop: own subscription, write surface
+    return <li onClick={() => (t.isComplete = !t.isComplete)}>{t.title}</li>;
+});
+```
+
+Pass **nodes** to children via `toSource`, never raw values — nodes carry
+subscriptions, writes, and identity; raw is a local read view. `toSource`
+always resolves direct children of the subscribed node (object/array
+children, Map values, Set members). Deep changes re-render only when declared
+— via the node's `dependencies` / `@select`, via `useSelect` for derived
+views, or via the `treeChanged` opt-in. Never write to raw values or use raw
+references as `React.memo` props or `useMemo` deps.
 
 #### useTree hook
 
@@ -990,6 +1032,28 @@ class ProjectState extends ReactiveNode {
 const root = Retree.root(new ProjectState());
 root.prepareTree({ depth: 1 });
 ```
+
+Use `Retree.raw` for native-speed, read-only scans; `Retree.source` to
+resolve raw values back to managed nodes; `Retree.peekInto` to query raw and
+get the managed result in one call; and `Retree.untracked` to pause
+dependency tracking during bulk reads:
+
+```ts
+const rawTasks = Retree.raw(tree.todos); // ✅ proxy-free, native-speed reads
+const found = Retree.peekInto(tree.todos, (raw) =>
+    raw.find((todo) => todo.id === id)
+);
+found?.toggle(); // ✅ peekInto resolved the managed node
+
+const managed = Retree.source(rawTasks[0]); // raw → managed node
+```
+
+Raw subtrees are guaranteed proxy-free under every write path (raw purity),
+so `structuredClone(Retree.raw(node))` is a valid point-in-time copy. Treat
+raw values as read-only, never use raw references as memo/equality tokens,
+and note that change payloads (`INodeFieldChanges.previous` / `.new`) are
+always raw values — `Retree.source(change.previous)` opts back into the
+managed node.
 
 ### Core samples
 

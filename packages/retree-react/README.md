@@ -24,6 +24,7 @@ yarn add @retreejs/core @retreejs/react
 -   [`useNode`](#usenode-hook) subscribes to direct `nodeChanged` events. Use it for focused components that own one node.
 -   [`useTree`](#usetree-hook) subscribes to `treeChanged` events from a node and descendants. Use it for small subtrees that should re-render together.
 -   [`useSelect`](#useselect-hook) subscribes to a selected value or ordered dependency list and re-renders only when it changes. Use it for counts, totals, booleans, labels, and other narrow projections.
+-   [`useRaw`](#useraw-hook) subscribes like `useNode` but returns `[raw, toSource]` for native-speed, proxy-free reads. Use it for components that read wide during render.
 -   [`@select`](https://github.com/ryanbliss/retree/tree/main/packages/retree-core#reactive-dependencies) decorates a getter with an ordered dependency list. Use it when VM logic should stay in the `ReactiveNode` while `useNode(node)` stays selective.
 -   [`ReactiveNode.dependencies`](#reactivenode) can make a node emit `nodeChanged` from narrow dependencies. Return raw reactive nodes/primitives directly, or wrap one slot with `this.dependency(node, comparisons)`.
 -   [`memo`, `@memo`, and `@fnMemo`](https://github.com/ryanbliss/retree/tree/main/packages/retree-core#memoize-computed-getters) cache expensive computed values. They do not trigger renders by themselves.
@@ -386,6 +387,51 @@ greatGrandparent1.grandparent_1.name = "Beth";
 While `useTree` is powerful and can make things a lot easier, it is important to ensure its usage doesn't have negative performance. As your component tree gets more complicated, you should take care to only `useTree` sparingly (e.g., lower down in your view tree hierarchy).
 
 **Tip:** Always use React Dev Tools' profile tab to measure render performance when using `useTree`.
+
+### useRaw hook
+
+Use `useRaw` when a component reads wide during render — big tables, canvas
+layers, subtree serialization — and per-property proxy reads show up in
+profiles. It subscribes exactly like `useNode` (`nodeChanged` by default) but
+returns `[raw, toSource]`: the live raw object for native-speed reads plus a
+resolver back to managed nodes.
+
+```tsx
+import React from "react";
+import { useNode, useRaw } from "@retreejs/react";
+
+function TaskListView({ list }: { list: TaskList }) {
+    // Re-renders only when the array itself changes: add / remove / reorder.
+    const [tasksRaw, toSource] = useRaw(list.tasks);
+    return (
+        <ul>
+            {tasksRaw.map((rawTask) => (
+                <TaskRow key={rawTask.id} task={toSource(rawTask)!} />
+            ))}
+        </ul>
+    );
+}
+
+const TaskRow = React.memo(function TaskRow({ task }: { task: Task }) {
+    const t = useNode(task); // node prop: own subscription, write surface
+    return <li onClick={() => (t.isComplete = !t.isComplete)}>{t.title}</li>;
+});
+```
+
+-   The prop passed to children is the **node** (`toSource(rawTask)`), never
+    the raw value. Nodes carry subscriptions, writes, navigation, and
+    identity; raw is a local read view.
+-   `toSource` always resolves direct children of the subscribed node —
+    object/array children, Map values, and Set members — materializing them
+    on demand.
+-   Invalidation matches `useNode`: deep changes re-render only when declared
+    — via the node's `dependencies` / `@select`, via `useSelect` for derived
+    views, or via the `listenerType: "treeChanged"` opt-in. Raw is live, so
+    any render (including parent-triggered ones) reads current state.
+-   Do not filter or aggregate raw content inline when membership must stay
+    in lockstep with deep fields — that is derived state; use `useSelect`.
+-   Never write to raw values, and never use raw references as `React.memo`
+    props or `useMemo` deps.
 
 ## React performance guide
 

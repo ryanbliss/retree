@@ -24,6 +24,10 @@ Use this as a quick map before choosing an API:
 -   [`Retree.on`](#listen-to-nodechanged-treechanged-and-noderemoved) subscribes to `nodeChanged`, `treeChanged`, or `nodeRemoved`. Use it outside React or inside lower-level integrations.
 -   [`Retree.select`](#select-derived-values) subscribes to a selected value or ordered dependency list. Use it to narrow notifications; it is not a cache.
 -   [`Retree.parent`](#find-a-parent) returns the structural parent of a node. Use it for tree-local actions like deleting yourself from an array.
+-   [`Retree.raw`](#read-fast-with-raw) returns the raw, proxy-free object behind a node for native-speed, read-only access. Use it for algorithms that scan large trees.
+-   [`Retree.source`](#read-fast-with-raw) resolves a raw value back to its managed node. Use it to recover the write surface after a raw scan or from a change payload.
+-   [`Retree.peekInto`](#read-fast-with-raw) runs a read-only query against a node's raw object and resolves the result to its managed node when one exists.
+-   [`Retree.untracked`](#read-fast-with-raw) pauses dependency tracking during a synchronous callback. Use it for bulk reads inside tracked selectors and memo getters.
 -   [`Retree.move`](#move-link-or-clone-existing-nodes) transfers an existing node to a new structural parent. Use it when ownership should change.
 -   [`Retree.link` and `@link`](#move-link-or-clone-existing-nodes) store a reactive pointer to a node without reparenting it. Use it for selected items and cross-references.
 -   [`Retree.clone`](#move-link-or-clone-existing-nodes) creates a detached copy. Use it when two places need independent state.
@@ -277,6 +281,54 @@ class Task {
 ```
 
 Links are not structural parents: if `editor.selectedTask` is a `@link` field pointing at `project.tasks[0]`, `Retree.parent(editor.selectedTask)` still returns `project.tasks`.
+
+## Read fast with raw
+
+Reads through Retree proxies pay a per-property trap cost. For algorithms and
+render paths that read wide (large lists, deep scans, serialization), read the
+raw object instead:
+
+```ts
+const project = Retree.root({ items: [{ id: "a", score: 1 }] });
+
+// Native-speed, read-only view. Guaranteed proxy-free at any depth.
+const rawItems = Retree.raw(project.items);
+const total = rawItems.reduce((sum, item) => sum + item.score, 0);
+
+// Resolve a raw value back to its managed node when you need to write.
+const item = Retree.source(rawItems[0]);
+if (item) item.score = 2; // ✅ emits normally
+
+// Query raw and resolve the returned value to its managed node in one call.
+const found = Retree.peekInto(project.items, (raw) =>
+    raw.find((candidate) => candidate.id === "a")
+);
+
+// Pause dependency tracking for bulk reads inside tracked selectors/memos.
+const count = Retree.untracked(() => project.items.length);
+```
+
+Rules that keep raw reads safe:
+
+-   **Raw purity guarantee:** `Retree.raw(node)` subtrees contain zero Retree
+    proxies under every write path — reparenting assignments, `Retree.move`,
+    Map/Set value reads, and post-construction assignment of class instances
+    or collections. Every read is native speed, and
+    `structuredClone(Retree.raw(node))` is a valid point-in-time copy.
+-   Treat raw values as **read-only**. Writes go through managed nodes;
+    writing to raw skips emission entirely.
+-   Raw references keep the same identity across changes. Never use them as
+    memo/equality tokens — nodes are the identity currency.
+-   Raw reads are invisible to reactivity: they are not trapped by
+    `useSelect`/`Retree.select` selectors or `@memo` dependency collection.
+-   Change payloads (`INodeFieldChanges.previous` / `.new`) are always raw
+    values; use `Retree.source(change.previous)` to opt back into the managed
+    node.
+-   `Retree.source` returns `undefined` for values never materialized as
+    nodes; traverse the path once (or use `useRaw`'s `toSource` in React)
+    when a managed result is required.
+-   `ReactiveNode` exposes instance conveniences: `this.raw()`,
+    `this.untracked(fn)`, and `this.peekInto(fn)`.
 
 ## Reactive dependencies
 

@@ -253,6 +253,30 @@ this.tasks = this.query(api.tasks.listByProject, {
 });
 ```
 
+Custom reconcilers receive a third `rawCurrent` argument — the proxy-free raw
+view of `current` (`Retree.raw`). Reconciliation is read-dominated, so **read
+from `rawCurrent`, write to `current`**: comparisons run at native speed and
+writes through `current` emit `nodeChanged` for changed rows while keeping
+item identity stable. Writing to `rawCurrent` skips emission — never do it.
+
+```ts
+const reconcileTasks: IStateReconciler<Task[]> = {
+    reconcile(current, next, rawCurrent) {
+        if (current === undefined) return next;
+        for (let index = 0; index < next.length; index++) {
+            if (rawCurrent?.[index]?.text !== next[index]!.text) {
+                current[index]!.text = next[index]!.text; // ✅ emits
+            }
+        }
+        current.length = next.length;
+        return current;
+    },
+};
+```
+
+The built-in reconcilers (`reconcileConvexDocuments`, `reconcileArrayById`)
+already read raw and write through `current` internally.
+
 ## Docs
 
 Docs are hosted at https://ryanbliss.github.io/retree/.
