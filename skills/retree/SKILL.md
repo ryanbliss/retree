@@ -1,6 +1,6 @@
 ---
 name: retree
-description: Build, debug, or review Retree code for object-tree state management, React hooks, and Convex integration. Use when working with @retreejs/core, @retreejs/react, @retreejs/convex, @retreejs/react-convex, Retree.root, ReactiveNode, useNode, useTree, useSelect, useRoot, useRaw, Retree.select, Retree.raw, Retree.peekInto, Retree.source, Retree.untracked, Retree.move, Retree.link, memo decorators, or Retree Convex query nodes.
+description: Build, debug, or review Retree code for object-tree state management, React hooks, and Convex integration. Use when working with @retreejs/core, @retreejs/react, @retreejs/convex, @retreejs/react-convex, Retree.root, ReactiveNode, useNode, useTree, useSelect, useRoot, useRaw, Retree.select, Retree.raw, Retree.isNode, Retree.peekInto, Retree.source, Retree.untracked, Retree.move, Retree.link, memo decorators, or Retree Convex query nodes.
 ---
 
 # Retree
@@ -172,6 +172,7 @@ const found = Retree.peekInto(project.tasks, (raw) =>
 ); // raw query, managed result
 const managed = Retree.source(rawTasks[0]); // raw value → managed node
 const total = Retree.untracked(() => scan(project)); // no dependency tracking
+const rawValue = Retree.isNode(value) ? Retree.raw(value) : value; // maybe-managed guard
 ```
 
 Rules:
@@ -180,6 +181,7 @@ Rules:
 -   Raw values are **read-only** — writes go through managed nodes, or they silently skip emission.
 -   Raw references never change identity; do not use them as memo/equality tokens. Nodes are the identity currency.
 -   Change payloads (`changes[].previous` / `changes[].new`) are always raw values; use `Retree.source(value)` to opt back into the managed node.
+-   `Retree.raw` throws for unmanaged values. Guard with the `Retree.isNode(value)` type guard when a value may be managed or plain.
 -   `ReactiveNode` exposes instance forms: `this.raw()`, `this.untracked(fn)`, `this.peekInto(fn)`.
 
 ## Ownership

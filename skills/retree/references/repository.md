@@ -45,6 +45,7 @@ npx skills use ryanbliss/retree@retree
 -   [`Retree.on`](#core-api-examples) subscribes to `nodeChanged`, `treeChanged`, or `nodeRemoved`. Use it outside React and inside integrations.
 -   [`Retree.select`](#core-api-examples) is the non-React version of `useSelect`. Use it to narrow notifications; it is not a cache.
 -   [`Retree.parent`](#core-api-examples) returns the structural parent of a node. Use it for tree-local operations like deleting yourself from a list.
+-   [`Retree.isNode`](#core-api-examples) checks whether a value is a Retree-managed node. Use it to guard `Retree.raw` when a value may be managed or plain.
 -   [`Retree.raw`](#core-api-examples) returns the raw, proxy-free object behind a node for native-speed, read-only access. Raw subtrees are guaranteed proxy-free.
 -   [`Retree.source`](#core-api-examples) resolves a raw value back to its managed node — the inverse of `Retree.raw`.
 -   [`Retree.peekInto`](#core-api-examples) runs a read-only query against a node's raw object and resolves the result to its managed node when one exists.
@@ -1054,6 +1055,13 @@ raw values as read-only, never use raw references as memo/equality tokens,
 and note that change payloads (`INodeFieldChanges.previous` / `.new`) are
 always raw values — `Retree.source(change.previous)` opts back into the
 managed node.
+
+`Retree.raw` throws for values that are not managed nodes. When a value may
+come from either side of the proxy boundary, guard with `Retree.isNode`:
+
+```ts
+const rawValue = Retree.isNode(value) ? Retree.raw(value) : value;
+```
 
 ### Core samples
 

@@ -622,6 +622,44 @@ export class Retree {
     }
 
     /**
+     * Check whether a value is a Retree-managed node.
+     *
+     * @remarks
+     * Returns `true` only for values wrapped by a Retree proxy — objects
+     * returned by {@link Retree.root} or read through an existing Retree
+     * tree. Raw values are not managed nodes: this returns `false` for the
+     * objects behind {@link Retree.raw}, for `previous`/`new` change payload
+     * values, and for plain objects that were never rooted.
+     *
+     * Use this as the guard in front of APIs that require a managed node
+     * when a value may come from either side of the proxy boundary, such as
+     * data that is sometimes Retree state and sometimes plain wire data:
+     * `Retree.isNode(value) ? Retree.raw(value) : value`.
+     *
+     * @param value Value to check; any type is accepted.
+     * @returns `true` when the value is a Retree-managed node.
+     *
+     * @example
+     * ```ts
+     * const project = Retree.root({ items: [{ score: 1 }] });
+     *
+     * Retree.isNode(project); // true
+     * Retree.isNode(project.items[0]); // true
+     * Retree.isNode(Retree.raw(project)); // false — raw values are not managed
+     * Retree.isNode({ score: 1 }); // false — never rooted
+     * ```
+     */
+    static isNode(value: unknown): value is TreeNode {
+        if (value === null) {
+            return false;
+        }
+        if (typeof value !== "object") {
+            return false;
+        }
+        return getCustomProxyHandler(value) !== undefined;
+    }
+
+    /**
      * Get the raw, unproxied object behind a Retree-managed node for
      * read-only, non-reactive access.
      *
@@ -644,6 +682,10 @@ export class Retree {
      * is native speed, and `structuredClone(Retree.raw(node))` is a valid
      * point-in-time copy. Use {@link Retree.source} to resolve a raw value
      * back to its managed node.
+     *
+     * Throws when the value is not a Retree-managed node. When a value may
+     * come from either side of the proxy boundary, guard with
+     * {@link Retree.isNode}: `Retree.isNode(value) ? Retree.raw(value) : value`.
      *
      * @param node Retree-managed node to unwrap.
      * @returns The raw object behind the node.

@@ -1316,6 +1316,64 @@ describe("Retree", () => {
     });
 });
 
+describe("Retree.isNode", () => {
+    it("returns true for roots, children, and reproxies", () => {
+        const root = Retree.root({ child: { value: 1 } });
+        expect(Retree.isNode(root)).toBe(true);
+        expect(Retree.isNode(root.child)).toBe(true);
+
+        let latest: typeof root | undefined;
+        const unsubscribe = Retree.on(root, "nodeChanged", (reproxy) => {
+            latest = reproxy;
+        });
+        root.child = { value: 2 };
+        expect(latest).toBeDefined();
+        if (latest === undefined) {
+            throw new Error("expected nodeChanged listener to run");
+        }
+        expect(Retree.isNode(latest)).toBe(true);
+        unsubscribe();
+    });
+
+    it("returns true for managed Map and Set nodes", () => {
+        const root = Retree.root({
+            map: new Map([["a", { value: 1 }]]),
+            set: new Set([{ value: 1 }]),
+        });
+        expect(Retree.isNode(root.map)).toBe(true);
+        expect(Retree.isNode(root.map.get("a"))).toBe(true);
+        expect(Retree.isNode(root.set)).toBe(true);
+    });
+
+    it("returns false for raw values behind managed nodes", () => {
+        const raw = { child: { value: 1 } };
+        const root = Retree.root(raw);
+        expect(root.child.value).toBe(1); // materialize
+        expect(Retree.isNode(Retree.raw(root))).toBe(false);
+        expect(Retree.isNode(raw.child)).toBe(false);
+    });
+
+    it("returns false for unrooted objects and non-object values", () => {
+        expect(Retree.isNode({ count: 0 })).toBe(false);
+        expect(Retree.isNode([1, 2, 3])).toBe(false);
+        expect(Retree.isNode(null)).toBe(false);
+        expect(Retree.isNode(undefined)).toBe(false);
+        expect(Retree.isNode("text")).toBe(false);
+        expect(Retree.isNode(42)).toBe(false);
+        expect(Retree.isNode(true)).toBe(false);
+    });
+
+    it("guards Retree.raw for maybe-managed values", () => {
+        const root = Retree.root({ value: 1 });
+        const plain = { value: 2 };
+        const unwrap = <T>(value: T): T =>
+            Retree.isNode(value) ? (Retree.raw(value) as T) : value;
+        expect(unwrap(root)).toBe(Retree.raw(root));
+        expect(unwrap(plain)).toBe(plain);
+        expect(unwrap("text")).toBe("text");
+    });
+});
+
 describe("Retree.raw", () => {
     it("returns the raw object behind a root node", () => {
         const raw = { count: 0, child: { value: 1 } };
