@@ -165,8 +165,12 @@ async function writeLlmsTxt() {
 
     const siteSection = `\n## This site (${SITE_URL})\n\nEvery guide below is also served as raw markdown for machine readers:\n\n${docLines}\n\n### Generated API reference\n\n${apiLines}\n`;
 
+    // public/ holds only generated files (all gitignored), so the directory
+    // itself is absent in a fresh clone — e.g. Vercel's build container.
+    const publicDir = path.join(websiteDir, "public");
+    await mkdir(publicDir, { recursive: true });
     await writeFile(
-        path.join(websiteDir, "public", "llms.txt"),
+        path.join(publicDir, "llms.txt"),
         base.trimEnd() + "\n" + siteSection
     );
 }
