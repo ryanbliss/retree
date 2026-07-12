@@ -959,7 +959,15 @@ function createScene(container: HTMLElement): () => void {
             width * CANOPY_WIDTH_FRACTION
         );
         scale = Math.min(Math.max(scale, 220), 1150);
-        groundY = height - Math.min(24, height * 0.05);
+        // On narrow viewports the hero stacks and the section grows far
+        // taller than the tree, which normally roots at the section bottom —
+        // below the first screenful. Anchor the tree to the top of the
+        // section there so it's visible without scrolling. The tree's
+        // visual height ≈ scale (CANOPY_HEIGHT_FRACTION ≈ 1), so a ground
+        // line at scale * 1.1 keeps the whole canopy in the top region.
+        const groundBottom =
+            width < 1024 ? Math.min(height, scale * 1.1 + 24) : height;
+        groundY = groundBottom - Math.min(24, height * 0.05);
         baseX = Math.min(width * 0.8, width - scale * 0.22);
         baseY = groundY;
         const firstLayout = !layoutReady;
