@@ -28,8 +28,7 @@ import { HeroVisualizer } from "@/components/visualizer/HeroVisualizer";
 
 export const metadata: Metadata = {
     title: "Retree — simple state framework for precise, lighting-fast reactive rendering",
-    description:
-        "Mutate a plain TypeScript object; exactly the components that read it re-render. Reactive object trees for React with per-node subscriptions.",
+    description: "React state done better.",
 };
 
 /* ------------------------------ code samples ------------------------------ */
@@ -262,12 +261,13 @@ const CLAIMS: {
 }[] = [
     {
         icon: <PencilIcon />,
-        title: (
+        title: "Minimal boilerplate",
+        detail: (
             <>
-                No <code>observer()</code> HOCs, no action wrappers
+                Components are plain functions; writes are plain assignments.
+                Mutate data at wherever your data lives.
             </>
         ),
-        detail: "Components are plain functions; writes are plain assignments.",
     },
     {
         icon: <SignalIcon />,
@@ -292,7 +292,7 @@ const CLAIMS: {
     },
     {
         icon: <AtSignIcon />,
-        title: "Class view models with decorators",
+        title: "APIs for precise performance",
         detail: (
             <>
                 <code>@select</code>, <code>@memo</code>, and{" "}
@@ -385,8 +385,7 @@ export default function Home() {
                                 lighting-fast reactive rendering.
                             </h1>
                             <p className="mt-4 max-w-xl text-lg text-muted">
-                                Mutate a plain TypeScript object; exactly the
-                                components that read it re-render.
+                                React state done better.
                             </p>
                             <div className="mt-6 max-w-md">
                                 <InstallTabs />
@@ -414,11 +413,6 @@ export default function Home() {
                         </Reveal>
                         <Reveal mode="mount" delay={0.08}>
                             <HeroVisualizer />
-                            <p className="mt-2 text-xs text-faint">
-                                A real Retree tree running in this page — the
-                                loop mutates it with plain assignments until you
-                                take over.
-                            </p>
                         </Reveal>
                     </div>
                 </div>
