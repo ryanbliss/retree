@@ -53,6 +53,20 @@ Use Tailwind classes backed by tokens — never raw hex:
     format from the README for behavior tables. Define terms per the glossary
     in Thinking in Retree and link on first use. Keep the terminology: node,
     root, tree, reproxy, managed vs raw, link vs move vs clone.
+-   Voice (matched to the home page, July 2026): friendly, direct, and brief.
+    Headings are short, plain benefit statements ("Less manual optimization,
+    better results.", "Easy to get started") — not clever claim-sentences and
+    not fragment-title patterns ("Four packages, one tree."). Body copy leads
+    with what a feature does, then points at the example ("In the example
+    below, the component only re-renders when doneCount changes.") instead of
+    narrating every case. Prefer cutting a paragraph over defending a claim:
+    keep claims soft and factual ("React.memo can help keep siblings quiet
+    but still carries render overhead"), and never announce honesty ("stated
+    plainly", "not a strawman" are banned) — demos and verified numbers do
+    that job. Humor is welcome and can be overtly playful — puns and jokes,
+    ideally tree-themed ("Four Retree packages walk into a bar...", "go touch
+    grass in the shade of a real one") — roughly one per section at most, and
+    never in reference material.
 -   Cross-links: guides `/docs/<slug>`; API pages
     `/api/<pkg>/<kind>/<Name>` where kind ∈ classes|functions|interfaces|
     type-aliases|variables (e.g. `/api/react/functions/useNode`). Link the API

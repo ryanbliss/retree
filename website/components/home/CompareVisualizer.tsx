@@ -260,14 +260,7 @@ function SharedControls({ onReset }: { onReset: () => void }) {
     return (
         <div className="rounded-xl border border-border-token bg-surface p-3 sm:p-4">
             <p className="font-mono text-xs uppercase tracking-widest text-faint">
-                one interaction → both implementations
-            </p>
-            <p className="mt-1 text-xs leading-5 text-muted">
-                A scripted loop has been mirroring writes into both stores since
-                this page loaded — hover to pause it. Click a control below (or
-                interact with either pane) to take over: the same change runs
-                against both stores simultaneously, so the render counters
-                always compare the identical interaction.
+                See for yourself
             </p>
             <div className="mt-2.5 flex flex-wrap gap-2">
                 {[1, 2, 3].map((id) => (

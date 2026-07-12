@@ -9,7 +9,7 @@ import {
 export const metadata: Metadata = {
     title: "Retree vs MobX — a MobX alternative without observer()",
     description:
-        "An honest comparison of Retree and MobX 6: observer() and actions vs plain hooks and assignment, computed values, tree semantics, mobx-state-tree, and measured bundle sizes. Verified July 2026.",
+        "Retree and MobX 6 compared: observer() and actions vs plain hooks and assignment, computed values, tree semantics, mobx-state-tree, and measured bundle sizes. Verified July 2026.",
 };
 
 const retreeNested = `import { Retree } from "@retreejs/core";
@@ -273,7 +273,7 @@ export default function CompareMobxPage() {
                     >
                         full trade-offs are on /why
                     </Link>
-                    , stated plainly.
+                    .
                 </p>
                 <p>
                     Bundle size mildly favors Retree: in our measurements

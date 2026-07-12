@@ -12,7 +12,7 @@ import { ComparativeVisualizer } from "@/components/visualizer/ComparativeVisual
 export const metadata: Metadata = {
     title: "Why Retree — state that matches your component tree",
     description:
-        "The one idea behind Retree, a live re-render comparison against an idiomatic React store, an honest feature table vs MobX and Valtio, and the trade-offs — what Retree trades away and what you get back.",
+        "The one idea behind Retree, a live re-render comparison against an idiomatic React store, a feature table vs MobX and Valtio verified July 2026, and Retree's trade-offs.",
 };
 
 const deepWrite = `// A board, three levels deep — plain assignment:
@@ -79,11 +79,10 @@ export default function WhyPage() {
 
             <div className="mt-6 max-w-3xl space-y-4 text-base leading-7 text-muted">
                 <p>
-                    Don&apos;t take the claim on faith — count the renders
-                    yourself. Both implementations below are complete,
+                    See for yourself — both implementations below are complete,
                     unsimplified, and shown in full under &quot;View
                     source&quot;. The React side is written the way a careful
-                    React developer would write it, not a strawman.
+                    React developer would write it.
                 </p>
             </div>
 
@@ -190,11 +189,11 @@ export default function WhyPage() {
                     id="tradeoffs-heading"
                     className="text-2xl font-semibold tracking-tight text-foreground"
                 >
-                    Trade-offs — what Retree trades, and what you get back
+                    Trade-offs
                 </h2>
                 <p className="mt-3 max-w-3xl text-base leading-7 text-muted">
-                    The questions a skeptical senior engineer should ask,
-                    answered without spin. Every trade here is deliberate.
+                    Every library has them. Here are Retree&apos;s, and what you
+                    get in return.
                 </p>
 
                 <div className="mt-6 space-y-8">
@@ -221,13 +220,10 @@ export default function WhyPage() {
                             queue after a commit-phase subscription. We have not
                             validated behavior under heavy concurrent rendering
                             (<code>useTransition</code>, Suspense-driven
-                            interruptions), and we won&apos;t claim
-                            tearing-safety we haven&apos;t tested. What you get
-                            in exchange for that missing checkbox: a
-                            subscription core small enough to audit in an
-                            afternoon — if your app leans hard on concurrent
-                            features, run it against your workload and read
-                            exactly what it does.
+                            interruptions). The subscription core is small
+                            enough to audit in an afternoon — if your app leans
+                            hard on concurrent features, run it against your
+                            workload first.
                         </p>
                     </div>
 
@@ -282,7 +278,7 @@ export default function WhyPage() {
                             maintainer. It is pre-1.0: minor versions may move
                             APIs, and the ecosystem of tutorials and Stack
                             Overflow answers is still growing. What you can
-                            audit today instead of taking on faith: the{" "}
+                            audit today: the{" "}
                             <a
                                 href="https://github.com/ryanbliss/retree/tree/main/packages"
                                 target="_blank"
@@ -303,7 +299,6 @@ export default function WhyPage() {
                             are open. Pre-1.0 cuts both ways: the surface area
                             is small enough to read in a sitting, and issues you
                             file go straight to the person who wrote the code.
-                            Evaluate the code, not the star count.
                         </p>
                     </div>
                 </div>
@@ -312,7 +307,7 @@ export default function WhyPage() {
             {/* Next steps */}
             <section className="mt-16 rounded-xl border border-border-token bg-surface p-6">
                 <h2 className="text-lg font-semibold text-foreground">
-                    See it on your own state
+                    Try it on your own state
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-muted">
                     The quickstart gets you from install to a working app —

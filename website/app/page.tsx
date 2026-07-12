@@ -284,9 +284,9 @@ const CLAIMS: {
         title: "Tree operations built in",
         detail: (
             <>
-                <code>parent</code>, <code>move</code>, <code>link</code>,{" "}
-                <code>clone</code> — ownership is explicit, not a data-modeling
-                exercise.
+                <code>parent</code>, <code>move</code>, <code>link</code>, and{" "}
+                <code>clone</code> are one call each. No id tables, no lookup
+                bookkeeping.
             </>
         ),
     },
@@ -335,7 +335,7 @@ const PACKAGES: PackageCard[] = [
         name: "@retreejs/convex",
         slug: "convex",
         description:
-            "Convex queries, actions, mutations, and connection state written into Retree nodes — reconciled by _id, with narrow optimistic updates.",
+            "Convex queries, actions, mutations, and connection state written into Retree nodes. Auto reconciled by _id, with narrow optimistic updates.",
         pairing: "Pairs with @retreejs/core and convex.",
         docsHref: "/docs/convex",
         docsLabel: "Convex integration",
@@ -463,8 +463,11 @@ export default function Home() {
                             how it works
                         </Eyebrow>
                         <h2 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
-                            Three ideas, in adoption order.
+                            Reactive state that just works
                         </h2>
+                        <p className="mt-3 text-muted">
+                            A few key concepts to help you get started.
+                        </p>
                     </Reveal>
 
                     <div className="mt-12 space-y-16 lg:space-y-20">
@@ -475,9 +478,9 @@ export default function Home() {
                             title="Mutate with plain assignments"
                             body={
                                 <p>
-                                    Pass any object to <code>Retree.root</code>,
-                                    read a node with <code>useNode</code>, and
-                                    assign to it like ordinary TypeScript. A
+                                    Create a store with <code>Retree.root</code>
+                                    , observe nodes with <code>useNode</code>,
+                                    and set values like ordinary TypeScript. A
                                     component re-renders only when a node it
                                     subscribed to changes — writes to a nested
                                     child emit on that child, not on every
@@ -502,16 +505,14 @@ export default function Home() {
                         <FeatureItem
                             number="02"
                             icon={<TargetIcon size={18} />}
-                            title="Derive values with useSelect"
+                            title="Query your state with useSelect"
                             body={
                                 <p>
                                     <code>useSelect</code>
                                     {` `}re-renders a component only when the
-                                    selected value changes. Title edits
-                                    don&apos;t touch a done-count; neither does
-                                    anything else that leaves the selection
-                                    equal. It can even infer dependencies from
-                                    the reads inside the selector.
+                                    selected value changes. In the example
+                                    below, the component only re-renders when{" "}
+                                    <code>doneCount</code> changes.
                                 </p>
                             }
                             code={
@@ -534,15 +535,14 @@ export default function Home() {
                             title="Tree semantics are built in"
                             body={
                                 <p>
-                                    Every node has one structural parent, and
-                                    changing that is a first-class operation —
-                                    not a data-modeling exercise.{" "}
+                                    Every node has one structural parent for
+                                    bi-directional tree traversal.{" "}
                                     <code>Retree.move</code> transfers
                                     ownership, <code>Retree.link</code> points
                                     without reparenting,{" "}
                                     <code>Retree.clone</code> copies, and{" "}
-                                    <code>Retree.parent</code> lets a node
-                                    operate on its own container.
+                                    <code>Retree.parent</code> returns a node
+                                    {"'"}s parent.
                                 </p>
                             }
                             code={
@@ -602,15 +602,15 @@ export default function Home() {
                             the difference
                         </Eyebrow>
                         <h2 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
-                            Same app. Watch the render counters.
+                            Less manual optimization, better results.
                         </h2>
                         <p className="mt-3 text-muted">
-                            Toggle tasks on either side. With a top-level store,
-                            the owning component re-renders on every write —{" "}
+                            Toggle tasks to visualize how Retree optimizes
+                            renders. With a top-level store,{" "}
                             <code>React.memo</code>
-                            {` `}keeps siblings quiet, but the owner still runs.
-                            With Retree, each row subscribes to its own node, so
-                            the parent&apos;s counter never moves.
+                            {` `}can help keep siblings quiet but still carries
+                            render overhead. With Retree, each component only
+                            rerenders for the precise state it uses.
                         </p>
                     </Reveal>
                     <Reveal delay={0.08} className="mt-8">
@@ -619,10 +619,7 @@ export default function Home() {
                     <Reveal delay={0.1} className="mt-6">
                         <details className="group rounded-lg border border-border-token bg-surface px-4 py-3">
                             <summary className="cursor-pointer font-mono text-sm text-muted transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-                                Audit both panes — the comparison side is a
-                                single <code>useState</code> store with
-                                immutable updates and <code>React.memo</code>{" "}
-                                rows, not a strawman
+                                Compare the code for each example.
                             </summary>
                             <div className="mt-2 grid gap-4 lg:grid-cols-2">
                                 <CodeBlock
@@ -658,17 +655,17 @@ export default function Home() {
                             view models
                         </Eyebrow>
                         <h2 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
-                            View models: ReactiveNode + decorators.
+                            Enjoy the benefits of functional React while keeping
+                            state where it belongs.
                         </h2>
                         <p className="mt-3 text-muted [&_code]:font-mono [&_code]:text-[0.92em] [&_code]:text-foreground">
-                            Extend <code>ReactiveNode</code> when a node should
-                            carry its own logic. Declared dependencies decide
-                            when the node emits, and the decorators keep renders
-                            selective while getters and methods stay on the
-                            class — designed to be used together, with{" "}
-                            <code>useNode</code> on the component side. Every
-                            demo below is live; the code shown is the code
-                            running.
+                            Stop keeping your state in a top-level store
+                            referenced by many components. Instead, extend{" "}
+                            <code>ReactiveNode</code> and they stay on the class
+                            that owns the data: explicit dependencies decide
+                            when the node emits, decorators keep renders
+                            selective, and observe changes with{" "}
+                            <code>useNode</code> and <code>useSelect</code>.
                         </p>
                     </Reveal>
                     <Reveal delay={0.08} className="mt-8">
@@ -765,8 +762,12 @@ export default function Home() {
                             packages
                         </Eyebrow>
                         <h2 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
-                            Four packages, one tree.
+                            Four Retree packages walk into a bar...
                         </h2>
+                        <p className="mt-3 text-muted">
+                            <code>core</code> and <code>react</code> cover most
+                            apps; the other two exist for Convex users.
+                        </p>
                     </Reveal>
                     <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                         {PACKAGES.map((pkg, index) => (
@@ -816,19 +817,13 @@ export default function Home() {
                             performance
                         </Eyebrow>
                         <h2 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
-                            Measured in the open.
+                            Transparent performance benchmarks
                         </h2>
                         <p className="mt-3 text-muted">
-                            Retree&apos;s performance argument is the
-                            architecture: subscriptions attach to individual
-                            nodes, so a write notifies the components that read
-                            that node — not your whole app. The numbers behind
-                            that claim come from an open benchmark harness in
-                            the repository, run as named workloads (transaction
-                            batching, reactive dependency fan-out, subscription
-                            setup) with absolute timings. No cherry-picked
-                            deltas on this page — clone the repo and run it on
-                            your machine.
+                            Retree has a robust CLI we use to measure
+                            performance and experiment against. If you are
+                            curious to see how the benchmarks perform on your
+                            own machine, check out our CLI.
                         </p>
                         <p className="mt-5">
                             <a
@@ -837,7 +832,7 @@ export default function Home() {
                                 rel="noreferrer"
                                 className="rounded-md border border-border-token px-4 py-2 font-mono text-sm text-muted transition-colors hover:border-border-strong hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                             >
-                                Browse the benchmark harness →
+                                Review benchmarks →
                             </a>
                         </p>
                     </Reveal>
@@ -849,11 +844,12 @@ export default function Home() {
                 <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:py-24">
                     <Reveal className="mx-auto max-w-xl text-center">
                         <h2 className="text-3xl font-semibold tracking-tight text-foreground">
-                            Start with one object.
+                            Easy to get started
                         </h2>
                         <p className="mt-3 text-muted">
-                            Make it a root, read it with a hook, mutate it in
-                            plain TypeScript.
+                            Too lazy to try it yourself? Install our agent
+                            skills and ask your agent to handle the trees while
+                            you go touch grass in the shade of a real one.
                         </p>
                         <div className="mx-auto mt-6 max-w-md text-left">
                             <InstallTabs />
