@@ -1,0 +1,1665 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Retree — 44.5s motion graphic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Geist:wght@500;600;700&family=Geist+Mono:wght@400;500;700&display=block"
+  rel="stylesheet"
+/>
+<style>
+  /* Retree design tokens — website/app/globals.css, dark theme */
+  :root {
+    --background: #0a0d0b;
+    --surface: #101412;
+    --surface-raised: #171d1a;
+    --border: #232b27;
+    --border-strong: #33403a;
+    --foreground: #e9f0ec;
+    --muted: #a3b3ab;
+    --faint: #6e7d75;
+    --accent: #5fe08d;
+    --danger: #f87171;
+    --glow: #22c55e;
+    --glow-soft: rgba(34, 197, 94, 0.35);
+    --code-bg: #0d1210;
+    --tok-const: #7cd8ff;
+    --tok-string: #9ce29c;
+    --tok-comment: #6e7d75;
+    --tok-keyword: #5fe08d;
+    --tok-param: #e6c07b;
+    --tok-punct: #a3b3ab;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--background); }
+  body { font-family: "Geist", sans-serif; color: var(--foreground); position: relative; }
+  .mono { font-family: "Geist Mono", monospace; }
+
+  /* background: procedural tree canvas (site HeroBackground motif) + soft glow */
+  #treeCanvas {
+    position: absolute; inset: 0; width: 1920px; height: 1080px;
+    -webkit-mask-image: radial-gradient(140% 130% at 66% 50%, black 58%, transparent 99%);
+            mask-image: radial-gradient(140% 130% at 66% 50%, black 58%, transparent 99%);
+  }
+  #bg-glow {
+    position: absolute; left: 50%; top: 30%; width: 1500px; height: 760px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(ellipse, rgba(34, 197, 94, 0.1), transparent 65%);
+  }
+  #vignette {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(0, 0, 0, 0.32) 100%);
+  }
+  /* light sweep that punctuates every scene transition */
+  #sweep {
+    position: absolute; top: -50%; left: 0; width: 520px; height: 200%;
+    background: linear-gradient(90deg, transparent, rgba(95, 224, 141, 0.1) 45%, rgba(124, 216, 255, 0.06) 58%, transparent);
+    opacity: 0; pointer-events: none;
+  }
+  #fade { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; }
+
+  .scene { position: absolute; inset: 0; opacity: 0; visibility: hidden; }
+  .cap { position: absolute; top: 92px; width: 100%; text-align: center; }
+  .kicker {
+    font-family: "Geist Mono", monospace; font-size: 24px; letter-spacing: 0.18em;
+    color: var(--faint); text-transform: uppercase;
+  }
+  .kicker b { color: var(--accent); font-weight: 500; }
+  .headline { font-size: 66px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.06; margin-top: 16px; }
+  .headline .acc { color: var(--accent); }
+
+  .glass {
+    background: rgba(16, 20, 18, 0.92); border: 1.5px solid var(--border); border-radius: 16px;
+    box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.06), 0 24px 60px rgba(0, 0, 0, 0.5);
+  }
+  .ptitle {
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: "Geist Mono", monospace; font-size: 21px; color: var(--faint);
+  }
+  .rbadge {
+    font-family: "Geist Mono", monospace; font-size: 19px; color: var(--faint);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 7px;
+    padding: 4px 12px; white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .rbadge b { color: var(--accent); font-weight: 600; }
+  /* caret as a fixed-metrics block (a raw ▌ glyph comes from a fallback font
+   * with taller line metrics and makes containers jitter while blinking) */
+  .cursor {
+    display: inline-block; width: 0.55em; height: 1.02em;
+    background: var(--accent); vertical-align: -0.12em;
+  }
+  .flashable { border-radius: 10px; }
+
+  /* code panel + component list (scenes B and C share these) */
+  .codePanel { width: 880px; padding: 0; overflow: hidden; }
+  .codePanel .bar { padding: 20px 28px; border-bottom: 1.5px solid var(--border); }
+  .codeBody {
+    padding: 32px 38px; font-family: "Geist Mono", monospace;
+    line-height: 1.72; white-space: pre; background: rgba(13, 18, 16, 0.7);
+  }
+  .compPanel { width: 620px; padding: 0; overflow: hidden; }
+  .compPanel .bar { padding: 20px 28px; border-bottom: 1.5px solid var(--border); }
+  .crow {
+    display: flex; justify-content: space-between; align-items: center; gap: 16px;
+    padding: 22px 28px; border-bottom: 1px solid var(--border);
+  }
+  .crow:last-child { border-bottom: none; }
+  .crow .cname { font-family: "Geist Mono", monospace; font-size: 25px; color: var(--muted); flex: 1; }
+  .crow .cname i { color: var(--faint); font-style: normal; }
+  .crow.hot .cname { color: var(--foreground); }
+  .vchip {
+    font-family: "Geist Mono", monospace; font-size: 19px; color: var(--accent);
+    background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.28);
+    border-radius: 7px; padding: 4px 12px; font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- A: intro ---- */
+  #sA { display: grid; place-items: center; }
+  #sA .stack { text-align: center; }
+  #aMark { width: 176px; height: 176px; filter: drop-shadow(0 0 30px rgba(34, 197, 94, 0.4)); }
+  #aMark circle, #aMark path { transform-box: fill-box; transform-origin: center; }
+  #aWord { font-size: 66px; font-weight: 600; letter-spacing: -0.01em; margin-top: 18px; }
+  #aHead { font-size: 74px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.08; margin-top: 46px; }
+  #aHead .acc { color: var(--accent); }
+  #aSub { margin-top: 22px; font-size: 31px; color: var(--muted); }
+
+  /* ---- B: useNode / C: useSelect — code + a live app panel ---- */
+  #bRow { position: absolute; left: 50%; top: 57%; transform: translate(-50%, -50%); display: flex; gap: 36px; align-items: stretch; }
+  #bCodeBody { font-size: 28px; min-height: 400px; }
+  #cRow { position: absolute; left: 50%; top: 57%; transform: translate(-50%, -50%); display: flex; gap: 36px; align-items: stretch; }
+  #cCodePanel { position: relative; }
+  #cCodeBody { font-size: 26px; min-height: 420px; }
+  /* marching-ants selection outline around the inline selector function */
+  #cFnSvg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #cFnPath {
+    stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 14 10; fill: none;
+    stroke-linejoin: round; filter: drop-shadow(0 0 7px rgba(34, 197, 94, 0.5));
+  }
+  /* interaction ripples in the mail UI */
+  .ripple {
+    position: absolute; left: 0; top: 0; border: 2.5px solid var(--accent);
+    border-radius: 999px; opacity: 0; pointer-events: none;
+  }
+  .appPane { width: 640px; }
+  .pulse {
+    position: absolute; inset: 5px 12px; border: 2.5px solid var(--glow);
+    border-radius: 12px; opacity: 0; pointer-events: none;
+  }
+  /* B: sticky-note board */
+  #bBoard { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; padding: 22px; }
+  .sticky {
+    position: relative; border-radius: 14px; padding: 18px 18px 14px; min-height: 192px;
+    display: flex; flex-direction: column;
+  }
+  .sticky .sticker { font-size: 42px; line-height: 1; display: inline-block; transform-origin: center; }
+  .sticky .stxt { margin-top: 16px; font-size: 25px; font-weight: 600; color: var(--foreground); flex: 1; line-height: 1.3; }
+  .sticky .rbadge { position: absolute; right: 12px; bottom: 12px; font-size: 16px; padding: 3px 10px; }
+  .sticky .pulse { inset: -2px; border-radius: 14px; }
+  .sticky .dmgwrap { right: 30px; top: 30px; }
+  /* C: mail search + filters */
+  #cSearch {
+    display: flex; align-items: center; gap: 12px; margin: 20px 24px 0;
+    background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px;
+    padding: 13px 18px; font-family: "Geist Mono", monospace; font-size: 22px; color: var(--foreground);
+  }
+  #cSearch .sicon { color: var(--faint); font-size: 24px; }
+  #cSearch .sph { color: var(--faint); }
+  #cChips { display: flex; gap: 10px; align-items: center; margin: 14px 24px 12px; }
+  .fchip {
+    font-family: "Geist Mono", monospace; font-size: 19px; color: var(--muted);
+    border: 1px solid var(--border-strong); border-radius: 999px; padding: 7px 18px;
+  }
+  .fchip.on { color: var(--accent); border-color: rgba(34, 197, 94, 0.55); background: rgba(34, 197, 94, 0.12); }
+  #cCount { margin-left: auto; font-family: "Geist Mono", monospace; font-size: 18px; color: var(--faint); display: inline-block; }
+  .mrow { position: relative; padding: 0 24px; border-top: 1px solid var(--border); overflow: hidden; }
+  .mrow .mfrom { font-size: 22px; font-weight: 600; color: var(--foreground); margin-top: 13px; }
+  .mrow .msub { font-size: 19px; color: var(--muted); margin-top: 3px; }
+  .mrow .mfold {
+    position: absolute; right: 24px; top: 16px; font-family: "Geist Mono", monospace;
+    font-size: 16px; color: var(--faint); background: var(--surface-raised);
+    border-radius: 7px; padding: 3px 10px;
+  }
+
+  /* ---- D: compare ---- */
+  #dRow { position: absolute; left: 50%; top: 54%; transform: translate(-50%, -50%); display: flex; gap: 44px; }
+  .pane { width: 700px; padding: 0; overflow: hidden; position: relative; }
+  .pane .bar { display: flex; justify-content: space-between; align-items: center; padding: 20px 28px; border-bottom: 1.5px solid var(--border); }
+  .pane .pname { font-family: "Geist Mono", monospace; font-size: 23px; color: var(--muted); }
+  .pane.retree .pname { color: var(--accent); }
+  .done-chip {
+    font-family: "Geist Mono", monospace; font-size: 20px; color: var(--faint);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 7px;
+    padding: 5px 14px; font-variant-numeric: tabular-nums;
+  }
+  /* fixed row/footer heights so nothing the animations do can change the
+   * card's outer height mid-scene */
+  .trow { position: relative; display: flex; align-items: center; gap: 20px; height: 79px; padding: 0 28px; border-bottom: 1px solid var(--border); }
+  .cbox {
+    width: 30px; height: 30px; border-radius: 8px; border: 2px solid var(--border-strong);
+    display: grid; place-items: center; flex: none;
+  }
+  .cbox svg { width: 20px; height: 20px; opacity: 0; }
+  .cbox.on { border-color: var(--glow); background: rgba(34, 197, 94, 0.16); }
+  .cbox.on svg { opacity: 1; }
+  /* neutral checks (React pane) — green stays reserved for Retree */
+  .cbox.neutral.on { border-color: var(--border-strong); background: rgba(233, 240, 236, 0.08); }
+  .tlabel { font-size: 26px; color: var(--foreground); flex: 1; white-space: nowrap; overflow: hidden; }
+  .tlabel.done-strike { color: var(--faint); text-decoration: line-through; }
+  /* game-style damage numbers: each write launches a "+1" on its own arc */
+  .dmgwrap { position: absolute; right: 210px; top: 50%; width: 0; height: 0; pointer-events: none; }
+  .dmgwrap .dmg {
+    position: absolute; left: 0; top: 0; font-family: "Geist Mono", monospace;
+    font-size: 22px; font-weight: 700; color: var(--accent); opacity: 0; white-space: nowrap;
+  }
+  .dmgwrap.red .dmg { color: var(--danger); }
+  .tcaret { color: var(--accent); font-weight: 400; }
+  .tplaceholder { color: var(--faint); font-style: normal; }
+  .tally {
+    display: flex; justify-content: space-between; align-items: center;
+    height: 76px; padding: 0 28px; border-top: 1.5px solid var(--border);
+    font-family: "Geist Mono", monospace; font-size: 21px; color: var(--faint);
+  }
+  .tally b { font-size: 44px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; display: inline-block; }
+  .tally b.red { color: var(--danger); }
+  .verdict {
+    height: 48px; display: flex; align-items: flex-start; padding: 0 28px;
+    font-family: "Geist Mono", monospace; font-size: 23px; opacity: 0;
+  }
+  .verdict.bad { color: var(--danger); }
+  .verdict.good { color: var(--accent); }
+  /* winner stamp (big green check) + confetti burst */
+  #dCrown {
+    position: absolute; left: 0; top: 0; width: 84px; height: 84px; opacity: 0; z-index: 8;
+    border-radius: 20px; background: rgba(34, 197, 94, 0.24); border: 3px solid var(--glow);
+    display: grid; place-items: center;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5), 0 0 26px rgba(34, 197, 94, 0.45);
+  }
+  #dCrown svg { width: 54px; height: 54px; }
+  #dConfetti { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 7; }
+  #dConfetti span {
+    position: absolute; left: 0; top: 0; width: 10px; height: 15px;
+    border-radius: 2.5px; opacity: 0;
+  }
+  .pointer {
+    position: absolute; left: 0; top: 0; width: 26px; height: 26px; border-radius: 50%;
+    background: rgba(233, 240, 236, 0.95); box-shadow: 0 3px 14px rgba(0, 0, 0, 0.55), 0 0 0 4px rgba(233, 240, 236, 0.14);
+    opacity: 0; z-index: 5;
+  }
+
+  /* ---- E: view models (zoomed code, panning between decorators) ---- */
+  #eRow { position: absolute; left: 50%; top: 57%; transform: translate(-50%, -50%); display: flex; gap: 36px; align-items: stretch; }
+  #eCodePanel { width: 980px; padding: 0; overflow: hidden; }
+  #eCodePanel .bar { padding: 20px 28px; border-bottom: 1.5px solid var(--border); }
+  #eViewport {
+    position: relative; height: 400px; overflow: hidden; background: rgba(13, 18, 16, 0.7);
+    -webkit-mask-image: linear-gradient(180deg, transparent 0, black 34px, black calc(100% - 34px), transparent 100%);
+            mask-image: linear-gradient(180deg, transparent 0, black 34px, black calc(100% - 34px), transparent 100%);
+  }
+  #eHi {
+    position: absolute; left: 12px; right: 12px; height: 50px; border-radius: 10px;
+    background: rgba(34, 197, 94, 0.1); border-left: 3px solid var(--accent);
+  }
+  #eCode {
+    position: absolute; left: 0; top: 0; padding: 26px 38px;
+    font-family: "Geist Mono", monospace; font-size: 28px; line-height: 1.7; white-space: pre;
+  }
+  #eCards { width: 620px; position: relative; }
+  .ecard { position: absolute; inset: 0; opacity: 0; padding: 30px 30px; overflow: hidden; }
+  .ecard h4 { font-family: "Geist Mono", monospace; font-size: 31px; font-weight: 600; color: var(--accent); }
+  .ecard .esub { margin-top: 8px; font-size: 22px; color: var(--muted); line-height: 1.4; }
+  .erow { display: flex; align-items: center; gap: 11px; margin-top: 26px; opacity: 0; }
+  .erow code {
+    font-family: "Geist Mono", monospace; font-size: 19px; color: var(--foreground);
+    background: var(--surface); border: 1px solid var(--border); padding: 9px 13px;
+    border-radius: 9px; white-space: nowrap;
+  }
+  .erow .arr { color: var(--faint); font-size: 22px; }
+  .estat {
+    font-family: "Geist Mono", monospace; font-size: 19px; font-weight: 700;
+    padding: 9px 13px; border-radius: 9px; white-space: nowrap;
+  }
+  .estat.emit { color: var(--accent); background: rgba(34, 197, 94, 0.13); }
+  .estat.quiet { color: var(--faint); background: var(--surface-raised); }
+  .estat.warn { color: var(--tok-param); background: rgba(230, 192, 123, 0.12); }
+
+  /* ---- F: tree ops (cube-flip chip) ---- */
+  #fChipWrap { position: absolute; left: 50%; top: 28%; transform: translateX(-50%); perspective: 900px; }
+  #fCube { position: relative; width: 720px; height: 68px; transform-style: preserve-3d; }
+  .fface {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font-family: "Geist Mono", monospace; font-size: 29px; color: var(--foreground);
+    background: rgba(23, 29, 26, 0.96); border: 1.5px solid var(--border-strong);
+    border-radius: 12px; backface-visibility: hidden; white-space: pre;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+  }
+  .fface .fn { color: var(--tok-const); }
+  .fface .kw { color: var(--tok-keyword); }
+  #fRow { position: absolute; left: 50%; top: 57%; transform: translate(-50%, -50%); display: flex; gap: 220px; }
+  .dlist { width: 520px; padding: 0 0 14px; }
+  .dlist .bar { padding: 18px 26px 14px; }
+  .dcard {
+    margin: 12px 22px 0; padding: 20px 24px; border-radius: 12px;
+    background: var(--surface-raised); border: 1px solid var(--border);
+    font-size: 25px; color: var(--foreground); display: flex; align-items: center; gap: 14px;
+    position: relative;
+  }
+  .dcard .grip { color: var(--faint); font-size: 21px; }
+  .dslot { margin: 12px 22px 0; height: 70px; border-radius: 12px; border: 1.5px dashed var(--border); opacity: 0; }
+  #fFly {
+    position: absolute; left: 0; top: 0; width: 476px; padding: 20px 24px; border-radius: 12px;
+    background: var(--surface-raised); border: 1px solid var(--border-strong);
+    font-size: 25px; color: var(--foreground); display: flex; align-items: center; gap: 14px;
+    z-index: 6; opacity: 0; box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  }
+  #fSelected {
+    position: absolute; left: 50%; top: 79.5%; transform: translateX(-50%);
+    width: 440px; padding: 16px 22px 20px; opacity: 0;
+  }
+  #fSelected .ptitle { font-size: 20px; }
+  #fSelCard {
+    margin-top: 12px; padding: 16px 20px; border-radius: 10px;
+    border: 1.5px dashed rgba(95, 224, 141, 0.55); color: var(--muted);
+    font-size: 24px; display: flex; align-items: center; gap: 12px;
+  }
+  #fLinkSvg { position: absolute; inset: 0; width: 1920px; height: 1080px; pointer-events: none; }
+  #fLinkPath { fill: none; stroke: var(--accent); stroke-width: 3; stroke-dasharray: 11 9; opacity: 0; }
+
+  /* ---- G: outro ---- */
+  #sG { display: grid; place-items: center; }
+  #sG .stack { text-align: center; }
+  #gMark { width: 130px; height: 130px; filter: drop-shadow(0 0 26px rgba(34, 197, 94, 0.4)); }
+  #gWord { font-size: 54px; font-weight: 600; margin-top: 14px; }
+  #gHead { font-size: 58px; font-weight: 600; letter-spacing: -0.02em; margin-top: 40px; }
+  #gCli {
+    margin: 34px auto 0; font-family: "Geist Mono", monospace; font-size: 31px; color: var(--muted);
+    background: rgba(13, 18, 16, 0.9); border: 1.5px solid var(--border); border-radius: 14px;
+    padding: 20px 34px; display: inline-block; min-width: 780px; text-align: left;
+  }
+  #gCli i { color: var(--accent); font-style: normal; }
+  #gCta {
+    margin: 40px auto 0; display: inline-flex; align-items: center; gap: 16px;
+    background: var(--foreground); color: var(--background);
+    font-size: 44px; font-weight: 600; letter-spacing: -0.01em;
+    border-radius: 16px; padding: 24px 46px; opacity: 0;
+  }
+  #gTag { margin-top: 26px; font-family: "Geist Mono", monospace; font-size: 23px; color: var(--faint); letter-spacing: 0.08em; }
+</style>
+</head>
+<body>
+  <canvas id="treeCanvas" width="1920" height="1080"></canvas>
+  <div id="bg-glow"></div>
+
+  <!-- A: intro -->
+  <section class="scene" id="sA">
+    <div class="stack">
+      <svg id="aMark" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round">
+        <circle id="aC1" cx="12" cy="5" r="2.2" />
+        <circle id="aC2" cx="6" cy="19" r="2.2" />
+        <circle id="aC3" cx="18" cy="19" r="2.2" />
+        <path id="aP" d="M12 7.5v4m0 0-4.8 5.6M12 11.5l4.8 5.6" pathLength="1" />
+      </svg>
+      <div id="aWord">Retree</div>
+      <div id="aHead">Simple state framework for precise,<br /><span class="acc">lightning-fast</span> reactive rendering.</div>
+      <div id="aSub">React state done better.</div>
+    </div>
+  </section>
+
+  <!-- B: useNode -->
+  <section class="scene" id="sB">
+    <div class="cap">
+      <div class="kicker"><b>01</b> · useNode</div>
+      <div class="headline">Reactive state that <span class="acc">just works</span>.</div>
+    </div>
+    <div id="bRow">
+      <div class="glass codePanel">
+        <div class="bar"><span class="ptitle"><span>sticky.tsx</span><span>tsx</span></span></div>
+        <div class="codeBody" id="bCodeBody"></div>
+      </div>
+      <div class="glass pane appPane">
+        <div class="bar"><span class="pname"><i style="color:var(--accent);font-style:normal">●</i> sticky board · live</span><span class="done-chip">4 notes</span></div>
+        <div id="bBoard"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- C: useSelect -->
+  <section class="scene" id="sC">
+    <div class="cap">
+      <div class="kicker"><b>02</b> · useSelect</div>
+      <div class="headline">Query your state with <span class="acc">useSelect</span>.</div>
+    </div>
+    <div id="cRow">
+      <div class="glass codePanel" id="cCodePanel">
+        <div class="bar"><span class="ptitle"><span>inbox.tsx</span><span class="rbadge flashable" id="cRuns">selector ran: <b>0</b></span></span></div>
+        <div class="codeBody" id="cCodeBody"></div>
+        <svg id="cFnSvg"><path id="cFnPath" d="" /></svg>
+      </div>
+      <div class="glass pane appPane">
+        <div class="bar"><span class="pname"><i style="color:var(--accent);font-style:normal">●</i> mail · useSelect</span></div>
+        <div id="cSearch"><span class="sicon">⌕</span><span id="cSearchText"><span class="sph">search sender…</span></span><span class="cursor" id="cSearchCaret"></span></div>
+        <div id="cChips">
+          <span class="fchip on" id="cChip0">Inbox</span>
+          <span class="fchip" id="cChip1">Archive</span>
+          <span id="cCount">3 results</span>
+        </div>
+        <div id="cMail"></div>
+        <span class="ripple" id="crip0"></span>
+        <span class="ripple" id="crip1"></span>
+        <span class="ripple" id="crip2"></span>
+        <div class="pointer" id="cPtr"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- D: compare -->
+  <section class="scene" id="sD">
+    <div class="cap">
+      <div class="kicker"><b>03</b> · the difference</div>
+      <div class="headline">Less manual optimization, <span class="acc">better results</span>.</div>
+    </div>
+    <div id="dRow">
+      <div class="glass pane" id="paneL">
+        <div class="bar"><span class="pname"><i style="color:var(--danger);font-style:normal">●</i> React · top-level store</span><span class="done-chip flashable" id="doneL">done 1/3</span></div>
+        <div id="rowsL"></div>
+        <div class="tally"><span>row re-renders</span><b class="red" id="talL">0</b></div>
+        <div class="verdict bad" id="verL">❌ every row, every keystroke</div>
+        <div class="pointer" id="ptrL"></div>
+      </div>
+      <div class="glass pane retree" id="paneR">
+        <div class="bar"><span class="pname"><i style="color:var(--accent);font-style:normal">●</i> Retree</span><span class="done-chip flashable" id="doneR">done 1/3</span></div>
+        <div id="rowsR"></div>
+        <div class="tally"><span>row re-renders</span><b id="talR">0</b></div>
+        <div class="verdict good" id="verR">✅ only the row you type in</div>
+        <div class="pointer" id="ptrR"></div>
+      </div>
+    </div>
+    <div id="dConfetti"></div>
+    <div id="dCrown"><svg viewBox="0 0 24 24" fill="none" stroke="#5fe08d" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5L19.5 7"/></svg></div>
+  </section>
+
+  <!-- E: view models -->
+  <section class="scene" id="sE">
+    <div class="cap">
+      <div class="kicker"><b>04</b> · view models</div>
+      <div class="headline" style="font-size:56px">ReactiveNode decorators enable <span class="acc">performance precision</span>.</div>
+    </div>
+    <div id="eRow">
+      <div class="glass" id="eCodePanel">
+        <div class="bar"><span class="ptitle"><span>task-board.ts</span><span>ReactiveNode</span></span></div>
+        <div id="eViewport">
+          <div id="eHi"></div>
+          <div id="eCode"></div>
+        </div>
+      </div>
+      <div id="eCards">
+        <div class="glass ecard" id="ecard0">
+          <h4>@select</h4>
+          <div class="esub">emits only when the getter&rsquo;s value changes</div>
+          <div class="erow" id="er00"><code>tasks[2].done = true</code><span class="arr">→</span><span class="estat emit flashable" id="es00">doneCount 1→2 — emits</span></div>
+          <div class="erow" id="er01"><code>tasks[2].title = "…"</code><span class="arr">→</span><span class="estat quiet" id="es01">doneCount 2 — quiet ∅</span></div>
+        </div>
+        <div class="glass ecard" id="ecard1">
+          <h4>@memo</h4>
+          <div class="esub">caches until its dependencies change</div>
+          <div class="erow" id="er10"><code>read results</code><span class="arr">→</span><span class="estat emit flashable" id="es10">cache hit · no recompute</span></div>
+          <div class="erow" id="er11"><code>query = "tree"</code><span class="arr">→</span><span class="estat warn flashable" id="es11">recomputes · ×1</span></div>
+        </div>
+        <div class="glass ecard" id="ecard2">
+          <h4>@ignore</h4>
+          <div class="esub">reads and writes without emission</div>
+          <div class="erow" id="er20"><code>scratch.draftClicks++</code><span class="arr">→</span><span class="estat quiet" id="es20">no emission ∅</span></div>
+          <div class="erow" id="er21"><code>scratch.draftClicks += 3</code><span class="arr">→</span><span class="estat quiet" id="es21">emissions: 0</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- F: tree ops -->
+  <section class="scene" id="sF">
+    <div class="cap">
+      <div class="kicker"><b>05</b> · tree operations</div>
+      <div class="headline">Tree semantics built in.</div>
+    </div>
+    <div id="fChipWrap">
+      <div id="fCube">
+        <div class="fface" id="fFaceA"></div>
+        <div class="fface" id="fFaceB"></div>
+      </div>
+    </div>
+    <div id="fRow">
+      <div class="glass dlist" id="fBacklog">
+        <div class="bar"><span class="ptitle"><span>board.backlog</span></span></div>
+        <div id="fBacklogCards"></div>
+      </div>
+      <div class="glass dlist" id="fActive">
+        <div class="bar" id="fActiveBar"><span class="ptitle"><span>board.active</span></span></div>
+        <div id="fActiveCards"></div>
+      </div>
+    </div>
+    <svg id="fLinkSvg"><path id="fLinkPath" d="" /></svg>
+    <div id="fFly"><span class="grip">⋮⋮</span>Ship v1.0</div>
+    <div class="glass" id="fSelected">
+      <span class="ptitle"><span>board.selected</span><span>link</span></span>
+      <div id="fSelCard"><span class="grip" style="color:var(--accent)">⇢</span>Ship v1.0</div>
+    </div>
+  </section>
+
+  <!-- G: outro -->
+  <section class="scene" id="sG">
+    <div class="stack">
+      <svg id="gMark" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="5" r="2.2" />
+        <circle cx="6" cy="19" r="2.2" />
+        <circle cx="18" cy="19" r="2.2" />
+        <path d="M12 7.5v4m0 0-4.8 5.6M12 11.5l4.8 5.6" />
+      </svg>
+      <div id="gWord">Retree</div>
+      <div id="gHead">Available in public preview.</div>
+      <div id="gCli"><i>$</i> <span id="gCliText"></span><span class="cursor" id="gCliCur"></span></div>
+      <div><div id="gCta">www.retree.dev<span>→</span></div></div>
+      <div id="gTag">docs · live demos · benchmarks</div>
+    </div>
+  </section>
+
+  <div id="sweep"></div>
+  <div id="vignette"></div>
+  <div id="fade"></div>
+
+<script>
+/* ============ helpers ============ */
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+const seg = (t, a, b) => clamp01((t - a) / (b - a));
+const ease = (p) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2);
+const easeOut = (p) => 1 - Math.pow(1 - p, 3);
+const backOut = (p) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2); };
+const fadeIO = (t, a, b, f = 0.45) => Math.min(seg(t, a, a + f), 1 - seg(t, b - f, b));
+const lerp = (a, b, p) => a + (b - a) * p;
+const $ = (id) => document.getElementById(id);
+/* flash energy: 1 at ft, exp decay (k lower = longer visible) */
+const flash = (t, ft, k = 3.0) => (t < ft ? 0 : Math.exp(-(t - ft) * k));
+const typed = (str, t, start, cps) => str.slice(0, Math.max(0, Math.min(str.length, Math.floor((t - start) * cps))));
+const blink = (t) => ((t * 1.8) % 1) < 0.62;
+
+/* baseShadow restores an element's resting shadow (e.g. .glass) after decay.
+ * rgb picks the ring color: green (default) for Retree, red for wasteful. */
+const GLASS_SHADOW = "0 0 0 1px rgba(34, 197, 94, 0.06), 0 24px 60px rgba(0, 0, 0, 0.5)";
+const RED_RGB = "248,113,113";
+function flashRing(el, e, baseShadow = "none", rgb = "34,197,94") {
+  if (e < 0.01) { el.style.boxShadow = baseShadow; return; }
+  el.style.boxShadow =
+    `0 0 0 1.5px rgba(${rgb},${(0.95 * e).toFixed(3)}), ` +
+    `0 0 18px 2px rgba(${rgb},${(0.4 * e).toFixed(3)})` +
+    (baseShadow === "none" ? "" : `, ${baseShadow}`);
+}
+
+/* ============ timeline ============ */
+/* Two cuts share this scene: the full 44.5s cut, and a ~30s short cut
+ * (?cut=short) that skips useSelect (C) and view models (E) and drops
+ * scene B's second write. Skipped scenes get a window in the past so the
+ * scene manager never shows them. */
+const SHORT = new URLSearchParams(location.search).get("cut") === "short";
+const T = SHORT
+  ? {
+      A: [0, 4.0],
+      B: [3.7, 9.9],
+      C: [-9, -8],
+      D: [9.5, 18.9],
+      E: [-9, -8],
+      F: [18.5, 24.7],
+      G: [24.3, 29.9],
+    }
+  : {
+      A: [0, 4.0],
+      B: [3.7, 9.9],
+      C: [9.5, 15.7],
+      D: [15.3, 24.7],
+      E: [24.3, 31.9],
+      F: [31.5, 37.7],
+      G: [37.3, 42.9],
+    };
+const END = SHORT ? 29.9 : 42.9;
+/* scene-crossfade midpoints — the light sweep fires at each one */
+const TRANSITIONS = SHORT
+  ? [3.85, 9.7, 18.7, 24.5]
+  : [3.85, 9.7, 15.5, 24.5, 31.7, 37.5];
+
+/* ============ background tree (port of site HeroBackground) ============ */
+const TAU = Math.PI * 2;
+function mulberry32(seed) {
+  let state = seed;
+  return () => {
+    state |= 0;
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const TREE = (() => {
+  const SEED = 0x7ee5, MAX_DEPTH = 5, MAX_BRANCHES = 220, MAX_LEAVES = 168;
+  const TRUNK_LEAN = 0.14, TRUNK_LEN = 0.3, LEN_FALL = 0.68;
+  const W_TRUNK = 0.011, W_FALL = 0.58, FAN = 1.55, LEFT_BIAS = -0.06, DROOP = 0.38;
+  const random = mulberry32(SEED);
+  const droopScale = (restAngle) => {
+    let n = restAngle;
+    if (n > Math.PI / 2) n -= TAU; else if (n <= (-3 * Math.PI) / 2) n += TAU;
+    let below = 0;
+    if (n > 0) below = n; else if (n < -Math.PI) below = -Math.PI - n;
+    return 1 - DROOP * Math.min(below / (Math.PI / 2), 1);
+  };
+  const parent = [-1], depth = [0], relAngle = [0];
+  const length = [TRUNK_LEN * (0.95 + random() * 0.1)];
+  const bend = [(random() - 0.5) * 0.12], flex = [0.024 * 0.35];
+  const phaseA = [random() * TAU], phaseB = [random() * TAU];
+  const restAngle = [-Math.PI / 2 - TRUNK_LEAN];
+  for (let i = 0; i < parent.length && parent.length < MAX_BRANCHES; i++) {
+    const d = depth[i];
+    if (d >= MAX_DEPTH) continue;
+    let count;
+    if (d === 0) count = 3;
+    else if (random() < 0.12) count = 1;
+    else count = random() < 0.4 ? 3 : 2;
+    const fan = d === 0 ? 1.8 : FAN - d * 0.14;
+    for (let c = 0; c < count && parent.length < MAX_BRANCHES; c++) {
+      let spread;
+      if (count === 1) spread = (random() - 0.5) * 0.5;
+      else spread = (c / (count - 1) - 0.5) * fan + (random() - 0.5) * 0.26;
+      parent.push(i); depth.push(d + 1); relAngle.push(spread + LEFT_BIAS);
+      const childRest = restAngle[i] + spread + LEFT_BIAS;
+      restAngle.push(childRest);
+      length.push(length[i] * (LEN_FALL + random() * 0.16) * droopScale(childRest));
+      bend.push((random() - 0.5) * 0.55);
+      flex.push(0.024 * (0.55 + (d + 1) * 0.5) * (0.8 + random() * 0.4));
+      phaseA.push(random() * TAU); phaseB.push(random() * TAU);
+    }
+  }
+  const n = parent.length;
+  const hwBase = new Float32Array(n), hwTip = new Float32Array(n), childCount = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const base = W_TRUNK * Math.pow(W_FALL, depth[i]);
+    hwBase[i] = base; hwTip[i] = base * 0.6;
+    if (i > 0) childCount[parent[i]]++;
+  }
+  const anchors = [];
+  for (let i = 0; i < n; i++) {
+    if ((childCount[i] === 0 && depth[i] >= 2) || depth[i] >= 4) anchors.push(i);
+  }
+  for (let i = anchors.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [anchors[i], anchors[j]] = [anchors[j], anchors[i]];
+  }
+  const lBranch = [], lAngle = [], lOffA = [], lOffD = [], lSize = [], lPhase = [], lPal = [];
+  for (const a of anchors) {
+    if (lBranch.length >= MAX_LEAVES) break;
+    const cluster = random() < 0.5 ? 3 : 2;
+    for (let k = 0; k < cluster && lBranch.length < MAX_LEAVES; k++) {
+      lBranch.push(a); lAngle.push((random() - 0.5) * 1.8);
+      lOffA.push((random() - 0.5) * 2.4); lOffD.push(random() * 0.02);
+      lSize.push(0.018 + random() * 0.012); lPhase.push(random() * TAU);
+      lPal.push(Math.floor(random() * 3));
+    }
+  }
+  return { n, parent, depth, relAngle, length, hwBase, hwTip, bend, flex, phaseA, phaseB, leaves: { n: lBranch.length, branch: lBranch, angle: lAngle, offA: lOffA, offD: lOffD, size: lSize, phase: lPhase, pal: lPal } };
+})();
+
+const treeCtx = $("treeCanvas").getContext("2d");
+const TREE_COLORS = {
+  branch: "#6e7d75",
+  accent: "#22c55e",
+  accentSoft: "rgba(34,197,94,0.35)",
+  ground: "#232b27",
+  leaves: ["rgb(140,182,157)", "rgb(109,187,139)", "rgb(78,191,120)"],
+  branchAlpha: [0.55, 0.5, 0.45, 0.4, 0.36, 0.32],
+  leafAlpha: [0.5, 0.44, 0.38],
+};
+const TREE_SCALE = Math.min(1080 * 1.02, 1920 * 0.74);
+const TREE_BASE_X = Math.min(1920 * 0.8, 1920 - TREE_SCALE * 0.22);
+const TREE_GROUND_Y = 1080 - 24;
+/* scripted write pulses (leaf index, time) — the site's signature moment */
+const TREE_PULSES = SHORT
+  ? [
+      { at: 1.0, leaf: 23 },
+      { at: 2.4, leaf: 96 },
+      { at: 6.8, leaf: 61 },
+      { at: 12.0, leaf: 130 },
+      { at: 16.0, leaf: 45 },
+      { at: 21.0, leaf: 88 },
+      { at: 25.6, leaf: 70 },
+      { at: 27.4, leaf: 33 },
+      { at: 28.8, leaf: 150 },
+    ]
+  : [
+      { at: 1.0, leaf: 23 },
+      { at: 2.4, leaf: 96 },
+      { at: 6.8, leaf: 61 },
+      { at: 12.4, leaf: 130 },
+      { at: 17.5, leaf: 45 },
+      { at: 22.0, leaf: 88 },
+      { at: 27.5, leaf: 110 },
+      { at: 33.5, leaf: 12 },
+      { at: 38.5, leaf: 70 },
+      { at: 40.4, leaf: 33 },
+      { at: 41.9, leaf: 150 },
+    ];
+const tipX = new Float32Array(TREE.n), tipY = new Float32Array(TREE.n);
+const ctlX = new Float32Array(TREE.n), ctlY = new Float32Array(TREE.n);
+const srtX = new Float32Array(TREE.n), srtY = new Float32Array(TREE.n);
+const outAng = new Float32Array(TREE.n);
+const pulseLineage = TREE_PULSES.map((p) => {
+  const steps = [];
+  let b = TREE.leaves.branch[p.leaf % TREE.leaves.n];
+  let s = 0;
+  while (b !== -1) { steps.push([b, p.at + s * 0.07]); s++; b = TREE.parent[b]; }
+  return { leaf: p.leaf % TREE.leaves.n, at: p.at, steps };
+});
+
+function drawTree(t, alpha) {
+  const ctx = treeCtx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, 1920, 1080);
+  if (alpha <= 0.01) return;
+  const scale = TREE_SCALE, baseX = TREE_BASE_X, baseY = TREE_GROUND_Y, groundY = TREE_GROUND_Y;
+  const trunkAngle = -Math.PI / 2 - 0.14;
+  const gust = 0.5 + 0.5 * Math.sin(t * 0.42 + Math.sin(t * 0.17) * 1.4);
+  const wind = 0.25 + 0.75 * gust;
+  for (let i = 0; i < TREE.n; i++) {
+    const p = TREE.parent[i];
+    let originAngle, sx, sy;
+    if (p === -1) { originAngle = trunkAngle; sx = baseX; sy = baseY; }
+    else { originAngle = outAng[p]; sx = tipX[p]; sy = tipY[p]; }
+    const d = TREE.depth[i];
+    const sway = TREE.flex[i] * wind * (-0.9 +
+      Math.sin(t * (1.0 + d * 0.3) + TREE.phaseA[i]) * 0.8 +
+      Math.sin(t * 2.7 + TREE.phaseB[i]) * 0.45);
+    const angle = originAngle + TREE.relAngle[i] + sway;
+    const len = TREE.length[i] * scale;
+    const tipAngle = angle + TREE.bend[i];
+    const cx = sx + Math.cos(angle) * len * 0.55;
+    const cy = sy + Math.sin(angle) * len * 0.55;
+    const ex = sx + Math.cos(tipAngle) * len;
+    const ey = sy + Math.sin(tipAngle) * len;
+    srtX[i] = sx; srtY[i] = sy; ctlX[i] = cx; ctlY[i] = cy; tipX[i] = ex; tipY[i] = ey;
+    outAng[i] = Math.atan2(ey - cy, ex - cx);
+  }
+  ctx.globalAlpha = alpha * 0.4;
+  ctx.strokeStyle = TREE_COLORS.ground;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(baseX - scale * 0.6, groundY);
+  ctx.lineTo(Math.min(1920, baseX + scale * 0.3), groundY);
+  ctx.stroke();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = TREE_COLORS.branch;
+  for (let i = 0; i < TREE.n; i++) {
+    ctx.globalAlpha = alpha * TREE_COLORS.branchAlpha[TREE.depth[i]];
+    ctx.lineWidth = Math.max(TREE.hwBase[i] * scale * 1.6, 0.7);
+    ctx.beginPath();
+    ctx.moveTo(srtX[i], srtY[i]);
+    ctx.quadraticCurveTo(ctlX[i], ctlY[i], tipX[i], tipY[i]);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = TREE_COLORS.accent;
+  for (const pulse of pulseLineage) {
+    for (const [b, at] of pulse.steps) {
+      const elapsed = t - at;
+      if (elapsed < 0) continue;
+      const energy = Math.exp(-elapsed / 0.62);
+      if (energy < 0.02) continue;
+      ctx.globalAlpha = alpha * energy * 0.5;
+      ctx.lineWidth = Math.max(1.1, TREE.hwTip[b] * scale * 1.8);
+      ctx.beginPath();
+      ctx.moveTo(srtX[b], srtY[b]);
+      ctx.quadraticCurveTo(ctlX[b], ctlY[b], tipX[b], tipY[b]);
+      ctx.stroke();
+    }
+  }
+  const L = TREE.leaves;
+  for (let leaf = 0; leaf < L.n; leaf++) {
+    const b = L.branch[leaf];
+    const oa = outAng[b] + L.offA[leaf];
+    const x = tipX[b] + Math.cos(oa) * L.offD[leaf] * scale;
+    const y = tipY[b] + Math.sin(oa) * L.offD[leaf] * scale;
+    let rot = outAng[b] + L.angle[leaf] + Math.sin(t * 3.1 + L.phase[leaf]) * 0.28 * wind;
+    const size = L.size[leaf] * scale;
+    let pulseE = 0;
+    for (const pulse of pulseLineage) {
+      if (pulse.leaf === leaf && t >= pulse.at) {
+        pulseE = Math.max(pulseE, Math.exp(-(t - pulse.at) / 1.35));
+      }
+    }
+    if (pulseE >= 0.02) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = TREE_COLORS.accentSoft;
+      ctx.globalAlpha = alpha * pulseE;
+      ctx.beginPath();
+      ctx.arc(x, y, size * 2.4, 0, TAU);
+      ctx.fill();
+    }
+    const cosR = Math.cos(rot) * size, sinR = Math.sin(rot) * size;
+    ctx.setTransform(cosR, sinR, -sinR, cosR, x, y);
+    ctx.fillStyle = TREE_COLORS.leaves[L.pal[leaf]];
+    ctx.globalAlpha = alpha * TREE_COLORS.leafAlpha[L.pal[leaf]];
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(0.5, -0.38, 1, 0);
+    ctx.quadraticCurveTo(0.5, 0.38, 0, 0);
+    ctx.fill();
+    if (pulseE >= 0.02) {
+      ctx.fillStyle = TREE_COLORS.accent;
+      ctx.globalAlpha = alpha * pulseE;
+      ctx.fill();
+    }
+  }
+  /* foreground: a few leaves drifting across the whole frame, always alive */
+  for (let i = 0; i < 7; i++) {
+    const speed = 24 + i * 6.5;
+    const vspeed = 30 + i * 9;
+    const x = (((i * 397 + t * speed) % 2200) + 2200) % 2200 - 140;
+    const y = (((i * 613 + t * vspeed) % 1300) + 1300) % 1300 - 110;
+    const rot = t * (0.5 + i * 0.11) + i * 1.7;
+    const size = 13 + (i % 3) * 5;
+    const cosR = Math.cos(rot) * size, sinR = Math.sin(rot) * size;
+    ctx.setTransform(cosR, sinR, -sinR, cosR, x, y);
+    ctx.fillStyle = TREE_COLORS.leaves[i % 3];
+    ctx.globalAlpha = 0.15 + (i % 3) * 0.04;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(0.5, -0.38, 1, 0);
+    ctx.quadraticCurveTo(0.5, 0.38, 0, 0);
+    ctx.fill();
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+}
+
+/* ============ token rendering (Shiki css-variables palette) ============ */
+const TOK = { kw: "--tok-keyword", fn: "--tok-const", str: "--tok-string", cm: "--tok-comment", pn: "--tok-punct", fg: "--foreground", pm: "--tok-param" };
+function tokHtml(tokens, chars) {
+  let html = "", used = 0;
+  for (const [text, kind] of tokens) {
+    if (used >= chars) break;
+    let take = text.slice(0, chars - used);
+    used += take.length;
+    /* never split a surrogate pair mid-emoji while typing */
+    const last = take.charCodeAt(take.length - 1);
+    if (last >= 0xd800 && last <= 0xdbff) take = take.slice(0, -1);
+    const esc = take.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+    html += kind === null ? esc : `<span style="color:var(${TOK[kind]})">${esc}</span>`;
+  }
+  return html;
+}
+const tokLen = (tokens) => tokens.reduce((sum, [text]) => sum + text.length, 0);
+/* reveal a full line with a fade (for pre-existing code, no typing) */
+function lineHtml(tokens, op) {
+  return `<span style="opacity:${op.toFixed(3)}">${tokHtml(tokens, 9999)}</span>`;
+}
+
+/* expanding "shockwave" ring — the impactful re-render signal */
+function pulseRing(el, lt, at) {
+  if (lt < at) { el.style.opacity = "0"; return; }
+  const p = seg(lt, at, at + 0.55);
+  el.style.opacity = String(0.9 * (1 - p));
+  el.style.transform = `scale(${1 + 0.1 * easeOut(p)})`;
+}
+
+/* ============ A: intro ============ */
+function updateA(t) {
+  const c1 = backOut(seg(t, 0.15, 0.55));
+  const c2 = backOut(seg(t, 0.3, 0.7));
+  const c3 = backOut(seg(t, 0.4, 0.8));
+  $("aC1").style.transform = `scale(${Math.max(0, c1)})`;
+  $("aC2").style.transform = `scale(${Math.max(0, c2)})`;
+  $("aC3").style.transform = `scale(${Math.max(0, c3)})`;
+  const draw = ease(seg(t, 0.4, 1.05));
+  const p = $("aP");
+  p.style.strokeDasharray = "1";
+  p.style.strokeDashoffset = String(1 - draw);
+  const wordP = seg(t, 0.75, 1.25);
+  $("aWord").style.opacity = wordP;
+  $("aWord").style.transform = `translateY(${(1 - ease(wordP)) * 16}px)`;
+  const headP = seg(t, 1.35, 1.95);
+  $("aHead").style.opacity = headP;
+  $("aHead").style.transform = `translateY(${(1 - ease(headP)) * 20}px)`;
+  const subP = seg(t, 1.85, 2.4);
+  $("aSub").style.opacity = subP;
+  $("aSub").style.transform = `translateY(${(1 - ease(subP)) * 14}px)`;
+}
+
+/* ============ B: useNode — code drives a sticky-note board ============ */
+const B_FUNC = [
+  [["function", "kw"], [" Sticky", "fn"], ["({ ", "pn"], ["note", "pm"], [" }) {", "pn"]],
+  [["  const", "kw"], [" n ", null], ["= ", "pn"], ["useNode", "fn"], ["(", "pn"], ["note", "pm"], [");", "pn"]],
+  [["  return", "kw"], [" <", "pn"], ["Note", "fn"], [" {...", "pn"], ["n", null], ["} />;", "pn"]],
+  [["}", "pn"]],
+];
+const B_W1 = [["board", null], [".", "pn"], ["notes", null], ["[", "pn"], ["2", "fn"], ["]", "pn"], [".", "pn"], ["text", null], [" = ", "pn"], ["\"Plant a tree\"", "str"], [";", "pn"]];
+const B_W2 = [["board", null], [".", "pn"], ["notes", null], ["[", "pn"], ["2", "fn"], ["]", "pn"], [".", "pn"], ["sticker", null], [" = ", "pn"], ["\"🌳\"", "str"], [";", "pn"]];
+const B_NOTES = [
+  { sticker: "📌", text: "Buy oat milk", rgb: "230,192,123", rot: -2.2 },
+  { sticker: "⭐", text: "Call Dana", rgb: "124,216,255", rot: 1.9 },
+  { sticker: "🌱", text: "Water plants", rgb: "95,224,141", rot: -1.5 },
+  { sticker: "✈️", text: "Book flights", rgb: "163,179,171", rot: 2.3 },
+]; /* note 2 is the star: its text is edited, then its seedling becomes 🌳 */
+(function buildStickies() {
+  const board = $("bBoard");
+  const pool = Array.from({ length: 8 }, () => `<span class="dmg">+1</span>`).join("");
+  B_NOTES.forEach((note, i) => {
+    const el = document.createElement("div");
+    el.className = "sticky";
+    el.style.background = `rgba(${note.rgb},0.13)`;
+    el.style.border = `1px solid rgba(${note.rgb},0.4)`;
+    el.style.transform = `rotate(${note.rot}deg)`;
+    el.innerHTML =
+      `<span class="sticker" id="bst${i}">${note.sticker}</span>` +
+      `<div class="stxt" id="btx${i}">${note.text}</div>` +
+      `<span class="dmgwrap" id="bdw${i}">${pool}</span>` +
+      `<span class="rbadge flashable" id="brb${i}">renders: <b>1</b></span>` +
+      `<span class="pulse" id="bpu${i}"></span>`;
+    board.appendChild(el);
+  });
+})();
+/* fast typing, quick beats */
+const BC_CPS = 34;
+const B_TYPE1 = 1.15, B_HIT1 = 2.15, B_TYPE2 = 3.25, B_HIT2 = 4.35;
+function typedWriteHtml(tokens, lt, typeAt) {
+  const chars = Math.floor(Math.max(0, lt - typeAt) * BC_CPS);
+  let html = tokHtml(tokens, chars);
+  if (lt > typeAt - 0.5 && chars < tokLen(tokens)) html += blink(lt) ? `<span class="cursor"></span>` : "";
+  return html;
+}
+function updateB(t) {
+  const lt = t - T.B[0];
+  $("sB").querySelector(".cap").style.opacity = ease(seg(lt, 0.05, 0.5));
+  const rise = ease(seg(lt, 0.15, 0.7));
+  $("bRow").style.opacity = rise;
+  $("bRow").style.transform = `translate(-50%, calc(-50% + ${(1 - rise) * 26}px))`;
+  let html = "";
+  B_FUNC.forEach((line, i) => {
+    html += lineHtml(line, ease(seg(lt, 0.35 + i * 0.1, 0.6 + i * 0.1))) + "\n";
+  });
+  html += "\n" + typedWriteHtml(B_W1, lt, B_TYPE1);
+  if (lt >= B_TYPE2 - 0.1) html += "\n" + typedWriteHtml(B_W2, lt, B_TYPE2);
+  $("bCodeBody").innerHTML = html;
+  /* both writes hit the SAME note: text first, then the seedling grows up */
+  $("btx2").textContent = lt >= B_HIT1 ? "Plant a tree" : "Water plants";
+  const sticker = $("bst2");
+  sticker.textContent = lt >= B_HIT2 ? "🌳" : "🌱";
+  sticker.style.transform = lt >= B_HIT2
+    ? `scale(${Math.max(0.01, backOut(seg(lt, B_HIT2, B_HIT2 + 0.4)))})`
+    : "scale(1)";
+  const hits = [null, null, [B_HIT1, B_HIT2], null]; /* note index → write beats */
+  for (let i = 0; i < 4; i++) {
+    const badge = $("brb" + i);
+    const events = hits[i] === null ? [] : hits[i];
+    const fired = events.filter((h) => lt >= h);
+    badge.innerHTML = `renders: <b>${1 + fired.length}</b>`;
+    const last = fired.length > 0 ? fired[fired.length - 1] : null;
+    flashRing(badge, last === null ? 0 : flash(lt, last, 1.6));
+    pulseRing($("bpu" + i), lt, last === null ? Infinity : last);
+    renderDmg("bdw" + i, events, lt, i * 7 + 29);
+  }
+}
+
+/* ============ C: useSelect — deep filtering: search + folder drive the selector ============ */
+const C_SEARCH = "ana";
+const C_KEYS = [1.3, 1.75, 2.2]; /* one keystroke each: "a", "an", "ana" */
+const C_FCLICK = 3.7; /* folder chip Inbox → Archive */
+const C_ROW_H = 74;
+const C_MAIL = [
+  { from: "Ana Woods", sub: "Quarterly growth report", folder: "Inbox", v0: 1, changes: [[C_FCLICK, 0]] },
+  { from: "Anders Lind", sub: "Design review notes", folder: "Inbox", v0: 1, changes: [[C_KEYS[2], 0]] },
+  { from: "Elle Pine", sub: "Standup notes", folder: "Inbox", v0: 1, changes: [[C_KEYS[0], 0]] },
+  { from: "Ana Woods", sub: "Re: offsite agenda", folder: "Archive", v0: 0, changes: [[C_FCLICK, 1]] },
+];
+(function buildMail() {
+  const wrap = $("cMail");
+  C_MAIL.forEach((mail, i) => {
+    const el = document.createElement("div");
+    el.className = "mrow";
+    el.id = "cm" + i;
+    el.innerHTML =
+      `<div class="mfrom">${mail.from}</div>` +
+      `<div class="msub">${mail.sub}</div>` +
+      `<span class="mfold">${mail.folder}</span>`;
+    wrap.appendChild(el);
+  });
+})();
+/* a dependency token in the selector: bolds, lights up, glows, and swells
+ * when it changes — the thing to look at */
+function cDep(text, e) {
+  const hot = e > 0.06;
+  return `<span style="display:inline-block;padding:2px 8px;border-radius:8px;` +
+    `background:rgba(34,197,94,${(0.42 * e).toFixed(3)});` +
+    `box-shadow:0 0 ${(16 * e).toFixed(1)}px rgba(34,197,94,${(0.55 * e).toFixed(3)});` +
+    `transform:scale(${(1 + 0.12 * e).toFixed(3)});` +
+    `color:${hot ? "var(--accent)" : "var(--foreground)"};font-weight:${hot ? 700 : 400}">${text}</span>`;
+}
+/* the selector is declared inline inside the hook; the outline is a
+ * text-selection-shaped path that hugs it, braces included */
+function cCodeHtml(lt, eSearch, eFolder) {
+  const kw = (s) => `<span style="color:var(--tok-keyword)">${s}</span>`;
+  const pn = (s) => `<span style="color:var(--tok-punct)">${s}</span>`;
+  const pm = (s) => `<span style="color:var(--tok-param)">${s}</span>`;
+  const fn = (s) => `<span style="color:var(--tok-const)">${s}</span>`;
+  const lines = [
+    `${kw("const")} results ${pn("=")} ${fn("useSelect")}${pn("(mailbox, (")}${pm("mail")}${pn(") => {")}`,
+    `  ${kw("return")} mail.messages.filter((${pm("message")}) =>`,
+    `    message.from.includes(${cDep("mail.search", eSearch)}) &&`,
+    `    message.folder ${pn("===")} ${cDep("mail.folder", eFolder)});`,
+    `${pn("});")}`,
+  ];
+  return lines
+    .map((line, i) => `<span style="display:inline-block;opacity:${ease(seg(lt, 0.35 + i * 0.09, 0.6 + i * 0.09)).toFixed(3)}">${line}</span>`)
+    .join("\n");
+}
+/* selection-outline geometry: starts at `(mail) => {` on line 0, wraps the
+ * full body lines, ends after `});` — a stepped polygon like a code selection */
+const C_LINE_H = 26 * 1.72;
+const C_CHAR_W = 15.6;
+let C_FN_READY = false;
+function measureCFn() {
+  const panel = $("cCodePanel").getBoundingClientRect();
+  const body = $("cCodeBody").getBoundingClientRect();
+  const top = body.y - panel.y + 32;
+  const left = body.x - panel.x + 38;
+  const x0 = left + 36 * C_CHAR_W - 10; /* start of `(mail) => {` */
+  const xR = left + 47 * C_CHAR_W + 14; /* right of line 0 (the widest edge) */
+  const xL = left - 14;
+  const y0 = top - 5;
+  const yMid = top + C_LINE_H - 3; /* top of line 1 */
+  const yBot = top + 5 * C_LINE_H + 7; /* below `});` */
+  $("cFnPath").setAttribute(
+    "d",
+    `M ${x0} ${y0} L ${xR} ${y0} L ${xR} ${yBot} L ${xL} ${yBot} L ${xL} ${yMid} L ${x0} ${yMid} Z`,
+  );
+  C_FN_READY = true;
+}
+let C_GEOM = null;
+function measureCGeom() {
+  const pane = $("cChip1").closest(".pane").getBoundingClientRect();
+  const chip = $("cChip1").getBoundingClientRect();
+  const searchText = $("cSearchText").getBoundingClientRect();
+  C_GEOM = {
+    chip: { x: chip.x + chip.width / 2 - pane.x, y: chip.y + chip.height / 2 - pane.y },
+    searchX: searchText.x - pane.x,
+    searchY: searchText.y + searchText.height / 2 - pane.y,
+    idle: { x: pane.width - 120, y: pane.height - 60 },
+  };
+}
+function updateC(t) {
+  const lt = t - T.C[0];
+  if (C_GEOM === null && lt >= 0.8) { measureCGeom(); measureCFn(); }
+  $("sC").querySelector(".cap").style.opacity = ease(seg(lt, 0.05, 0.5));
+  const rise = ease(seg(lt, 0.15, 0.7));
+  $("cRow").style.opacity = rise;
+  $("cRow").style.transform = `translate(-50%, calc(-50% + ${(1 - rise) * 26}px))`;
+  /* the selector function lights up on every dependency change */
+  const eSearch = Math.max(...C_KEYS.map((k) => flash(lt, k, 2.6)));
+  const eFolder = flash(lt, C_FCLICK, 2.6);
+  const eSelect = Math.max(eSearch, eFolder);
+  $("cCodeBody").innerHTML = cCodeHtml(lt, eSearch, eFolder);
+  flashRing($("cCodePanel"), eSelect * 0.35, GLASS_SHADOW);
+  /* marching-ants outline: ONLY visible while the selector is running
+   * (slower decay than the token flashes so it lingers just a beat) */
+  const eOutline = Math.max(
+    ...C_KEYS.map((k) => flash(lt, k, 2.0)),
+    flash(lt, C_FCLICK, 2.0),
+  );
+  const fnPath = $("cFnPath");
+  if (C_FN_READY) {
+    fnPath.style.opacity = String(Math.min(1, eOutline * 1.6));
+    fnPath.style.strokeDashoffset = String(-(t * 46) % 24);
+    fnPath.style.strokeWidth = String(2.5 + 1.5 * eSelect);
+  } else {
+    fnPath.style.opacity = "0";
+  }
+  /* interaction ripples: one per keystroke (at the typed character) and one
+   * on the folder click — the cause, visually tied to the selector's flash */
+  if (C_GEOM !== null) {
+    const events = C_KEYS.map((k, i) => ({
+      at: k,
+      x: C_GEOM.searchX + (i + 0.5) * C_CHAR_W,
+      y: C_GEOM.searchY,
+    })).concat([{ at: C_FCLICK, x: C_GEOM.chip.x, y: C_GEOM.chip.y }]);
+    for (let s = 0; s < 3; s++) {
+      const span = $("crip" + s);
+      let active = null;
+      for (let e = s; e < events.length; e += 3) {
+        if (lt >= events[e].at) active = events[e];
+        else break;
+      }
+      const age = active === null ? 99 : lt - active.at;
+      if (age > 0.55) { span.style.opacity = "0"; continue; }
+      const d = 16 + 96 * easeOut(age / 0.55);
+      span.style.width = span.style.height = `${d.toFixed(1)}px`;
+      span.style.opacity = String(0.75 * (1 - age / 0.55));
+      span.style.transform = `translate(${(active.x - d / 2).toFixed(1)}px, ${(active.y - d / 2).toFixed(1)}px)`;
+    }
+  }
+  const runs = C_KEYS.filter((k) => lt >= k).length + (lt >= C_FCLICK ? 1 : 0);
+  const runsChip = $("cRuns");
+  runsChip.innerHTML = `selector ran: <b>${runs}</b>`;
+  flashRing(runsChip, eSelect);
+  /* search box types; caret blinks while focused */
+  const typed = C_SEARCH.slice(0, C_KEYS.filter((k) => lt >= k).length);
+  $("cSearchText").innerHTML = typed === "" ? `<span class="sph">search sender…</span>` : typed;
+  $("cSearchCaret").style.opacity = lt > 0.9 && lt < 3.0 && blink(lt) ? 1 : 0;
+  /* folder chips swap at the click */
+  $("cChip0").classList.toggle("on", lt < C_FCLICK);
+  $("cChip1").classList.toggle("on", lt >= C_FCLICK);
+  /* pointer walks in and clicks Archive */
+  if (C_GEOM !== null) {
+    const p = ease(seg(lt, 3.0, C_FCLICK - 0.15));
+    const x = lerp(C_GEOM.idle.x, C_GEOM.chip.x, p);
+    const y = lerp(C_GEOM.idle.y, C_GEOM.chip.y, p);
+    const ptr = $("cPtr");
+    const vis = Math.min(seg(lt, 2.9, 3.3), 1 - seg(lt, C_FCLICK + 0.5, C_FCLICK + 1.0));
+    ptr.style.opacity = String(vis * 0.95);
+    ptr.style.transform = `translate(${x - 13}px, ${y - 13}px) scale(${1 - 0.35 * flash(lt, C_FCLICK, 6)})`;
+  }
+  /* the list re-filters live: rows collapse/expand as results change */
+  let count = 0;
+  C_MAIL.forEach((mail, i) => {
+    let v = mail.v0;
+    for (const [tc, to] of mail.changes) v = lerp(v, to, ease(seg(lt, tc, tc + 0.32)));
+    const el = $("cm" + i);
+    el.style.height = `${(v * C_ROW_H).toFixed(1)}px`;
+    el.style.opacity = String(v);
+    let target = mail.v0;
+    for (const [tc, to] of mail.changes) if (lt >= tc) target = to;
+    count += target;
+  });
+  const countEl = $("cCount");
+  countEl.textContent = `${count} result${count === 1 ? "" : "s"}`;
+  const lastChange = Math.max(...[C_KEYS[0], C_KEYS[2], C_FCLICK].filter((c) => lt >= c), -1);
+  countEl.style.transform = `scale(${1 + (lastChange < 0 ? 0 : 0.25 * flash(lt, lastChange, 4))})`;
+}
+
+/* ============ D: compare (sequential spotlight: React first, then Retree) ============
+ * Each pane's beat: click into the empty third row, type a task name — every
+ * keystroke is a state write — then check it off as the cherry on top. */
+const D_TASKS = ["Write the docs", "Ship the site", ""];
+const D_TEXT = "Plant a tree";
+const D_CPS = 9.5;
+const D_TYPE_L = 1.5, D_CHECK_L = 3.25;
+const D_TYPE_R = 4.95, D_CHECK_R = 6.7;
+const D_SWAP = 4.35; /* spotlight moves from React pane to Retree pane */
+const D_FINALE = 7.3; /* both panes back to full — read the tallies */
+/* write-event times for one beat: 12 keystrokes then the checkbox */
+function dEvents(typeAt, checkAt) {
+  const events = [];
+  for (let i = 0; i < D_TEXT.length; i++) events.push(typeAt + i / D_CPS);
+  events.push(checkAt);
+  return events;
+}
+const D_EVENTS_L = dEvents(D_TYPE_L, D_CHECK_L);
+const D_EVENTS_R = dEvents(D_TYPE_R, D_CHECK_R);
+const D_TYPE_END_L = D_EVENTS_L[D_TEXT.length - 1];
+const D_TYPE_END_R = D_EVENTS_R[D_TEXT.length - 1];
+const DMG_POOL = 8, DMG_LIFE = 0.72;
+const CHECK_GREEN = `<svg viewBox="0 0 24 24" fill="none" stroke="#5fe08d" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5L19.5 7"/></svg>`;
+const CHECK_NEUTRAL = `<svg viewBox="0 0 24 24" fill="none" stroke="#a3b3ab" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5l5 5L19.5 7"/></svg>`;
+function buildPane(rowsId, side) {
+  const wrap = $(rowsId);
+  const neutral = side === "L";
+  const pool = Array.from({ length: DMG_POOL }, () => `<span class="dmg">+1</span>`).join("");
+  D_TASKS.forEach((label, i) => {
+    const row = document.createElement("div");
+    row.className = "trow";
+    row.innerHTML =
+      `<span class="cbox${neutral ? " neutral" : ""}" id="cb${side}${i}">${neutral ? CHECK_NEUTRAL : CHECK_GREEN}</span>` +
+      `<span class="tlabel" id="tl${side}${i}">${label}</span>` +
+      `<span class="dmgwrap${neutral ? " red" : ""}" id="dw${side}${i}">${pool}</span>` +
+      `<span class="rbadge flashable" id="rb${side}${i}">renders: <b>1</b></span>`;
+    wrap.appendChild(row);
+  });
+}
+buildPane("rowsL", "L");
+buildPane("rowsR", "R");
+/* crown stamp + confetti (the finale) */
+const D_STAMP = 7.45;
+const CONFETTI_N = 26;
+const CONFETTI_COLORS = ["#5fe08d", "#7cd8ff", "#e6c07b", "#e9f0ec"];
+(function buildConfetti() {
+  const wrap = $("dConfetti");
+  for (let i = 0; i < CONFETTI_N; i++) {
+    const span = document.createElement("span");
+    span.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+    wrap.appendChild(span);
+  }
+})();
+/* pointer geometry measured at runtime (rows are laid out even while hidden) */
+let D_GEOM = null;
+function measureDGeom() {
+  const pane = $("paneL").getBoundingClientRect();
+  const paneR = $("paneR").getBoundingClientRect();
+  const ys = [0, 1, 2].map((i) => {
+    const r = $("cbL" + i).getBoundingClientRect();
+    return r.y + r.height / 2 - pane.y;
+  });
+  const x = (() => {
+    const r = $("cbL0").getBoundingClientRect();
+    return r.x + r.width / 2 - pane.x;
+  })();
+  D_GEOM = {
+    x, ys,
+    idle: { x: pane.width - 130, y: ys[2] + 60 },
+    crown: { x: paneR.right - 110, y: paneR.top - 16 },
+  };
+}
+function updateCrown(lt) {
+  const crown = $("dCrown");
+  if (D_GEOM === null || lt < D_STAMP) {
+    crown.style.opacity = "0";
+    for (const span of $("dConfetti").children) span.style.opacity = "0";
+    return;
+  }
+  const sp = backOut(seg(lt, D_STAMP, D_STAMP + 0.38));
+  crown.style.opacity = String(Math.min(1, seg(lt, D_STAMP, D_STAMP + 0.1) * 2));
+  const scale = lerp(2.7, 1, Math.min(sp, 1.15));
+  const rot = lerp(-24, -8, sp);
+  crown.style.transform =
+    `translate(${D_GEOM.crown.x - 42}px, ${D_GEOM.crown.y - 42}px) scale(${scale}) rotate(${rot}deg)`;
+  /* green ring on the winning pane */
+  flashRing($("paneR"), flash(lt, D_STAMP + 0.06, 1.2) * 0.9, GLASS_SHADOW);
+  /* confetti burst from the stamp point */
+  const spans = $("dConfetti").children;
+  const t0 = D_STAMP + 0.1;
+  for (let i = 0; i < CONFETTI_N; i++) {
+    const age = lt - t0;
+    const span = spans[i];
+    if (age < 0 || age > 1.15) { span.style.opacity = "0"; continue; }
+    const h = (Math.imul(i + 3, 2654435761) ^ 0x9e37) >>> 0;
+    const angle = ((h % 360) / 360) * TAU;
+    const speed = 240 + ((h >> 8) % 230);
+    const x = D_GEOM.crown.x + Math.cos(angle) * speed * age * 0.85;
+    const y = D_GEOM.crown.y + Math.sin(angle) * speed * age * 0.7 + 260 * age * age;
+    const spin = age * (((h >> 4) % 2 ? 1 : -1) * (240 + ((h >> 6) % 240)));
+    span.style.opacity = String(1 - seg(age, 0.62, 1.15));
+    span.style.transform = `translate(${x}px, ${y}px) rotate(${spin}deg)`;
+  }
+}
+/* pointer: idle → the empty row's title (click to focus) → hold while
+ * typing → over to the checkbox → click → gone */
+function movePointerD(el, lt, appearAt, typeAt, typeEnd, checkAt) {
+  const title = { x: 130, y: D_GEOM.ys[2] };
+  const stops = [
+    { at: appearAt + 0.1, x: D_GEOM.idle.x, y: D_GEOM.idle.y },
+    { at: typeAt - 0.25, x: title.x, y: title.y },
+    { at: typeEnd + 0.08, x: title.x, y: title.y },
+    { at: checkAt - 0.12, x: D_GEOM.x, y: D_GEOM.ys[2] },
+  ];
+  let x = stops[0].x, y = stops[0].y;
+  for (let i = 0; i < stops.length - 1; i++) {
+    const p = ease(seg(lt, stops[i].at, stops[i + 1].at));
+    x = lerp(x, stops[i + 1].x, p);
+    y = lerp(y, stops[i + 1].y, p);
+  }
+  const appear = seg(lt, appearAt, appearAt + 0.4);
+  const gone = seg(lt, checkAt + 0.55, checkAt + 1.0);
+  /* step aside while typing — the caret takes over, then the pointer
+   * returns for the checkbox */
+  const typingDip = 1 - 0.96 * Math.min(
+    seg(lt, typeAt + 0.08, typeAt + 0.4),
+    1 - seg(lt, typeEnd + 0.05, typeEnd + 0.4),
+  );
+  el.style.opacity = String(Math.min(appear, 1 - gone) * typingDip * 0.95);
+  const press = 1 - 0.35 * (flash(lt, typeAt - 0.15, 6) + flash(lt, checkAt, 6));
+  el.style.transform = `translate(${x - 13}px, ${y - 13}px) scale(${press})`;
+}
+/* damage-number pool: slot s shows its latest event, launched on a seeded
+ * arc (varied direction + spin, brief pop, gravity pulls it back down) */
+function renderDmg(wrapId, events, lt, seedBase) {
+  const spans = $(wrapId).children;
+  for (let s = 0; s < DMG_POOL; s++) {
+    let active = -1;
+    for (let e = s; e < events.length; e += DMG_POOL) {
+      if (lt >= events[e]) active = e;
+      else break;
+    }
+    const span = spans[s];
+    if (active === -1) { span.style.opacity = "0"; continue; }
+    const age = lt - events[active];
+    if (age >= DMG_LIFE) { span.style.opacity = "0"; continue; }
+    const h = (Math.imul(active + 1, 2654435761) ^ Math.imul(seedBase, 40503)) >>> 0;
+    const vx = ((h % 1000) / 1000 - 0.5) * 180;
+    const vy = -(95 + ((h >> 10) % 110));
+    const rot = ((h >> 4) % 25) - 12;
+    const x = vx * age;
+    const y = vy * age + 150 * age * age;
+    const scale = lerp(1.45, 1, Math.min(age / 0.16, 1));
+    span.style.opacity = String(1 - seg(age, 0.42, DMG_LIFE));
+    span.style.transform = `translate(${x}px, ${y - 10}px) rotate(${rot}deg) scale(${scale})`;
+  }
+}
+const countEvents = (events, lt) => events.reduce((n, e) => n + (lt >= e ? 1 : 0), 0);
+/* the typed row's label: placeholder → typed text with caret → struck task */
+function dTypedLabel(el, lt, typeAt, checkAt, typedCount) {
+  const caretOn = lt >= typeAt - 0.45 && lt < checkAt && blink(lt);
+  if (typedCount === 0 && lt < typeAt) {
+    el.innerHTML = `<span class="tplaceholder">new task…</span>` + (caretOn ? `<span class="cursor"></span>` : "");
+    return;
+  }
+  el.textContent = D_TEXT.slice(0, typedCount);
+  if (caretOn) el.innerHTML += `<span class="cursor"></span>`;
+}
+function updateD(t) {
+  const lt = t - T.D[0];
+  if (D_GEOM === null && lt >= 1.0) measureDGeom();
+  const capP = ease(seg(lt, 0.1, 0.7));
+  $("sD").querySelector(".cap").style.opacity = capP;
+  const rise = ease(seg(lt, 0.25, 0.95));
+  $("dRow").style.opacity = rise;
+  $("dRow").style.transform = `translate(-50%, calc(-50% + ${(1 - rise) * 26}px))`;
+  /* spotlight: dim Retree during the React beat, then swap; finale = both full */
+  const opL = 1 - 0.5 * ease(seg(lt, D_SWAP, D_SWAP + 0.6)) + 0.5 * ease(seg(lt, D_FINALE, D_FINALE + 0.6));
+  const opR = 1 - 0.55 * ease(seg(lt, 1.1, 1.6)) + 0.55 * ease(seg(lt, D_SWAP, D_SWAP + 0.6));
+  $("paneL").style.opacity = String(opL);
+  $("paneR").style.opacity = String(opR);
+  if (D_GEOM !== null) {
+    movePointerD($("ptrL"), lt, 1.0, D_TYPE_L, D_TYPE_END_L, D_CHECK_L);
+    movePointerD($("ptrR"), lt, 4.45, D_TYPE_R, D_TYPE_END_R, D_CHECK_R);
+  }
+  for (const [side, events, typeAt, checkAt] of [
+    ["L", D_EVENTS_L, D_TYPE_L, D_CHECK_L],
+    ["R", D_EVENTS_R, D_TYPE_R, D_CHECK_R],
+  ]) {
+    const total = countEvents(events, lt);
+    const typedCount = Math.min(total, D_TEXT.length);
+    const checked = lt >= checkAt;
+    /* checkbox states: row0 done from the start; typed row checks at the end */
+    for (let i = 0; i < 3; i++) {
+      const done = i === 0 || (i === 2 && checked);
+      $(`cb${side}${i}`).classList.toggle("on", done);
+      $(`tl${side}${i}`).classList.toggle("done-strike", done);
+    }
+    dTypedLabel($(`tl${side}2`), lt, typeAt, checkAt, typedCount);
+    $(`done${side}`).textContent = `done ${checked ? 2 : 1}/3`;
+    /* ring energy: quick pulse per keystroke, lasting ring on the check */
+    const last = total > 0 ? events[total - 1] : null;
+    const isCheck = total === events.length;
+    const ringE = last === null ? 0 : flash(lt, last, isCheck ? 1.4 : 2.8);
+    const red = side === "L";
+    const rgb = red ? RED_RGB : "34,197,94";
+    /* badges + damage numbers: React = every row, Retree = only the typed row */
+    for (let i = 0; i < 3; i++) {
+      const hot = red || i === 2;
+      const renders = 1 + (hot ? total : 0);
+      const badge = $(`rb${side}${i}`);
+      badge.innerHTML = `renders: <b${red ? ` style="color:var(--danger)"` : ""}>${renders}</b>`;
+      flashRing(badge, hot ? ringE : 0, "none", rgb);
+      renderDmg(`dw${side}${i}`, hot ? events : [], lt, i * 7 + (red ? 13 : 29));
+    }
+    flashRing($(`done${side}`), flash(lt, checkAt, 1.4), "none", rgb);
+    /* tally: 3 row re-renders per write vs 1 */
+    $(`tal${side}`).textContent = String(total * (red ? 3 : 1));
+    $(`tal${side}`).style.transform = `scale(${1 + 0.3 * (last === null ? 0 : flash(lt, last, 4.5))})`;
+    const ver = ease(seg(lt, checkAt + 0.55, checkAt + 1.05));
+    $(`ver${side}`).style.opacity = ver;
+    $(`ver${side}`).style.transform = `translateY(${(1 - ver) * 10}px)`;
+  }
+  updateCrown(lt);
+}
+
+/* ============ E: view models (pan between the three decorators) ============ */
+const E_CODE = [
+  [["class", "kw"], [" TaskBoard ", "fn"], ["extends", "kw"], [" ReactiveNode ", "fn"], ["{", "pn"]],
+  [["  tasks", null], [" = [ ", "pn"], ["/* … */", "cm"], [" ];", "pn"]],
+  [["  query", null], [" = ", "pn"], ["\"\"", "str"], [";", "pn"]],
+  [[" ", null]],
+  [["  @select", "pm"]],
+  [["  get", "kw"], [" doneCount", "fn"], ["() {", "pn"]],
+  [["    return", "kw"], [" this.tasks.filter((t) => t.done).length;", null]],
+  [["  }", "pn"]],
+  [[" ", null]],
+  [["  @memo", "pm"]],
+  [["  get", "kw"], [" results", "fn"], ["() {", "pn"]],
+  [["    return", "kw"], [" search", "fn"], ["(this.tasks, this.query);", null]],
+  [["  }", "pn"]],
+  [[" ", null]],
+  [["  @ignore", "pm"]],
+  [["  scratch", null], [" = { ", "pn"], ["draftClicks", "pm"], [": ", "pn"], ["0", "fn"], [" };", "pn"]],
+  [["}", "pn"]],
+];
+const E_LINE_H = 28 * 1.7; /* px per line at the zoomed font size */
+const E_PAD = 26;
+/* which decorator line each phase centers on, and when the pans happen */
+const E_TARGETS = [4, 9, 14];
+const E_PAN1 = 2.6, E_PAN2 = 4.9, E_PAN_DUR = 0.45;
+const E_VIEW_H = 400;
+const E_INNER_H = E_PAD * 2 + E_CODE.length * E_LINE_H;
+const E_MAX_OFF = -(E_INNER_H - E_VIEW_H);
+const eOffsetFor = (line) => Math.max(-(line * E_LINE_H - 50), E_MAX_OFF);
+function updateE(t) {
+  const lt = t - T.E[0];
+  const capP = ease(seg(lt, 0.1, 0.7));
+  $("sE").querySelector(".cap").style.opacity = capP;
+  const rise = ease(seg(lt, 0.25, 0.95));
+  $("eRow").style.opacity = rise;
+  $("eRow").style.transform = `translate(-50%, calc(-50% + ${(1 - rise) * 26}px))`;
+  /* pan the zoomed code between decorators; the focus line interpolates too */
+  const p1 = ease(seg(lt, E_PAN1, E_PAN1 + E_PAN_DUR));
+  const p2 = ease(seg(lt, E_PAN2, E_PAN2 + E_PAN_DUR));
+  const line = lerp(lerp(E_TARGETS[0], E_TARGETS[1], p1), E_TARGETS[2], p2);
+  const off0 = eOffsetFor(E_TARGETS[0]), off1 = eOffsetFor(E_TARGETS[1]), off2 = eOffsetFor(E_TARGETS[2]);
+  const off = lerp(lerp(off0, off1, p1), off2, p2);
+  /* lines near the focused decorator stay bright; the rest recede */
+  let html = "";
+  E_CODE.forEach((tokens, i) => {
+    const inFocus = i >= line - 0.4 && i <= line + 3.4;
+    const reveal = ease(seg(lt, 0.4 + i * 0.035, 0.62 + i * 0.035));
+    html += lineHtml(tokens, reveal * (inFocus ? 1 : 0.34)) + "\n";
+  });
+  const code = $("eCode");
+  code.innerHTML = html;
+  code.style.transform = `translateY(${off}px)`;
+  const hi = $("eHi");
+  hi.style.top = `${E_PAD + line * E_LINE_H + off + 4}px`;
+  hi.style.opacity = String(ease(seg(lt, 0.6, 1.0)));
+  /* concept cards crossfade with the pans; each runs two little beats */
+  const windows = [
+    [0.55, E_PAN1 + 0.25],
+    [E_PAN1 + 0.25, E_PAN2 + 0.25],
+    [E_PAN2 + 0.25, 7.9],
+  ];
+  const beatStarts = [0.85, E_PAN1 + 0.6, E_PAN2 + 0.6];
+  for (let c = 0; c < 3; c++) {
+    const card = $("ecard" + c);
+    card.style.opacity = String(fadeIO(lt, windows[c][0], windows[c][1], 0.3));
+    const plt = lt - beatStarts[c];
+    for (let r = 0; r < 2; r++) {
+      const row = $(`er${c}${r}`);
+      const rp = ease(seg(plt, r * 0.65, r * 0.65 + 0.35));
+      row.style.opacity = rp;
+      row.style.transform = `translateY(${(1 - rp) * 12}px)`;
+    }
+    /* status chips flash as their beat lands (quiet ones stay quiet) */
+    const rings = [
+      c === 0 ? ["es00", "34,197,94", 0] : null,
+      c === 1 ? ["es10", "34,197,94", 0] : null,
+      c === 1 ? ["es11", "230,192,123", 1] : null,
+    ];
+    for (const ring of rings) {
+      if (!ring) continue;
+      const [id, rgb, r] = ring;
+      flashRing($(id), flash(plt, r * 0.65 + 0.3, 1.8) * 0.9, "none", rgb);
+    }
+  }
+}
+
+/* ============ F: tree ops (cube-flip through the API) ============ */
+/* each face is a single wrapping span — .fface is a grid, and multiple
+ * children would otherwise become separate (stacked) grid items */
+const F_FACES = [
+  `<span><span class="fn">Retree.move</span>(task, <span class="kw">board.active</span>)</span>`,
+  `<span>board.selected = <span class="fn">Retree.link</span>(task)</span>`,
+  `<span>backlog.push(<span class="fn">Retree.clone</span>(task))</span>`,
+  `<span><span class="fn">Retree.parent</span>(task) <span class="kw">→ board.active</span></span>`,
+];
+const F_IN = 0.6;            /* chip entrance flip */
+const F_FLIPS = [2.4, 3.8, 4.9]; /* flips to faces 1, 2, 3 */
+const F_FLIP_DUR = 0.36;
+const F_FLY0 = 1.05, F_FLY_DUR = 0.72;
+const F_CLONE = 4.15;
+const F_PARENT = 5.15;
+const F_BACKLOG = ["Water the saplings", "Ship v1.0", "Rake the leaves"];
+(function buildF() {
+  const bWrap = $("fBacklogCards");
+  F_BACKLOG.forEach((label, i) => {
+    const card = document.createElement("div");
+    card.className = "dcard";
+    card.id = "fbc" + i;
+    card.innerHTML = `<span class="grip">⋮⋮</span>${label}`;
+    bWrap.appendChild(card);
+  });
+  const clone = document.createElement("div");
+  clone.className = "dcard";
+  clone.id = "fClone";
+  clone.innerHTML = `<span class="grip">⋮⋮</span>Ship v1.0`;
+  clone.style.opacity = "0";
+  bWrap.appendChild(clone);
+  const aWrap = $("fActiveCards");
+  const card = document.createElement("div");
+  card.className = "dcard";
+  card.id = "fac0";
+  card.innerHTML = `<span class="grip">⋮⋮</span>Grow the docs`;
+  aWrap.appendChild(card);
+  const slot = document.createElement("div");
+  slot.className = "dslot";
+  slot.id = "fSlot";
+  aWrap.appendChild(slot);
+})();
+let F_GEOM = null;
+function measureFGeom() {
+  const ship = $("fbc1").getBoundingClientRect();
+  const grow = $("fac0").getBoundingClientRect();
+  const pitch = 82;
+  F_GEOM = {
+    src: { x: ship.x, y: ship.y },
+    dst: { x: grow.x, y: grow.y + pitch },
+    cardW: ship.width,
+    cardH: ship.height,
+  };
+  $("fFly").style.width = ship.width + "px";
+}
+function cubeState(lt) {
+  let idx = 0, flip = null;
+  for (let i = 0; i < F_FLIPS.length; i++) {
+    if (lt >= F_FLIPS[i] + F_FLIP_DUR) idx = i + 1;
+    else if (lt >= F_FLIPS[i]) { flip = { from: i, to: i + 1, p: (lt - F_FLIPS[i]) / F_FLIP_DUR }; break; }
+  }
+  return { idx, flip };
+}
+function updateF(t) {
+  const lt = t - T.F[0];
+  if (F_GEOM === null && lt >= 0.8) measureFGeom();
+  const capP = ease(seg(lt, 0.05, 0.5));
+  $("sF").querySelector(".cap").style.opacity = capP;
+  const rise = ease(seg(lt, 0.12, 0.65));
+  $("fRow").style.opacity = rise;
+  $("fRow").style.transform = `translate(-50%, calc(-50% + ${(1 - rise) * 26}px))`;
+  /* --- cube chip --- */
+  const cube = $("fCube"), faceA = $("fFaceA"), faceB = $("fFaceB");
+  const inP = ease(seg(lt, F_IN, F_IN + F_FLIP_DUR));
+  const st = cubeState(lt);
+  faceA.style.transform = "rotateX(0deg) translateZ(34px)";
+  faceB.style.transform = "rotateX(-90deg) translateZ(34px)";
+  if (st.flip) {
+    faceA.innerHTML = F_FACES[st.flip.from];
+    faceB.innerHTML = F_FACES[st.flip.to];
+    faceB.style.visibility = "visible";
+    cube.style.transform = `rotateX(${90 * ease(st.flip.p)}deg)`;
+    cube.style.opacity = "1";
+  } else {
+    faceA.innerHTML = F_FACES[st.idx];
+    faceB.style.visibility = "hidden";
+    cube.style.transform = `rotateX(${-90 * (1 - inP)}deg)`;
+    cube.style.opacity = String(Math.min(1, inP * 2));
+  }
+  /* --- beat 1: move --- */
+  const mp = seg(lt, F_FLY0, F_FLY0 + F_FLY_DUR);
+  const flying = mp > 0 && mp < 1;
+  const landed = mp >= 1;
+  $("fbc1").style.opacity = mp > 0 ? "0" : "1";
+  $("fbc2").style.transform = `translateY(${-82 * ease(seg(lt, F_FLY0 + 0.25, F_FLY0 + 0.75))}px)`;
+  $("fSlot").style.opacity = flying ? String(0.9 * ease(seg(mp, 0, 0.4))) : "0";
+  const fly = $("fFly");
+  if ((flying || landed) && F_GEOM !== null) {
+    const p = ease(mp);
+    const x = lerp(F_GEOM.src.x, F_GEOM.dst.x, p);
+    const arc = -70 * Math.sin(Math.PI * p);
+    const y = lerp(F_GEOM.src.y, F_GEOM.dst.y, p) + arc;
+    fly.style.opacity = "1";
+    const lift = flying ? 1.04 - 0.04 * p : 1;
+    fly.style.transform = `translate(${x}px, ${y}px) scale(${lift}) rotate(${flying ? Math.sin(Math.PI * p) * -2.2 : 0}deg)`;
+    /* ring on landing, and again on the parent beat */
+    flashRing(fly, Math.max(flash(lt, F_FLY0 + F_FLY_DUR, 2.0), flash(lt, F_PARENT, 1.6)));
+  } else {
+    fly.style.opacity = "0";
+  }
+  /* --- beat 2: link --- */
+  const selP = ease(seg(lt, F_FLIPS[0] + 0.2, F_FLIPS[0] + 0.7));
+  const sel = $("fSelected");
+  sel.style.opacity = selP;
+  sel.style.transform = `translateX(-50%) translateY(${(1 - selP) * 18}px)`;
+  const path = $("fLinkPath");
+  if (selP > 0.05 && F_GEOM !== null) {
+    const selRect = sel.getBoundingClientRect();
+    const x0 = F_GEOM.dst.x + F_GEOM.cardW * 0.5;
+    const y0 = F_GEOM.dst.y + F_GEOM.cardH;
+    const x1 = selRect.x + selRect.width * 0.5;
+    const y1 = selRect.y / selP > 0 ? selRect.y : selRect.y; /* rect already includes translate */
+    path.setAttribute("d", `M ${x0} ${y0} C ${x0} ${y0 + 90}, ${x1 + 150} ${y1 - 70}, ${x1} ${y1 - 4}`);
+    path.style.opacity = String(0.65 * selP);
+    path.style.strokeDashoffset = String(-t * 26);
+  } else {
+    path.style.opacity = "0";
+  }
+  /* --- beat 3: clone --- */
+  const cloneP = backOut(seg(lt, F_CLONE, F_CLONE + 0.45));
+  const cloneEl = $("fClone");
+  cloneEl.style.opacity = lt >= F_CLONE ? "1" : "0";
+  cloneEl.style.transform = `translateY(-82px) scale(${Math.max(0.01, cloneP)})`;
+  flashRing(cloneEl, flash(lt, F_CLONE + 0.45, 1.8));
+  /* --- beat 4: parent — ring the whole board.active panel --- */
+  flashRing($("fActive"), flash(lt, F_PARENT, 1.6) * 0.9, GLASS_SHADOW);
+}
+
+/* ============ G: outro ============ */
+const G_CLI = "npm i @retreejs/core @retreejs/react";
+function updateG(t) {
+  const lt = t - T.G[0];
+  const markP = backOut(seg(lt, 0.15, 0.7));
+  $("gMark").style.transform = `scale(${Math.max(0, markP)})`;
+  $("gWord").style.opacity = seg(lt, 0.35, 0.85);
+  const headP = ease(seg(lt, 0.6, 1.2));
+  $("gHead").style.opacity = headP;
+  $("gHead").style.transform = `translateY(${(1 - headP) * 14}px)`;
+  const cliP = ease(seg(lt, 1.0, 1.5));
+  $("gCli").style.opacity = cliP;
+  $("gCliText").textContent = typed(G_CLI, lt, 1.3, 26);
+  $("gCliCur").style.opacity = blink(lt) ? 1 : 0;
+  const ctaP = backOut(seg(lt, 2.9, 3.5));
+  const cta = $("gCta");
+  cta.style.opacity = seg(lt, 2.9, 3.2);
+  cta.style.transform = `scale(${Math.max(0.01, ctaP)})`;
+  const pulse = flash(lt, 3.7, 1.6) + flash(lt, 4.9, 1.6);
+  cta.style.boxShadow =
+    `0 0 0 ${(6 * pulse).toFixed(2)}px rgba(34,197,94,${(0.35 * pulse).toFixed(3)}), ` +
+    `0 18px 50px rgba(0,0,0,0.45)`;
+  const tagP = ease(seg(lt, 3.4, 4.0));
+  $("gTag").style.opacity = tagP;
+}
+
+/* ============ scene manager ============ */
+const SCENES = [
+  ["sA", T.A, updateA],
+  ["sB", T.B, updateB],
+  ["sC", T.C, updateC],
+  ["sD", T.D, updateD],
+  ["sE", T.E, updateE],
+  ["sF", T.F, updateF],
+  ["sG", T.G, updateG],
+];
+
+window.seek = (t) => {
+  for (const [id, [a, b], update] of SCENES) {
+    const el = $(id);
+    const op = fadeIO(t, a, b === END ? END + 0.6 : b);
+    el.style.opacity = String(op);
+    el.style.visibility = op <= 0 ? "hidden" : "visible";
+    if (op > 0) update(t);
+  }
+  /* background tree: prominent in intro/outro, present (not shouting) in between */
+  const mid = Math.max(seg(t, T.A[1] - 0.8, T.B[0] + 0.8), 1 - seg(t, T.F[1] - 0.8, T.G[0] + 0.8));
+  const treeAlpha = lerp(0.85, 0.3, mid);
+  drawTree(t, treeAlpha);
+  /* glow breathes gently with the music's pulse */
+  const glow = $("bg-glow");
+  const breathe = Math.sin(t * TAU * 0.47);
+  glow.style.transform = `translate(-50%, -50%) scale(${(1 + 0.03 * breathe).toFixed(4)})`;
+  glow.style.opacity = String(0.88 + 0.12 * breathe);
+  /* transition sweep */
+  const sweepEl = $("sweep");
+  let sweepP = -1;
+  for (const tc of TRANSITIONS) {
+    const p = seg(t, tc - 0.5, tc + 0.5);
+    if (p > 0 && p < 1) { sweepP = p; break; }
+  }
+  if (sweepP >= 0) {
+    sweepEl.style.opacity = String(Math.sin(Math.PI * sweepP) * 0.9);
+    sweepEl.style.transform = `translateX(${lerp(-750, 2250, sweepP)}px) rotate(14deg)`;
+  } else {
+    sweepEl.style.opacity = "0";
+  }
+  /* no fade-in from black: frame 0 shows the tree, so social previews
+   * never land on an empty frame; only the ending fades out */
+  $("fade").style.opacity = String(seg(t, END - 0.65, END));
+};
+
+seek(0);
+</script>
+</body>
+</html>

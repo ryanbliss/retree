@@ -136,7 +136,7 @@ class TaskBoard extends ReactiveNode {
 
     // Traps the reads inside the getter — the board emits only when
     // the selected dependencies (each task's done) change.
-    @select()
+    @select
     get doneCount(): number {
         return this.tasks.filter((task) => task.done).length;
     }
