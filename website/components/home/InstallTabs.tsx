@@ -205,10 +205,6 @@ export function InstallTabs() {
                                 </div>
                             }
                         />
-                        <p className="mt-2 text-xs text-faint">
-                            Detects React and Convex in your project and
-                            installs the matching Retree packages.
-                        </p>
                     </>
                 ) : (
                     <>
