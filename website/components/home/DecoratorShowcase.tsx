@@ -48,13 +48,13 @@ export interface DecoratorShowcaseProps {
 
 const CAPTIONS: Record<DecoratorShowcaseMode, string> = {
     dependencies:
-        "dependencies: the counter subscribes to its numbers array but compares evenCount — push 2 and the count changes, so the badge re-renders; push 3 and it doesn't, so only the directly-subscribed list moves.",
+        "Dependencies allow a node to observe changes from other Retree-managed nodes while filtering out irrelevant changes. In the below example, the counter subscribes to its numbers array but only emits changes when an even number is added.",
     "@select":
-        "@select() traps the reads inside the getter. Toggling done changes doneCount, so the board emits; renaming a title doesn't, so only that row's own subscription re-renders.",
+        "@select automatically traps reads within the function to figure out what state to observe. If the function response changes compared to the prior run, the node emits a change. These are additive to other dependencies in your ReactiveNode.",
     "@memo":
-        "@memo caches the getter and traps its Retree reads. Writing an unrelated field re-renders the panel but hits the cache; changing searchText invalidates it and recomputes.",
+        "@memo caches the getter and traps reads within the function. When any of the getter's dependencies change, the cache invalidates and the getter will recompute on next access.",
     "@ignore":
-        "@ignore opts a field out of emission. Writes under scratch never notify listeners — the panel only sees them the next time something else re-renders it.",
+        "@ignore opts a field out of emission. Writing to @ignore variables never triggers a re-render or change event.",
 };
 
 /* ------------------------------------------------------------------ */

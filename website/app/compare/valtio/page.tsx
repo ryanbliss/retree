@@ -9,7 +9,7 @@ import {
 export const metadata: Metadata = {
     title: "Valtio vs Retree — a Valtio alternative with one object, not two",
     description:
-        "An honest comparison of Valtio 2 and Retree as a Valtio alternative: proxy/useSnapshot and the state/snap split vs one mutable tree, subscription granularity, tree operations, Redux DevTools, and measured bundle sizes. Verified July 2026.",
+        "Valtio 2 and Retree compared: proxy/useSnapshot and the state/snap split vs one mutable tree, subscription granularity, tree operations, Redux DevTools, and measured bundle sizes. Verified July 2026.",
 };
 
 const retreeNested = `import { Retree } from "@retreejs/core";
@@ -243,15 +243,14 @@ export default function CompareValtioPage() {
                     official backend integration exists for Valtio.
                 </p>
                 <p>
-                    Now the other side of the ledger, stated plainly. Valtio is
-                    2.8 kB min+gzip in our measurements; Retree core + react is
-                    18.1 kB. What those bytes buy: per-node subscriptions, tree
-                    operations, view models with optional decorators,
-                    transactions, and the Convex integration — the things you
-                    would otherwise build yourself on top of a minimal proxy.
-                    Valtio also supports Redux DevTools, which Retree does not
-                    yet, and it has production mileage where Retree is v0.5.x.
-                    The{" "}
+                    Now the other side of the ledger. Valtio is 2.8 kB min+gzip
+                    in our measurements; Retree core + react is 18.1 kB. What
+                    those bytes buy: per-node subscriptions, tree operations,
+                    view models with optional decorators, transactions, and the
+                    Convex integration — the things you would otherwise build
+                    yourself on top of a minimal proxy. Valtio also supports
+                    Redux DevTools, which Retree does not yet, and it has
+                    production mileage where Retree is v0.5.x. The{" "}
                     <Link
                         href="/why"
                         className="text-accent underline underline-offset-2 hover:no-underline"
@@ -265,8 +264,8 @@ export default function CompareValtioPage() {
                     proxy-state core. Retree optimizes for state shaped like
                     your component tree — nested nodes, per-node subscriptions,
                     parent / move / clone / link — with one object instead of a
-                    state/snapshot pair. If your state is a tree, that is the
-                    problem Retree was built to win.
+                    state/snapshot pair. If your state is a tree, Retree was
+                    built for you.
                 </p>
             </div>
 

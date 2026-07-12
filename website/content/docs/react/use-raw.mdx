@@ -191,8 +191,8 @@ entirely — but `toManaged` hands back the managed node, so class methods keep
 working at any depth in the tree: the write emits, the node reproxies, and
 exactly the right components re-render.
 
-One constraint to respect, stated plainly: **`toManaged` guarantees
-resolution only for direct children of the node you subscribed to** (object
+One constraint to respect: **`toManaged` guarantees resolution only for
+direct children of the node you subscribed to** (object
 and array children, Map values, and Set members are materialized on demand).
 That's why the demo subscribes to `column.cards` and resolves cards — one
 level apart. Deeper raw values resolve only once they've been materialized
