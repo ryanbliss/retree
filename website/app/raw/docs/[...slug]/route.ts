@@ -27,7 +27,7 @@ export async function GET(
     const body = doc.body.replace(
         /^<(HookPlayground)\s*\/>$/gm,
         (_match, name) =>
-            `> **Interactive demo (${name})** — try it live at https://retreejs.dev/docs/${joined}`
+            `> **Interactive demo (${name})** — try it live at https://www.retree.dev/docs/${joined}`
     );
     const markdown = `# ${doc.title}\n\n> ${doc.description}\n\n${body}`;
     return new Response(markdown, {
