@@ -74,7 +74,13 @@ Retree React enables a performant, intuitive interface for managing app state of
 
 ### How to install
 
-Install with `npm`:
+The quickest way is the interactive installer — it detects React and Convex and installs the matching Retree packages:
+
+```bash
+npm create @retreejs@latest
+```
+
+Or install directly with `npm`:
 
 ```bash
 npm i @retreejs/core @retreejs/react
@@ -896,7 +902,13 @@ See the [Cat Facts sample](https://github.com/ryanbliss/retree/tree/main/samples
 
 ### How to install
 
-Install with `npm`:
+The quickest way is the interactive installer — it detects React and Convex and installs the matching Retree packages:
+
+```bash
+npm create @retreejs@latest
+```
+
+Or install directly with `npm`:
 
 ```bash
 npm i @retreejs/core
@@ -1078,7 +1090,13 @@ Retree Convex lets a `ReactiveNode` own a Convex client, create typed query node
 
 ### How to install
 
-Install with `npm`:
+The quickest way is the interactive installer — it detects React and Convex and installs the matching Retree packages:
+
+```bash
+npm create @retreejs@latest
+```
+
+Or install directly with `npm`:
 
 ```bash
 npm i @retreejs/core @retreejs/convex convex
@@ -1141,7 +1159,13 @@ Retree React Convex adapts Convex's `ConvexReactClient` to the Retree Convex cli
 
 ### How to install
 
-Install with `npm`:
+The quickest way is the interactive installer — it detects React and Convex and installs the matching Retree packages:
+
+```bash
+npm create @retreejs@latest
+```
+
+Or install directly with `npm`:
 
 ```bash
 npm i @retreejs/core @retreejs/react @retreejs/convex @retreejs/react-convex convex

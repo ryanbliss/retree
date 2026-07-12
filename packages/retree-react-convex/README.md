@@ -6,7 +6,13 @@ The adapter keeps Retree query nodes on Convex React's watch/cache surface while
 
 ## How to install
 
-Install with `npm`:
+The quickest way is the interactive installer — it detects React and Convex and installs the matching Retree packages:
+
+```bash
+npm create @retreejs@latest
+```
+
+Or install directly with `npm`:
 
 ```bash
 npm i @retreejs/core @retreejs/react @retreejs/convex @retreejs/react-convex convex
