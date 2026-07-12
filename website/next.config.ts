@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
         // globals.css (wrapper in app/layout.tsx).
         viewTransition: true,
     },
+    // Trace server-file dependencies from the repo root so the symlinked
+    // @retreejs workspace packages resolve inside the trace root on Vercel.
+    outputFileTracingRoot: path.join(__dirname, ".."),
     transpilePackages: [
         "@retreejs/core",
         "@retreejs/react",
