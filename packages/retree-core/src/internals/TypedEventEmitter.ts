@@ -5,8 +5,6 @@
  * Credit: https://github.com/microsoft/FluidFramework
  */
 
-import { EventEmitter } from "events";
-
 /**
  * The event emitter polyfill and the node event emitter have different event types:
  * string | symbol vs. string | number
@@ -390,41 +388,84 @@ export interface IEventProvider<TEvent extends IEvent> {
     readonly off: IEventTransformer<this, TEvent>;
 }
 
+type AnyListener = (...args: any[]) => void;
+
 /**
  * Event Emitter helper class the supports emitting typed events.
+ *
+ * @remarks
+ * Implemented in-house rather than on the `events` npm polyfill: Retree only
+ * needs `on` / `once` / `off` / `emit`, and the polyfill costs ~2.3 kB
+ * min+gzip in consumer bundles. Semantics intentionally match Node's
+ * `EventEmitter` where Retree depends on them:
+ * - `emit` iterates a snapshot of the listener list, so a listener that
+ *   unsubscribes (or subscribes) mid-emit never changes which listeners the
+ *   current emit calls.
+ * - `emit` returns whether any listener was registered for the event.
  * @privateRemarks
  * This should become internal once the classes extending it become internal.
  * @legacy
  * @alpha
  */
 export class TypedEventEmitter<TEvent>
-    extends EventEmitter
     implements IEventProvider<TEvent & IEvent>
 {
+    private readonly eventListeners = new Map<string, AnyListener[]>();
+
     public constructor() {
-        super();
-        this.addListener = super.addListener.bind(this) as TypedEventTransform<
-            this,
-            TEvent
-        >;
-        this.on = super.on.bind(this) as TypedEventTransform<this, TEvent>;
-        this.once = super.once.bind(this) as TypedEventTransform<this, TEvent>;
-        this.prependListener = super.prependListener.bind(
-            this
-        ) as TypedEventTransform<this, TEvent>;
-        this.prependOnceListener = super.prependOnceListener.bind(
-            this
-        ) as TypedEventTransform<this, TEvent>;
-        this.removeListener = super.removeListener.bind(
-            this
-        ) as TypedEventTransform<this, TEvent>;
-        this.off = super.off.bind(this) as TypedEventTransform<this, TEvent>;
+        const add = (event: string, listener: AnyListener): this => {
+            const existing = this.eventListeners.get(event);
+            if (existing === undefined) {
+                this.eventListeners.set(event, [listener]);
+            } else {
+                existing.push(listener);
+            }
+            return this;
+        };
+        const remove = (event: string, listener: AnyListener): this => {
+            const existing = this.eventListeners.get(event);
+            if (existing === undefined) return this;
+            const index = existing.lastIndexOf(listener);
+            if (index === -1) return this;
+            existing.splice(index, 1);
+            if (existing.length === 0) {
+                this.eventListeners.delete(event);
+            }
+            return this;
+        };
+        const once = (event: string, listener: AnyListener): this => {
+            const wrapper: AnyListener = (...args) => {
+                remove(event, wrapper);
+                listener(...args);
+            };
+            return add(event, wrapper);
+        };
+        this.addListener = add as TypedEventTransform<this, TEvent>;
+        this.on = add as TypedEventTransform<this, TEvent>;
+        this.once = once as TypedEventTransform<this, TEvent>;
+        this.removeListener = remove as TypedEventTransform<this, TEvent>;
+        this.off = remove as TypedEventTransform<this, TEvent>;
     }
+
     public readonly addListener: TypedEventTransform<this, TEvent>;
     public readonly on: TypedEventTransform<this, TEvent>;
     public readonly once: TypedEventTransform<this, TEvent>;
-    public readonly prependListener: TypedEventTransform<this, TEvent>;
-    public readonly prependOnceListener: TypedEventTransform<this, TEvent>;
     public readonly removeListener: TypedEventTransform<this, TEvent>;
     public readonly off: TypedEventTransform<this, TEvent>;
+
+    public emit(event: string, ...args: any[]): boolean {
+        const existing = this.eventListeners.get(event);
+        if (existing === undefined) return false;
+        if (existing.length === 1) {
+            // Fast path for the by-far common case: this emitter fires on
+            // every tree write, and Retree registers one global listener
+            // per event type.
+            existing[0](...args);
+            return true;
+        }
+        for (const listener of [...existing]) {
+            listener(...args);
+        }
+        return true;
+    }
 }

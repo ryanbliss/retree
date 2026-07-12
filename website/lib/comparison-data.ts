@@ -68,7 +68,7 @@ export const FOOTNOTES = {
     backendClaim:
         "The precise claim: no official backend integration exists for MobX or Valtio, while @retreejs/convex is first-party. Community-built bindings may exist for either library.",
     bundleMethod:
-        "Measured by us with esbuild, minified + gzip, react and react-dom externalized, July 2026 — same method for every library. Full set: @retreejs/core 18.6 kB; core + react 19.6 kB; mobx 18.5 kB; mobx + mobx-react-lite 20.2 kB; valtio 2.7 kB; zustand 0.4 kB. Retree is comparable to the MobX stack; Valtio and Zustand are far smaller. The difference is what ships in the bytes: per-node subscriptions, tree operations, view models, transactions, and the Convex integration.",
+        "Measured by us with esbuild, minified + gzip, react and react-dom externalized, July 2026 — same method for every library. Full set: @retreejs/core 17.1 kB; core + react 18.1 kB; mobx 19.1 kB; mobx + mobx-react-lite 21.5 kB; valtio 2.8 kB; zustand 0.4 kB. Valtio and Zustand are far smaller; Retree undercuts the MobX stack by ~3.4 kB. @retreejs/core has zero runtime dependencies and both packages declare sideEffects for tree-shaking, so an app importing only Retree.root + useNode bundles ~15.6 kB. The difference is what ships in the bytes: per-node subscriptions, tree operations, view models, transactions, and the Convex integration.",
     notScored:
         "Not scored: every scored cell in this table was verified against the listed versions, and this one has not been through that check yet — a blank beats a guess. Corrections via PR are welcome.",
     concurrentReact:
@@ -76,7 +76,7 @@ export const FOOTNOTES = {
     retreeCoreOutsideReact:
         "@retreejs/core runs without React (Retree.root, Retree.on, Retree.select), but React is the only first-class view binding today.",
     retreeLoses:
-        "MobX and Valtio have years of production mileage; Retree is v0.4.x. The counterweight is auditability: the API surface is small, and the test suite and benchmark harness are open in the repo.",
+        "MobX and Valtio have years of production mileage; Retree is v0.5.x. The counterweight is auditability: the API surface is small, and the test suite and benchmark harness are open in the repo.",
     devtoolsNote:
         "Valtio ships Redux DevTools support; Retree has no devtools today. Retree.on subscriptions are the current way to observe changes programmatically.",
 } as const;
@@ -337,17 +337,17 @@ export const COMPARISON_ROWS: ComparisonRow[] = [
         cells: {
             retree: {
                 tier: "neutral",
-                label: "19.6 kB (core + react)",
+                label: "18.1 kB (core + react)",
                 footnotes: ["bundleMethod"],
             },
             mobx: {
                 tier: "neutral",
-                label: "20.2 kB (mobx + mobx-react-lite)",
+                label: "21.5 kB (mobx + mobx-react-lite)",
                 footnotes: ["bundleMethod"],
             },
             valtio: {
                 tier: "neutral",
-                label: "2.7 kB",
+                label: "2.8 kB",
                 footnotes: ["bundleMethod"],
             },
         },
@@ -373,7 +373,7 @@ export const COMPARISON_ROWS: ComparisonRow[] = [
         cells: {
             retree: {
                 tier: "absent",
-                label: "v0.4.x — no known large deployments",
+                label: "v0.5.x — no known large deployments",
                 footnotes: ["retreeLoses"],
             },
             mobx: {

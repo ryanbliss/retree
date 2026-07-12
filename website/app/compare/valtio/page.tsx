@@ -170,7 +170,7 @@ export default function CompareValtioPage() {
                 <CodeBlock
                     code={retreeNested}
                     lang="tsx"
-                    title="Deeply nested write — Retree 0.4"
+                    title="Deeply nested write — Retree 0.5"
                 />
                 <CodeBlock
                     code={valtioNested}
@@ -203,7 +203,7 @@ export default function CompareValtioPage() {
                 <CodeBlock
                     code={retreeCounter}
                     lang="tsx"
-                    title="Counter — Retree 0.4"
+                    title="Counter — Retree 0.5"
                 />
                 <CodeBlock
                     code={valtioCounter}
@@ -244,13 +244,13 @@ export default function CompareValtioPage() {
                 </p>
                 <p>
                     Now the other side of the ledger, stated plainly. Valtio is
-                    2.7 kB min+gzip in our measurements; Retree core + react is
-                    19.6 kB. What those bytes buy: per-node subscriptions, tree
+                    2.8 kB min+gzip in our measurements; Retree core + react is
+                    18.1 kB. What those bytes buy: per-node subscriptions, tree
                     operations, view models with optional decorators,
                     transactions, and the Convex integration — the things you
                     would otherwise build yourself on top of a minimal proxy.
                     Valtio also supports Redux DevTools, which Retree does not
-                    yet, and it has production mileage where Retree is v0.4.x.
+                    yet, and it has production mileage where Retree is v0.5.x.
                     The{" "}
                     <Link
                         href="/why"

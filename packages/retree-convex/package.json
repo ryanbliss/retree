@@ -37,5 +37,10 @@
             "types": "./bin/index.d.ts",
             "default": "./bin/index.js"
         }
-    }
+    },
+    "files": [
+        "bin",
+        "llms.txt"
+    ],
+    "sideEffects": false
 }

@@ -196,7 +196,7 @@ export default function CompareMobxPage() {
                 <CodeBlock
                     code={retreeNested}
                     lang="tsx"
-                    title="Deeply nested write — Retree 0.4"
+                    title="Deeply nested write — Retree 0.5"
                 />
                 <CodeBlock
                     code={mobxNested}
@@ -230,7 +230,7 @@ export default function CompareMobxPage() {
                 <CodeBlock
                     code={retreeCounter}
                     lang="tsx"
-                    title="Counter — Retree 0.4"
+                    title="Counter — Retree 0.5"
                 />
                 <CodeBlock
                     code={mobxCounter}
@@ -264,7 +264,7 @@ export default function CompareMobxPage() {
                     What MobX brings that Retree doesn&apos;t: a decade of
                     production hardening, a best-in-class computed engine, a
                     large ecosystem, and framework-agnostic usage well beyond
-                    React. Retree is v0.4.x — what it offers against that
+                    React. Retree is v0.5.x — what it offers against that
                     maturity is a smaller surface you can audit directly, with
                     the test suite and benchmark harness open in the repo. The{" "}
                     <Link
@@ -276,11 +276,13 @@ export default function CompareMobxPage() {
                     , stated plainly.
                 </p>
                 <p>
-                    Bundle size is a wash, and we&apos;ll say so plainly: in our
-                    measurements (esbuild, min+gzip, react externalized, July
-                    2026), Retree core + react is 19.6 kB and mobx +
-                    mobx-react-lite is 20.2 kB. Nobody should pick between these
-                    two libraries on size.
+                    Bundle size mildly favors Retree, and we&apos;ll state it
+                    with the method attached: in our measurements (esbuild,
+                    min+gzip, react externalized, July 2026), Retree core +
+                    react is 18.1 kB and mobx + mobx-react-lite is 21.5 kB —
+                    about 3.4 kB apart, with @retreejs/core carrying zero
+                    runtime dependencies. A real gap, but nobody should pick
+                    between these two libraries on size alone.
                 </p>
             </div>
 
