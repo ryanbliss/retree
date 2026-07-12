@@ -145,7 +145,7 @@ class TaskRow extends ReactiveNode {
     @link public task!: { isCompleted: boolean };
     @link public filter!: { isComplete: boolean | null };
 
-    @select()
+    @select
     get isVisible() {
         return (
             this.filter.isComplete === null ||
