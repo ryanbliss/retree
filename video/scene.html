@@ -335,8 +335,14 @@
   #gCli {
     margin: 34px auto 0; font-family: "Geist Mono", monospace; font-size: 31px; color: var(--muted);
     background: rgba(13, 18, 16, 0.9); border: 1.5px solid var(--border); border-radius: 14px;
-    padding: 20px 34px; display: inline-block; min-width: 780px; text-align: left;
+    padding: 20px 34px; display: inline-block; min-width: 780px; text-align: center;
   }
+  /* The hidden ghost reserves the final command's width so the block sits
+   * centered from frame one, while the live layer types LTR on top of it
+   * (no per-keystroke re-centering). */
+  #gCliInner { position: relative; display: inline-block; text-align: left; }
+  #gCliGhost { visibility: hidden; white-space: pre; }
+  #gCliLive { position: absolute; left: 0; top: 0; white-space: pre; }
   #gCli i { color: var(--accent); font-style: normal; }
   #gCta {
     margin: 40px auto 0; display: inline-flex; align-items: center; gap: 16px;
@@ -517,7 +523,7 @@
       </svg>
       <div id="gWord">Retree</div>
       <div id="gHead">Available in public preview.</div>
-      <div id="gCli"><i>$</i> <span id="gCliText"></span><span class="cursor" id="gCliCur"></span></div>
+      <div id="gCli"><span id="gCliInner"><span id="gCliGhost"><span id="gCliGhostText"></span><span class="cursor"></span></span><span id="gCliLive"><i>$</i> <span id="gCliText"></span><span class="cursor" id="gCliCur"></span></span></span></div>
       <div><div id="gCta">www.retree.dev<span>→</span></div></div>
       <div id="gTag">docs · live demos · benchmarks</div>
     </div>
@@ -1588,7 +1594,10 @@ function updateF(t) {
 }
 
 /* ============ G: outro ============ */
-const G_CLI = "npm i @retreejs/core @retreejs/react";
+const G_CLI = "npm create @retreejs";
+// Ghost mirrors the final "$ <command>" (plus the trailing cursor block via
+// markup) so the centered width is reserved before typing starts.
+$("gCliGhostText").textContent = "$ " + G_CLI;
 function updateG(t) {
   const lt = t - T.G[0];
   const markP = backOut(seg(lt, 0.15, 0.7));

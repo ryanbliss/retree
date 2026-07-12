@@ -24,6 +24,10 @@ const packagesToPublish = [
         label: "@retreejs/react-convex",
         directory: "packages/retree-react-convex",
     },
+    {
+        label: "@retreejs/create",
+        directory: "packages/retree-create",
+    },
 ];
 
 if (process.argv.includes("--help")) {

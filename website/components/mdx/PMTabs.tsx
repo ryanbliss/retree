@@ -13,6 +13,17 @@ const COMMANDS: Record<Manager, { install: string; run: string }> = {
     bun: { install: "bun add", run: "bun run" },
 };
 
+/**
+ * `npm create @retreejs` resolves to the @retreejs/create package. bun's
+ * bare-scope create mapping is unreliable, so it uses `bunx` instead.
+ */
+const CREATE_COMMAND: Record<Manager, string> = {
+    npm: "npm create @retreejs@latest",
+    pnpm: "pnpm create @retreejs",
+    yarn: "yarn create @retreejs",
+    bun: "bunx @retreejs/create",
+};
+
 const STORAGE_KEY = "retree-pm";
 const PM_EVENT = "retree-pm-change";
 
@@ -43,8 +54,17 @@ function subscribe(callback: () => void): () => void {
 /**
  * Package-manager tabbed install command. The selected manager persists in
  * localStorage and syncs across every PMTabs instance on all pages.
+ *
+ * Pass `packages` for a direct install, or `create` for the interactive
+ * `npm create @retreejs` installer command.
  */
-export function PMTabs({ packages }: { packages: string }) {
+export function PMTabs({
+    packages,
+    create,
+}: {
+    packages?: string;
+    create?: boolean;
+}) {
     const manager = useSyncExternalStore<Manager>(
         subscribe,
         readStored,
@@ -60,7 +80,19 @@ export function PMTabs({ packages }: { packages: string }) {
         window.dispatchEvent(new Event(PM_EVENT));
     };
 
-    const command = `${COMMANDS[manager].install} ${packages}`;
+    if (create === true && packages !== undefined) {
+        throw new Error(
+            "PMTabs accepts either `create` or `packages`, not both."
+        );
+    }
+    if (create !== true && packages === undefined) {
+        throw new Error("PMTabs requires either `create` or `packages`.");
+    }
+
+    const command =
+        create === true
+            ? CREATE_COMMAND[manager]
+            : `${COMMANDS[manager].install} ${packages}`;
 
     return (
         <figure className="group relative my-5 overflow-hidden rounded-lg border border-border-token bg-code-bg">

@@ -76,7 +76,7 @@ export default function OpenGraphImage() {
                         display: "flex",
                     }}
                 >
-                    $ npm i @retreejs/core @retreejs/react
+                    $ npm create @retreejs@latest
                 </div>
             </div>
         ),

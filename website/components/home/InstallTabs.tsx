@@ -6,25 +6,29 @@ import { PackageIcon, TerminalIcon } from "@/components/home/icons";
 
 /**
  * Hero install block with an audience tab row above the command — the
- * better-auth.com pattern: pick "Package manager" for a classic install or
- * "AI agents" for the skills-CLI one-liner that teaches a coding agent Retree.
+ * better-auth.com pattern: pick "Package manager" for the one-command
+ * interactive installer or "AI agents" for the skills-CLI one-liner that
+ * teaches a coding agent Retree.
  *
  * The package-manager choice shares PMTabs' localStorage key and event, so a
  * selection here syncs with every docs install block (without editing PMTabs).
  */
 
-const PACKAGES = "@retreejs/core @retreejs/react";
 /** Verified against the repo README's "Agent docs and skill" section. */
 const SKILLS_COMMAND = "npx skills add ryanbliss/retree --skill retree";
 
 const MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
 type Manager = (typeof MANAGERS)[number];
 
-const INSTALL_PREFIX: Record<Manager, string> = {
-    npm: "npm i",
-    pnpm: "pnpm add",
-    yarn: "yarn add",
-    bun: "bun add",
+/**
+ * `npm create @retreejs` resolves to the @retreejs/create package. bun's
+ * bare-scope create mapping is unreliable, so it uses `bunx` instead.
+ */
+const CREATE_COMMAND: Record<Manager, string> = {
+    npm: "npm create @retreejs@latest",
+    pnpm: "pnpm create @retreejs",
+    yarn: "yarn create @retreejs",
+    bun: "bunx @retreejs/create",
 };
 
 // Must match components/mdx/PMTabs.tsx so the choice syncs across the site.
@@ -125,7 +129,7 @@ export function InstallTabs() {
         () => "npm"
     );
 
-    const installCommand = `${INSTALL_PREFIX[manager]} ${PACKAGES}`;
+    const installCommand = CREATE_COMMAND[manager];
 
     return (
         <div>
@@ -166,38 +170,46 @@ export function InstallTabs() {
             </div>
             <div className="mt-2">
                 {audience === "pm" ? (
-                    <CommandFigure
-                        command={installCommand}
-                        header={
-                            <div
-                                role="tablist"
-                                aria-label="Package manager"
-                                className="flex gap-1 border-b border-border-token px-2 pt-1.5"
-                            >
-                                {MANAGERS.map((candidate) => (
-                                    <button
-                                        key={candidate}
-                                        role="tab"
-                                        aria-selected={candidate === manager}
-                                        onClick={() =>
-                                            persistChoice(
-                                                PM_STORAGE_KEY,
-                                                candidate,
-                                                PM_EVENT
-                                            )
-                                        }
-                                        className={`rounded-t-md px-3 py-1.5 font-mono text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
-                                            candidate === manager
-                                                ? "border-b-2 border-accent text-foreground"
-                                                : "text-faint hover:text-muted"
-                                        }`}
-                                    >
-                                        {candidate}
-                                    </button>
-                                ))}
-                            </div>
-                        }
-                    />
+                    <>
+                        <CommandFigure
+                            command={installCommand}
+                            header={
+                                <div
+                                    role="tablist"
+                                    aria-label="Package manager"
+                                    className="flex gap-1 border-b border-border-token px-2 pt-1.5"
+                                >
+                                    {MANAGERS.map((candidate) => (
+                                        <button
+                                            key={candidate}
+                                            role="tab"
+                                            aria-selected={
+                                                candidate === manager
+                                            }
+                                            onClick={() =>
+                                                persistChoice(
+                                                    PM_STORAGE_KEY,
+                                                    candidate,
+                                                    PM_EVENT
+                                                )
+                                            }
+                                            className={`rounded-t-md px-3 py-1.5 font-mono text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+                                                candidate === manager
+                                                    ? "border-b-2 border-accent text-foreground"
+                                                    : "text-faint hover:text-muted"
+                                            }`}
+                                        >
+                                            {candidate}
+                                        </button>
+                                    ))}
+                                </div>
+                            }
+                        />
+                        <p className="mt-2 text-xs text-faint">
+                            Detects React and Convex in your project and
+                            installs the matching Retree packages.
+                        </p>
+                    </>
                 ) : (
                     <>
                         <CommandFigure command={SKILLS_COMMAND} />
