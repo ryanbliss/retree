@@ -378,8 +378,12 @@ export default function Home() {
             <section className="relative overflow-hidden">
                 <HeroBackground />
                 <div className="relative z-10 mx-auto max-w-7xl px-4 pb-16 pt-14 sm:px-6 lg:pb-24 lg:pt-20">
-                    <div className="grid items-center gap-10 lg:grid-cols-2">
-                        <Reveal mode="mount">
+                    {/* grid-cols-1 + min-w-0 children: without them the
+                     * implicit auto track sizes to the columns' max-content
+                     * (the 36rem max-w-xl headline), overflowing narrow
+                     * viewports. */}
+                    <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-2">
+                        <Reveal mode="mount" className="min-w-0">
                             <h1 className="max-w-xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
                                 Simple state framework for precise,
                                 lighting-fast reactive rendering.
@@ -411,7 +415,7 @@ export default function Home() {
                                 <CodeBlock code={HERO_CODE} lang="tsx" />
                             </div>
                         </Reveal>
-                        <Reveal mode="mount" delay={0.08}>
+                        <Reveal mode="mount" delay={0.08} className="min-w-0">
                             <HeroVisualizer />
                         </Reveal>
                     </div>
