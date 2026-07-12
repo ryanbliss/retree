@@ -131,7 +131,7 @@ async function main() {
  * (spec §8).
  */
 async function writeLlmsTxt() {
-    const SITE_URL = "https://retreejs.dev";
+    const SITE_URL = "https://www.retree.dev";
     const base = await readFile(path.join(repoRoot, "llms.txt"), "utf8");
 
     const docSlugs = [

@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-    metadataBase: new URL("https://retreejs.dev"),
+    metadataBase: new URL("https://www.retree.dev"),
     title: {
         default: "Retree — state that matches your component tree",
         template: "%s | Retree",
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
     openGraph: {
         siteName: "Retree",
         type: "website",
-        url: "https://retreejs.dev",
+        url: "https://www.retree.dev",
     },
     twitter: {
         card: "summary_large_image",

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer-core";
@@ -104,3 +104,24 @@ execFileSync(
   { stdio: "inherit" },
 );
 console.log("Done →", outFile, "+", posterFile);
+
+// The full cut's poster doubles as the website's social-share image (Next.js
+// picks up app/opengraph-image.jpg as the og:image / twitter:image for every
+// page). Only the full cut owns it, so link previews stay stable regardless of
+// which cut was rendered last. Skipped gracefully if the website is absent
+// (e.g. rendering the video outside the monorepo).
+if (MODE === "full") {
+  const ogImageFile = path.join(
+    __dirname,
+    "..",
+    "website",
+    "app",
+    "opengraph-image.jpg",
+  );
+  if (existsSync(path.dirname(ogImageFile))) {
+    copyFileSync(posterFile, ogImageFile);
+    console.log("Exported social image →", ogImageFile);
+  } else {
+    console.log("Skipped social image export: website/app not found.");
+  }
+}

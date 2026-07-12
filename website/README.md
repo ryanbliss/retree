@@ -46,4 +46,4 @@ Set the project **Root Directory** to `website/`. Build and install commands
 work as-is (`npm install` at the repo root is handled by Vercel's workspace
 detection; the build command is `npm run build`). The `metadataBase` URL in
 `app/layout.tsx`, `app/sitemap.ts`, and `app/robots.ts` assumes
-`https://retreejs.dev` — update those three if the production domain differs.
+`https://www.retree.dev` — update those three if the production domain differs.
