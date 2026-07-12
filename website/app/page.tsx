@@ -27,7 +27,7 @@ import { HeroBackground } from "@/components/visualizer/HeroBackground";
 import { HeroVisualizer } from "@/components/visualizer/HeroVisualizer";
 
 export const metadata: Metadata = {
-    title: "Retree — your state tree, shaped like your component tree",
+    title: "Retree — simple state framework for precise, lighting-fast reactive rendering",
     description:
         "Mutate a plain TypeScript object; exactly the components that read it re-render. Reactive object trees for React with per-node subscriptions.",
 };
@@ -381,8 +381,8 @@ export default function Home() {
                     <div className="grid items-center gap-10 lg:grid-cols-2">
                         <Reveal mode="mount">
                             <h1 className="max-w-xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
-                                Your state tree, shaped like your component
-                                tree.
+                                Simple state framework for precise,
+                                lighting-fast reactive rendering.
                             </h1>
                             <p className="mt-4 max-w-xl text-lg text-muted">
                                 Mutate a plain TypeScript object; exactly the
