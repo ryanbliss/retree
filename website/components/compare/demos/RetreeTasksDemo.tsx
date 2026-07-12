@@ -99,7 +99,7 @@ function TaskRow({ task, mirror }: { task: Task; mirror: DemoMirror }) {
             />
             <label
                 htmlFor={`retree-demo-task-${state.id}`}
-                className="flex-1 text-sm text-foreground"
+                className="flex-1 cursor-pointer text-sm text-foreground"
             >
                 {state.title}
             </label>

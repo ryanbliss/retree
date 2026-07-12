@@ -409,11 +409,7 @@ export default function Home() {
                                 </a>
                             </div>
                             <div className="mt-8 max-w-xl">
-                                <CodeBlock
-                                    code={HERO_CODE}
-                                    lang="tsx"
-                                    title="the entire state layer of the demo →"
-                                />
+                                <CodeBlock code={HERO_CODE} lang="tsx" />
                             </div>
                         </Reveal>
                         <Reveal mode="mount" delay={0.08}>

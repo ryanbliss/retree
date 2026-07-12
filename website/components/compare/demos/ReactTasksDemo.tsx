@@ -102,7 +102,7 @@ const TaskRow = memo(function TaskRow({
             />
             <label
                 htmlFor={`react-demo-task-${task.id}`}
-                className="flex-1 text-sm text-foreground"
+                className="flex-1 cursor-pointer text-sm text-foreground"
             >
                 {task.title}
             </label>

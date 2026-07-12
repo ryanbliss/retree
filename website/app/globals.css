@@ -99,6 +99,25 @@ html[data-theme="light"] {
     background: var(--selection);
 }
 
+/* Tailwind v4 dropped the v3 preflight rule that gave buttons a pointer
+ * cursor. Restore it in the base layer (so utilities can still override)
+ * for every enabled interactive control on the site — buttons, tabs,
+ * checkboxes, selects, and <summary> disclosure triggers. */
+@layer base {
+    button:not(:disabled),
+    [role="button"]:not(:disabled),
+    [role="tab"]:not(:disabled),
+    summary,
+    select:not(:disabled),
+    input[type="checkbox"]:not(:disabled),
+    input[type="radio"]:not(:disabled),
+    input[type="range"]:not(:disabled),
+    label:has(> input[type="checkbox"]:not(:disabled)),
+    label:has(> input[type="radio"]:not(:disabled)) {
+        cursor: pointer;
+    }
+}
+
 body {
     background: var(--background);
     color: var(--foreground);
