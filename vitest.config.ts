@@ -107,6 +107,7 @@ const vitestConfig = defineVitestConfig({
                         "packages/retree-core/**/*.spec.ts",
                         "packages/retree-core/**/*.spec.tsx",
                         "packages/retree-convex/**/*.spec.ts",
+                        "packages/retree-create/**/*.spec.ts",
                         "packages/retree-react-convex/**/*.spec.ts",
                     ],
                     environment: "node",

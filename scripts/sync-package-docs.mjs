@@ -18,6 +18,7 @@ const packageDirectories = [
     "packages/retree-convex",
     "packages/retree-react-convex",
     "packages/retree-benchmark-cli",
+    "packages/retree-create",
 ];
 
 const rawArgs = process.argv.slice(2);

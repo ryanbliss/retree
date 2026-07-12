@@ -17,7 +17,7 @@ Prefer the package README and local package contents when available. If document
 -   Use `@retreejs/react-convex` when a React app already uses Convex React and wants one `ConvexReactClient` instance shared between Convex React hooks and Retree Convex nodes.
 -   Use `@retreejs/benchmark-cli` only for Retree performance benchmark runs and comparisons.
 
-Install common combinations:
+Install interactively with `npm create @retreejs@latest`, or install common combinations manually:
 
 ```bash
 npm i @retreejs/core

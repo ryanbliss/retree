@@ -2,6 +2,16 @@
 
 Retree is a lightweight and simple state management library, designed primarily for React. If you know how to work with objects in JavaScript or TypeScript, you pretty much already know how to use Retree.
 
+## Quick start
+
+Add Retree to an existing project with the interactive installer:
+
+```bash
+npm create @retreejs@latest
+```
+
+It detects React and Convex in your project, preselects the matching integrations, and can install the Retree AI skill for coding agents. `pnpm create @retreejs` and `yarn create @retreejs` work too.
+
 ## API docs
 
 Generate the TypeDoc site locally with:

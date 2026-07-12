@@ -1,0 +1,39 @@
+{
+    "name": "@retreejs/create",
+    "version": "0.5.1",
+    "description": "Interactive installer that adds Retree packages to an existing project.",
+    "author": "Ryan Bliss",
+    "license": "MIT",
+    "private": false,
+    "type": "module",
+    "bin": {
+        "create-retree": "./bin/cli.js"
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "prepack": "node ../../scripts/sync-package-docs.mjs ."
+    },
+    "dependencies": {
+        "@inquirer/prompts": "^7.0.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.2.3",
+        "typescript": "^6.0.2",
+        "vitest": "^4.1.8"
+    },
+    "repository": {
+        "directory": "packages/retree-create",
+        "type": "git",
+        "url": "https://github.com/ryanbliss/retree"
+    },
+    "homepage": "https://studiobliss.io",
+    "bugs": {
+        "url": "https://github.com/ryanbliss/retree/issues"
+    },
+    "files": [
+        "bin",
+        "README.md",
+        "llms.txt"
+    ]
+}
