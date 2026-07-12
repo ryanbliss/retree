@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/core",
-    "version": "0.4.17",
+    "version": "0.5.1",
     "description": "React to changes in your object trees.",
     "author": "Ryan Bliss",
     "private": false,
@@ -11,9 +11,6 @@
         "clean": "npx shx rm -rf bin",
         "build": "tsc -p tsconfig.json",
         "prepack": "node ../../scripts/sync-package-docs.mjs ."
-    },
-    "dependencies": {
-        "events": "^3.0.0"
     },
     "devDependencies": {
         "@types/assert": "^1.5.6",
@@ -41,5 +38,12 @@
             "types": "./bin/internals/index.d.ts",
             "default": "./bin/internals/index.js"
         }
-    }
+    },
+    "files": [
+        "bin",
+        "llms.txt"
+    ],
+    "sideEffects": [
+        "./bin/Retree.js"
+    ]
 }

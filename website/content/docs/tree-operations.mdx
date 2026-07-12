@@ -1,0 +1,211 @@
+---
+title: Tree operations
+description: Working with Retree's pure ownership tree — Retree.parent, and the three explicit operations for relocating nodes — move, link, and clone.
+---
+
+Retree keeps a **pure ownership tree**: every
+[node](/docs/thinking-in-retree#node) has exactly one structural parent (the
+[root](/docs/thinking-in-retree#root) has none). This page covers the APIs
+that work with that structure directly — finding a parent, and the three
+explicit operations for when an existing node needs to be somewhere else.
+
+## One structural parent
+
+Assigning a node that already lives in the tree into a second place throws,
+rather than silently aliasing:
+
+```ts
+const task = projectA.tasks[0];
+
+projectB.tasks.push(task);
+// ❌ throws: "Retree cannot assign this node because it already has a
+//    structural parent. ... Fix: choose one explicit ownership operation:
+//    move it with Retree.move(node, destination, key), store a reactive
+//    pointer with Retree.link(node) or @link, ignore it via @ignore, or
+//    duplicate it with Retree.clone(node)."
+```
+
+The error names your options, and each one is a different intent:
+[`Retree.move`](#move-a-node-with-retreemove) transfers ownership,
+[`Retree.link`](#link-a-node-with-retreelink) points without owning, and
+[`Retree.clone`](#clone-a-node-with-retreeclone) copies. (The one exception:
+referencing a node twice *within the same parent* is allowed — this happens
+naturally while moving an item between indices of one array.)
+
+## Find a parent with `Retree.parent`
+
+`Retree.parent(node)` returns the node's structural parent, or `null` for a
+root. Because every node knows where it lives, tree-local operations like
+"delete yourself" don't need any wiring:
+
+```ts
+import { Retree } from "@retreejs/core";
+import { v4 as uuid } from "uuid";
+
+class Todo {
+    readonly id = uuid();
+    public text = "";
+    public checked = false;
+
+    delete() {
+        // The parent of a Todo is the Array<Todo> that owns it.
+        const parent = Retree.parent(this);
+        if (!Array.isArray(parent)) return;
+        const index = parent.findIndex((c) => this.id === c.id);
+        parent.splice(index, 1); // ✅ emits on the parent list
+    }
+}
+```
+
+Two details worth knowing:
+
+- `Retree.parent` (like `Retree.on`, `move`, `link`, and `clone`) expects a
+  managed node — calling it with a plain, unrooted object is an error.
+- Links are not structural parents: if `editor.selectedTask` is a `@link`
+  field pointing at `project.tasks[0]`, `Retree.parent(editor.selectedTask)`
+  still returns `project.tasks`.
+
+## Move a node with `Retree.move`
+
+[`Retree.move(node, destination, key?)`](/api/core/classes/Retree) transfers
+ownership. Retree finds the current parent, removes the node from it safely,
+and inserts it into the destination. It returns the latest
+[reproxy](/docs/thinking-in-retree#reproxy) for the moved node.
+
+```ts
+const workspace = Retree.root({
+    todo: [{ title: "Docs" }],
+    done: [] as { title: string }[],
+});
+
+const moved = Retree.move(workspace.todo[0], workspace.done);
+workspace.todo.length;        // 0
+workspace.done[0] === moved;  // true
+```
+
+The `key` parameter depends on the destination type:
+
+- **Arrays** — optional numeric insertion index; omit it to append.
+- **Maps and plain objects** — a key is required.
+- **Sets** — the key is ignored.
+
+```ts
+Retree.move(task, projectB.tasks);      // ✅ append to an array
+Retree.move(task, projectB.tasks, 0);   // ✅ insert at index 0
+Retree.move(task, tasksById, task.id);  // ✅ Map or object key
+Retree.move(task, taskSet);             // ✅ Sets take no key
+```
+
+Do **not** manually delete the node from its old parent first — `move` does
+the removal itself, and stripping the parent metadata beforehand breaks it.
+
+On a [`ReactiveNode`](/api/core/classes/ReactiveNode),
+`this.moveTo(destination, key?)` wraps `Retree.move(this, ...)`:
+
+```ts
+class Task extends ReactiveNode {
+    public title = "";
+
+    get dependencies() {
+        return [];
+    }
+
+    public archive(archiveList: Task[]) {
+        this.moveTo(archiveList); // same as Retree.move(this, archiveList)
+    }
+}
+```
+
+## Link a node with `Retree.link`
+
+`Retree.link(node)` creates a
+[`RetreeLink`](/api/core/classes/RetreeLink) — a small managed object whose
+`.current` points at the target. The link can be stored anywhere in the tree
+*without* reparenting the target:
+
+```ts
+const root = Retree.root({
+    tasks: [{ title: "Write docs" }],
+    selectedTask: null as null | ReturnType<typeof Retree.link>,
+});
+
+root.selectedTask = Retree.link(root.tasks[0]);
+
+root.selectedTask.current.title = "Write better docs";
+// ✅ emits where the task is structurally owned (root.tasks[0])
+
+Retree.parent(root.selectedTask.current) === root.tasks; // still true
+```
+
+The event semantics split cleanly in two: **replacing** `.current` emits for
+the link node; **mutating** the target emits from the target's structural
+location. Reads of `.current` return the target's latest reproxy.
+
+On `ReactiveNode` classes, the `@link` decorator gives the same semantics to
+a plain field — assignment emits on the owner without reparenting, and
+re-assigning the same target is a no-op:
+
+```ts
+class EditorState extends ReactiveNode {
+    @link public selectedTask: Task | null = null;
+
+    get dependencies() {
+        return [];
+    }
+}
+
+const state = Retree.root(new EditorState());
+state.selectedTask = root.tasks[0]; // ✅ emits on state, ❌ does not reparent
+state.selectedTask = root.tasks[0]; // ❌ no emit: already points there
+```
+
+The full `@link` treatment — including using linked nodes in `dependencies`
+and `@select` — lives in [View models](/docs/view-models). Note that `@link`
+is a decorator; check [Setup & decorators](/docs/setup-and-decorators) for
+toolchain configuration.
+
+## Clone a node with `Retree.clone`
+
+`Retree.clone(node)` returns a detached copy of the node's current data. The
+copy has no parent until you assign it into a tree, and after that the two
+are fully independent:
+
+```ts
+const copy = Retree.clone(root.tasks[0]);
+root.tasks.push(copy); // ✅ emits on root.tasks; copy is a new child
+
+copy.title = "Copy";           // ✅ emits for the copy only
+root.tasks[0].title = "Orig";  // ✅ emits for the original only
+```
+
+## Which operation do I want
+
+- **The node should live somewhere new** — its old parent should no longer
+  own it: `Retree.move`. Typical: drag-and-drop between lists, archiving,
+  re-keying.
+- **One place should point at a node owned elsewhere** — selection state,
+  cross-references, "currently editing": `Retree.link` or `@link`. The
+  target stays put; the pointer is what changes.
+- **Two places need independent state that starts out identical**:
+  `Retree.clone`. After the clone, edits don't propagate between them.
+- **A field should reference something without participating in the tree at
+  all** — caches, framework handles: `@ignore`. But note it is not reactive —
+  see [the pitfall](/docs/common-pitfalls#expecting-ignore-fields-to-behave-like-tree-state).
+
+## Removal and `nodeRemoved`
+
+When a node is detached from its parent — `splice`, the `delete` keyword,
+replacement by assignment — Retree emits `nodeRemoved` on the removed node
+(the callback takes no arguments), alongside the parent's own
+`nodeChanged`/`treeChanged`:
+
+```ts
+Retree.on(board.cards[0], "nodeRemoved", () => console.log("card removed"));
+
+board.cards.splice(0, 1); // ✅ nodeRemoved(card), ✅ treeChanged(board)
+```
+
+Use it for teardown that belongs to the node itself — cancelling requests,
+disposing external resources — instead of watching the parent and diffing.
+Subscription mechanics are covered in
+[Events & subscriptions](/docs/events-and-subscriptions).

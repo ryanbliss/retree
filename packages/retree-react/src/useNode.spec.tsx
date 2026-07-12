@@ -42,6 +42,41 @@ function clearListenersRecursively(node: unknown, seen = new Set<object>()) {
 }
 
 describe("useNode", () => {
+    it("re-renders exactly once per boolean toggle on an array item", () => {
+        // Regression guard: the marketing site's render counters appeared to
+        // climb +2 per checkbox toggle. The cause was React StrictMode's
+        // dev-only double render invocation, not a double emission — this
+        // test pins the library contract: one write → one re-render.
+        const root = trackRoot(
+            Retree.root({
+                tasks: [{ id: 1, title: "Ship it", done: false }],
+            })
+        );
+        const task = root.tasks[0];
+        let renderCount = 0;
+
+        function Row() {
+            renderCount += 1;
+            const state = useNode(task);
+            return <div data-testid="done">{String(state.done)}</div>;
+        }
+
+        render(<Row />);
+        expect(renderCount).toBe(1);
+
+        act(() => {
+            task.done = !task.done;
+        });
+        expect(screen.getByTestId("done").textContent).toBe("true");
+        expect(renderCount).toBe(2);
+
+        act(() => {
+            task.done = !task.done;
+        });
+        expect(screen.getByTestId("done").textContent).toBe("false");
+        expect(renderCount).toBe(3);
+    });
+
     it("rerenders for direct primitive updates", () => {
         const root = trackRoot(Retree.root({ count: 0 }));
         let renderCount = 0;

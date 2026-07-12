@@ -26,7 +26,7 @@ Use this as a quick map before choosing an API:
 -   [`Retree.parent`](#find-a-parent) returns the structural parent of a node. Use it for tree-local actions like deleting yourself from an array.
 -   [`Retree.isNode`](#read-fast-with-raw) checks whether a value is a Retree-managed node. Use it to guard `Retree.raw` when a value may be managed or plain.
 -   [`Retree.raw`](#read-fast-with-raw) returns the raw, proxy-free object behind a node for native-speed, read-only access. Use it for algorithms that scan large trees.
--   [`Retree.source`](#read-fast-with-raw) resolves a raw value back to its managed node. Use it to recover the write surface after a raw scan or from a change payload.
+-   [`Retree.managed`](#read-fast-with-raw) resolves a raw value back to its managed node. Use it to recover the write surface after a raw scan or from a change payload.
 -   [`Retree.peekInto`](#read-fast-with-raw) runs a read-only query against a node's raw object and resolves the result to its managed node when one exists.
 -   [`Retree.untracked`](#read-fast-with-raw) pauses dependency tracking during a synchronous callback. Use it for bulk reads inside tracked selectors and memo getters.
 -   [`Retree.move`](#move-link-or-clone-existing-nodes) transfers an existing node to a new structural parent. Use it when ownership should change.
@@ -114,7 +114,7 @@ Call the unsubscribe returned by `Retree.on(...)` when you only want to remove o
 const unsubscribe = Retree.on(board, "nodeChanged", () => {});
 unsubscribe();
 
-Retree.clearListeners(board.cards, false); // clear the list and child listeners
+Retree.clearListeners(board.cards, false); // clear the list and every descendant's listeners
 ```
 
 ## Select derived values
@@ -297,7 +297,7 @@ const rawItems = Retree.raw(project.items);
 const total = rawItems.reduce((sum, item) => sum + item.score, 0);
 
 // Resolve a raw value back to its managed node when you need to write.
-const item = Retree.source(rawItems[0]);
+const item = Retree.managed(rawItems[0]);
 if (item) item.score = 2; // ✅ emits normally
 
 // Query raw and resolve the returned value to its managed node in one call.
@@ -327,10 +327,10 @@ Rules that keep raw reads safe:
 -   Raw reads are invisible to reactivity: they are not trapped by
     `useSelect`/`Retree.select` selectors or `@memo` dependency collection.
 -   Change payloads (`INodeFieldChanges.previous` / `.new`) are always raw
-    values; use `Retree.source(change.previous)` to opt back into the managed
+    values; use `Retree.managed(change.previous)` to opt back into the managed
     node.
--   `Retree.source` returns `undefined` for values never materialized as
-    nodes; traverse the path once (or use `useRaw`'s `toSource` in React)
+-   `Retree.managed` returns `undefined` for values never materialized as
+    nodes; traverse the path once (or use `useRaw`'s `toManaged` in React)
     when a managed result is required.
 -   `Retree.raw` throws for values that are not managed nodes. When a value
     may be managed or plain, guard with `Retree.isNode(value)` instead of

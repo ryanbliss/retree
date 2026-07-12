@@ -1,0 +1,204 @@
+---
+title: Setup & decorators
+description: The one-time build configuration Retree's optional decorators need — TypeScript, Vite, Next.js — and how to recognize a misconfigured toolchain.
+---
+
+Decorators are **opt-in**. Everything else in Retree — `Retree.root`, the
+React hooks, `ReactiveNode` with its `dependencies` getter and `this.memo(...)`
+method forms, transactions, tree operations — works with zero build
+configuration. You only need this page when you want the `@`-prefixed
+decorators from [View models](/docs/view-models): `@select`, `@memo`,
+`@fnMemo`, `@ignore`, and `@link`.
+
+Retree uses **standard decorators** (the TC39 proposal, spec version
+`2023-11`) — _not_ TypeScript's legacy `experimentalDecorators`. That
+distinction drives every snippet below.
+
+## TypeScript (type checking)
+
+TypeScript 5+ type-checks standard decorators out of the box. **No
+`experimentalDecorators` flag is needed — or wanted.** This repository's own
+packages compile decorator code with tsconfigs that set no decorator flags at
+all:
+
+```jsonc title="tsconfig.json"
+{
+    "compilerOptions": {
+        "target": "esnext",
+        "strict": true
+        // No "experimentalDecorators" — leave it unset.
+    }
+}
+```
+
+Setting `"experimentalDecorators": true` switches TypeScript to the _legacy_
+decorator semantics, which have a different call signature and will not work
+with Retree's decorators. If your project already has it enabled for another
+library, Retree's decorators cannot share that file's compilation mode.
+
+If `tsc` is also your _emitter_ (no bundler transform), TypeScript downlevels
+standard decorators itself and no further setup is needed. Most React apps,
+however, emit through a bundler — that's where the rest of this page comes in.
+
+## Vite
+
+This repository's Vite sample
+([`samples/03.react-recursion`](https://github.com/ryanbliss/retree/tree/main/samples/03.react-recursion),
+Vite 8) transforms decorators with `@rolldown/plugin-babel` plus
+`@babel/plugin-proposal-decorators` pinned to `version: "2023-11"`:
+
+```bash
+npm i -D @rolldown/plugin-babel @babel/plugin-proposal-decorators
+```
+
+```ts title="vite.config.ts"
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import babel from "@rolldown/plugin-babel";
+
+function decoratorPreset(options: Record<string, unknown>) {
+    return {
+        preset: () => ({
+            plugins: [["@babel/plugin-proposal-decorators", options]],
+        }),
+        rolldown: {
+            filter: { code: "@" },
+        },
+    };
+}
+
+export default defineConfig({
+    plugins: [
+        react(),
+        babel({
+            presets: [decoratorPreset({ version: "2023-11" })],
+        }),
+    ],
+    oxc: {
+        target: "esnext",
+    },
+});
+```
+
+The `filter: { code: "@" }` line keeps the Babel pass cheap: only files whose
+source contains an `@` character go through the decorator transform;
+everything else stays on Vite's fast default pipeline.
+
+## Next.js
+
+Next.js apps configure decorators through a `.babelrc`. This is the exact file
+used by this repository's Convex sample
+([`samples/04.convex-react-nextjs`](https://github.com/ryanbliss/retree/tree/main/samples/04.convex-react-nextjs))
+— and by this website itself:
+
+```json title=".babelrc"
+{
+    "presets": ["next/babel"],
+    "plugins": [["@babel/plugin-proposal-decorators", { "version": "2023-11" }]]
+}
+```
+
+```bash
+npm i -D @babel/plugin-proposal-decorators
+```
+
+<Note>
+    Adding a `.babelrc` opts your application code out of Next.js's default SWC
+    compilation and into Babel. That is a real trade-off (Babel is slower than
+    SWC at build time), but it is a supported, well-trodden path — this site
+    runs on exactly this setup, with the React Compiler (`reactCompiler: true`)
+    enabled alongside it.
+</Note>
+
+## esbuild, SWC, and other toolchains
+
+Every toolchain in this repository that compiles decorators routes them
+through either `tsc` or Babel's `@babel/plugin-proposal-decorators` with
+`{ "version": "2023-11" }`. That combination is what Retree's own tests,
+samples, and this website are verified against.
+
+Recent versions of esbuild and SWC have added their own support for standard
+(2023-11) decorators, but support and defaults vary by version and by how your
+framework invokes them — we haven't verified those paths in this repository.
+If your tool's native decorator support targets the 2023-11 spec version, it
+should work; if you hit errors or can't confirm the spec version, the Babel
+plugin above is the known-good fallback.
+
+<Warning>
+    Decorator support across the JavaScript ecosystem is still uneven: some
+    tools default to the legacy proposal, some to an older standard revision
+    (`2022-03`), and some need explicit flags. The one invariant to hold onto:
+    Retree needs the **2023-11 standard decorators** semantics. When
+    configuring any Babel-based tool, pass `{ "version": "2023-11" }`
+    explicitly rather than relying on defaults.
+</Warning>
+
+## Troubleshooting
+
+### The build fails at the `@`
+
+If your toolchain has no decorator transform configured at all, the build
+fails with a **syntax/parse error at the first decorator**. With Babel-based
+setups the error names the missing plugin directly:
+
+```txt nocopy
+SyntaxError: /app/tasks-state.ts: Support for the experimental syntax
+'decorators' isn't currently enabled.
+Add @babel/plugin-proposal-decorators to the 'plugins' section of your
+Babel config to enable transformation.
+```
+
+Fix: add `@babel/plugin-proposal-decorators` with `{ "version": "2023-11" }`
+as shown above. (The exact wording varies by tool and version; the signature
+is a compile-time error pointing at a `@select` / `@memo` / `@ignore` line.)
+
+### Decorators compile, but Retree throws at runtime
+
+Retree's decorators validate how they were applied and throw targeted errors.
+Two worth knowing:
+
+-   `"@memo can only be applied to a getter on a ReactiveNode subclass. ..."` —
+    `@memo` / `@select` are getter decorators; `@fnMemo` is the method
+    decorator. Placing one on the wrong member kind throws with a fix
+    suggestion in the message.
+-   `"@select could not find the decorated getter function. This is
+    unexpected and is likely a Retree bug ..."` — despite what the message
+    says, check your decorator transform before filing a bug: the decorator
+    ran with arguments that don't match the 2023-11 standard signature, and
+    the most common cause is a toolchain compiling with **legacy** decorator
+    semantics (`experimentalDecorators`, or a Babel config missing
+    `version: "2023-11"`). Fix the transform configuration rather than the
+    call site.
+
+### Checking your setup in one file
+
+Paste this into your app; if it builds and logs `1`, decorators are wired up
+correctly:
+
+```ts title="decorator-check.ts"
+import { Retree, ReactiveNode, memo } from "@retreejs/core";
+
+class Check extends ReactiveNode {
+    public value = 1;
+
+    @memo
+    get doubled() {
+        return this.value * 2;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+console.log(Retree.root(new Check()).value);
+```
+
+## Where next
+
+-   [View models](/docs/view-models) — what the decorators actually do.
+-   [Quickstart](/docs/quick-start) — the zero-config path, if you landed here
+    early.
+-   API reference: [`select`](/api/core/functions/select),
+    [`memo`](/api/core/functions/memo), [`fnMemo`](/api/core/functions/fnMemo),
+    [`ignore`](/api/core/functions/ignore), [`link`](/api/core/functions/link).

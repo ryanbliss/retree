@@ -1,0 +1,328 @@
+---
+title: Convex integration
+description: Own a Convex client from a ReactiveNode — live queries written into Retree state, reconciled by _id, with narrow optimistic updates and automatic disposal.
+---
+
+`@retreejs/convex` connects [Convex](https://convex.dev) to Retree state. A
+[`ConvexNode`](/api/convex/classes/ConvexNode) owns a Convex client and
+creates typed helpers: `this.query(...)` for live query subscriptions,
+`this.queryOnce(...)` for one-off reads, `this.mutation(...)` and
+`this.action(...)` for writes, plus paginated queries and connection state.
+Query results are **written into Retree state**, so everything you know about
+`useNode`, `useSelect`, and `ReactiveNode` applies unchanged. Convex document
+arrays are reconciled by `_id` by default, and optimistic updates are applied
+narrowly to existing query state.
+
+## Install
+
+For non-React apps (or state that doesn't share Convex React's client):
+
+<PMTabs packages="@retreejs/core @retreejs/convex convex" />
+
+For React apps that want one client instance for both Convex React and Retree
+(covered [below](#react-apps-retreeconvexreactclient)):
+
+<PMTabs packages="@retreejs/core @retreejs/react @retreejs/convex @retreejs/react-convex convex" />
+
+## A state node that owns a client
+
+Extend `ConvexNode`, pass it a Convex client, and build query nodes with the
+protected `this.query(...)` helper. This is the README's `TasksState` example:
+
+```ts title="tasks-state.ts"
+import { ConvexNode, ConvexQueryNode } from "@retreejs/convex";
+import { ConvexClient } from "convex/browser";
+import { api } from "../convex/_generated/api";
+import { Id } from "../convex/_generated/dataModel";
+
+class TasksState extends ConvexNode {
+    public readonly tasks: ConvexQueryNode<typeof api.tasks.get>;
+
+    constructor(convexUrl: string) {
+        const client = new ConvexClient(convexUrl);
+        super(client);
+        this.tasks = this.query(api.tasks.get);
+    }
+
+    get dependencies() {
+        return [];
+    }
+
+    public toggleCompleted(taskId: Id<"tasks">): Promise<null> {
+        const toggleCompleted = this.mutation(api.tasks.toggleCompleted);
+        return toggleCompleted(
+            { taskId },
+            {
+                withOptimisticUpdate: (ctx) => {
+                    this.tasks.optimisticUpdate({
+                        ctx,
+                        apply(tasks) {
+                            const task = tasks.find((candidateTask) => {
+                                return candidateTask._id === taskId;
+                            });
+                            if (!task) return;
+
+                            task.isCompleted = !task.isCompleted;
+                        },
+                    });
+                },
+            }
+        );
+    }
+}
+```
+
+Two classes to know:
+
+-   **[`ConvexNode`](/api/convex/classes/ConvexNode)** — the full base class:
+    `this.query(...)`, `this.paginatedQuery(...)`, `this.connectionState()`,
+    `this.mutation(...)`, `this.action(...)`, `this.queryOnce(...)`.
+-   **[`BaseConvexNode`](/api/convex/classes/BaseConvexNode)** — the smaller
+    base class when a node only needs `this.mutation(...)`, `this.action(...)`,
+    or `this.queryOnce(...)` — a form state node that submits a mutation, for
+    example.
+
+Both are `ReactiveNode` subclasses, so everything from
+[View models](/docs/view-models) — `dependencies`, `@select`, memoization,
+lifecycle hooks — composes with them.
+
+## Query state and status
+
+[`ConvexQueryNode`](/api/convex/classes/ConvexQueryNode) is itself a
+`ReactiveNode`. When Convex sends a new value, the query node writes its
+`state`, `result`, and `error` fields, which emits Retree listeners and
+re-renders subscribed components:
+
+-   **`state`** — the convenient query value (`undefined` until loaded, or your
+    `initialState`).
+-   **`result`** — a status union: `{ status: "pending" }`,
+    `{ status: "skipped" }`, `{ status: "success", data }`, or
+    `{ status: "error", error }`.
+-   **`error`** — the last error, if any.
+
+```tsx
+import { useSelect } from "@retreejs/react";
+
+function TaskCount({
+    tasks,
+}: {
+    tasks: ConvexQueryNode<typeof api.tasks.get>;
+}) {
+    const count = useSelect(tasks, (node) => node.state.length);
+    return <span>{count}</span>;
+}
+```
+
+Pass `initialState` when you want a defined value before the first server
+result (`this.query(api.tasks.get, { initialState: [] })`). Pass `"skip"` to
+`this.query(...)` or `updateArgs(...)` to disable the subscription:
+
+```ts
+tasks.updateArgs({ projectId: "p1" }); // ✅ changes args and resubscribes
+tasks.updateArgs("skip"); // ✅ emits skipped state and unsubscribes
+```
+
+## Mutations, actions, and one-off queries
+
+`this.mutation(...)`, `this.action(...)`, and `this.queryOnce(...)` are typed
+imperative helpers. They do **not** emit through Retree by themselves — they
+only trigger updates when your code writes their results into Retree state, or
+when a mutation is paired with an optimistic update:
+
+```ts
+const generateSummary = this.action(api.ai.generateSummary);
+const summary = await generateSummary({ taskId });
+
+const task = await this.queryOnce(api.tasks.getById, { taskId });
+```
+
+(Outside a node class,
+[`createRetreeConvexMutation`](/api/convex/functions/createRetreeConvexMutation)
+and
+[`createRetreeConvexAction`](/api/convex/functions/createRetreeConvexAction)
+create the same typed helpers from a client instance.)
+
+### Optimistic updates, applied narrowly
+
+`ConvexQueryNode.optimisticUpdate(...)` takes a transform that mutates the
+existing query state in place — as in `toggleCompleted` above, which flips one
+field on one task. Because the update is a normal Retree mutation on existing
+nodes, only the components subscribed to the changed task re-render; the rest
+of the list is untouched.
+
+Rollback semantics: if the mutation promise rejects before a changed server
+value arrives, the query node restores the last clean server value. If Convex
+sends a changed value first, the dirty optimistic state is cleared and a later
+rejection is ignored. You can provide a custom `revert(...)` when you need
+different rollback behavior.
+
+## React apps: `RetreeConvexReactClient`
+
+React apps that already use Convex React should create one
+[`RetreeConvexReactClient`](/api/react-convex/classes/RetreeConvexReactClient)
+from `@retreejs/react-convex`. It extends Convex's `ConvexReactClient` and
+adds the subscription surface Retree Convex nodes need — so the same instance
+works in `ConvexProvider` _and_ in your `ConvexNode` constructors:
+
+```tsx
+"use client";
+
+import { useNode, useRoot } from "@retreejs/react";
+import { ConvexNode, ConvexQueryNode } from "@retreejs/convex";
+import { RetreeConvexReactClient } from "@retreejs/react-convex";
+import { api } from "../convex/_generated/api";
+
+const convexClient = new RetreeConvexReactClient(
+    process.env.NEXT_PUBLIC_CONVEX_URL!
+);
+
+class TasksState extends ConvexNode {
+    public readonly tasks: ConvexQueryNode<typeof api.tasks.get>;
+
+    constructor() {
+        super(convexClient);
+        this.tasks = this.query(api.tasks.get, { initialState: [] });
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+export function TaskList() {
+    const root = useRoot(() => new TasksState());
+    const state = useNode(root);
+
+    return (
+        <ul>
+            {state.tasks.state?.map((task) => {
+                return <li key={task._id}>{task.text}</li>;
+            })}
+        </ul>
+    );
+}
+```
+
+`useRoot` creates the state for the component's lifetime; `useNode(root)`
+subscribes to it. Rendering `state.tasks.state` works because the query node
+writes into Retree state like any other node.
+
+### Disposal is automatic in React
+
+When `TaskList` unmounts, `useNode(root)` releases its Retree observer.
+`ConvexNode` then disposes the live query, paginated query, and
+connection-state children created through its helper methods — no manual
+cleanup effect needed for constructor-created queries. Calling `dispose()`
+yourself is still useful for non-React app shutdown.
+
+## Reconciliation
+
+Convex document arrays are reconciled by `_id` by default: when a new server
+result arrives, unchanged documents keep stable object identity. That is what
+keeps Retree's child-node rendering pattern working for server lists — a
+`useNode(task)` row only re-renders when _its_ document changed:
+
+```tsx
+function TaskRow({ task }: { task: Doc<"tasks"> }) {
+    const taskNode = useNode(task);
+    return <span>{taskNode.text}</span>;
+}
+```
+
+For non-Convex arrays with a different id field, use
+[`reconcileArrayById`](/api/convex/functions/reconcileArrayById):
+
+```ts
+this.tasks = this.query(api.tasks.listByProject, {
+    args: { projectId },
+    reconcile: reconcileArrayById("id"),
+});
+```
+
+### Custom reconcilers
+
+A custom [`IStateReconciler`](/api/convex/interfaces/IStateReconciler)
+implements `reconcile(current, next, rawCurrent)`. The third argument is the
+proxy-free raw view of `current` (`Retree.raw`). Reconciliation is
+read-dominated, so **read from `rawCurrent`, write to `current`**: comparisons
+run at native speed, and writes through `current` emit `nodeChanged` for
+changed rows while keeping item identity stable. Writing to `rawCurrent`
+skips emission — never do it.
+
+```ts
+const reconcileTasks: IStateReconciler<Task[]> = {
+    reconcile(current, next, rawCurrent) {
+        if (current === undefined) return next;
+        for (let index = 0; index < next.length; index++) {
+            if (rawCurrent?.[index]?.text !== next[index]!.text) {
+                current[index]!.text = next[index]!.text; // ✅ emits
+            }
+        }
+        current.length = next.length;
+        return current;
+    },
+};
+```
+
+The built-in reconcilers
+([`reconcileConvexDocuments`](/api/convex/functions/reconcileConvexDocuments),
+`reconcileArrayById`) already read raw and write through `current` internally.
+
+## Paginated queries
+
+Use `this.paginatedQuery(...)` for Convex paginated queries.
+[`ConvexPaginatedQueryNode`](/api/convex/classes/ConvexPaginatedQueryNode)
+exposes the aggregate paginated state plus a `loadMore(...)` helper:
+
+```ts
+this.messages = this.paginatedQuery(api.messages.list, {
+    args: { channelId },
+    initialNumItems: 20,
+});
+
+const didRequestMore = this.messages.loadMore(20);
+```
+
+`loadMore(numItems)` requests another page and returns `false` when there is
+no active subscription to extend. New pages update the node and emit through
+Retree. Like query nodes, paginated nodes have `state`, a `result` status
+union (`pending` / `skipped` / `success` / `error`, with the success data
+carrying `results` across all loaded pages and the current pagination
+status), `error`, `updateArgs(...)`, and `dispose()`.
+
+## Connection state
+
+Use `this.connectionState()` to create a
+[`ConvexConnectionStateNode`](/api/convex/classes/ConvexConnectionStateNode)
+that mirrors the Convex client's connection state into Retree:
+
+```ts
+this.connection = this.connectionState();
+```
+
+```tsx
+import { useSelect } from "@retreejs/react";
+
+function ConnectionBadge({ state }: { state: ConvexConnectionStateNode }) {
+    const status = useSelect(state, (node) => node.state);
+    return <span>{status.hasInflightRequests ? "Syncing" : "Idle"}</span>;
+}
+```
+
+## A complete, running example
+
+The repository ships a full Next.js + Convex sample —
+[`samples/04.convex-react-nextjs`](https://github.com/ryanbliss/retree/tree/main/samples/04.convex-react-nextjs)
+— with a `TasksState` node, per-row optimistic updates, filters built on
+`@select`, and the `RetreeConvexReactClient` setup. Its state layer
+(`app/tasks-state.ts`) uses decorators, so it also doubles as a working
+reference for [Setup & decorators](/docs/setup-and-decorators).
+
+## Where next
+
+-   [View models](/docs/view-models) — the `ReactiveNode` machinery Convex
+    nodes are built on.
+-   [Events & subscriptions](/docs/events-and-subscriptions) — `Retree.on` and
+    the event types, for integrating anything that isn't Convex.
+-   [Performance](/docs/performance) — reconciliation and raw reads in the
+    wider cost model.

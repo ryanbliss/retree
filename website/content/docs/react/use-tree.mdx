@@ -1,0 +1,208 @@
+---
+title: useTree
+description: Subscribe a component to a node and every descendant. Broad subtree invalidation — powerful for small subtrees, expensive as a default.
+---
+
+`useTree` subscribes to `treeChanged`, so the component re-renders when the
+node *or any node below it* changes. It trades granularity for convenience:
+one hook call instead of a `useNode` per child.
+
+<Callout title="When to use">
+    Use `useTree` sparingly, for small subtrees that truly need broad
+    invalidation — summaries, totals, compact table sections. Siblings:
+    [`useNode`](/docs/react/use-node) for focused components that own one node,
+    [`useSelect`](/docs/react/use-select) for narrow derived values,
+    [`useRaw`](/docs/react/use-raw) for wide proxy-free render reads,
+    [`useRoot`](/docs/react/use-root) for component-lifetime roots — or compare
+    them all in [Choosing a hook](/docs/react).
+</Callout>
+
+## Signature
+
+```ts nocopy
+function useTree<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>): T;
+```
+
+Same shape as `useNode` — the only difference is the listener type:
+`treeChanged` instead of `nodeChanged`.
+
+## Subtree invalidation
+
+Where `useNode(node)` re-renders for the node's own fields, `useTree(node)`
+re-renders for *everything under it*: a field on the node, a field three
+levels deep, an item pushed into a grandchild array. That is exactly right
+for a component that aggregates over a subtree — and exactly wrong as a
+default for a large app root, where every keystroke anywhere would re-render
+it.
+
+The demo below is the README's table example, reduced: each `Row` uses
+`useNode(row)` and only re-renders for its own `+1` clicks, while `TotalRow`
+uses `useTree(rows)` and re-renders for every click in every row:
+
+<Sandbox height={520}>
+
+```tsx name="/App.tsx" active
+import { Retree } from "@retreejs/core";
+import { useNode, useTree } from "@retreejs/react";
+import React from "react";
+
+const table = Retree.root({
+    rows: [
+        { label: "row 1", count: 0 },
+        { label: "row 2", count: 0 },
+    ],
+});
+
+type Row = (typeof table.rows)[number];
+
+// Inline render counter.
+function useRenders() {
+    const count = React.useRef(0);
+    count.current += 1;
+    return count.current;
+}
+
+const RowView = React.memo(function RowView({ row }: { row: Row }) {
+    // Subscribed to this row only.
+    const state = useNode(row);
+    const renders = useRenders();
+    return (
+        <tr>
+            <td>{state.label}</td>
+            <td>{state.count}</td>
+            <td>
+                <button onClick={() => (state.count += 1)}>+1</button>
+            </td>
+            <td>renders: {renders}</td>
+        </tr>
+    );
+});
+
+function TotalRow({ rows }: { rows: Row[] }) {
+    // A sum over all rows: we want re-renders for every child change.
+    const rowsState = useTree(rows);
+    const renders = useRenders();
+    const sum = rowsState.reduce((total, row) => total + row.count, 0);
+    return (
+        <tr>
+            <td>total</td>
+            <td>{sum}</td>
+            <td />
+            <td>renders: {renders}</td>
+        </tr>
+    );
+}
+
+export default function App() {
+    // The table shell subscribes narrowly: only add/remove re-renders it.
+    const rows = useNode(table.rows);
+    const renders = useRenders();
+    return (
+        <div>
+            <p>App renders: {renders}</p>
+            <table>
+                <tbody>
+                    {rows.map((row, index) => (
+                        <RowView key={index} row={row} />
+                    ))}
+                    <TotalRow rows={rows} />
+                </tbody>
+            </table>
+            <button
+                onClick={() =>
+                    table.rows.push({
+                        label: `row ${table.rows.length + 1}`,
+                        count: 0,
+                    })
+                }
+            >
+                Add row
+            </button>
+        </div>
+    );
+}
+```
+
+</Sandbox>
+
+## What changes identity on a deep write
+
+A `treeChanged` re-render is only half the story — `useTree` also interacts
+with comparisons (`React.memo`, hook dependency arrays) through reproxying.
+On a deep write, the changed node *and its ancestors* get fresh identities;
+everything off that path stays referentially stable:
+
+```ts
+const root = Retree.root({
+    great_grandparent_1: {
+        name: "Bob Sr",
+        grandparent_1: {
+            name: "Bob Jr",
+            parent_1: {
+                name: "Angie",
+                child_1: {
+                    name: "Megan",
+                },
+            },
+        },
+        grandparent_2: {
+            /** ... **/
+        },
+    },
+    great_grandparent_2: {
+        /** ... **/
+    },
+});
+
+// Root component
+const family = useNode(root);
+// Great Grandparent Component 1
+const greatGrandparent1 = useTree(family.great_grandparent_1);
+// Great Grandparent Component 2
+const greatGrandparent2 = useTree(family.great_grandparent_2);
+
+// If we set:
+greatGrandparent1.grandparent_1.name = "Beth";
+
+// What will NOT change:
+// - Root component (no render)
+// - Great Grandparent Component 2 (no render)
+// - old `family` value to be unchanged in comparisons (e.g., `memo` or hook dependencies)
+// - old `greatGrandparent2` + all children nodes to be unchanged in comparisons
+// - old `greatGrandparent1.grandparent_1.parent_1` to be unchanged in comparisons
+// - old `greatGrandparent1.grandparent_2` to be unchanged in comparisons
+
+// What will change:
+// - Great Grandparent Component 1 to render
+// - old `greatGrandparent1` to not equal new `greatGrandparent1` value in comparisons
+// - old `greatGrandparent1.grandparent_1` to not equal new value in comparisons
+```
+
+Reproxy identity is defined properly in
+[Thinking in Retree](/docs/thinking-in-retree) — it is what makes
+`React.memo` and `useMemo` dependencies behave correctly with Retree nodes.
+
+<Warning title="Performance">
+    `useTree` maps to broad descendant invalidation. Keep it low in the view
+    hierarchy and off large app-level roots — if a `useTree` component also
+    reads deeply on every render, the render itself becomes the cost. Measure
+    with the React DevTools profiler. For "one node should update when another
+    changes", `ReactiveNode.dependencies` and `@select` are often better
+    bridges — see [ReactiveNode & decorators](/docs/view-models).
+</Warning>
+
+## Pitfalls
+
+- **Reaching for `useTree` at the root** because nested writes weren't
+  re-rendering a `useNode` component. That fixes the symptom by re-rendering
+  everything; the granular fix is a `useNode(child)` per rendered child.
+- **Deriving one value from a subtree** with `useTree` re-renders for every
+  descendant change, even ones that don't affect the value —
+  [`useSelect`](/docs/react/use-select) with `listenerType: "treeChanged"`
+  only re-renders when the selection changes.
+
+More in [Common pitfalls](/docs/common-pitfalls).
+
+## Reference
+
+Full signature and remarks: [`useTree` API reference](/api/react/functions/useTree).

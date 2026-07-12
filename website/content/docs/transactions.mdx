@@ -1,0 +1,127 @@
+---
+title: Transactions & silent writes
+description: Batch several synchronous writes into one notification with Retree.runTransaction, or skip notification entirely with Retree.runSilent.
+---
+
+By default, every write to a managed [node](/docs/thinking-in-retree#node)
+emits immediately. Two APIs on [`Retree`](/api/core/classes/Retree) change
+that: `runTransaction` batches several synchronous writes into one flush, and
+`runSilent` suppresses emission entirely.
+
+## Batch writes with `Retree.runTransaction`
+
+Use `Retree.runTransaction(...)` when several synchronous writes are one
+logical update. Retree still applies every write, but listener callbacks
+flush **once per changed node** after the transaction finishes:
+
+```ts
+const counter = Retree.root({ count: 0 });
+let emits = 0;
+
+Retree.on(counter, "nodeChanged", () => {
+    emits += 1;
+});
+
+Retree.runTransaction(() => {
+    counter.count += 1;
+    counter.count *= 2;
+});
+
+console.log(counter.count); // 2
+console.log(emits);         // ✅ 1 emit, not 2
+```
+
+Reads inside the transaction see writes immediately — `counter.count *= 2`
+sees the incremented value. Only *notification* is deferred and coalesced.
+
+The batching is per node: a transaction that touches three different nodes
+still flushes once for each of them. That means `runTransaction` helps most
+when the same nodes are written repeatedly (loops, multi-field updates), and
+less when every write targets an unrelated node that needs its own
+notification anyway. It also doesn't make the writes themselves cheaper —
+see [Performance](/docs/performance).
+
+## Skip emission with `Retree.runSilent`
+
+Use `Retree.runSilent(...)` for writes that should update state without
+notifying anyone — bookkeeping, telemetry, scratch values that no component
+renders:
+
+```ts
+const counter = Retree.root({ count: 0, multiplier: 1 });
+const counterState = useNode(counter);
+
+// Skip re-render when adjusting the multiplier
+function onClickIncrementMultiplier() {
+    Retree.runSilent(() => {
+        counterState.multiplier += 1; // ❌ no emit, no re-render
+    });
+}
+
+// Re-render when the user clicks the count button
+function onClickIncrementCount() {
+    counterState.count = counterState.count * counterState.multiplier; // ✅ emits
+}
+```
+
+The write happens — later reads see the new value — but no `nodeChanged` or
+`treeChanged` fires for it.
+
+### The `skipReproxy` option
+
+`runSilent` takes a second parameter, `skipReproxy`, which defaults to
+`true`: by default, silent writes also skip issuing fresh
+[reproxy](/docs/thinking-in-retree#reproxy) identities. Old and new node
+references stay equal in comparisons (`React.memo` props, `useMemo` /
+`useEffect` deps), so downstream code has no way to notice the write.
+
+Pass `false` when you want to suppress listener emission but still refresh
+reproxy identities, so that *later* comparisons see the node as changed:
+
+```ts
+Retree.runSilent(() => {
+    settings.telemetryCount += 1;
+});        // ❌ no emit, ❌ no fresh reproxy — comparisons see no change
+
+Retree.runSilent(() => {
+    settings.telemetryCount += 1;
+}, false); // ❌ no emit, ✅ fresh reproxy — the next comparison sees a change
+```
+
+## When to reach for each
+
+- **Several writes, one logical update, listeners should run once with the
+  final state** — `runTransaction`. Typical: a method that updates multiple
+  fields, reordering a list in a loop, applying a server payload.
+- **Writes that should never notify** — `runSilent` (default). Typical:
+  telemetry counters, caches that happen to live in the tree, cursor
+  positions no component subscribes to.
+- **Writes that shouldn't notify now, but should be visible to comparison
+  checks later** — `runSilent(fn, false)`. The state updates quietly, and
+  the next time something re-renders or compares the node for another
+  reason, it sees the fresh identity.
+
+Both take a synchronous callback — the batching and silencing windows close
+when the callback returns, so `await`ing inside them won't cover the writes
+that happen after the suspension point.
+
+## Interaction with React re-renders
+
+The React hooks are subscriptions to the same events, so the two APIs map
+directly onto render behavior:
+
+- Inside `runTransaction`, each
+  [`useNode`](/api/react/functions/useNode) /
+  [`useTree`](/api/react/functions/useTree) instance has state set **once**
+  per transaction, no matter how many writes hit its node. Ten writes to one
+  node inside a transaction cost one re-render for that node's subscribers,
+  not ten.
+- `runSilent` writes cause **no** re-render at all. With the default
+  `skipReproxy = true`, the node's identity is also unchanged, so memoized
+  children and dependency arrays treat it as unchanged even when a parent
+  re-renders for some other reason. Components that do re-render later still
+  read the latest values. Pass `false` when the silent write *should* show
+  up in those later comparisons.
+
+For the event-level view of what "emit" means here, see
+[Events & subscriptions](/docs/events-and-subscriptions).

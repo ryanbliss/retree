@@ -1097,7 +1097,7 @@ function preparePropertyValue(
 /**
  * @internal
  * Force-materialize the direct children of a managed node by reading each
- * object-valued child through the proxy once. Used by `useRaw`'s `toSource`
+ * object-valued child through the proxy once. Used by `useRaw`'s `toManaged`
  * to guarantee raw direct children (including Map values and Set members)
  * resolve to managed nodes. Idempotent: already-materialized children are
  * cache hits.

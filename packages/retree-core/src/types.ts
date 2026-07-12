@@ -33,7 +33,7 @@ export type TRetreeEvents = TRetreeChangedEvents | "nodeRemoved";
  * @remarks
  * `previous` and `new` are **raw values, always** — change records are
  * descriptions of the past, not live handles. Listeners that need the
- * managed node for an object value opt in with `Retree.source(value)`.
+ * managed node for an object value opt in with `Retree.managed(value)`.
  * Identity comparisons against payload values should be raw-to-raw:
  * `change.previous === Retree.raw(candidate)`.
  */

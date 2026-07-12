@@ -1,0 +1,598 @@
+---
+title: ReactiveNode & decorators
+description: Keep state logic on the nodes that own it — ReactiveNode dependencies, @select, @memo, @fnMemo, @ignore, @link, and lifecycle hooks.
+---
+
+Retree works fine with plain objects. But most apps grow logic around their
+state — derived values, cached computations, cross-node reactions — and that
+logic has to live somewhere. `ReactiveNode` lets it live _on the node itself_:
+methods, getters, and dependency declarations sit next to the data they
+operate on, instead of in a separate layer of top-level actions and selectors.
+
+<Note>
+    Everything on this page except the `@`-prefixed decorators works with zero
+    build configuration. The decorators (`@select`, `@memo`, `@fnMemo`,
+    `@ignore`, `@link`) use standard 2023-11 decorators, which most toolchains
+    need one line of config for — see [Setup &
+    decorators](/docs/setup-and-decorators) before pasting decorator examples
+    into your app.
+</Note>
+
+## Why view models
+
+A view model in Retree is just a class whose instance sits in the tree. Its
+methods mutate `this`; components call them directly. There is no dispatch, no
+action creators, and no store file that grows a function per interaction:
+
+```ts
+class Todo {
+    public text = "";
+    public checked = false;
+    toggle() {
+        this.checked = !this.checked;
+    }
+}
+```
+
+`useNode(todo)` subscribes a component to that instance;
+`onChange={todo.toggle}` mutates it. That much works with any class — no
+`ReactiveNode` required.
+
+Extending [`ReactiveNode`](/api/core/classes/ReactiveNode) adds the parts
+plain classes can't do:
+
+-   **`dependencies`** — make this node emit when _other_ nodes change.
+-   **`@select`** — expose derived getters that emit only when their selection changes.
+-   **`@memo` / `@fnMemo` / `this.memo`** — cache expensive computations.
+-   **`@ignore`** — keep caches and handles out of reactivity.
+-   **`@link`** — reactive pointers to nodes owned elsewhere.
+-   **Lifecycle hooks** — `onObserved`, `onUnobserved`, `onChanged`.
+
+## `dependencies`: react to other nodes
+
+A `ReactiveNode` must implement a `dependencies` getter. It declares which
+other values should make _this_ node emit `nodeChanged` (and receive a fresh
+[reproxy](/docs/thinking-in-retree)) when they change. Return `[]` when the
+node only reacts to its own fields.
+
+Dependency arrays accept raw reactive nodes and primitives. Reactive nodes
+subscribe; primitives compare. Wrap one slot with
+`this.dependency(node, comparisons)` when that slot should subscribe to a node
+but only emit when specific comparison values change:
+
+```tsx
+import { Retree, ReactiveNode } from "@retreejs/core";
+import { useNode } from "@retreejs/react";
+
+class EvenCounter extends ReactiveNode {
+    public numbers: number[] = [];
+
+    get evenNumberCount(): number {
+        return this.numbers.filter((number) => number % 2 === 0).length;
+    }
+
+    get dependencies() {
+        return [this.dependency(this.numbers, [this.evenNumberCount])];
+    }
+}
+
+const counter = Retree.root(new EvenCounter());
+
+function EvenBadge() {
+    const state = useNode(counter);
+    return <span>{state.evenNumberCount}</span>;
+}
+
+counter.numbers.push(2); // ✅ re-renders: evenNumberCount 0 -> 1
+counter.numbers.push(3); // ❌ no re-render: evenNumberCount stayed 1
+```
+
+The component uses plain `useNode(counter)`, yet it reacts to changes inside
+`counter.numbers` — but _only_ when the even count actually changes. That is
+the middle ground between `useNode` (too narrow: misses child changes) and
+`useTree` (too broad: re-renders for every child change).
+
+For simple cases, no wrapper is needed — return nodes and primitives directly:
+
+```ts
+import { ReactiveNode, link } from "@retreejs/core";
+
+class AuthStore extends ReactiveNode {
+    public session: { userId: string; role: string } | null = null;
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class HeaderState extends ReactiveNode {
+    @link
+    public auth: AuthStore;
+
+    constructor(auth: AuthStore) {
+        super();
+        this.auth = auth;
+    }
+
+    get dependencies() {
+        return [this.auth, this.auth.session?.userId];
+    }
+}
+```
+
+Keep the getter deterministic. Length and order _may_ change at runtime —
+Retree treats added, removed, or reordered entries as invalidation and
+refreshes subscriptions — but a `dependencies` getter that flaps on every read
+causes needless subscription churn. Don't start subscriptions or network work
+inside `dependencies`; it should be purely declarative. Use the
+[lifecycle hooks](#lifecycle-hooks) for setup and teardown.
+
+## `@select`: selective getters
+
+Use [`@select`](/api/core/functions/select) when a dependency list belongs to
+one getter, and `useNode(node)` should update only when that getter's selected
+dependencies change.
+
+### Bare form: automatic trapping
+
+`@select` (or `@select()` — interchangeable) traps dependencies while the
+getter runs:
+
+```ts
+import { ReactiveNode, link, select } from "@retreejs/core";
+
+class TaskRow extends ReactiveNode {
+    @link public task!: { isCompleted: boolean };
+    @link public filter!: { isComplete: boolean | null };
+
+    @select()
+    get isVisible() {
+        return (
+            this.filter.isComplete === null ||
+            this.task.isCompleted === this.filter.isComplete
+        );
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+```
+
+The trapping rules: whole Retree-managed values read by the getter subscribe;
+property reads subscribe to the owner node but compare the specific property
+value (so `this.task.isCompleted` reacts to the task slot being replaced or
+`isCompleted` changing, without reacting to unrelated task fields); primitive
+reads compare.
+
+### Explicit selector form
+
+Pass a selector when you want to choose or customize the dependency slots
+yourself. Raw reactive values subscribe, primitives compare, and
+`self.dependency(...)` customizes one slot's comparisons:
+
+```ts
+import { ReactiveNode, memo, select } from "@retreejs/core";
+
+class AttributeRow extends ReactiveNode {
+    public attributes: { id: string; label: string }[] = [];
+    public attributeId!: string;
+
+    @memo
+    private get _attribute() {
+        return this.attributes.find((check) => check.id === this.attributeId);
+    }
+
+    @select((self) => [
+        self.attributes,
+        self.attributeId,
+        self.dependency(self._attribute, [self._attribute?.id]),
+    ])
+    get attribute() {
+        return this._attribute;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+```
+
+### The `equals` option
+
+Pass an options object when the getter _output_ needs custom equality.
+`equals` receives `(self, previous, next)` and returns `true` when the outputs
+are equivalent, so the owner should not emit or reproxy:
+
+```ts
+class VisibleTaskList extends ReactiveNode {
+    public tasks: { id: string; isArchived: boolean }[] = [];
+
+    @select({
+        equals: (_self, previous, next) =>
+            previous.length === next.length &&
+            previous.every((task, index) => task.id === next[index].id),
+    })
+    get visibleTasks() {
+        return this.tasks.filter((task) => !task.isArchived);
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+```
+
+Here the getter listens to a broad collection but only emits when the visible
+ids or their order change — filtering churn that doesn't affect the result
+stays silent. This pattern is the recommended shape for hot filtered lists;
+see [Performance](/docs/performance).
+
+<Note>
+    `@select` differs from `useSelect` in one important way: dependency-list
+    subscriptions in `useSelect` / `Retree.select` are *observational* — they
+    can re-render the subscribing component, but they do not force the node to
+    receive a fresh reproxy. `@select` makes the owning `ReactiveNode` itself
+    emit `nodeChanged`, so every `useNode(node)` subscriber updates.
+</Note>
+
+## Memoize computed values
+
+`ReactiveNode` provides [`memo`](/api/core/functions/memo) caching, similar in
+spirit to React's `useMemo`. Memoization is a **cache, not a subscription** —
+`@memo` and `@fnMemo` never emit events or trigger renders by themselves. Use
+`dependencies`, `@select`, or `useSelect` when you also need notification.
+
+### `@memo` — computed getters
+
+The cache key is the getter's property name. Bare `@memo` (or `@memo()`) traps
+the Retree reads inside the getter automatically and invalidates when they
+change:
+
+```ts
+import { Retree, ReactiveNode, memo } from "@retreejs/core";
+
+interface Card {
+    text: string;
+}
+
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    @memo
+    get filteredList(): Card[] {
+        return this.list.filter((c) => c.text === this.searchText);
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
+Pass a comparison function when the automatic trapper is broader than you
+want:
+
+```ts
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    // Only invalidate when the list identity/reproxy or search text changes.
+    @memo((self: ListFilter) => [self.list, self.searchText])
+    get filteredList(): Card[] {
+        return this.list.filter((c) => c.text === this.searchText);
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
+### `@fnMemo` — deterministic methods
+
+Use [`@fnMemo`](/api/core/functions/fnMemo) when a method is deterministic for
+a given argument list plus the Retree values it reads. Method arguments are
+always shallow-compared:
+
+```ts
+import { Retree, ReactiveNode, fnMemo } from "@retreejs/core";
+
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    @fnMemo
+    public filteredList(limit: number): Card[] {
+        return this.list
+            .filter((c) => c.text === this.searchText)
+            .slice(0, limit);
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
+The comparison-function form receives the instance followed by the method
+arguments:
+
+```ts
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    @fnMemo((self: ListFilter, limit: number) => [
+        self.list,
+        self.searchText,
+        limit,
+    ])
+    public filteredList(limit: number): Card[] {
+        return this.list
+            .filter((c) => c.text === this.searchText)
+            .slice(0, limit);
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
+### `this.memo(fn, deps?)` — keyless, inside a getter
+
+Use the method form when you want decorator-like cache behavior without a
+decorator — for example, wrapping only part of a getter body. The cache key is
+derived from the active getter's name automatically. It throws if called
+outside a getter, or more than once in the same getter without an explicit
+key:
+
+```ts
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    get filteredList(): Card[] {
+        return this.memo(() =>
+            this.list.filter((c) => c.text === this.searchText)
+        );
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
+Because `this.memo` needs no decorator, it also works with **zero build
+configuration** — a useful fallback if you can't (or don't want to) configure
+decorator transforms.
+
+### `this.memo(key, fn, deps?)` — explicit key
+
+Use an explicit key for multiple memo cells in one getter, or for caching
+inside a method:
+
+```ts
+class ListFilter extends ReactiveNode {
+    public list: Card[] = [];
+    public searchText = "";
+
+    get pair(): { filtered: Card[]; count: number } {
+        const filtered = this.memo(
+            "filtered",
+            () => this.list.filter((c) => c.text === this.searchText),
+            [this.list, this.searchText]
+        );
+        const count = this.memo("count", () => filtered.length, [filtered]);
+        return { filtered, count };
+    }
+
+    get dependencies() {
+        return [this.dependency(this.list)];
+    }
+}
+```
+
+### Cache semantics
+
+The same comparison rules apply to all forms. For `@fnMemo`, the method
+arguments are also compared on every call:
+
+| Form / comparisons                                                             | Behavior                                                                                                                                              |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@memo`, `@memo()`, `@fnMemo`, `@fnMemo()`, or omitted `this.memo` comparisons | Automatically trap Retree reads and recompute when a trapped value changes.                                                                           |
+| Function returns `undefined`                                                   | Recompute whenever the `ReactiveNode` reproxies (a property was set on it or one of its dependencies changed). Useful as a "compute once per render." |
+| Function returns `[]`                                                          | Compute once and cache forever for that instance.                                                                                                     |
+| Function returns `[a, b, ...]`                                                 | Recompute when any cell shallow-changes (compared with `Object.is`).                                                                                  |
+
+Tree-node cells in `deps` are compared by their latest reproxy identity, not
+by the stable buildProxy reference. That's why `[this.list, this.searchText]`
+correctly invalidates when `list` mutates — without this, `this.list` would
+always look unchanged, because Retree returns the same buildProxy for the
+lifetime of the tree.
+
+The cache is per-instance and stored in a `WeakMap` keyed by the unproxied
+`ReactiveNode`, so it follows the instance's lifetime and is garbage-collected
+when the node is dropped.
+
+## `@ignore`: opt fields out of reactivity
+
+[`@ignore`](/api/core/functions/ignore) is a class-field decorator that
+excludes a property of a `ReactiveNode` from Retree's reactivity system. Reads
+and writes still work normally — what's skipped is **listener emission**:
+
+-   Nested mutations like `this.cache.foo = 1` do **not** fire `nodeChanged` /
+    `treeChanged` on the `ReactiveNode` or its ancestors.
+-   Replacing the field at the top level (`this.cache = {...}`) likewise skips
+    emission.
+-   The proxy will not wrap the field's value or build child proxies underneath
+    it.
+
+Use it for state that lives on a `ReactiveNode` but shouldn't participate in
+the tree — caches, scratch buffers, framework handles, references to objects
+already managed elsewhere:
+
+```tsx
+import { Retree, ReactiveNode, ignore } from "@retreejs/core";
+import { useNode } from "@retreejs/react";
+
+class Counter extends ReactiveNode {
+    public count = 0;
+    // Mutations under `cache` do not trigger Retree listeners or re-renders.
+    @ignore public cache: Record<string, unknown> = {};
+
+    get dependencies() {
+        return [];
+    }
+}
+
+const node = Retree.root(new Counter());
+const state = useNode(node);
+
+// ❌ no re-render
+node.cache.something = 1;
+// ❌ no re-render — replacing the field also skips emission
+node.cache = { other: 2 };
+// ✅ re-renders
+node.count += 1;
+```
+
+<Warning>
+    Because the proxy doesn't wrap an `@ignore`-d field's value, plain objects
+    stored under it lose `Retree.parent(...)` and won't appear in `treeChanged`
+    notifications. If you store an existing Retree-managed node in an ignored
+    field, Retree does not reparent it, but reads still return that node's
+    latest reproxy. Don't use `@ignore` as a reactive reference — that's what
+    [`@link`](#link-reactive-pointers) is for.
+</Warning>
+
+## `@link`: reactive pointers
+
+Retree keeps a pure ownership tree: a node has exactly one structural parent.
+When one part of your state should _point at_ a node owned elsewhere — a
+selected item, a cross-reference — use [`@link`](/api/core/functions/link)
+instead of assigning the node into a second parent.
+
+`@link` marks a `ReactiveNode` field as a reactive pointer. Replacing the
+field emits `nodeChanged` on the owner, but the assigned node keeps its
+existing parent. Reads return the latest reproxy for the linked node:
+
+```ts
+import { Retree, ReactiveNode, link } from "@retreejs/core";
+
+interface Task {
+    title: string;
+}
+
+class EditorState extends ReactiveNode {
+    @link public selectedTask: Task | null = null;
+
+    get dependencies() {
+        return [];
+    }
+}
+
+const root = Retree.root({ tasks: [{ title: "Write docs" }] });
+
+const state = Retree.root(new EditorState());
+state.selectedTask = root.tasks[0]; // ✅ emits on state, ❌ does not reparent task
+state.selectedTask.title = "Renamed"; // ✅ emits where the task is structurally owned
+state.selectedTask = root.tasks[0]; // ❌ no emit if the field already points there
+```
+
+Choose the operation that matches your intent:
+
+-   **`@link` / `Retree.link(node)`** — a pointer; ownership stays put.
+-   **`Retree.move(node, destination, key?)`** — ownership transfers to the new
+    parent.
+-   **`Retree.clone(node)`** — a detached, independent copy.
+
+Outside `ReactiveNode` classes, `Retree.link(node)` returns a pointer object
+with `.current` that can be stored anywhere in the tree. See
+[Tree operations](/docs/tree-operations) for the full ownership model.
+
+## Lifecycle hooks
+
+`ReactiveNode` exposes three protected hooks for setup, cleanup, and
+post-change synchronization:
+
+-   **`onObserved()`** runs when the node gets its first active `nodeChanged` or
+    `treeChanged` observer.
+-   **`onUnobserved()`** runs when the node loses its last active `nodeChanged`
+    or `treeChanged` observer.
+-   **`onChanged(changes)`** runs after the node receives a fresh reproxy
+    because one of its own properties changed or one of its declared
+    dependencies changed.
+
+Use `onObserved()` and `onUnobserved()` for external resources that should
+only exist while something is observing the node. This keeps `dependencies`
+purely declarative instead of turning it into a setup side effect:
+
+```ts
+import { ReactiveNode, ignore } from "@retreejs/core";
+
+declare function subscribeToValue(
+    callback: (value: string) => void
+): () => void;
+
+class LiveValueNode extends ReactiveNode {
+    public value: string | null = null;
+    @ignore private unsubscribe: (() => void) | null = null;
+
+    get dependencies() {
+        return [];
+    }
+
+    protected onObserved(): void {
+        this.unsubscribe = subscribeToValue((value) => {
+            this.value = value;
+        });
+    }
+
+    protected onUnobserved(): void {
+        this.unsubscribe?.();
+        this.unsubscribe = null;
+    }
+}
+```
+
+Use `onChanged(changes)` when derived state should update only after Retree
+has confirmed the node actually changed. Retree runs `onChanged()` before
+listener callbacks flush. `changes` is an array of
+[`{ key, previous, new }`](/api/core/interfaces/INodeFieldChanges) records:
+
+```ts
+import type { INodeFieldChanges } from "@retreejs/core";
+
+class SearchNode extends ReactiveNode {
+    public query = "";
+    public normalizedQuery = "";
+
+    get dependencies() {
+        return [];
+    }
+
+    protected onChanged(_changes: INodeFieldChanges[]): void {
+        const next = this.query.trim().toLowerCase();
+        if (this.normalizedQuery === next) {
+            return;
+        }
+
+        this.normalizedQuery = next;
+    }
+}
+```
+
+## Where next
+
+-   [Setup & decorators](/docs/setup-and-decorators) — the one-time build config
+    the `@` decorators need.
+-   [Performance](/docs/performance) — where `@select`, memoization, and
+    `dependencies` fit in the cost model.
+-   [Convex integration](/docs/convex) — `ConvexNode` builds on `ReactiveNode`
+    and its lifecycle hooks.
+-   [`ReactiveNode` API reference](/api/core/classes/ReactiveNode).

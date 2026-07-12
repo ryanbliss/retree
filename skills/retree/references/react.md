@@ -29,7 +29,7 @@ yarn add @retreejs/core @retreejs/react
 -   [`useNode`](#usenode-hook) subscribes to direct `nodeChanged` events. Use it for focused components that own one node.
 -   [`useTree`](#usetree-hook) subscribes to `treeChanged` events from a node and descendants. Use it for small subtrees that should re-render together.
 -   [`useSelect`](#useselect-hook) subscribes to a selected value or ordered dependency list and re-renders only when it changes. Use it for counts, totals, booleans, labels, and other narrow projections.
--   [`useRaw`](#useraw-hook) subscribes like `useNode` but returns `[raw, toSource]` for native-speed, proxy-free reads. Use it for components that read wide during render.
+-   [`useRaw`](#useraw-hook) subscribes like `useNode` but returns `[raw, toManaged]` for native-speed, proxy-free reads. Use it for components that read wide during render.
 -   [`@select`](https://github.com/ryanbliss/retree/tree/main/packages/retree-core#reactive-dependencies) decorates a getter with an ordered dependency list. Use it when VM logic should stay in the `ReactiveNode` while `useNode(node)` stays selective.
 -   [`ReactiveNode.dependencies`](#reactivenode) can make a node emit `nodeChanged` from narrow dependencies. Return raw reactive nodes/primitives directly, or wrap one slot with `this.dependency(node, comparisons)`.
 -   [`memo`, `@memo`, and `@fnMemo`](https://github.com/ryanbliss/retree/tree/main/packages/retree-core#memoize-computed-getters) cache expensive computed values. They do not trigger renders by themselves.
@@ -398,7 +398,7 @@ While `useTree` is powerful and can make things a lot easier, it is important to
 Use `useRaw` when a component reads wide during render — big tables, canvas
 layers, subtree serialization — and per-property proxy reads show up in
 profiles. It subscribes exactly like `useNode` (`nodeChanged` by default) but
-returns `[raw, toSource]`: the live raw object for native-speed reads plus a
+returns `[raw, toManaged]`: the live raw object for native-speed reads plus a
 resolver back to managed nodes.
 
 ```tsx
@@ -407,11 +407,11 @@ import { useNode, useRaw } from "@retreejs/react";
 
 function TaskListView({ list }: { list: TaskList }) {
     // Re-renders only when the array itself changes: add / remove / reorder.
-    const [tasksRaw, toSource] = useRaw(list.tasks);
+    const [tasksRaw, toManaged] = useRaw(list.tasks);
     return (
         <ul>
             {tasksRaw.map((rawTask) => (
-                <TaskRow key={rawTask.id} task={toSource(rawTask)!} />
+                <TaskRow key={rawTask.id} task={toManaged(rawTask)!} />
             ))}
         </ul>
     );
@@ -423,10 +423,10 @@ const TaskRow = React.memo(function TaskRow({ task }: { task: Task }) {
 });
 ```
 
--   The prop passed to children is the **node** (`toSource(rawTask)`), never
+-   The prop passed to children is the **node** (`toManaged(rawTask)`), never
     the raw value. Nodes carry subscriptions, writes, navigation, and
     identity; raw is a local read view.
--   `toSource` always resolves direct children of the subscribed node —
+-   `toManaged` always resolves direct children of the subscribed node —
     object/array children, Map values, and Set members — materializing them
     on demand.
 -   Invalidation matches `useNode`: deep changes re-render only when declared

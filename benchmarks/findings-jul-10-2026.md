@@ -280,15 +280,15 @@ Implemented per `specs/retree-raw.md` (status: implemented). Summary:
   reassigning the node already stored at a property is now a no-op (raw-to-raw
   comparison). `structuredClone(Retree.raw(n))` is now a valid point-in-time
   copy.
-- **New APIs:** `Retree.source(rawValue)` (raw→managed resolution) and
-  `useRaw(node) → [raw, toSource]` in `@retreejs/react` (nodeChanged default,
-  toSource materialize-on-miss guarantee for direct children incl. Map/Set).
+- **New APIs:** `Retree.managed(rawValue)` (raw→managed resolution) and
+  `useRaw(node) → [raw, toManaged]` in `@retreejs/react` (nodeChanged default,
+  toManaged materialize-on-miss guarantee for direct children incl. Map/Set).
 - **Convex reconcilers** read raw / write proxied; `IStateReconciler.reconcile`
   gained a backward-compatible `rawCurrent` third parameter.
 - **Perf:** bundle probes within noise or better (materialize/steady improved
   again — Map/Set read write-backs and `findSetStoredValue`'s linear scan are
   gone); wide-table render 200×40: `useRaw` 1.1 ms vs `useNode` 9.2 ms (~8×);
-  2k-row mount with `toSource` per row at parity with `useNode`.
+  2k-row mount with `toManaged` per row at parity with `useNode`.
 
 ## Recommended order
 

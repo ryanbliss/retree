@@ -680,7 +680,7 @@ export class Retree {
      * `Retree.move`, Map/Set value reads, and post-construction assignment of
      * class instances or collections. Every value is plain data, every read
      * is native speed, and `structuredClone(Retree.raw(node))` is a valid
-     * point-in-time copy. Use {@link Retree.source} to resolve a raw value
+     * point-in-time copy. Use {@link Retree.managed} to resolve a raw value
      * back to its managed node.
      *
      * Throws when the value is not a Retree-managed node. When a value may
@@ -720,7 +720,7 @@ export class Retree {
      * Retree node or is not part of a Retree tree; a miss is a normal query
      * outcome, not an error. Values become materialized when they are read
      * through a managed node, so scanning via managed proxies first (or using
-     * `useRaw`'s `toSource`, which materializes direct children on demand)
+     * `useRaw`'s `toManaged`, which materializes direct children on demand)
      * guarantees resolution.
      *
      * @param value Raw object to resolve.
@@ -732,11 +732,11 @@ export class Retree {
      * project.items.forEach(() => {}); // materialize
      *
      * const rawItem = Retree.raw(project.items)[0];
-     * const item = Retree.source(rawItem);
+     * const item = Retree.managed(rawItem);
      * if (item) item.score = 2; // ✅ emits normally
      * ```
      */
-    static source<TNode extends TreeNode>(value: TNode): TNode | undefined {
+    static managed<TNode extends TreeNode>(value: TNode): TNode | undefined {
         if (value === null || typeof value !== "object") {
             return undefined;
         }
@@ -942,15 +942,17 @@ export class Retree {
      * teardown of a Retree-managed integration.
      *
      * @param node node to clear all listeners for
-     * @param shallow when false, will unsubscribe to all child nodes as well.
+     * @param shallow when false, also unsubscribes every descendant node —
+     * the full subtree, not just direct children.
      *
      * @example
      * ```ts
-     * const root = Retree.root({ child: { count: 0 } });
+     * const root = Retree.root({ child: { grandchild: { count: 0 } } });
      * Retree.on(root, "nodeChanged", () => {});
      * Retree.on(root.child, "nodeChanged", () => {});
+     * Retree.on(root.child.grandchild, "nodeChanged", () => {});
      *
-     * Retree.clearListeners(root, false); // clears root and child listeners
+     * Retree.clearListeners(root, false); // clears all three
      * ```
      */
     public static clearListeners(node: TreeNode, shallow: boolean = true) {
@@ -979,12 +981,35 @@ export class Retree {
             this.stopListening();
         }
         if (shallow) return;
+        this.clearDescendantListeners(node, new Set([rawNode]));
+    }
+
+    /**
+     * Recursive half of `clearListeners(node, false)`: shallow-clears every
+     * node reachable from `node`'s fields. `seen` is keyed by unproxied
+     * nodes (stable across reproxies) so cycles — e.g. a `Retree.link`
+     * pointing back at an ancestor — are visited exactly once.
+     */
+    private static clearDescendantListeners(
+        node: TreeNode,
+        seen: Set<TreeNode>
+    ) {
         Object.values(node).forEach((child) => {
             if (child === null || typeof child !== "object") {
                 return;
             }
-
+            const rawChild = getUnproxiedNode(child);
+            if (!rawChild) {
+                // Unmanaged plain value (e.g. behind @ignore) — nothing can
+                // be subscribed to it, so there is nothing to clear.
+                return;
+            }
+            if (seen.has(rawChild)) {
+                return;
+            }
+            seen.add(rawChild);
             this.clearListeners(child);
+            this.clearDescendantListeners(child, seen);
         });
     }
 

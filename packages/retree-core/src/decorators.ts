@@ -55,6 +55,14 @@ export function ignore(
     _value: undefined,
     context: ClassFieldDecoratorContext
 ): void | ((this: ReactiveNode, value: any) => any) {
+    if (isLegacyDecoratorPropertyKey(context)) {
+        // @retree-throws
+        throw new Error(
+            `@ignore on "${String(
+                context
+            )}" was invoked with legacy decorator semantics: it received a property key where a 2023-11 decorator context object was expected. This is expected when the toolchain compiles decorators with TypeScript's "experimentalDecorators" or Babel's @babel/plugin-proposal-decorators in legacy mode — Retree requires 2023-11 standard decorators. Fix: remove "experimentalDecorators" from tsconfig.json, or configure @babel/plugin-proposal-decorators with { "version": "2023-11" }.`
+        );
+    }
     context.addInitializer(function () {
         if (!(this instanceof ReactiveNode)) return;
         this[COLLECTED_KEYS_SYMBOL].add(context.name);
@@ -101,6 +109,14 @@ export function link(
     _value: undefined,
     context: ClassFieldDecoratorContext
 ): void | ((this: ReactiveNode, value: any) => any) {
+    if (isLegacyDecoratorPropertyKey(context)) {
+        // @retree-throws
+        throw new Error(
+            `@link on "${String(
+                context
+            )}" was invoked with legacy decorator semantics: it received a property key where a 2023-11 decorator context object was expected. This is expected when the toolchain compiles decorators with TypeScript's "experimentalDecorators" or Babel's @babel/plugin-proposal-decorators in legacy mode — Retree requires 2023-11 standard decorators. Fix: remove "experimentalDecorators" from tsconfig.json, or configure @babel/plugin-proposal-decorators with { "version": "2023-11" }.`
+        );
+    }
     context.addInitializer(function () {
         if (!(this instanceof ReactiveNode)) return;
         this[LINKED_KEYS_SYMBOL].add(context.name);
@@ -173,6 +189,14 @@ export function memo(
     targetOrGetComparisons?: unknown,
     context?: ClassGetterDecoratorContext<ReactiveNode, unknown>
 ) {
+    if (isLegacyDecoratorPropertyKey(context)) {
+        // @retree-throws
+        throw new Error(
+            `@memo on "${String(
+                context
+            )}" was invoked with legacy decorator semantics: it received a property key where a 2023-11 decorator context object was expected. This is expected when the toolchain compiles decorators with TypeScript's "experimentalDecorators" or Babel's @babel/plugin-proposal-decorators in legacy mode — Retree requires 2023-11 standard decorators. Fix: remove "experimentalDecorators" from tsconfig.json, or configure @babel/plugin-proposal-decorators with { "version": "2023-11" }.`
+        );
+    }
     if (context !== undefined) {
         if (!isDecoratorFunction(targetOrGetComparisons)) {
             // @retree-throws
@@ -208,6 +232,14 @@ function decorateMemoGetter<This extends ReactiveNode, Value>(
     context: ClassGetterDecoratorContext<This, Value>,
     getComparisons?: (self: This) => unknown[] | undefined
 ): (this: This) => Value {
+    if (isLegacyDecoratorPropertyKey(context)) {
+        // @retree-throws
+        throw new Error(
+            `@memo(...) on "${String(
+                context
+            )}" was invoked with legacy decorator semantics: it received a property key where a 2023-11 decorator context object was expected. This is expected when the toolchain compiles decorators with TypeScript's "experimentalDecorators" or Babel's @babel/plugin-proposal-decorators in legacy mode — Retree requires 2023-11 standard decorators. Fix: remove "experimentalDecorators" from tsconfig.json, or configure @babel/plugin-proposal-decorators with { "version": "2023-11" }.`
+        );
+    }
     if (context.kind !== "getter") {
         // @retree-throws
         throw new Error(
@@ -339,6 +371,14 @@ export function select(
         | ClassGetterDecoratorContext<ReactiveNode, unknown>
         | ISelectOptions<ReactiveNode, unknown>
 ) {
+    if (isLegacyDecoratorPropertyKey(contextOrOptions)) {
+        // @retree-throws
+        throw new Error(
+            `@select on "${String(
+                contextOrOptions
+            )}" was invoked with legacy decorator semantics: it received a property key where a 2023-11 decorator context object was expected. This is expected when the toolchain compiles decorators with TypeScript's "experimentalDecorators" or Babel's @babel/plugin-proposal-decorators in legacy mode — Retree requires 2023-11 standard decorators. Fix: remove "experimentalDecorators" from tsconfig.json, or configure @babel/plugin-proposal-decorators with { "version": "2023-11" }.`
+        );
+    }
     if (isDecoratorContext(contextOrOptions)) {
         if (!isDecoratorFunction(targetOrGetDependencies)) {
             // @retree-throws
@@ -405,6 +445,19 @@ function isDecoratorContext(
     return typeof value === "object" && value !== null && "kind" in value;
 }
 
+/**
+ * Detects the call shape of legacy decorator transpilation
+ * (TypeScript `experimentalDecorators`, Babel `@babel/plugin-proposal-decorators`
+ * in legacy mode): the decorator receives `(target, propertyKey, descriptor)`,
+ * so the argument in the 2023-11 context position is the property key —
+ * a string or symbol — instead of a context object.
+ */
+function isLegacyDecoratorPropertyKey(
+    value: unknown
+): value is string | symbol {
+    return typeof value === "string" || typeof value === "symbol";
+}
+
 function isDecoratorFunction(
     value: unknown
 ): value is (this: ReactiveNode) => unknown {
@@ -445,6 +498,14 @@ function decorateSelectGetter<This extends ReactiveNode, Value, Dependencies>(
         // @retree-throws
         throw new Error(
             "@select could not find the decorated getter function. This is unexpected and is likely a Retree bug. Fix: report this error with the decorated getter name and TypeScript version."
+        );
+    }
+    if (isLegacyDecoratorPropertyKey(context)) {
+        // @retree-throws
+        throw new Error(
+            `@select(...) on "${String(
+                context
+            )}" was invoked with legacy decorator semantics: it received a property key where a 2023-11 decorator context object was expected. This is expected when the toolchain compiles decorators with TypeScript's "experimentalDecorators" or Babel's @babel/plugin-proposal-decorators in legacy mode — Retree requires 2023-11 standard decorators. Fix: remove "experimentalDecorators" from tsconfig.json, or configure @babel/plugin-proposal-decorators with { "version": "2023-11" }.`
         );
     }
     if (context.kind !== "getter") {
@@ -600,6 +661,14 @@ export function fnMemo(
         FnMemoMethod<ReactiveNode, unknown[], unknown>
     >
 ) {
+    if (isLegacyDecoratorPropertyKey(context)) {
+        // @retree-throws
+        throw new Error(
+            `@fnMemo on "${String(
+                context
+            )}" was invoked with legacy decorator semantics: it received a property key where a 2023-11 decorator context object was expected. This is expected when the toolchain compiles decorators with TypeScript's "experimentalDecorators" or Babel's @babel/plugin-proposal-decorators in legacy mode — Retree requires 2023-11 standard decorators. Fix: remove "experimentalDecorators" from tsconfig.json, or configure @babel/plugin-proposal-decorators with { "version": "2023-11" }.`
+        );
+    }
     if (context !== undefined) {
         if (!isDecoratorFunction(targetOrGetComparisons)) {
             // @retree-throws
@@ -641,6 +710,14 @@ function decorateFnMemoMethod<
     >,
     getComparisons?: (self: This, ...args: MethodArgs) => unknown[] | undefined
 ): FnMemoMethod<This, MethodArgs, Value> {
+    if (isLegacyDecoratorPropertyKey(context)) {
+        // @retree-throws
+        throw new Error(
+            `@fnMemo(...) on "${String(
+                context
+            )}" was invoked with legacy decorator semantics: it received a property key where a 2023-11 decorator context object was expected. This is expected when the toolchain compiles decorators with TypeScript's "experimentalDecorators" or Babel's @babel/plugin-proposal-decorators in legacy mode — Retree requires 2023-11 standard decorators. Fix: remove "experimentalDecorators" from tsconfig.json, or configure @babel/plugin-proposal-decorators with { "version": "2023-11" }.`
+        );
+    }
     if (context.kind !== "method") {
         // @retree-throws
         throw new Error(
