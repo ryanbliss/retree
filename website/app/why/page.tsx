@@ -276,7 +276,7 @@ export default function WhyPage() {
                             4. Project status
                         </h3>
                         <p className="mt-2 text-base leading-7 text-muted">
-                            Retree is v0.5.x, MIT-licensed, and built by a solo
+                            Retree is v0.6.x, MIT-licensed, and built by a solo
                             maintainer. It is pre-1.0: minor versions may move
                             APIs, and the ecosystem of tutorials and Stack
                             Overflow answers is still growing. What you can
