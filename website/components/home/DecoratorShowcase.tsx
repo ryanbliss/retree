@@ -280,7 +280,7 @@ function resetDraft(): void {
 
 /*
  * A slow scripted mutation keeps the active mode's counters gently
- * accumulating (offset from GranularityDemo's cadence so the page never
+ * accumulating (offset from StickyBoardDemo's cadence so the page never
  * pulses in lockstep). Hover/focus pauses it; the first real click on a
  * mutation stops it for good.
  */
