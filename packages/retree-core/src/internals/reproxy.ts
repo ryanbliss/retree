@@ -35,6 +35,7 @@ import {
     registerCustomProxyMetadata,
     TCustomProxy,
 } from "./proxy-types";
+import { advanceSnapshotVersions } from "./snapshot-version";
 
 const reproxyMap: WeakMap<TreeNode, TCustomProxy<TreeNode>> = new WeakMap();
 /**
@@ -84,6 +85,20 @@ export function updateReproxyNode<T extends TreeNode = TreeNode>(
     const unproxiedNode = handler[unproxiedBaseNodeKey];
     const reproxy = buildReproxy<T>(node, handler);
     reproxyMap.set(unproxiedNode, reproxy);
+    return reproxy;
+}
+
+/**
+ * Reproxy a node for a logical `nodeChanged` event and advance its React
+ * external-store versions before any listener can observe the change.
+ *
+ * @internal
+ */
+export function updateReproxyNodeForChange<T extends TreeNode = TreeNode>(
+    node: TCustomProxy<T>
+): TCustomProxy<T> {
+    const reproxy = updateReproxyNode(node);
+    advanceSnapshotVersions(node);
     return reproxy;
 }
 

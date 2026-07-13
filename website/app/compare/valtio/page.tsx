@@ -244,7 +244,7 @@ export default function CompareValtioPage() {
                 </p>
                 <p>
                     Now the other side of the ledger. Valtio is 2.8 kB min+gzip
-                    in our measurements; Retree core + react is 18.1 kB. What
+                    in our measurements; Retree core + react is 20.5 kB. What
                     those bytes buy: per-node subscriptions, tree operations,
                     view models with optional decorators, transactions, and the
                     Convex integration — the things you would otherwise build

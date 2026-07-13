@@ -5,7 +5,12 @@
 "use no memo";
 
 import { TreeNode } from "@retreejs/core";
-import { getBaseProxy, getReproxyNode } from "@retreejs/core/internal";
+import {
+    getBaseProxy,
+    getNodeSnapshotVersion,
+    getReproxyNode,
+    getTreeSnapshotVersion,
+} from "@retreejs/core/internal";
 import { NodeFactory } from "../types";
 import { subscribeToNode } from "./subscriptionHub";
 import {
@@ -18,17 +23,17 @@ const operations: UseNodeInternalOperations = {
     cleanupSubscription(_listenerType, unsubscribe) {
         unsubscribe();
     },
-    getInitialReproxyNode(_listenerType, node) {
-        return getReproxyNode(node);
-    },
     getRenderBaseProxy(_listenerType, node) {
         return getBaseProxy(node);
     },
-    getResetReproxyNode(_listenerType, node) {
+    getRenderReproxyNode(_listenerType, node) {
         return getReproxyNode(node);
     },
-    getStateBaseProxy(_listenerType, node) {
-        return getBaseProxy(node);
+    getSnapshotVersion(listenerType, node) {
+        if (listenerType === "treeChanged") {
+            return getTreeSnapshotVersion(node);
+        }
+        return getNodeSnapshotVersion(node);
     },
     subscribeToNode(listenerType, node, listener) {
         return subscribeToNode(node, listenerType, listener);

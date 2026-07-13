@@ -1,6 +1,6 @@
 import React from "react";
 import { act, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Retree } from "@retreejs/core";
 import { useTree } from "./useTree";
 
@@ -88,5 +88,34 @@ describe("useTree", () => {
         });
 
         expect(screen.getByTestId("value").textContent).toBe("5");
+    });
+
+    it("detects a descendant mutation between render and subscription", () => {
+        const root = trackRoot(Retree.root({ child: { value: 1 } }));
+        const originalOn = Retree.on.bind(Retree);
+        let mutatedBeforeSubscription = false;
+        vi.spyOn(Retree, "on").mockImplementation(
+            (node, listenerType, listener) => {
+                if (
+                    !mutatedBeforeSubscription &&
+                    node === root &&
+                    listenerType === "treeChanged"
+                ) {
+                    mutatedBeforeSubscription = true;
+                    root.child.value = 2;
+                }
+                return originalOn(node, listenerType, listener);
+            }
+        );
+
+        function Probe() {
+            const state = useTree(root);
+            return <div data-testid="gap-value">{state.child.value}</div>;
+        }
+
+        render(<Probe />);
+
+        expect(mutatedBeforeSubscription).toBe(true);
+        expect(screen.getByTestId("gap-value").textContent).toBe("2");
     });
 });

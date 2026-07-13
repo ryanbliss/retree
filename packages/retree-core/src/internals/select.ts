@@ -49,7 +49,7 @@ interface ActiveSelectDependency {
     unsubscribe: () => void;
 }
 
-interface TrackedSelection<TSelected> {
+export interface TrackedSelection<TSelected> {
     selected: TSelected;
     dependencies: readonly unknown[];
     getAccessSummaries: () => Map<TreeNode, ITrackedNodeAccessSummary>;
@@ -66,7 +66,7 @@ function getTrackedDependencyComparisonValue(dependency: unknown): unknown {
     return dependency;
 }
 
-function getTrackedDependencyComparisonValues(
+export function getTrackedDependencyComparisonValues(
     dependencies: readonly unknown[]
 ) {
     const comparisonValues: unknown[] = [];
@@ -81,7 +81,7 @@ function getTrackedDependencyComparisonValues(
     return comparisonValues;
 }
 
-function areTrackedComparisonValuesEqual(
+export function areTrackedComparisonValuesEqual(
     previous: readonly unknown[],
     next: readonly unknown[]
 ): boolean {
@@ -96,14 +96,14 @@ function areTrackedComparisonValuesEqual(
     return true;
 }
 
-function defaultTrackedSelectedChanged<TSelected>(
+export function defaultTrackedSelectedChanged<TSelected>(
     previous: TSelected,
     next: TSelected
 ): boolean {
     return !Object.is(previous, next);
 }
 
-function stabilizeSelectedRetreeReferences<TSelected>(
+export function stabilizeSelectedRetreeReferences<TSelected>(
     previous: TSelected,
     next: TSelected
 ): TSelected {

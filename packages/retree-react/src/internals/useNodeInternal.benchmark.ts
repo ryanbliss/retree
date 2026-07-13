@@ -5,7 +5,12 @@
 "use no memo";
 
 import { TreeNode } from "@retreejs/core";
-import { getBaseProxy, getReproxyNode } from "@retreejs/core/internal";
+import {
+    getBaseProxy,
+    getNodeSnapshotVersion,
+    getReproxyNode,
+    getTreeSnapshotVersion,
+} from "@retreejs/core/internal";
 import { NodeFactory } from "../types";
 import { subscribeToNode } from "./subscriptionHub";
 import {
@@ -28,22 +33,9 @@ const operations: UseNodeInternalOperations = {
 
         measureUseNodeInternalBenchmarkOperation(
             recorder,
-            "effect-cleanup",
+            "external-store-cleanup",
             listenerType,
             unsubscribe
-        );
-    },
-    getInitialReproxyNode(listenerType, node) {
-        const recorder = getUseNodeInternalBenchmarkRecorder();
-        if (recorder === undefined) {
-            return getReproxyNode(node);
-        }
-
-        return measureUseNodeInternalBenchmarkOperation(
-            recorder,
-            "initial-reproxy-state",
-            listenerType,
-            () => getReproxyNode(node)
         );
     },
     getRenderBaseProxy(listenerType, node) {
@@ -59,7 +51,7 @@ const operations: UseNodeInternalOperations = {
             () => getBaseProxy(node)
         );
     },
-    getResetReproxyNode(listenerType, node) {
+    getRenderReproxyNode(listenerType, node) {
         const recorder = getUseNodeInternalBenchmarkRecorder();
         if (recorder === undefined) {
             return getReproxyNode(node);
@@ -67,22 +59,26 @@ const operations: UseNodeInternalOperations = {
 
         return measureUseNodeInternalBenchmarkOperation(
             recorder,
-            "render-reproxy-reset",
+            "render-reproxy",
             listenerType,
             () => getReproxyNode(node)
         );
     },
-    getStateBaseProxy(listenerType, node) {
+    getSnapshotVersion(listenerType, node) {
         const recorder = getUseNodeInternalBenchmarkRecorder();
+        const getVersion = () =>
+            listenerType === "treeChanged"
+                ? getTreeSnapshotVersion(node)
+                : getNodeSnapshotVersion(node);
         if (recorder === undefined) {
-            return getBaseProxy(node);
+            return getVersion();
         }
 
         return measureUseNodeInternalBenchmarkOperation(
             recorder,
-            "render-state-base-proxy",
+            "snapshot-read",
             listenerType,
-            () => getBaseProxy(node)
+            getVersion
         );
     },
     subscribeToNode(listenerType, node, listener) {
@@ -93,7 +89,7 @@ const operations: UseNodeInternalOperations = {
 
         return measureUseNodeInternalBenchmarkOperation(
             recorder,
-            "effect-subscribe",
+            "external-store-subscribe",
             listenerType,
             () => subscribeToNode(node, listenerType, listener)
         );

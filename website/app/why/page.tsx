@@ -166,7 +166,7 @@ export default function WhyPage() {
                     </p>
                     <p>
                         Valtio is 2.8 kB min+gzip in our measurements to
-                        Retree&apos;s 18.1 kB for core + react, and it ships
+                        Retree&apos;s 20.5 kB for core + react, and it ships
                         Redux DevTools support, which Retree does not yet. What
                         Retree&apos;s bytes buy: per-node subscriptions, tree
                         operations (parent / move / clone / link), view models
@@ -199,31 +199,33 @@ export default function WhyPage() {
                 <div className="mt-6 space-y-8">
                     <div className="max-w-3xl">
                         <h3 className="text-lg font-semibold text-foreground">
-                            1. Concurrent React
+                            1. External-store consistency is not transition
+                            state
                         </h3>
                         <p className="mt-2 text-base leading-7 text-muted">
                             Retree&apos;s hooks (<code>useNode</code>,{" "}
                             <code>useTree</code>, <code>useSelect</code>,{" "}
-                            <code>useRaw</code>) subscribe with{" "}
-                            <code>useState</code> + <code>useEffect</code>, not{" "}
-                            <code>useSyncExternalStore</code> — you can read
-                            that directly in{" "}
+                            <code>useRaw</code>) use React&apos;s{" "}
+                            <code>useSyncExternalStore</code> protocol with
+                            cached, listener-independent version tokens. You can
+                            read the adapter directly in{" "}
                             <a
-                                href="https://github.com/ryanbliss/retree/blob/main/packages/retree-react/src/internals/useNodeInternalCore.ts"
+                                href="https://github.com/ryanbliss/retree/blob/main/packages/retree-react/src/internals/externalStore.ts"
                                 target="_blank"
                                 rel="noreferrer"
                                 className="text-accent underline underline-offset-2 hover:no-underline"
                             >
                                 the hook source
                             </a>
-                            . Updates arrive through React&apos;s normal state
-                            queue after a commit-phase subscription. We have not
-                            validated behavior under heavy concurrent rendering
-                            (<code>useTransition</code>, Suspense-driven
-                            interruptions). The subscription core is small
-                            enough to audit in an afternoon — if your app leans
-                            hard on concurrent features, run it against your
-                            workload first.
+                            . That closes render-to-subscribe gaps and lets
+                            React restart work when a Retree version changes
+                            before commit. The trade-off is that Retree proxies
+                            are still live mutable objects, not immutable
+                            historical snapshots. A mutation inside{" "}
+                            <code>startTransition</code> therefore remains a
+                            synchronous external-store update; use a selected
+                            primitive or immutable projection when UI work needs
+                            to be deferred.
                         </p>
                     </div>
 

@@ -139,7 +139,7 @@ describe("benchmark scenarios", () => {
             reactUseNode?.cases[0]?.setupMeasurements.map(
                 (measurement) => measurement.operation
             )
-        ).toContain("react-hook-effect-subscribe");
+        ).toContain("react-hook-external-store-subscribe");
         expect(
             reactUseNode?.cases[0]?.setupSummaries.find(
                 (summary) => summary.operation === "react-hook-render-read"

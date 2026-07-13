@@ -1,7 +1,8 @@
-import React from "react";
+import React, { startTransition, useState } from "react";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode, Retree, select } from "@retreejs/core";
+import { renderToString } from "react-dom/server";
 import { useNode } from "./useNode";
 
 class SelectedOwnerNode extends ReactiveNode {
@@ -285,5 +286,69 @@ describe("useNode", () => {
         expect(subscriptionCountAfterMount).toBeGreaterThanOrEqual(1);
 
         onSpy.mockRestore();
+    });
+
+    it("renders on the server using the same public node value", () => {
+        const root = trackRoot(Retree.root({ count: 7 }));
+        let returnedNode: typeof root | undefined;
+
+        function Probe() {
+            returnedNode = useNode(root);
+            return <span>{returnedNode.count}</span>;
+        }
+
+        expect(renderToString(<Probe />)).toBe("<span>7</span>");
+        expect(Retree.raw(returnedNode)).toBe(Retree.raw(root));
+    });
+
+    it("commits an external-store mutation while a transition is suspended", async () => {
+        const root = trackRoot(Retree.root({ count: 0 }));
+        let releasePendingView = () => {};
+        let pendingViewReady = false;
+        const pendingView = new Promise<void>((resolve) => {
+            releasePendingView = () => {
+                pendingViewReady = true;
+                resolve();
+            };
+        });
+        let beginTransition = () => {};
+
+        function PendingView() {
+            if (!pendingViewReady) {
+                throw pendingView;
+            }
+            return <div data-testid="pending-view">ready</div>;
+        }
+
+        function Probe() {
+            const state = useNode(root);
+            const [showPendingView, setShowPendingView] = useState(false);
+            beginTransition = () => {
+                startTransition(() => {
+                    setShowPendingView(true);
+                    root.count = 1;
+                });
+            };
+            return (
+                <>
+                    <div data-testid="transition-value">{state.count}</div>
+                    {showPendingView ? <PendingView /> : null}
+                </>
+            );
+        }
+
+        render(<Probe />);
+        await act(async () => {
+            beginTransition();
+        });
+
+        expect(screen.getByTestId("transition-value").textContent).toBe("1");
+        expect(screen.queryByTestId("pending-view")).toBeNull();
+
+        await act(async () => {
+            releasePendingView();
+            await pendingView;
+        });
+        expect(screen.getByTestId("pending-view").textContent).toBe("ready");
     });
 });
