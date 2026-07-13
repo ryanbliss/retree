@@ -158,14 +158,15 @@ type ToManaged = <T extends TreeNode>(rawValue: T) => T | undefined;
     corruption hazard).
 -   **Default subscription is `"nodeChanged"`, exactly like `useNode`**
     (principle 4). `listenerType: "treeChanged"` is an explicit opt-in.
-    Implementation mirrors `useNode`'s listener + state-bump (raw's stable
-    identity cannot satisfy `useSyncExternalStore`'s changed-value contract,
-    and doesn't need to).
+    Implementation mirrors `useNode`'s `useSyncExternalStore` adapter. The
+    live raw value is not itself the React snapshot: an internal cached version
+    token invalidates the render while `raw` keeps its stable public identity.
 -   **Freshness:** raw is live, so any render — own-node change, new node
     prop, unrelated parent re-render — reads current state. Between renders,
     undeclared deep data may be stale in rendered output; same contract as
-    `useNode`. Tearing exposure under concurrent rendering is the same as
-    `useNode` today (live reads during render).
+    `useNode`. React can detect a relevant external-store version change before
+    commit, but raw values remain live rather than immutable historical
+    snapshots.
 
 ### 4.2 `Retree.managed` and `toManaged`
 

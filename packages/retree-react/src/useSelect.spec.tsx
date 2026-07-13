@@ -730,4 +730,41 @@ describe("useSelect", () => {
 
         expect(selected).toHaveBeenCalledTimes(2);
     });
+
+    it("moves a trapped subscription when a selector changes branches", () => {
+        const root = trackRoot(
+            Retree.root({
+                useFirst: true,
+                first: { value: 1 },
+                second: { value: 1 },
+            })
+        );
+        let renderCount = 0;
+
+        function Probe() {
+            renderCount += 1;
+            const value = useSelect(() =>
+                root.useFirst ? root.first.value : root.second.value
+            );
+            return <div data-testid="branch-value">{value}</div>;
+        }
+
+        render(<Probe />);
+
+        act(() => {
+            root.useFirst = false;
+        });
+        expect(renderCount).toBe(2);
+
+        act(() => {
+            root.first.value = 2;
+        });
+        expect(renderCount).toBe(2);
+
+        act(() => {
+            root.second.value = 3;
+        });
+        expect(screen.getByTestId("branch-value").textContent).toBe("3");
+        expect(renderCount).toBe(3);
+    });
 });

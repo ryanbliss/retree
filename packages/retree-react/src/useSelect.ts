@@ -6,34 +6,258 @@
 
 import { RetreeSelectOptions, TreeNode } from "@retreejs/core";
 import {
-    createRetreeTrackedSelectionObserver,
-    createRetreeSelectionObserver,
+    areTrackedComparisonValuesEqual,
+    defaultSelectShouldNotify,
+    defaultTrackedSelectedChanged,
     getBaseProxy,
     getReproxyNode,
+    getTrackedDependencyComparisonValues,
+    normalizeDependencyEntry,
+    normalizeSelectDependencies,
     runTrackedSelection,
+    stabilizeSelectedRetreeReferences,
+    TrackedSelection,
 } from "@retreejs/core/internal";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { subscribeToNode } from "./internals/subscriptionHub";
+import { useMemo } from "react";
+import { useSyncExternalStoreWithSelector } from "use-sync-external-store/shim/with-selector";
+import {
+    areRetreeExternalStoreSourcesEqual,
+    getRetreeExternalStoreSource,
+    RetreeCompositeSnapshot,
+    RetreeExternalStoreSource,
+    useRetreeCompositeExternalStore,
+} from "./internals/externalStore";
 import { NodeFactory } from "./types";
 
 export type UseSelectOptions<TSelected> = RetreeSelectOptions<TSelected>;
-
-type UseTrackedSelectArgs<TSelected> = [
-    selector: () => TSelected,
-    options?: UseSelectOptions<TSelected>
-];
-
-type UseNodeSelectArgs<TNode extends TreeNode, TSelected> = [
-    node: TNode | NodeFactory<TNode>,
-    selector: (node: TNode) => TSelected,
-    options?: UseSelectOptions<TSelected>
-];
 
 function getNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>) {
     if (typeof node === "function") {
         return node();
     }
     return node;
+}
+
+function isTrackedSelector(value: unknown): value is () => unknown {
+    return typeof value === "function";
+}
+
+function isNodeSelector(value: unknown): value is (node: TreeNode) => unknown {
+    return typeof value === "function";
+}
+
+function isNodeOrFactory(
+    value: unknown
+): value is TreeNode | NodeFactory<TreeNode> {
+    return (
+        typeof value === "function" ||
+        (value !== null && typeof value === "object")
+    );
+}
+
+function getOptions(
+    value: unknown,
+    argumentName: string
+): UseSelectOptions<unknown> | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (value === null) {
+        throw new Error(
+            `useSelect: ${argumentName} must be an options object or undefined, but received null.`
+        );
+    }
+    if (typeof value !== "object") {
+        throw new Error(
+            `useSelect: ${argumentName} must be an options object or undefined, but received ${typeof value}.`
+        );
+    }
+    return value;
+}
+
+interface NodeSelection<TSelected> {
+    selected: TSelected;
+    sources: readonly RetreeExternalStoreSource[];
+    dependencyIndices: ReadonlyMap<
+        RetreeExternalStoreSource,
+        readonly number[]
+    >;
+}
+
+interface NodeSelectionSnapshot<TSelected> extends NodeSelection<TSelected> {
+    snapshot: RetreeCompositeSnapshot;
+}
+
+interface TrackedSelectionSnapshot<TSelected> {
+    selection: TrackedSelection<TSelected>;
+    snapshot: RetreeCompositeSnapshot;
+    sources: readonly RetreeExternalStoreSource[];
+}
+
+function getNodeSelection<TNode extends TreeNode, TSelected>(
+    baseProxy: TNode,
+    selector: (node: TNode) => TSelected,
+    listenerType: "nodeChanged" | "treeChanged"
+): NodeSelection<TSelected> {
+    const selected = selector(getReproxyNode(baseProxy));
+    const rootSource = getRetreeExternalStoreSource(baseProxy, listenerType);
+    const sources: RetreeExternalStoreSource[] = [rootSource];
+    const dependencyIndices = new Map<RetreeExternalStoreSource, number[]>();
+    const dependencies = normalizeSelectDependencies(selected);
+
+    for (let index = 0; index < dependencies.length; index++) {
+        const dependency = normalizeDependencyEntry(dependencies[index]);
+        if (dependency.node === undefined) {
+            continue;
+        }
+        const dependencyBaseProxy = getBaseProxy(dependency.node);
+        if (dependencyBaseProxy === baseProxy) {
+            continue;
+        }
+        const source = getRetreeExternalStoreSource(
+            dependencyBaseProxy,
+            "nodeChanged"
+        );
+        const existingIndices = dependencyIndices.get(source);
+        if (existingIndices !== undefined) {
+            existingIndices.push(index);
+            continue;
+        }
+        dependencyIndices.set(source, [index]);
+        sources.push(source);
+    }
+
+    return {
+        selected,
+        sources,
+        dependencyIndices,
+    };
+}
+
+function getTrackedSelectionSources(
+    selection: TrackedSelection<unknown>
+): readonly RetreeExternalStoreSource[] {
+    const sources: RetreeExternalStoreSource[] = [];
+    const seen = new Set<RetreeExternalStoreSource>();
+    for (const dependency of selection.dependencies) {
+        const normalized = normalizeDependencyEntry(dependency);
+        if (normalized.node === undefined) {
+            continue;
+        }
+        const source = getRetreeExternalStoreSource(
+            getBaseProxy(normalized.node),
+            "nodeChanged"
+        );
+        if (seen.has(source)) {
+            continue;
+        }
+        seen.add(source);
+        sources.push(source);
+    }
+    return sources;
+}
+
+function getChangedNodeDependencyIndices<TSelected>(
+    previous: NodeSelectionSnapshot<TSelected>,
+    next: NodeSelectionSnapshot<TSelected>
+): readonly number[] | undefined {
+    const indices = new Set<number>();
+    let foundVersionChange = false;
+    for (let index = 0; index < next.snapshot.sources.length; index++) {
+        if (
+            Object.is(
+                previous.snapshot.versions[index],
+                next.snapshot.versions[index]
+            )
+        ) {
+            continue;
+        }
+        foundVersionChange = true;
+        const source = next.snapshot.sources[index];
+        const dependencyIndices =
+            next.dependencyIndices.get(source) ??
+            previous.dependencyIndices.get(source);
+        if (dependencyIndices === undefined) {
+            return undefined;
+        }
+        for (const dependencyIndex of dependencyIndices) {
+            indices.add(dependencyIndex);
+        }
+    }
+    if (!foundVersionChange) {
+        return undefined;
+    }
+    return [...indices];
+}
+
+function areNodeSelectionsEqual<TSelected>(
+    previous: NodeSelectionSnapshot<TSelected>,
+    next: NodeSelectionSnapshot<TSelected>,
+    equals: UseSelectOptions<TSelected>["equals"]
+): boolean {
+    let selectedEqual: boolean;
+    if (equals !== undefined) {
+        selectedEqual = equals(previous.selected, next.selected);
+    } else {
+        const changedDependencyIndices = getChangedNodeDependencyIndices(
+            previous,
+            next
+        );
+        if (changedDependencyIndices === undefined) {
+            selectedEqual = !defaultSelectShouldNotify(
+                previous.selected,
+                next.selected
+            );
+        } else {
+            selectedEqual = !changedDependencyIndices.some((index) =>
+                defaultSelectShouldNotify(
+                    previous.selected,
+                    next.selected,
+                    index
+                )
+            );
+        }
+    }
+
+    if (selectedEqual) {
+        next.selected = previous.selected;
+    }
+    return (
+        selectedEqual &&
+        areRetreeExternalStoreSourcesEqual(previous.sources, next.sources)
+    );
+}
+
+function areTrackedSelectionsEqual<TSelected>(
+    previous: TrackedSelectionSnapshot<TSelected>,
+    next: TrackedSelectionSnapshot<TSelected>,
+    equals: UseSelectOptions<TSelected>["equals"]
+): boolean {
+    const stabilizedSelected = stabilizeSelectedRetreeReferences(
+        previous.selection.selected,
+        next.selection.selected
+    );
+    next.selection.selected = stabilizedSelected;
+    const selectedEqual =
+        equals !== undefined
+            ? equals(previous.selection.selected, stabilizedSelected)
+            : !defaultTrackedSelectedChanged(
+                  previous.selection.selected,
+                  stabilizedSelected
+              );
+    const dependenciesEqual = areTrackedComparisonValuesEqual(
+        getTrackedDependencyComparisonValues(previous.selection.dependencies),
+        getTrackedDependencyComparisonValues(next.selection.dependencies)
+    );
+
+    if (selectedEqual) {
+        next.selection.selected = previous.selection.selected;
+    }
+    return (
+        selectedEqual &&
+        dependenciesEqual &&
+        areRetreeExternalStoreSourcesEqual(previous.sources, next.sources)
+    );
 }
 
 /**
@@ -67,7 +291,9 @@ function getNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>) {
  * Put that work behind `memo`, `@memo`, or `@fnMemo`, then select the cached
  * value.
  *
- * @param node Retree-managed node or node factory to observe.
+ * The node form's first argument is the Retree-managed node or node factory to
+ * observe.
+ *
  * @param selector Function that reads a selected value or dependency list from
  * the latest reproxy.
  * @param options Optional listener type and equality comparison.
@@ -119,26 +345,36 @@ function getNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>) {
  * }
  * ```
  */
+export function useSelect<TSelected>(
+    selector: () => TSelected,
+    options?: UseSelectOptions<TSelected>
+): TSelected;
+// TypeScript overload signatures intentionally share the exported hook name.
+// eslint-disable-next-line no-redeclare
 export function useSelect<TNode extends TreeNode, TSelected>(
-    ...args:
-        | UseTrackedSelectArgs<TSelected>
-        | UseNodeSelectArgs<TNode, TSelected>
-): TSelected {
-    const [nodeOrSelector, selectorOrOptions, options] = args;
-    if (args.length < 2) {
-        return useTrackedSelect(nodeOrSelector as () => TSelected);
+    node: TNode | NodeFactory<TNode>,
+    selector: (node: TNode) => TSelected,
+    options?: UseSelectOptions<TSelected>
+): TSelected;
+// eslint-disable-next-line no-redeclare
+export function useSelect(...args: unknown[]): unknown {
+    const [nodeOrSelector, selectorOrOptions, optionsValue] = args;
+    if (!isNodeSelector(selectorOrOptions)) {
+        if (!isTrackedSelector(nodeOrSelector)) {
+            throw new Error(
+                "useSelect: the selector-only form requires a selector function as its first argument."
+            );
+        }
+        const options = getOptions(selectorOrOptions, "second argument");
+        return useTrackedSelect(nodeOrSelector, options);
     }
-    if (typeof selectorOrOptions !== "function") {
-        return useTrackedSelect(
-            nodeOrSelector as () => TSelected,
-            selectorOrOptions
+    if (!isNodeOrFactory(nodeOrSelector)) {
+        throw new Error(
+            "useSelect: the node form requires a Retree-managed node or node factory as its first argument."
         );
     }
-    return useNodeSelect(
-        nodeOrSelector as TNode | NodeFactory<TNode>,
-        selectorOrOptions,
-        options
-    );
+    const options = getOptions(optionsValue, "third argument");
+    return useNodeSelect(nodeOrSelector, selectorOrOptions, options);
 }
 
 function useNodeSelect<TNode extends TreeNode, TSelected>(
@@ -152,43 +388,20 @@ function useNodeSelect<TNode extends TreeNode, TSelected>(
     const baseProxy = getBaseProxy<TNode>(memoNode);
     const listenerType = options?.listenerType ?? "nodeChanged";
     const equals = options?.equals;
-    const selectorRef = useRef(selector);
-    const equalsRef = useRef(equals);
-    selectorRef.current = selector;
-    equalsRef.current = equals;
+    const renderSelection = getNodeSelection(baseProxy, selector, listenerType);
+    const store = useRetreeCompositeExternalStore(renderSelection.sources);
+    const selection = useSyncExternalStoreWithSelector(
+        store.subscribe,
+        store.getSnapshot,
+        store.getServerSnapshot,
+        (snapshot): NodeSelectionSnapshot<TSelected> => ({
+            ...getNodeSelection(baseProxy, selector, listenerType),
+            snapshot,
+        }),
+        (previous, next) => areNodeSelectionsEqual(previous, next, equals)
+    );
 
-    const [selectedState, setSelectedState] = useState<{
-        baseProxy: TNode;
-        selected: TSelected;
-    }>(() => ({
-        baseProxy,
-        selected: selector(getReproxyNode(memoNode)),
-    }));
-
-    if (selectedState.baseProxy !== baseProxy) {
-        selectedState.baseProxy = baseProxy;
-        selectedState.selected = selector(getReproxyNode(baseProxy));
-    }
-
-    useEffect(() => {
-        return createRetreeSelectionObserver({
-            node: baseProxy,
-            selector: (reproxy) => selectorRef.current(reproxy),
-            equals: equalsRef.current,
-            listenerType,
-            subscribeToNode,
-            onChange: (next) => {
-                setSelectedState(() => {
-                    return {
-                        baseProxy,
-                        selected: next,
-                    };
-                });
-            },
-        });
-    }, [baseProxy, listenerType]);
-
-    return selectedState.selected;
+    return selection.selected;
 }
 
 function useTrackedSelect<TSelected>(
@@ -196,29 +409,23 @@ function useTrackedSelect<TSelected>(
     options?: UseSelectOptions<TSelected>
 ): TSelected {
     const equals = options?.equals;
-    const selectorRef = useRef(selector);
-    const equalsRef = useRef(equals);
-    selectorRef.current = selector;
-    equalsRef.current = equals;
+    const renderSelection = runTrackedSelection(selector);
+    const renderSources = getTrackedSelectionSources(renderSelection);
+    const store = useRetreeCompositeExternalStore(renderSources);
+    const selection = useSyncExternalStoreWithSelector(
+        store.subscribe,
+        store.getSnapshot,
+        store.getServerSnapshot,
+        (snapshot): TrackedSelectionSnapshot<TSelected> => {
+            const trackedSelection = runTrackedSelection(selector);
+            return {
+                selection: trackedSelection,
+                snapshot,
+                sources: getTrackedSelectionSources(trackedSelection),
+            };
+        },
+        (previous, next) => areTrackedSelectionsEqual(previous, next, equals)
+    );
 
-    const [selectedState, setSelectedState] = useState(() => ({
-        selected: runTrackedSelection(selector).selected,
-    }));
-
-    useEffect(() => {
-        return createRetreeTrackedSelectionObserver({
-            selector: () => selectorRef.current(),
-            equals: equalsRef.current,
-            subscribeToNode,
-            onChange: (next) => {
-                setSelectedState(() => {
-                    return {
-                        selected: next,
-                    };
-                });
-            },
-        });
-    }, []);
-
-    return selectedState.selected;
+    return selection.selection.selected;
 }

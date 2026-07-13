@@ -9,3 +9,4 @@ export * from "./dependency-tracking";
 export * from "./proxy";
 export * from "./reproxy";
 export * from "./select";
+export * from "./snapshot-version";

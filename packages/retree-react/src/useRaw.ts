@@ -10,8 +10,11 @@ import {
     getUnproxiedNode,
     materializeDirectChildren,
 } from "@retreejs/core/internal";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { subscribeToNode } from "./internals/subscriptionHub";
+import { useCallback, useMemo, useRef } from "react";
+import {
+    getRetreeExternalStoreSource,
+    useRetreeExternalStore,
+} from "./internals/externalStore";
 import { NodeFactory } from "./types";
 
 /**
@@ -98,15 +101,8 @@ export function useRaw<TNode extends TreeNode>(
     const baseProxy = getBaseProxy(memoNode);
     const listenerType = options?.listenerType ?? "nodeChanged";
 
-    const [, setRenderCount] = useState(0);
-    useEffect(() => {
-        const unsubscribe = subscribeToNode(baseProxy, listenerType, () => {
-            setRenderCount((count) => count + 1);
-        });
-        return () => {
-            unsubscribe();
-        };
-    }, [baseProxy, listenerType]);
+    const source = getRetreeExternalStoreSource(baseProxy, listenerType);
+    useRetreeExternalStore([source]);
 
     // At most one materialization pass per render: a second miss in the same
     // render means the value is not a direct child of this node.
@@ -129,6 +125,11 @@ export function useRaw<TNode extends TreeNode>(
         [baseProxy]
     );
 
-    const raw = getUnproxiedNode(baseProxy) as TNode;
+    const raw = getUnproxiedNode(baseProxy);
+    if (raw === undefined) {
+        throw new Error(
+            "useRaw: could not resolve the raw value for the Retree-managed base proxy. This is an internal Retree invariant failure. Fix: file an issue with the node passed to useRaw and any preceding move, clone, or link operation."
+        );
+    }
     return useMemo(() => [raw, toManaged], [raw, toManaged]);
 }

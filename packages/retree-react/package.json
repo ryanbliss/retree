@@ -18,6 +18,7 @@
         "@retreejs/core": "0.5.1",
         "@types/react": "^19.2.3",
         "@types/react-dom": "^19.2.3",
+        "@types/use-sync-external-store": "^1.5.0",
         "babel-loader": "^9.1.2",
         "typescript": "^6.0.2"
     },
@@ -49,5 +50,8 @@
         "bin",
         "llms.txt"
     ],
-    "sideEffects": false
+    "sideEffects": false,
+    "dependencies": {
+        "use-sync-external-store": "^1.6.0"
+    }
 }

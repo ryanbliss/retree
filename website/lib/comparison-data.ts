@@ -68,11 +68,11 @@ export const FOOTNOTES = {
     backendClaim:
         "The precise claim: no official backend integration exists for MobX or Valtio, while @retreejs/convex is first-party. Community-built bindings may exist for either library.",
     bundleMethod:
-        "Measured by us with esbuild, minified + gzip, react and react-dom externalized, July 2026 — same method for every library. Full set: @retreejs/core 17.1 kB; core + react 18.1 kB; mobx 19.1 kB; mobx + mobx-react-lite 21.5 kB; valtio 2.8 kB; zustand 0.4 kB. Valtio and Zustand are far smaller; Retree undercuts the MobX stack by ~3.4 kB. @retreejs/core has zero runtime dependencies and both packages declare sideEffects for tree-shaking, so an app importing only Retree.root + useNode bundles ~15.6 kB. The difference is what ships in the bytes: per-node subscriptions, tree operations, view models, transactions, and the Convex integration.",
+        "Measured by us with esbuild, minified + gzip, react and react-dom externalized, July 2026 — same method for every library. Full set: @retreejs/core 17.1 kB; core + react 20.5 kB; mobx 19.1 kB; mobx + mobx-react-lite 21.5 kB; valtio 2.8 kB; zustand 0.4 kB. Valtio and Zustand are far smaller; Retree undercuts the MobX stack by ~1.0 kB. @retreejs/core has zero runtime dependencies and both packages declare sideEffects for tree-shaking, so an app importing only Retree.root + useNode bundles ~17.2 kB. The difference is what ships in the bytes: per-node subscriptions, React external-store consistency, tree operations, view models, transactions, and the Convex integration.",
     notScored:
         "Not scored: every scored cell in this table was verified against the listed versions, and this one has not been through that check yet — a blank beats a guess. Corrections via PR are welcome.",
     concurrentReact:
-        "Retree's hooks subscribe with useState + useEffect, not useSyncExternalStore. See the trade-offs section on /why for exactly what has and has not been validated.",
+        "All Retree React hooks use the useSyncExternalStore protocol with listener-independent cached version tokens, including selector-aware subscriptions. React can detect changes between render and subscription and restart inconsistent work. Retree mutations remain synchronous external-store updates: wrapping one in startTransition does not create an immutable old/new state pair or make the mutation itself transition-scheduled.",
     retreeCoreOutsideReact:
         "@retreejs/core runs without React (Retree.root, Retree.on, Retree.select), but React is the only first-class view binding today.",
     retreeLoses:
@@ -311,8 +311,8 @@ export const COMPARISON_ROWS: ComparisonRow[] = [
         feature: "Concurrent React (useSyncExternalStore)",
         cells: {
             retree: {
-                tier: "possible-with-work",
-                label: "useState + useEffect subscriptions; no useSyncExternalStore yet",
+                tier: "first-class",
+                label: "useSyncExternalStore across every hook",
                 footnotes: ["concurrentReact"],
             },
             mobx: notScored,
@@ -337,7 +337,7 @@ export const COMPARISON_ROWS: ComparisonRow[] = [
         cells: {
             retree: {
                 tier: "neutral",
-                label: "18.1 kB (core + react)",
+                label: "20.5 kB (core + react)",
                 footnotes: ["bundleMethod"],
             },
             mobx: {

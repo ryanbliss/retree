@@ -537,6 +537,14 @@ function renderMarkdownLegend() {
                     "The public hook call, including useNodeInternal from entry to returned node.",
                 ],
                 [
+                    "react-hook-external-store-cleanup",
+                    "useNodeInternal external-store subscription cleanup work.",
+                ],
+                [
+                    "react-hook-external-store-subscribe",
+                    "useNodeInternal external-store subscription work for subscribeToNode.",
+                ],
+                [
                     "react-hook-effect-cleanup",
                     "useNodeInternal useEffect cleanup work when the hook subscription is removed.",
                 ],
@@ -565,12 +573,20 @@ function renderMarkdownLegend() {
                     "Immediate second benchmark render-read pass in the same Retree-triggered render.",
                 ],
                 [
+                    "react-hook-render-reproxy",
+                    "Render-phase getReproxyNode work for the returned hook value.",
+                ],
+                [
                     "react-hook-render-reproxy-reset",
                     "Render-phase getReproxyNode work when useNodeInternal resets to a new base proxy.",
                 ],
                 [
                     "react-hook-render-state-base-proxy",
                     "Render-phase getBaseProxy call for the current hook state node.",
+                ],
+                [
+                    "react-hook-snapshot-read",
+                    "Render-phase Retree external-store version snapshot read.",
                 ],
                 [
                     "react-update-outside-component",
@@ -589,12 +605,20 @@ function renderMarkdownLegend() {
                     "Render-phase getBaseProxy call for the subscribed node during an unrelated rerender.",
                 ],
                 [
+                    "react-unrelated-hook-render-reproxy",
+                    "Render-phase getReproxyNode work during an unrelated local React state rerender.",
+                ],
+                [
                     "react-unrelated-hook-render-reproxy-reset",
                     "Render-phase getReproxyNode reset work during an unrelated rerender; this should normally be absent when no Retree node changed.",
                 ],
                 [
                     "react-unrelated-hook-render-state-base-proxy",
                     "Render-phase getBaseProxy call for the current hook state node during an unrelated rerender.",
+                ],
+                [
+                    "react-unrelated-hook-snapshot-read",
+                    "Retree external-store version snapshot read during an unrelated local React state rerender.",
                 ],
                 [
                     "react-unrelated-render-read",
@@ -1337,6 +1361,8 @@ function isReactInitialRenderOperation(operation: BenchmarkSetupOperation) {
     return (
         operation === "react-component-render" ||
         operation === "react-hook-call" ||
+        operation === "react-hook-render-reproxy" ||
+        operation === "react-hook-snapshot-read" ||
         operation === "react-hook-initial-reproxy-state" ||
         operation === "react-hook-render-base-proxy" ||
         operation === "react-hook-render-read" ||
@@ -1352,6 +1378,8 @@ function isReactEffectLifecycleOperation(operation: BenchmarkSetupOperation) {
     return (
         operation === "react-hook-effect-cleanup" ||
         operation === "react-hook-effect-subscribe" ||
+        operation === "react-hook-external-store-cleanup" ||
+        operation === "react-hook-external-store-subscribe" ||
         operation === "react-root-unmount"
     );
 }

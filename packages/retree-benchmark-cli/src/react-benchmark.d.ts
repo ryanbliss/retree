@@ -2,12 +2,11 @@ declare module "@retreejs/react/benchmark" {
     import { TreeNode } from "@retreejs/core";
 
     export type UseNodeInternalBenchmarkOperation =
-        | "effect-cleanup"
-        | "effect-subscribe"
-        | "initial-reproxy-state"
+        | "external-store-cleanup"
+        | "external-store-subscribe"
         | "render-base-proxy"
-        | "render-reproxy-reset"
-        | "render-state-base-proxy";
+        | "render-reproxy"
+        | "snapshot-read";
 
     export interface UseNodeInternalBenchmarkMeasurement {
         durationMs: number;

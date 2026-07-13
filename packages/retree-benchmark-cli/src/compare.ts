@@ -650,6 +650,8 @@ function isReactInitialRenderOperation(operation: string) {
     return (
         operation === "react-component-render" ||
         operation === "react-hook-call" ||
+        operation === "react-hook-render-reproxy" ||
+        operation === "react-hook-snapshot-read" ||
         operation === "react-hook-initial-reproxy-state" ||
         operation === "react-hook-render-base-proxy" ||
         operation === "react-hook-render-read" ||
@@ -665,6 +667,8 @@ function isReactEffectLifecycleOperation(operation: string) {
     return (
         operation === "react-hook-effect-cleanup" ||
         operation === "react-hook-effect-subscribe" ||
+        operation === "react-hook-external-store-cleanup" ||
+        operation === "react-hook-external-store-subscribe" ||
         operation === "react-root-unmount"
     );
 }

@@ -32,6 +32,7 @@ import {
     getReproxyNode,
     getReproxyNodeForUnproxiedNode,
     updateReproxyNode,
+    updateReproxyNodeForChange,
 } from "./internals/reproxy";
 import {
     createRetreeSelectionObserver,
@@ -1997,7 +1998,7 @@ export class Retree {
                 getUnproxiedNodeFromProxy(dependentBaseProxy);
             const dependentReproxy = Transactions.skipReproxy
                 ? getReproxyNodeForUnproxiedNode(dependentUnproxied)
-                : updateReproxyNode(dependentBaseProxy);
+                : updateReproxyNodeForChange(dependentBaseProxy);
             if (!dependentReproxy) {
                 // @retree-throws
                 throw new Error(

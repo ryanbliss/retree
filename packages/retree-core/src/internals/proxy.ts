@@ -32,6 +32,7 @@ import {
     getReproxyNode,
     registerBaseProxy,
     updateReproxyNode,
+    updateReproxyNodeForChange,
 } from "./reproxy";
 import {
     isDependencyTrackingActive,
@@ -471,7 +472,7 @@ class BaseProxyHandler<T extends TreeNode>
                     this.isApplyingSet = false;
                 }
                 if (!Transactions.skipReproxy) {
-                    const reproxy = updateReproxyNode(baseProxy);
+                    const reproxy = updateReproxyNodeForChange(baseProxy);
                     const changes = createNodeFieldChanges(
                         prop,
                         prev,
@@ -555,7 +556,7 @@ class BaseProxyHandler<T extends TreeNode>
             }
             // If in a skip reproxy transaction, do not reproxy node
             if (!Transactions.skipReproxy) {
-                const reproxy = updateReproxyNode(baseProxy);
+                const reproxy = updateReproxyNodeForChange(baseProxy);
                 const changes = createNodeFieldChanges(prop, prev, rawNewValue);
                 // Still emit here if in a `skipEmit` transaction so that parents get reproxied
                 this.emitter.emit(
@@ -675,7 +676,7 @@ class BaseProxyHandler<T extends TreeNode>
         // If in a skip reproxy transaction, do not reproxy node
         if (returnValue && !Transactions.skipReproxy) {
             if (baseProxy) {
-                const reproxy = updateReproxyNode(baseProxy);
+                const reproxy = updateReproxyNodeForChange(baseProxy);
                 // Still emit here if in a `skipEmit` transaction so that parents get reproxied
                 this.emitter.emit(
                     "nodeChanged",
@@ -732,7 +733,7 @@ class BaseProxyHandler<T extends TreeNode>
         // If in a skip reproxy transaction, do not reproxy node
         if (!Transactions.skipReproxy) {
             if (baseProxy) {
-                const reproxy = updateReproxyNode(baseProxy);
+                const reproxy = updateReproxyNodeForChange(baseProxy);
                 // Still emit here if in a `skipEmit` transaction so that parents get reproxied
                 this.emitter.emit(
                     "nodeChanged",
@@ -1693,7 +1694,7 @@ function emitCollectionChange(
     changes: INodeFieldChanges[]
 ) {
     if (Transactions.skipReproxy) return;
-    const reproxy = updateReproxyNode(baseProxy);
+    const reproxy = updateReproxyNodeForChange(baseProxy);
     emitter.emit("nodeChanged", target, baseProxy, reproxy, changes);
     if (removedNodes.length === 0 || Transactions.skipEmit) return;
     for (const removed of removedNodes) {

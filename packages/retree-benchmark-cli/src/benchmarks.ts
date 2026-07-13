@@ -1655,6 +1655,12 @@ function isReactSetupMeasurementOperation(
     if (operation === "react-hook-call") {
         return true;
     }
+    if (operation === "react-hook-external-store-cleanup") {
+        return true;
+    }
+    if (operation === "react-hook-external-store-subscribe") {
+        return true;
+    }
     if (operation === "react-hook-effect-cleanup") {
         return true;
     }
@@ -1676,10 +1682,16 @@ function isReactSetupMeasurementOperation(
     if (operation === "react-hook-render-read-second") {
         return true;
     }
+    if (operation === "react-hook-render-reproxy") {
+        return true;
+    }
     if (operation === "react-hook-render-reproxy-reset") {
         return true;
     }
     if (operation === "react-hook-render-state-base-proxy") {
+        return true;
+    }
+    if (operation === "react-hook-snapshot-read") {
         return true;
     }
     return false;
@@ -1689,32 +1701,29 @@ function formatReactHookBenchmarkOperation(
     operation: UseNodeInternalBenchmarkOperation,
     renderCause: ReactRenderCause
 ): BenchmarkMeasurementDetailOperation {
-    if (operation === "effect-cleanup") {
-        return "react-hook-effect-cleanup";
+    if (operation === "external-store-cleanup") {
+        return "react-hook-external-store-cleanup";
     }
-    if (operation === "effect-subscribe") {
-        return "react-hook-effect-subscribe";
+    if (operation === "external-store-subscribe") {
+        return "react-hook-external-store-subscribe";
     }
-    if (operation === "initial-reproxy-state") {
-        return "react-hook-initial-reproxy-state";
+    if (operation === "render-reproxy") {
+        if (renderCause === "unrelated-state") {
+            return "react-unrelated-hook-render-reproxy";
+        }
+        return "react-hook-render-reproxy";
+    }
+    if (operation === "snapshot-read") {
+        if (renderCause === "unrelated-state") {
+            return "react-unrelated-hook-snapshot-read";
+        }
+        return "react-hook-snapshot-read";
     }
     if (operation === "render-base-proxy") {
         if (renderCause === "unrelated-state") {
             return "react-unrelated-hook-render-base-proxy";
         }
         return "react-hook-render-base-proxy";
-    }
-    if (operation === "render-reproxy-reset") {
-        if (renderCause === "unrelated-state") {
-            return "react-unrelated-hook-render-reproxy-reset";
-        }
-        return "react-hook-render-reproxy-reset";
-    }
-    if (operation === "render-state-base-proxy") {
-        if (renderCause === "unrelated-state") {
-            return "react-unrelated-hook-render-state-base-proxy";
-        }
-        return "react-hook-render-state-base-proxy";
     }
     throw new Error(
         `Unknown useNodeInternal benchmark operation: ${operation}.`

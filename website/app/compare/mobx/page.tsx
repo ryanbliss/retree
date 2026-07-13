@@ -278,7 +278,7 @@ export default function CompareMobxPage() {
                 <p>
                     Bundle size mildly favors Retree: in our measurements
                     (esbuild, min+gzip, react externalized, July 2026), Retree
-                    core + react is 18.1 kB and mobx + mobx-react-lite is 21.5
+                    core + react is 20.5 kB and mobx + mobx-react-lite is 21.5
                     kB — with @retreejs/core carrying zero runtime dependencies.
                 </p>
             </div>
