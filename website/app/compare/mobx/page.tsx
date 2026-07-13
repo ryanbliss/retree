@@ -264,7 +264,7 @@ export default function CompareMobxPage() {
                     What MobX brings that Retree doesn&apos;t: a decade of
                     production hardening, a best-in-class computed engine, a
                     large ecosystem, and framework-agnostic usage well beyond
-                    React. Retree is v0.5.x — what it offers against that
+                    React. Retree is v0.6.x — what it offers against that
                     maturity is a smaller surface you can audit directly, with
                     the test suite and benchmark harness open in the repo. The{" "}
                     <Link

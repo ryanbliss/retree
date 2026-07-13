@@ -250,7 +250,7 @@ export default function CompareValtioPage() {
                     Convex integration — the things you would otherwise build
                     yourself on top of a minimal proxy. Valtio also supports
                     Redux DevTools, which Retree does not yet, and it has
-                    production mileage where Retree is v0.5.x. The{" "}
+                    production mileage where Retree is v0.6.x. The{" "}
                     <Link
                         href="/why"
                         className="text-accent underline underline-offset-2 hover:no-underline"

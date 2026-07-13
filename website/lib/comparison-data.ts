@@ -49,7 +49,7 @@ export interface ComparisonLibrary {
 }
 
 export const COMPARISON_LIBRARIES: ComparisonLibrary[] = [
-    { id: "retree", name: "Retree", detail: "@retreejs/core + react 0.5.1" },
+    { id: "retree", name: "Retree", detail: "@retreejs/core + react 0.6.0" },
     { id: "mobx", name: "MobX", detail: "6.16 + mobx-react-lite 4.1" },
     { id: "valtio", name: "Valtio", detail: "2.3" },
 ];
@@ -76,7 +76,7 @@ export const FOOTNOTES = {
     retreeCoreOutsideReact:
         "@retreejs/core runs without React (Retree.root, Retree.on, Retree.select), but React is the only first-class view binding today.",
     retreeLoses:
-        "MobX and Valtio have years of production mileage; Retree is v0.5.x. The counterweight is auditability: the API surface is small, and the test suite and benchmark harness are open in the repo.",
+        "MobX and Valtio have years of production mileage; Retree is v0.6.x. The counterweight is auditability: the API surface is small, and the test suite and benchmark harness are open in the repo.",
     devtoolsNote:
         "Valtio ships Redux DevTools support; Retree has no devtools today. Retree.on subscriptions are the current way to observe changes programmatically.",
 } as const;
@@ -373,7 +373,7 @@ export const COMPARISON_ROWS: ComparisonRow[] = [
         cells: {
             retree: {
                 tier: "absent",
-                label: "v0.5.x — no known large deployments",
+                label: "v0.6.x — no known large deployments",
                 footnotes: ["retreeLoses"],
             },
             mobx: {
