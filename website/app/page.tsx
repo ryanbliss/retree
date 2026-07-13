@@ -3,7 +3,8 @@ import Link from "next/link";
 import { CodeBlock } from "@/components/code/CodeBlock";
 import { CompareVisualizer } from "@/components/home/CompareVisualizer";
 import { DecoratorShowcase } from "@/components/home/DecoratorShowcase";
-import { GranularityDemo } from "@/components/home/GranularityDemo";
+import { MailSelectDemo } from "@/components/home/MailSelectDemo";
+import { StickyBoardDemo } from "@/components/home/StickyBoardDemo";
 import { InstallTabs } from "@/components/home/InstallTabs";
 import { Reveal } from "@/components/home/Reveal";
 import { TreeOpsDemo } from "@/components/home/TreeOpsDemo";
@@ -52,46 +53,64 @@ function TaskRow({ task }: { task: HeroTask }) {
 demo.tasks[1].subtasks[0].subtasks[0].done = true;
 // ✅ that one deep row re-renders — no ancestor moves`;
 
-const GRANULARITY_CODE = `const dashboard = Retree.root({
-    header: { title: "Team dashboard" },
-    stats: { views: 0 },
-});
-
-function StatsCard() {
-    // Subscribes to dashboard.stats — and nothing else.
-    const stats = useNode(dashboard.stats);
-    return <span>{stats.views}</span>;
-}
-
-dashboard.stats.views += 1; // ✅ StatsCard re-renders
-dashboard.header.title = "Ops"; // ❌ StatsCard does not re-render`;
-
-const USE_SELECT_CODE = `import { Retree } from "@retreejs/core";
-import { useSelect } from "@retreejs/react";
-
-const project = Retree.root({
-    tasks: [
-        { title: "Docs", done: false },
-        { title: "Tests", done: true },
+/* Mirrors components/home/StickyBoardDemo.tsx — the code that drives the
+ * sticky-board demo. Keep in sync if the demo state changes. */
+const STICKY_CODE = `const board = Retree.root({
+    notes: [
+        { sticker: "📌", text: "Buy oat milk" },
+        { sticker: "⭐", text: "Call Dana" },
+        { sticker: "🌱", text: "Water plants" },
+        { sticker: "✈️", text: "Book flights" },
     ],
 });
 
-function DoneCount() {
-    const doneCount = useSelect(
-        project.tasks,
-        (tasks) => tasks.filter((task) => task.done).length,
-        { listenerType: "treeChanged" }
-    );
-
-    return <span>{doneCount}</span>;
+function Sticky({ note }: { note: StickyNote }) {
+    const n = useNode(note); // subscribes to this note only
+    return <Note sticker={n.sticker} text={n.text} />;
 }
 
-project.tasks[0].done = true; // ✅ re-renders DoneCount: 1 -> 2
-project.tasks[0].title = "Better docs"; // ❌ no re-render: doneCount stayed 2`;
+board.notes[2].text = "Plant a tree"; // ✅ re-renders that sticky only
+board.notes[2].sticker = "🌳"; // ✅ same note — the other three stay quiet`;
 
-const TREE_OPS_CODE = `const task = board.backlog[0];
+/* Mirrors components/home/MailSelectDemo.tsx — the code that drives the
+ * mail-search demo. Keep in sync if the demo state changes. */
+const USE_SELECT_CODE = `import { Retree } from "@retreejs/core";
+import { useSelect } from "@retreejs/react";
 
-Retree.move(task, board.active); // transfer ownership
+const mailbox = Retree.root({
+    search: "",
+    folder: "Inbox",
+    messages: [/* { from, subject, folder } */],
+});
+
+/** Re-render only when the results actually change. */
+const sameResults = (a: Message[], b: Message[]) =>
+    a.length === b.length && a.every((message, i) => message === b[i]);
+
+function Results() {
+    const results = useSelect(
+        mailbox,
+        (mail) =>
+            mail.messages.filter(
+                (message) =>
+                    message.from.includes(mail.search) &&
+                    message.folder === mail.folder
+            ),
+        { listenerType: "treeChanged", equals: sameResults }
+    );
+
+    return <MessageList messages={results} />;
+}
+
+mailbox.search = "ana"; // ✅ selector re-runs — results change, re-render
+mailbox.folder = "Archive"; // ✅ plain writes drive the whole search UI`;
+
+/* Mirrors components/home/TreeOpsDemo.tsx — the calls behind the kanban. */
+const TREE_OPS_CODE = `// Dropping a card is one call — ownership transfers, at the drop index.
+function onDragEnd({ task, destination, index }: Drop) {
+    Retree.move(task, destination, index);
+}
+
 board.selected = Retree.link(task); // reactive pointer, no reparenting
 board.backlog.push(Retree.clone(task)); // detached, independent copy
 
@@ -478,21 +497,21 @@ export default function Home() {
                                 <p>
                                     Create a store with <code>Retree.root</code>
                                     , observe nodes with <code>useNode</code>,
-                                    and set values like ordinary TypeScript. A
-                                    component re-renders only when a node it
-                                    subscribed to changes — writes to a nested
-                                    child emit on that child, not on every
-                                    ancestor.
+                                    and set values like ordinary TypeScript. On
+                                    the sticky board below, each note subscribes
+                                    to its own node — edit one note&apos;s text
+                                    or sticker and only that note&apos;s render
+                                    counter moves.
                                 </p>
                             }
                             code={
                                 <CodeBlock
-                                    code={GRANULARITY_CODE}
+                                    code={STICKY_CODE}
                                     lang="tsx"
-                                    title="granularity.tsx"
+                                    title="sticky.tsx"
                                 />
                             }
-                            demo={<GranularityDemo />}
+                            demo={<StickyBoardDemo />}
                             link={{
                                 href: "/docs/react/use-node",
                                 label: "useNode guide",
@@ -507,19 +526,22 @@ export default function Home() {
                             body={
                                 <p>
                                     <code>useSelect</code>
-                                    {` `}re-renders a component only when the
-                                    selected value changes. In the example
-                                    below, the component only re-renders when{" "}
-                                    <code>doneCount</code> changes.
+                                    {` `}re-runs your selector whenever a
+                                    dependency changes and re-renders only when
+                                    the selected value changes. Search the inbox
+                                    below — every keystroke and folder click
+                                    re-runs the selector, and the list
+                                    re-renders only when the results change.
                                 </p>
                             }
                             code={
                                 <CodeBlock
                                     code={USE_SELECT_CODE}
                                     lang="tsx"
-                                    title="done-count.tsx"
+                                    title="inbox.tsx"
                                 />
                             }
+                            demo={<MailSelectDemo />}
                             link={{
                                 href: "/docs/react/use-select",
                                 label: "useSelect guide",
@@ -534,13 +556,13 @@ export default function Home() {
                             body={
                                 <p>
                                     Every node has one structural parent for
-                                    bi-directional tree traversal.{" "}
-                                    <code>Retree.move</code> transfers
-                                    ownership, <code>Retree.link</code> points
-                                    without reparenting,{" "}
-                                    <code>Retree.clone</code> copies, and{" "}
-                                    <code>Retree.parent</code> returns a node
-                                    {"'"}s parent.
+                                    bi-directional tree traversal. Drag a card
+                                    on the kanban below — the drop is one{" "}
+                                    <code>Retree.move</code>.{" "}
+                                    <code>Retree.link</code> points without
+                                    reparenting, <code>Retree.clone</code>{" "}
+                                    copies, and <code>Retree.parent</code>{" "}
+                                    returns a node{"'"}s parent.
                                 </p>
                             }
                             code={
@@ -603,9 +625,9 @@ export default function Home() {
                             Less manual optimization, better results.
                         </h2>
                         <p className="mt-3 text-muted">
-                            Toggle tasks to visualize how Retree optimizes
-                            renders. With a top-level store,{" "}
-                            <code>React.memo</code>
+                            Toggle tasks — or type in either list&apos;s name
+                            field — and watch the render counters bounce. With a
+                            top-level store, <code>React.memo</code>
                             {` `}can help keep siblings quiet but still carries
                             render overhead. With Retree, each component only
                             rerenders for the precise state it uses.

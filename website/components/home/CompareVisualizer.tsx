@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { Retree } from "@retreejs/core";
 import { useNode, useSelect } from "@retreejs/react";
-import { RenderBadge } from "@/components/visualizer/RenderBadge";
+import { BurstRenderBadge } from "@/components/visualizer/BurstRenderBadge";
 import {
     AutoplayStatusLine,
     createAutoplaySession,
@@ -334,7 +334,7 @@ function Pane({
     const accent = variant === "retree";
     const frame = accent
         ? "rounded-xl border border-[color:var(--accent-glow)] bg-surface-raised shadow-[0_0_28px_-10px_var(--accent-glow-soft)]"
-        : "rounded-xl border border-border-token bg-surface";
+        : "rounded-xl border border-border-token bg-surface shadow-[var(--glass-shadow)]";
     return (
         <div className={`${frame} p-3 sm:p-4`}>
             {/* items-start: both panes' titles sit on the same top line even
@@ -378,7 +378,7 @@ function PaneTotal({
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.25 }}
                 className={`text-3xl font-semibold tabular-nums tracking-tight ${
-                    accent ? "text-accent" : "text-foreground"
+                    accent ? "text-accent" : "text-danger"
                 }`}
             >
                 {total}
@@ -414,7 +414,7 @@ function Verdict() {
     return (
         <p className="mt-4 text-center font-mono text-xs text-muted sm:text-sm">
             same interactions —{" "}
-            <span className="font-semibold text-foreground">
+            <span className="font-semibold text-danger">
                 {storeTotal} renders
             </span>{" "}
             with the top-level store vs{" "}
@@ -457,7 +457,7 @@ const StoreNameField = memo(function StoreNameField({
                 onChange={(event) => onChange(event.target.value)}
                 className="min-w-0 flex-1 bg-transparent font-mono text-xs text-foreground outline-none"
             />
-            <RenderBadge renders={renders} />
+            <BurstRenderBadge renders={renders} tone="danger" />
         </div>
     );
 });
@@ -491,7 +491,7 @@ const StoreRow = memo(function StoreRow({
             >
                 {task.title}
             </span>
-            <RenderBadge renders={renders} />
+            <BurstRenderBadge renders={renders} tone="danger" />
         </li>
     );
 });
@@ -527,7 +527,7 @@ function StoreApp() {
                 <span className="font-mono text-[11px] text-faint">
                     {"<App />"}
                 </span>
-                <RenderBadge renders={renders} />
+                <BurstRenderBadge renders={renders} tone="danger" />
             </div>
             <div className="mt-2">
                 <StoreNameField value={store.name} onChange={setName} />
@@ -564,7 +564,7 @@ const StoreDoneCount = memo(function StoreDoneCount({
                 done: {doneCount}/{taskCount}
                 <span className="ml-2 text-faint">computed in {"<App />"}</span>
             </span>
-            <RenderBadge renders={renders} />
+            <BurstRenderBadge renders={renders} tone="danger" />
         </p>
     );
 });
@@ -592,7 +592,7 @@ function RetreeNameField() {
                 onChange={(event) => userSetName(event.target.value)}
                 className="min-w-0 flex-1 bg-transparent font-mono text-xs text-foreground outline-none"
             />
-            <RenderBadge renders={renders} />
+            <BurstRenderBadge renders={renders} />
         </div>
     );
 }
@@ -621,7 +621,7 @@ function RetreeRow({ task }: { task: CompareTask }) {
             >
                 {state.title}
             </span>
-            <RenderBadge renders={renders} />
+            <BurstRenderBadge renders={renders} />
         </li>
     );
 }
@@ -644,7 +644,7 @@ function RetreeDoneCount() {
                 done: {doneCount}/{retreeStore.tasks.length}
                 <span className="ml-2 text-faint">useSelect</span>
             </span>
-            <RenderBadge renders={renders} />
+            <BurstRenderBadge renders={renders} />
         </p>
     );
 }
@@ -661,7 +661,7 @@ function RetreeApp() {
                 <span className="font-mono text-[11px] text-faint">
                     {"<App />"}
                 </span>
-                <RenderBadge renders={renders} />
+                <BurstRenderBadge renders={renders} />
             </div>
             <div className="mt-2">
                 <RetreeNameField />
