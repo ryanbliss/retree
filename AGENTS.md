@@ -26,3 +26,9 @@ Convex agent skills for common tasks can be installed by running
 `npx convex ai-files install`.
 
 <!-- convex-ai-end -->
+
+<!-- git-start -->
+
+Don't add agent contributors to git commits.
+
+<!-- git-end -->
