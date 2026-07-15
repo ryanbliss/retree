@@ -32,6 +32,7 @@ jobs:
             - name: Build documented packages
               run: |
                   npm run build --workspace @retreejs/core
+                  npm run build --workspace @retreejs/query
                   npm run build --workspace @retreejs/react
                   npm run build --workspace @retreejs/convex
 
