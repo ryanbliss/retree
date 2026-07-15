@@ -196,7 +196,7 @@ export default function CompareMobxPage() {
                 <CodeBlock
                     code={retreeNested}
                     lang="tsx"
-                    title="Deeply nested write — Retree 0.5"
+                    title="Deeply nested write — Retree"
                 />
                 <CodeBlock
                     code={mobxNested}
@@ -230,7 +230,7 @@ export default function CompareMobxPage() {
                 <CodeBlock
                     code={retreeCounter}
                     lang="tsx"
-                    title="Counter — Retree 0.5"
+                    title="Counter — Retree"
                 />
                 <CodeBlock
                     code={mobxCounter}
@@ -264,7 +264,7 @@ export default function CompareMobxPage() {
                     What MobX brings that Retree doesn&apos;t: a decade of
                     production hardening, a best-in-class computed engine, a
                     large ecosystem, and framework-agnostic usage well beyond
-                    React. Retree is v0.6.x — what it offers against that
+                    React. Retree is pre-1.0 — what it offers against that
                     maturity is a smaller surface you can audit directly, with
                     the test suite and benchmark harness open in the repo. The{" "}
                     <Link
@@ -276,10 +276,12 @@ export default function CompareMobxPage() {
                     .
                 </p>
                 <p>
-                    Bundle size mildly favors Retree: in our measurements
+                    Bundle size mildly favors MobX: in our measurements
                     (esbuild, min+gzip, react externalized, July 2026), Retree
-                    core + react is 20.5 kB and mobx + mobx-react-lite is 21.5
-                    kB — with @retreejs/core carrying zero runtime dependencies.
+                    core + react is 28.2 kB and mobx + mobx-react-lite is 21.5
+                    kB. The extra bytes carry effects, undo/redo, and the
+                    devtools tap — and @retreejs/core still has zero runtime
+                    dependencies.
                 </p>
             </div>
 

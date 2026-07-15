@@ -14,20 +14,20 @@ properly.
 
 ## Concept map
 
-| Redux Toolkit                        | Retree                                                                                       |
-| ------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `configureStore`                     | [`Retree.root`](/docs/quick-start) — one call, no reducer map                                |
-| `createSlice`                        | A child node per domain — a plain object or class under the root                             |
-| Reducers (Immer-style mutation)      | Methods that mutate `this` — the same code, running for real                                 |
-| `dispatch(action)`                   | Call the method                                                                              |
-| `useSelector`                        | [`useSelect`](/docs/react/use-select) — or [`useNode`](/docs/react/use-node) on the node a component owns |
-| `useDispatch`                        | Not needed                                                                                   |
-| `createSelector` (reselect)          | [`@memo`](/docs/view-models#memoize-computed-values) getters on a `ReactiveNode`             |
-| `createAsyncThunk`                   | Plain `async` methods that mutate state before/after `await`                                 |
-| `<Provider store={store}>`           | Not needed                                                                                   |
-| RTK Query                            | [`@retreejs/convex`](/docs/convex) for Convex; otherwise fetch inside async methods — no general data-fetching layer today |
-| Redux DevTools                       | None today                                                                                   |
-| Middleware                           | None — cross-cutting reactions subscribe with [`Retree.on`](/docs/events-and-subscriptions)  |
+| Redux Toolkit                   | Retree                                                                                                                     |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `configureStore`                | [`Retree.root`](/docs/quick-start) — one call, no reducer map                                                              |
+| `createSlice`                   | A child node per domain — a plain object or class under the root                                                           |
+| Reducers (Immer-style mutation) | Methods that mutate `this` — the same code, running for real                                                               |
+| `dispatch(action)`              | Call the method                                                                                                            |
+| `useSelector`                   | [`useSelect`](/docs/react/use-select) — or [`useNode`](/docs/react/use-node) on the node a component owns                  |
+| `useDispatch`                   | Not needed                                                                                                                 |
+| `createSelector` (reselect)     | [`@memo`](/docs/view-models#memoize-computed-values) getters on a `ReactiveNode`                                           |
+| `createAsyncThunk`              | Plain `async` methods that mutate state before/after `await`                                                               |
+| `<Provider store={store}>`      | Not needed                                                                                                                 |
+| RTK Query                       | [`@retreejs/convex`](/docs/convex) for Convex; otherwise fetch inside async methods — no general data-fetching layer today |
+| Redux DevTools                  | [`@retreejs/devtools`](/docs/devtools) — `connectReduxDevTools()`, with JSON-state time travel                             |
+| Middleware                      | None — cross-cutting reactions subscribe with [`Retree.on`](/docs/events-and-subscriptions)                                |
 
 ## Before and after
 
@@ -61,8 +61,7 @@ const tasksSlice = createSlice({
 
 // In a component:
 const doneCount = useSelector(
-    (state: RootState) =>
-        state.tasks.items.filter((task) => task.done).length
+    (state: RootState) => state.tasks.items.filter((task) => task.done).length
 );
 dispatch(tasksSlice.actions.toggled(taskId));
 ```
@@ -101,12 +100,16 @@ lifecycle cases, and the provider did not.
 
 ## Gotchas
 
--   **There is no action log.** Redux's contract — every change is a
-    serializable action through one pipeline — is what buys time-travel
-    debugging and middleware. Retree deliberately trades that for direct
-    mutation: writes emit change events
-    ([observable via `Retree.on`](/docs/events-and-subscriptions)), but there
-    is no replayable log and no devtools today.
+-   **There is no enforced action pipeline.** Redux's contract — every change
+    is a serializable action through one dispatcher — is what buys its
+    middleware chain. Retree deliberately trades that for direct mutation:
+    any code holding a node can write. You still get an attributable,
+    replayable record of every write
+    ([change records](/docs/events-and-subscriptions#the-change-payload),
+    replayable with [`Retree.applyChanges`](/docs/undo-redo)) and
+    time-travel debugging via
+    [`@retreejs/devtools`](/docs/devtools) — what you give up is the
+    single funnel that middleware hangs off.
 -   **State is mutable for real.** Any code holding a node can write to it,
     and the write emits — there is no reducer boundary to funnel changes
     through. Convention (methods on the owning class) replaces enforcement.
