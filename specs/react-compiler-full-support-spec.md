@@ -17,7 +17,7 @@ Retree's React hooks carry a file-level `"use no memo"` directive so the
 React Compiler skips them. The audit added `react-compiler.spec.tsx`, which
 proves two things:
 
-1. **Consumers are already compiler-safe.** Components that *call* Retree
+1. **Consumers are already compiler-safe.** Components that _call_ Retree
    hooks compile and memoize correctly — published packages ship uncompiled
    `bin/` output, which compilers skip in `node_modules`, and the hooks are
    `useSyncExternalStore`-based (no observer HOC, no Babel transform).
@@ -34,13 +34,13 @@ blunt file-level tool where the real constraint is narrower.
 `useNodeInternalCore` ([useNodeInternalCore.ts:63](../packages/retree-react/src/internals/useNodeInternalCore.ts:63))
 does two separable things:
 
-- Subscribes via `useRetreeExternalStore([source])`, whose
-  `useSyncExternalStore` returns a `RetreeCompositeSnapshot` carrying
-  `{ sources, versions }` — **not** the node the caller wants.
-- Then derives the return value _outside_ the store read:
-  `operations.getRenderReproxyNode(listenerType, baseProxy)` — the latest
-  reproxy for a `baseProxy` whose identity is **intentionally stable** across
-  writes.
+-   Subscribes via `useRetreeExternalStore([source])`, whose
+    `useSyncExternalStore` returns a `RetreeCompositeSnapshot` carrying
+    `{ sources, versions }` — **not** the node the caller wants.
+-   Then derives the return value _outside_ the store read:
+    `operations.getRenderReproxyNode(listenerType, baseProxy)` — the latest
+    reproxy for a `baseProxy` whose identity is **intentionally stable** across
+    writes.
 
 The data dependency is real (that derivation is only correct because a
 version bump re-ran render), but it is expressed through _render timing_, not
@@ -69,30 +69,30 @@ same failure as §1.1.
 
 **Goals**
 
-- Remove `"use no memo"` from the `useNode`/`useTree` source path so the
-  React Compiler can optimize those hooks in source-inclusion setups, with no
-  change to their observable behavior or identity contract.
-- Keep `useSelect`'s exact current semantics: run the selector, return the
-  latest managed node if a node was returned (else the plain value), re-render
-  when the returned selection differs. Narrow its directive from file-level to
-  the specific functions that legitimately need it.
-- Flip `react-compiler.spec.tsx` from "directive is load-bearing" to
-  "directive removed, reactivity + identity hold under compilation" for the
-  hooks that lose it, and state the final decision per hook on the
-  react-compiler docs page.
+-   Remove `"use no memo"` from the `useNode`/`useTree` source path so the
+    React Compiler can optimize those hooks in source-inclusion setups, with no
+    change to their observable behavior or identity contract.
+-   Keep `useSelect`'s exact current semantics: run the selector, return the
+    latest managed node if a node was returned (else the plain value), re-render
+    when the returned selection differs. Narrow its directive from file-level to
+    the specific functions that legitimately need it.
+-   Flip `react-compiler.spec.tsx` from "directive is load-bearing" to
+    "directive removed, reactivity + identity hold under compilation" for the
+    hooks that lose it, and state the final decision per hook on the
+    react-compiler docs page.
 
 **Non-goals**
 
-- **`useRaw` stays exactly as-is.** Raw identity is _intentionally_ stable —
-  that is its contract, and `toManaged` is the sanctioned way to get a managed
-  node from a raw value. We do not want raw wrapped in a per-version tuple;
-  callers are already told never to use raw as a memo/equality token, which is
-  the same rule a compiled consumer needs. Its directive remains, documented
-  as deliberate.
-- No Valtio-style `useSnapshot`/`useTree`-everywhere behavior. Selection and
-  node semantics are unchanged; this is purely about _how_ the return value
-  reaches React, not _what_ it is.
-- No `Retree.snapshot` (pinned in `specs/audit-jul-14-2026.md` §8).
+-   **`useRaw` stays exactly as-is.** Raw identity is _intentionally_ stable —
+    that is its contract, and `toManaged` is the sanctioned way to get a managed
+    node from a raw value. We do not want raw wrapped in a per-version tuple;
+    callers are already told never to use raw as a memo/equality token, which is
+    the same rule a compiled consumer needs. Its directive remains, documented
+    as deliberate.
+-   No Valtio-style `useSnapshot`/`useTree`-everywhere behavior. Selection and
+    node semantics are unchanged; this is purely about _how_ the return value
+    reaches React, not _what_ it is.
+-   No `Retree.snapshot` (pinned in `specs/audit-jul-14-2026.md` §8).
 
 ## 3. Design
 
@@ -105,17 +105,17 @@ allocates a fresh frozen snapshot on version change and returns the previous
 one by reference otherwise). Two viable shapes; prefer whichever measures
 cleaner:
 
-- **(A) Reproxy in the snapshot.** Extend the source/snapshot so the
-  per-source current reproxy is captured when the snapshot is (re)built, and
-  `useNodeInternalCore` returns `snapshot`'s reproxy for its single source.
-  The returned node then has the same identity lifetime as the snapshot: new
-  on change, stable otherwise. Compiler memoization keyed on the snapshot is
-  _correct_.
-- **(B) Derive from the snapshot, not the base proxy.** Keep the snapshot as
-  `{ sources, versions }` but compute the return value as
-  `getRenderReproxyNode(...)` inside a step keyed on the snapshot object, so
-  the compiler sees the changing snapshot as the input rather than the stable
-  base proxy.
+-   **(A) Reproxy in the snapshot.** Extend the source/snapshot so the
+    per-source current reproxy is captured when the snapshot is (re)built, and
+    `useNodeInternalCore` returns `snapshot`'s reproxy for its single source.
+    The returned node then has the same identity lifetime as the snapshot: new
+    on change, stable otherwise. Compiler memoization keyed on the snapshot is
+    _correct_.
+-   **(B) Derive from the snapshot, not the base proxy.** Keep the snapshot as
+    `{ sources, versions }` but compute the return value as
+    `getRenderReproxyNode(...)` inside a step keyed on the snapshot object, so
+    the compiler sees the changing snapshot as the input rather than the stable
+    base proxy.
 
 Either way the invariant becomes: **the returned node identity is derived
 from a value that changes iff the node changed.** That is what makes
@@ -127,10 +127,10 @@ Constraints to preserve (regression surface — these were hardened over
 several audit review rounds, so the spec's acceptance gate must re-assert
 them):
 
-- One render per relevant write; zero re-render on unrelated writes.
-- Bootstrap renders exactly once (populate-then-mount).
-- StrictMode double-invoke safety; `getServerSnapshot` parity.
-- `useNodeFactoryResetWarning` still fires on unstable factories.
+-   One render per relevant write; zero re-render on unrelated writes.
+-   Bootstrap renders exactly once (populate-then-mount).
+-   StrictMode double-invoke safety; `getServerSnapshot` parity.
+-   `useNodeFactoryResetWarning` still fires on unstable factories.
 
 ### 3.2 useSelect — keep semantics, narrow the directive
 
@@ -160,37 +160,37 @@ legible.
 `react-compiler.spec.tsx` is the ready-made harness. Update it to encode the
 new per-hook decisions:
 
-- **useNode/useTree:** compile the real hook source _with the directive
-  removed_ and assert (a) components re-render on relevant writes, skip
-  unrelated writes; (b) the **identity contract holds** — a changed node is a
-  new reference, so a compiler-memoized derived value / `React.memo` child
-  updates, and an unchanged node keeps its reference. The current
-  "directive-is-load-bearing / stale-UI-when-stripped" tests for these hooks
-  are _replaced_ by "reactive-and-identity-correct-when-compiled."
-- **useSelect:** assert the narrowed directive is present on the functions
-  that need it (or, if the restructure lands, assert compiled selection stays
-  correct); assert consumer-side compilation of components _calling_
-  `useSelect` still works (unchanged from today).
-- **useRaw:** keep the existing "directive respected / stable identity"
-  assertion; add a one-line note that this is deliberate.
+-   **useNode/useTree:** compile the real hook source _with the directive
+    removed_ and assert (a) components re-render on relevant writes, skip
+    unrelated writes; (b) the **identity contract holds** — a changed node is a
+    new reference, so a compiler-memoized derived value / `React.memo` child
+    updates, and an unchanged node keeps its reference. The current
+    "directive-is-load-bearing / stale-UI-when-stripped" tests for these hooks
+    are _replaced_ by "reactive-and-identity-correct-when-compiled."
+-   **useSelect:** assert the narrowed directive is present on the functions
+    that need it (or, if the restructure lands, assert compiled selection stays
+    correct); assert consumer-side compilation of components _calling_
+    `useSelect` still works (unchanged from today).
+-   **useRaw:** keep the existing "directive respected / stable identity"
+    assertion; add a one-line note that this is deliberate.
 
 Plus the full existing suite green (`npm run test`), typecheck, and
 `npm run lint:packages`.
 
 ## 5. Risks
 
-- The change concentrates in the uSES snapshot contract — the exact machinery
-  behind the audit's stranded-store and double-initial-render fixes. Any
-  reshaping of the snapshot must re-run those regression tests
-  (`snapshot-version.spec.ts`, `useSelect.spec.tsx`, `externalStore.spec.ts`).
-- Putting the reproxy in the snapshot (shape A) means the snapshot holds a
-  node reference; verify it does not extend node lifetime in a way that defeats
-  the WeakMap-based teardown, and that `getServerSnapshot` still returns a
-  serializable-enough shape for SSR.
-- Compiler-version drift: the spec's assertions are pinned against a specific
-  `babel-plugin-react-compiler`; note the version in the test so a future
-  compiler that changes memoization heuristics re-triggers review (the
-  existing spec already does this for the opposite direction).
+-   The change concentrates in the uSES snapshot contract — the exact machinery
+    behind the audit's stranded-store and double-initial-render fixes. Any
+    reshaping of the snapshot must re-run those regression tests
+    (`snapshot-version.spec.ts`, `useSelect.spec.tsx`, `externalStore.spec.ts`).
+-   Putting the reproxy in the snapshot (shape A) means the snapshot holds a
+    node reference; verify it does not extend node lifetime in a way that defeats
+    the WeakMap-based teardown, and that `getServerSnapshot` still returns a
+    serializable-enough shape for SSR.
+-   Compiler-version drift: the spec's assertions are pinned against a specific
+    `babel-plugin-react-compiler`; note the version in the test so a future
+    compiler that changes memoization heuristics re-triggers review (the
+    existing spec already does this for the opposite direction).
 
 ## 6. Rollout
 
