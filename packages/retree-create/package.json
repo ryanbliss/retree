@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/create",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "description": "Interactive installer that adds Retree packages to an existing project.",
     "author": "Ryan Bliss",
     "license": "MIT",
@@ -25,9 +25,9 @@
     "repository": {
         "directory": "packages/retree-create",
         "type": "git",
-        "url": "https://github.com/ryanbliss/retree"
+        "url": "git+https://github.com/ryanbliss/retree.git"
     },
-    "homepage": "https://studiobliss.io",
+    "homepage": "https://www.retree.dev",
     "bugs": {
         "url": "https://github.com/ryanbliss/retree/issues"
     },

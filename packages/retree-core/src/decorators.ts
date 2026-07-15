@@ -4,15 +4,18 @@ import {
     IReactiveSelectGetter,
     ReactiveNode,
     SELECT_GETTERS_SYMBOL,
-} from "./ReactiveNode";
-import { collectDependencyAccesses } from "./internals/dependency-tracking";
+} from "./ReactiveNode.js";
+import {
+    collectDependencyAccesses,
+    collectTrackedSelectionAccesses,
+} from "./internals/dependency-tracking.js";
 import {
     runFnMemo,
     runMemo,
     runTrappedFnMemo,
     runTrappedMemo,
-} from "./internals/memo";
-import { Retree } from "./Retree";
+} from "./internals/memo.js";
+import { Retree } from "./Retree.js";
 
 /**
  * Field decorator that excludes a property of a {@link ReactiveNode} from Retree's
@@ -41,8 +44,6 @@ import { Retree } from "./Retree";
     public count = 0;
     // Mutations to `cache` do not trigger Retree listeners.
     @ignore public cache: Record<string, unknown> = {};
-
-    get dependencies() { return []; }
  }
 
  const node = Retree.root(new Counter());
@@ -90,10 +91,6 @@ export function ignore(
  *
  * class EditorState extends ReactiveNode {
  *     @link public selectedTask: Task | null = null;
- *
- *     get dependencies() {
- *         return [];
- *     }
  * }
  *
  * const root = Retree.root({
@@ -523,6 +520,10 @@ function decorateSelectGetter<This extends ReactiveNode, Value, Dependencies>(
                 ? {
                       getDependencies: (self: ReactiveNode) =>
                           collectDependencyAccesses(() =>
+                              target.call(self as This)
+                          ),
+                      collectTrackedDependencies: (self: ReactiveNode) =>
+                          collectTrackedSelectionAccesses(() =>
                               target.call(self as This)
                           ),
                       getValue: (self: ReactiveNode) =>

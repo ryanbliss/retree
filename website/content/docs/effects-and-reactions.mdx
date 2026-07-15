@@ -1,0 +1,131 @@
+---
+title: Effects & reactions
+description: Retree.effect runs a function immediately and re-runs it whenever a tracked dependency changes — the third subscription primitive next to Retree.on and Retree.select.
+---
+
+[`Retree.effect`](/api/core/classes/Retree#effect) runs a function once,
+tracks every Retree read it makes, and re-runs it whenever one of those
+dependencies changes. No selected value, no comparison callback — just "run
+this again when what it read changes":
+
+```ts
+import { Retree } from "@retreejs/core";
+
+const settings = Retree.root({ theme: "dark", fontSize: 14 });
+
+const stop = Retree.effect(() => {
+    document.body.dataset.theme = settings.theme;
+});
+
+settings.theme = "light"; // ✅ effect re-runs
+settings.fontSize = 16; // ❌ not read by the effect; skipped
+stop();
+```
+
+It is the third subscription primitive:
+
+| Primitive                                                                   | Shape                                | Re-runs when                             |
+| --------------------------------------------------------------------------- | ------------------------------------ | ----------------------------------------- |
+| [`Retree.on`](/docs/events-and-subscriptions)                                | one node, callback                   | any change to that node                   |
+| [`Retree.select`](/docs/events-and-subscriptions#narrow-with-retreeselect)   | selector → value, change callback    | the selected value changes                |
+| `Retree.effect`                                                              | just a function                      | any tracked dependency changes            |
+
+Reach for `effect` when the work *is* the point — syncing to the DOM,
+`localStorage`, analytics, a websocket — and there is no single value worth
+selecting.
+
+## What gets tracked
+
+Reads are trapped exactly like the selector-only `Retree.select(() => ...)`
+form (the full rules live in [Select semantics](/docs/select-semantics)):
+
+-   **Property reads** subscribe to the owner node and validate by value — an
+    unrelated write to a tracked node re-reads equal and skips the re-run.
+-   **Whole managed values** the effect reads subscribe to that node.
+-   Reads of a property that the same run also **writes** are excluded from
+    tracking, so a normalize-then-store effect does not depend on its own
+    output.
+
+Wrap reads that should not subscribe in
+[`Retree.untracked`](/api/core/classes/Retree#untracked):
+
+```ts
+Retree.effect(() => {
+    sendAnalytics({
+        theme: settings.theme, // ✅ tracked — re-runs on theme change
+        // ❌ deliberately untracked — read but never re-triggers
+        fontSize: Retree.untracked(() => settings.fontSize),
+    });
+});
+```
+
+## Effects may write
+
+An effect can write Retree state. When a run changes the value of a property
+it already read, the effect re-runs after the current run completes — this
+holds for the creation run too, so a self-converging effect reaches its fixed
+point before `Retree.effect` returns:
+
+```ts
+const cart = Retree.root({ items: [12, 30], total: 0 });
+
+Retree.effect(function syncTotal() {
+    cart.total = cart.items.reduce((sum, price) => sum + price, 0);
+});
+// ✅ cart.total === 42 already — the creation run converged
+
+cart.items.push(8); // ✅ re-runs; cart.total === 50
+```
+
+The guard rail: a cascade of more than 100 synchronous re-runs throws an
+error naming the effect, because the effect cannot converge. An effect that
+unconditionally writes a dependency it also reads — say,
+`node.count = node.count + 1` — hits this immediately, **at creation**, which
+is the point: a non-converging effect fails loudly at the line that created
+it instead of spinning forever. Make the write conditional, wrap the read in
+`Retree.untracked`, or move the write out of the effect.
+
+## Errors don't kill the reaction
+
+A throw inside one run does not unsubscribe the effect. Dependencies read
+before the throw still subscribe, so the effect re-runs — and can recover —
+on the next relevant change. Where the error goes:
+
+-   With `options.onError`, it is passed to your handler.
+-   Without it, it is rethrown asynchronously as an uncaught exception on a
+    fresh stack — never into the mutation that triggered the run.
+
+```ts
+const stop = Retree.effect(
+    () => {
+        localStorage.setItem("settings", JSON.stringify(Retree.raw(settings)));
+    },
+    { onError: (error) => console.warn("persist failed", error) }
+);
+```
+
+## Cleanup
+
+`Retree.effect` returns a stop function; call it when the effect's owner goes
+away. Unlike React's `useEffect`, the effect body does not return a
+per-run cleanup — if a run acquires a resource, store it and release it in
+the next run or in your own teardown.
+
+## Effect vs `@select` vs `onChanged`
+
+-   **Side effect against the outside world** — `Retree.effect`. Nothing in
+    the tree changes identity or emits because an effect ran.
+-   **Derived value that belongs to a node** — a
+    [`@select`](/docs/select-semantics) getter; subscribers of the owner see
+    it change.
+-   **Post-change bookkeeping on a `ReactiveNode`** —
+    [`onChanged`](/docs/view-models); it runs as part of the node's own
+    change processing.
+
+## Where next
+
+-   [Select semantics](/docs/select-semantics) — the tracking rules `effect`
+    shares with tracked selectors.
+-   [Events & subscriptions](/docs/events-and-subscriptions) — `Retree.on`
+    and `Retree.select` in depth.
+-   [`Retree.effect` API reference](/api/core/classes/Retree#effect).

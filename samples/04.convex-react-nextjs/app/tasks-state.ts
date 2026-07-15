@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactiveNode, fnMemo, link, memo, select } from "@retreejs/core";
+import { ReactiveNode, fnMemo, memo, select } from "@retreejs/core";
 import { BaseConvexNode, ConvexNode, ConvexQueryNode } from "@retreejs/convex";
 import { RetreeConvexReactClient } from "@retreejs/react-convex";
 import { api } from "../convex/_generated/api";
@@ -14,25 +14,6 @@ export type TaskFilterValue = boolean | null;
 
 export class TaskFilterNode extends ReactiveNode {
     public isCompleted: boolean | null = null;
-
-    get dependencies() {
-        return [];
-    }
-}
-
-export class TaskRowState extends ReactiveNode {
-    @link
-    public task: Doc<"tasks">;
-
-    constructor(task: Doc<"tasks">) {
-        super();
-        this.task = task;
-    }
-
-    @fnMemo
-    public updateTask(task: Doc<"tasks">) {
-        this.task = task;
-    }
 
     get dependencies() {
         return [];
@@ -92,6 +73,15 @@ export class TasksState extends ConvexNode {
     }
 
     @select
+    public get errorMessage(): string | undefined {
+        const result = this._tasks.result;
+        if (result.status !== "error") {
+            return undefined;
+        }
+        return result.error.message;
+    }
+
+    @select
     public get tasks(): Doc<"tasks">[] | undefined {
         return this._tasks.state?.filter(
             (task) =>
@@ -107,6 +97,10 @@ export class TasksState extends ConvexNode {
 
     get dependencies() {
         return [];
+    }
+
+    public retry(): void {
+        this._tasks.retry();
     }
 
     public toggleCompleted(taskId: Id<"tasks">): Promise<null> {

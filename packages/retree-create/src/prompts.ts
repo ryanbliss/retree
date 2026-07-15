@@ -9,6 +9,7 @@ export interface FeatureDefaults {
 export interface PromptAdapter {
     chooseFeatures(defaults: FeatureDefaults): Promise<InstallSelections>;
     confirmPlan(): Promise<boolean>;
+    confirmTsconfigDecoratorFix(): Promise<boolean>;
 }
 
 type FeatureValue = "react" | "convex" | "skill";
@@ -50,6 +51,13 @@ export function createInquirerPromptAdapter(): PromptAdapter {
         },
         async confirmPlan() {
             return confirm({ message: "Proceed?", default: true });
+        },
+        async confirmTsconfigDecoratorFix() {
+            return confirm({
+                message:
+                    'Set "experimentalDecorators" to false in tsconfig.json now?',
+                default: false,
+            });
         },
     };
 }

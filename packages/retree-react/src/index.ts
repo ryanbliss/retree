@@ -3,9 +3,12 @@
  * Licensed under the MIT License.
  */
 
-export * from "./useNode";
-export * from "./useRaw";
-export * from "./useSelect";
-export * from "./useTree";
-export * from "./useRoot";
-export * from "./types";
+"use client";
+
+export * from "./context.js";
+export * from "./useNode.js";
+export * from "./useRaw.js";
+export * from "./useSelect.js";
+export * from "./useTree.js";
+export * from "./useRoot.js";
+export * from "./types.js";

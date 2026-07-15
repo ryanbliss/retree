@@ -2,8 +2,8 @@ import React from "react";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Retree } from "@retreejs/core";
-import { useNode } from "./useNode";
-import { useTree } from "./useTree";
+import { useNode } from "./useNode.js";
+import { useTree } from "./useTree.js";
 
 const rootsToCleanup: object[] = [];
 

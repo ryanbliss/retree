@@ -2,20 +2,27 @@
  * Copyright (c) Ryan Bliss. All rights reserved.
  * Licensed under the MIT License.
  */
+// "use no memo" is load-bearing when this source is compiled by the React
+// Compiler (source-inclusion setups only; consumers' compilers skip the
+// published bin/ output in node_modules). See useNodeInternalCore.ts and
+// react-compiler.spec.tsx for the failure mode and proof.
 "use no memo";
+"use client";
 
 import { Retree, TreeNode } from "@retreejs/core";
 import {
     getBaseProxy,
+    getNodeSnapshotVersion,
     getUnproxiedNode,
     materializeDirectChildren,
 } from "@retreejs/core/internal";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo } from "react";
 import {
     getRetreeExternalStoreSource,
     useRetreeExternalStore,
-} from "./internals/externalStore";
-import { NodeFactory } from "./types";
+} from "./internals/externalStore.js";
+import { useNodeFactoryResetWarning } from "./internals/factoryWarning.js";
+import { NodeFactory } from "./types.js";
 
 /**
  * Resolves a raw value back to its Retree-managed node.
@@ -44,6 +51,14 @@ function getNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>) {
 }
 
 /**
+ * The node snapshot version at which a `toManaged` miss last ran a
+ * materialization pass for a base proxy. A miss at the same version cannot be
+ * cured by materializing again, so it short-circuits; a version advance (the
+ * node's own data changed) grants exactly one new pass.
+ */
+const materializationAttemptVersions = new WeakMap<TreeNode, number>();
+
+/**
  * Subscribe to a node like `useNode`, but read its data raw — native-speed,
  * proxy-free reads for render bodies that read wide.
  *
@@ -66,6 +81,10 @@ function getNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>) {
  * `@select`, via `useSelect` for derived views, or via the `treeChanged`
  * opt-in. Because `raw` is live, any render (including renders triggered by
  * a parent) reads current state.
+ *
+ * An inline node factory like `useRaw(() => Retree.root({ ... }))` re-runs
+ * every render and silently resets state: hoist the factory (and its
+ * `Retree.root` call) outside the component, or use `useRoot`.
  *
  * @param node Retree-managed node or node factory to observe.
  * @param options Optional listener type.
@@ -99,15 +118,11 @@ export function useRaw<TNode extends TreeNode>(
         return getNode(node);
     }, [node]);
     const baseProxy = getBaseProxy(memoNode);
+    useNodeFactoryResetWarning("useRaw", node, baseProxy);
     const listenerType = options?.listenerType ?? "nodeChanged";
 
     const source = getRetreeExternalStoreSource(baseProxy, listenerType);
     useRetreeExternalStore([source]);
-
-    // At most one materialization pass per render: a second miss in the same
-    // render means the value is not a direct child of this node.
-    const materializedThisRender = useRef(false);
-    materializedThisRender.current = false;
 
     const toManaged: ToManaged = useCallback(
         <T extends TreeNode>(rawValue: T) => {
@@ -115,10 +130,16 @@ export function useRaw<TNode extends TreeNode>(
             if (existing !== undefined) {
                 return existing;
             }
-            if (materializedThisRender.current) {
+            // At most one materialization pass per node version: a second
+            // miss at the same version means the value is not a direct child
+            // of this node. Keying retries on the version (not the render)
+            // keeps the contract identical inside and outside render and
+            // avoids per-render ref writes.
+            const version = getNodeSnapshotVersion(baseProxy);
+            if (materializationAttemptVersions.get(baseProxy) === version) {
                 return undefined;
             }
-            materializedThisRender.current = true;
+            materializationAttemptVersions.set(baseProxy, version);
             materializeDirectChildren(baseProxy);
             return Retree.managed(rawValue);
         },

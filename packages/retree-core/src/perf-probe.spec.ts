@@ -9,13 +9,14 @@
  * intentionally loose sanity bounds so this never gates CI on machine speed.
  * See benchmarks/findings-jul-10-2026.md for context.
  */
-import { describe, expect, it } from "vitest";
-import { ReactiveNode } from "./ReactiveNode";
-import { Retree } from "./Retree";
+import { describe, expect, it, vi } from "vitest";
+import { ReactiveNode } from "./ReactiveNode.js";
+import { Retree } from "./Retree.js";
+import { select } from "./decorators.js";
 import {
     collectDependencyComparisonAccesses,
     getUnproxiedNode,
-} from "./internals";
+} from "./internals/index.js";
 
 interface Item {
     id: number;
@@ -201,6 +202,120 @@ describe("perf probe", () => {
         off();
     });
 
+    it(
+        "auto-trapped @select getter: per-write cost scales linearly with item count",
+        { timeout: 120_000 },
+        () => {
+            class ScoreBoard extends ReactiveNode {
+                public items: { name: string; score: number }[] = [];
+
+                constructor(count: number) {
+                    super();
+                    for (let i = 0; i < count; i++) {
+                        this.items.push({
+                            name: `item-${i}`,
+                            score: i % 100,
+                        });
+                    }
+                }
+
+                @select()
+                get total(): number {
+                    let total = 0;
+                    for (const item of this.items) {
+                        total += item.score;
+                    }
+                    return total;
+                }
+
+                get dependencies() {
+                    return [];
+                }
+            }
+
+            const relatedTimings: { items: number; ms: number }[] = [];
+            const unrelatedTimings: { items: number; ms: number }[] = [];
+            for (const items of [250, 500, 1000, 2000]) {
+                const board = Retree.root(new ScoreBoard(items));
+                let notifications = 0;
+                const off = Retree.on(board, "nodeChanged", () => {
+                    notifications++;
+                });
+                // Materialize proxies and establish @select subscriptions.
+                expect(board.total).toBeGreaterThan(0);
+                const middle = items >> 1;
+                let writeCount = 0;
+
+                const notificationsBeforeUnrelated = notifications;
+                const unrelatedMs = time(
+                    `@select unrelated write (name), ${items} items`,
+                    () => {
+                        board.items[middle].name = `renamed-${writeCount++}`;
+                    },
+                    1
+                );
+                unrelatedTimings.push({ items, ms: unrelatedMs });
+                expect(notifications).toBe(notificationsBeforeUnrelated);
+
+                const notificationsBeforeRelated = notifications;
+                const relatedMs = time(
+                    `@select related write (score), ${items} items`,
+                    () => {
+                        board.items[middle].score = 1000 + writeCount++;
+                    },
+                    5
+                );
+                relatedTimings.push({ items, ms: relatedMs });
+                expect(notifications).toBeGreaterThan(
+                    notificationsBeforeRelated
+                );
+                off();
+            }
+
+            // Compare 500 -> 2000 items (4x). Collection work per write must
+            // scale roughly linearly; the quadratic path measured ~31x here.
+            const assertRoughlyLinear = (
+                label: string,
+                timings: { items: number; ms: number }[]
+            ) => {
+                const from = timings[1];
+                const to = timings[timings.length - 1];
+                const itemScale = to.items / from.items;
+                const timeScale = to.ms / Math.max(from.ms, 0.05);
+
+                console.log(
+                    `${label} scaling for ${itemScale}x items: ${timeScale.toFixed(
+                        1
+                    )}x time`
+                );
+                expect(timeScale).toBeLessThan(10);
+            };
+            assertRoughlyLinear("@select related write", relatedTimings);
+            assertRoughlyLinear("@select unrelated write", unrelatedTimings);
+        }
+    );
+
+    it("array splice(0,1) on 1000 items emits once and stays cheap", () => {
+        const tree = Retree.root({ list: [] as { v: number }[] });
+        for (let i = 0; i < 1000; i++) tree.list.push({ v: i });
+        // Materialize child proxies so the probe measures steady-state cost.
+        for (const item of tree.list) void item.v;
+
+        let emissions = 0;
+        const off = Retree.on(tree.list, "nodeChanged", () => {
+            emissions++;
+        });
+        const ms = timeOnce("splice(0,1) on 1000 items", () => {
+            tree.list.splice(0, 1);
+        });
+        off();
+
+        console.log(`splice(0,1) emissions on 1000 items: ${emissions}`);
+        expect(emissions).toBe(1);
+        expect(tree.list.length).toBe(999);
+        expect(ms).toBeLessThan(100);
+    });
+
     it("write path: push N items, with and without listener", () => {
         const tree = Retree.root({ list: [] as { v: number }[] });
         timeOnce("push 1000 items (no listeners)", () => {
@@ -220,5 +335,40 @@ describe("perf probe", () => {
                 for (let i = 0; i < 1000; i++) tree3.list.push({ v: i });
             });
         });
+    });
+
+    it("write path: a treeChanged listener in another tree does not tax deep writes", () => {
+        const DEPTH = 20;
+        const WRITES = 10_000;
+
+        interface DeepNode {
+            value: number;
+            child?: DeepNode;
+        }
+        let deep: DeepNode = { value: 0 };
+        for (let i = 1; i < DEPTH; i++) deep = { value: i, child: deep };
+
+        const watched = Retree.root({ count: 0 });
+        const unrelatedTreeChanged = vi.fn();
+        const off = Retree.on(watched, "treeChanged", unrelatedTreeChanged);
+
+        const tree = Retree.root(deep);
+        let leaf = tree;
+        while (leaf.child) leaf = leaf.child;
+        for (let i = 0; i < 1000; i++) leaf.value = i; // warmup
+
+        const ms = timeOnce(
+            `${WRITES} deep writes w/ unrelated treeChanged listener`,
+            () => {
+                for (let i = 0; i < WRITES; i++) leaf.value = i;
+            }
+        );
+        off();
+
+        // The unrelated listener must never fire, and the per-write cost must
+        // stay flat-ish: before the ancestor-path gate this scenario paid a
+        // full allocating ancestor walk per write (~2x the gated cost).
+        expect(unrelatedTreeChanged).not.toHaveBeenCalled();
+        expect(ms).toBeLessThan(1000);
     });
 });

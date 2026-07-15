@@ -1,11 +1,25 @@
-import { IReactiveDependency, ReactiveNode } from "../ReactiveNode";
-import { TreeNode } from "../types";
+import { IReactiveDependency, ReactiveNode } from "../ReactiveNode.js";
+import { TreeNode } from "../types.js";
+import type { ITrackedNodeAccessSummary } from "./dependency-tracking.js";
 
 export interface IActiveReactiveDependency extends IReactiveDependency {
     key: string;
+    /**
+     * Start index into `comparisons` for this dependency's comparison window.
+     * `comparisons` may be an array shared across every dependency of one
+     * `@select` collection pass; only values at `comparisonsOffset` and later
+     * belong to this dependency. `undefined` means the whole array applies.
+     */
+    comparisonsOffset?: number;
     selectGetterName?: string | symbol;
     selectValue?: unknown;
     compareSelectValueBeforeNotify?: boolean;
+    /**
+     * Lazily builds per-node read summaries captured while an auto-trapped
+     * `@select` getter collected this dependency, so an unrelated
+     * `nodeChanged` can be skipped without re-running the getter.
+     */
+    getAccessSummaries?: () => Map<TreeNode, ITrackedNodeAccessSummary>;
     unsubscribeListener: (() => void) | undefined;
     unproxiedNode: TreeNode | undefined;
 }
@@ -14,14 +28,34 @@ export interface IPreviousReactiveDependent {
     reactiveNode: ReactiveNode;
     unproxiedReactiveNode: TreeNode;
     comparisons?: any[];
+    /**
+     * Start index into `comparisons`; see
+     * {@link IActiveReactiveDependency.comparisonsOffset}.
+     */
+    comparisonsOffset?: number;
     key: string;
     selectGetterName?: string | symbol;
     selectValue?: unknown;
     compareSelectValueBeforeNotify?: boolean;
+    /**
+     * See {@link IActiveReactiveDependency.getAccessSummaries}.
+     */
+    getAccessSummaries?: () => Map<TreeNode, ITrackedNodeAccessSummary>;
+}
+
+/**
+ * Every dependent record one ReactiveNode holds on one dependency node, keyed
+ * by dependency key. Keyed storage keeps registering N dependents on one
+ * shared node (e.g. every element read of one array) O(1) per record instead
+ * of an O(N) scan per record.
+ */
+export interface IReactiveDependentGroup {
+    reactiveNode: ReactiveNode;
+    dependentsByKey: Map<string, IPreviousReactiveDependent>;
 }
 
 let reactiveDependentMap:
-    | WeakMap<TreeNode, IPreviousReactiveDependent[]>
+    | WeakMap<TreeNode, Map<TreeNode, IReactiveDependentGroup>>
     | undefined;
 
 let reactiveDependenciesMap:
@@ -68,7 +102,7 @@ export function deleteReactiveDependencies(unproxiedNode: TreeNode) {
 
 export function getReactiveDependents(
     unproxiedNode: TreeNode
-): IPreviousReactiveDependent[] | undefined {
+): Map<TreeNode, IReactiveDependentGroup> | undefined {
     if (!reactiveDependentMap) {
         reactiveDependentMap = new WeakMap();
         return undefined;
@@ -80,29 +114,24 @@ export function setReactiveDependents(
     unproxiedNode: TreeNode,
     dependent: IPreviousReactiveDependent
 ) {
-    const reactiveDeps = getReactiveDependents(unproxiedNode);
-    if (!reactiveDeps) {
-        reactiveDependentMap?.set(unproxiedNode, [dependent]);
+    if (!reactiveDependentMap) {
+        reactiveDependentMap = new WeakMap();
+    }
+    let groups = reactiveDependentMap.get(unproxiedNode);
+    if (groups === undefined) {
+        groups = new Map();
+        reactiveDependentMap.set(unproxiedNode, groups);
+    }
+    const group = groups.get(dependent.unproxiedReactiveNode);
+    if (group === undefined) {
+        groups.set(dependent.unproxiedReactiveNode, {
+            reactiveNode: dependent.reactiveNode,
+            dependentsByKey: new Map([[dependent.key, dependent]]),
+        });
         return;
     }
-
-    for (const existingDependent of reactiveDeps) {
-        if (
-            existingDependent.unproxiedReactiveNode ===
-                dependent.unproxiedReactiveNode &&
-            existingDependent.key === dependent.key
-        ) {
-            existingDependent.reactiveNode = dependent.reactiveNode;
-            existingDependent.comparisons = dependent.comparisons;
-            existingDependent.selectGetterName = dependent.selectGetterName;
-            existingDependent.selectValue = dependent.selectValue;
-            existingDependent.compareSelectValueBeforeNotify =
-                dependent.compareSelectValueBeforeNotify;
-            return;
-        }
-    }
-
-    reactiveDeps.push(dependent);
+    group.reactiveNode = dependent.reactiveNode;
+    group.dependentsByKey.set(dependent.key, dependent);
 }
 
 export function deleteReactiveDependent(
@@ -114,24 +143,24 @@ export function deleteReactiveDependent(
         reactiveDependentMap = new WeakMap();
         return;
     }
-    const dependents = reactiveDependentMap?.get(unproxiedDependentNode);
-    if (!dependents) {
+    const groups = reactiveDependentMap.get(unproxiedDependentNode);
+    if (!groups) {
         return;
     }
-    const newDependents = dependents.filter((dep) => {
-        if (dep.unproxiedReactiveNode !== unproxiedDependencyNode) {
-            return true;
-        }
-        if (dependencyKey === undefined) {
-            return false;
-        }
-        return dep.key !== dependencyKey;
-    });
-    if (newDependents.length === 0) {
-        reactiveDependentMap?.delete(unproxiedDependentNode);
+    const group = groups.get(unproxiedDependencyNode);
+    if (!group) {
         return;
     }
-    reactiveDependentMap.set(unproxiedDependentNode, newDependents);
+    if (dependencyKey !== undefined) {
+        group.dependentsByKey.delete(dependencyKey);
+        if (group.dependentsByKey.size > 0) {
+            return;
+        }
+    }
+    groups.delete(unproxiedDependencyNode);
+    if (groups.size === 0) {
+        reactiveDependentMap.delete(unproxiedDependentNode);
+    }
 }
 
 export function retainReactiveDependencySubscription(

@@ -2,11 +2,27 @@
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import {
+    CliFlags,
+    FLAG_HELP_LINES,
+    parseCliFlags,
+    resolveSelectionsFromFlags,
+} from "./args.js";
+import {
+    applyTsconfigDecoratorFix,
+    inspectDecoratorSetup,
+    renderDecoratorNote,
+} from "./decorators.js";
+import {
     detectPackageManagerInDirectory,
     readTargetProject,
 } from "./detect.js";
 import { CommandRunner, runCommand } from "./install.js";
-import { formatPlannedCommand, resolveInstallPlan } from "./plan.js";
+import {
+    formatPlannedCommand,
+    InstallSelections,
+    PlannedCommand,
+    resolveInstallPlan,
+} from "./plan.js";
 import { createInquirerPromptAdapter, PromptAdapter } from "./prompts.js";
 
 export interface MainOptions {
@@ -23,11 +39,31 @@ const MANUAL_INSTALL_COMBOS = [
     "npm i @retreejs/core @retreejs/react @retreejs/convex @retreejs/react-convex convex",
 ];
 
+/**
+ * Thrown when the Retree packages installed successfully but the follow-up
+ * AI-skill install step failed, so the exit path can say exactly that
+ * instead of implying the whole install failed.
+ */
+export class SkillInstallFailedError extends Error {
+    constructor(skillCommand: PlannedCommand, cause: unknown) {
+        super(
+            [
+                "Retree packages were installed successfully, but installing the Retree AI skill failed:",
+                `  ${formatErrorMessage(cause)}`,
+                "Retry just the skill step with:",
+                `  ${formatPlannedCommand(skillCommand)}`,
+            ].join("\n")
+        );
+        this.name = "SkillInstallFailedError";
+    }
+}
+
 export async function main(
     argv = process.argv.slice(2),
     options: Partial<MainOptions> = {}
 ) {
-    if (argv.includes("--help") || argv.includes("-h")) {
+    const flags = parseCliFlags(argv);
+    if (flags.help) {
         console.log(renderHelp());
         return;
     }
@@ -45,16 +81,8 @@ export async function main(
         );
     }
 
-    if (!isTTY) {
-        throw new Error(
-            [
-                "@retreejs/create requires an interactive terminal. Install Retree manually instead:",
-                ...MANUAL_INSTALL_COMBOS.map((combo) => `  ${combo}`),
-            ].join("\n")
-        );
-    }
-
-    const packageManager = detectPackageManagerInDirectory(cwd);
+    const packageManager =
+        flags.packageManager ?? detectPackageManagerInDirectory(cwd);
     const projectLabel = target.name ?? cwd;
     console.log(
         `${colorize("Retree installer", "bold", "cyan")} ${colorize(
@@ -63,10 +91,23 @@ export async function main(
         )}`
     );
 
-    const selections = await promptAdapter.chooseFeatures({
+    const flagSelections = resolveSelectionsFromFlags(flags, {
         react: target.hasReact,
         convex: target.hasConvex,
     });
+    let selections: InstallSelections;
+    if (flagSelections !== undefined) {
+        selections = flagSelections;
+    } else if (isTTY) {
+        const prompted = await promptAdapter.chooseFeatures({
+            react: target.hasReact,
+            convex: target.hasConvex,
+        });
+        selections = { ...prompted, skill: flags.skill ?? prompted.skill };
+    } else {
+        throw new Error(renderNonInteractiveError());
+    }
+
     const plan = resolveInstallPlan(selections, target, packageManager);
 
     if (plan.includesReactConvex) {
@@ -104,10 +145,12 @@ export async function main(
         );
     }
 
-    const confirmed = await promptAdapter.confirmPlan();
-    if (!confirmed) {
-        console.log("No changes made.");
-        return;
+    if (isTTY && !flags.yes) {
+        const confirmed = await promptAdapter.confirmPlan();
+        if (!confirmed) {
+            console.log("No changes made.");
+            return;
+        }
     }
 
     console.log(`\n> ${formatPlannedCommand(plan.installCommand)}`);
@@ -115,8 +158,14 @@ export async function main(
 
     if (plan.skillCommand !== undefined) {
         console.log(`\n> ${formatPlannedCommand(plan.skillCommand)}`);
-        await run(plan.skillCommand, cwd);
+        try {
+            await run(plan.skillCommand, cwd);
+        } catch (error) {
+            throw new SkillInstallFailedError(plan.skillCommand, error);
+        }
     }
+
+    await reportDecoratorSetup(cwd, isTTY, flags, promptAdapter);
 
     console.log(`\n${colorize("Retree is ready.", "bold", "green")}`);
     console.log(
@@ -131,16 +180,74 @@ export async function main(
     );
 }
 
+/**
+ * Prints the optional decorator-authoring note when the target project's
+ * tsconfig/TypeScript/Babel setup conflicts with authoring Retree
+ * decorators. Offers the tsconfig fix only in interactive runs and only
+ * with explicit confirmation — never auto-edits.
+ */
+async function reportDecoratorSetup(
+    cwd: string,
+    isTTY: boolean,
+    flags: CliFlags,
+    promptAdapter: PromptAdapter
+): Promise<void> {
+    const report = inspectDecoratorSetup(cwd);
+    if (report.findings.length === 0) {
+        return;
+    }
+    console.log(`\n${renderDecoratorNote(report.findings)}`);
+    if (!isTTY) {
+        return;
+    }
+    if (flags.yes) {
+        return;
+    }
+    if (!report.canOfferTsconfigFix) {
+        return;
+    }
+    if (report.tsconfigPath === undefined) {
+        return;
+    }
+    const applyFix = await promptAdapter.confirmTsconfigDecoratorFix();
+    if (!applyFix) {
+        return;
+    }
+    applyTsconfigDecoratorFix(report.tsconfigPath);
+    console.log(
+        colorize(
+            `Updated ${report.tsconfigPath}: "experimentalDecorators" is now false.`,
+            "dim"
+        )
+    );
+}
+
+function renderNonInteractiveError() {
+    return [
+        "@retreejs/create is running without an interactive terminal. Pass flags to run unattended:",
+        ...FLAG_HELP_LINES,
+        "",
+        "Examples:",
+        "  npm create @retreejs@latest -- --yes",
+        "  npm create @retreejs@latest -- --react --convex --no-skill",
+        "",
+        "Or install manually:",
+        ...MANUAL_INSTALL_COMBOS.map((combo) => `  ${combo}`),
+    ].join("\n");
+}
+
 function renderHelp() {
     return [
-        "Usage: npm create @retreejs@latest",
+        "Usage: npm create @retreejs@latest [-- options]",
         "",
-        "Interactively adds the latest Retree packages to the project in the",
-        "current directory. Detects react and convex to preselect the matching",
-        "integrations, and can install the Retree AI skill for coding agents.",
+        "Adds the latest Retree packages to the project in the current",
+        "directory. Interactive by default: detects react and convex to",
+        "preselect the matching integrations, and can install the Retree AI",
+        "skill for coding agents. Pass flags to run unattended (e.g. from",
+        "scripts or coding agents).",
         "",
         "Options:",
-        "  -h, --help  Show this help text.",
+        ...FLAG_HELP_LINES,
         "",
         "Manual install combos:",
         ...MANUAL_INSTALL_COMBOS.map((combo) => `  ${combo}`),
@@ -165,6 +272,13 @@ function isDirectExecution() {
 
 function isExitPromptError(error: unknown): boolean {
     return error instanceof Error && error.name === "ExitPromptError";
+}
+
+function formatErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+        return error.message;
+    }
+    return String(error);
 }
 
 type ConsoleStyle = "bold" | "cyan" | "dim" | "green" | "yellow";

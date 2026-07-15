@@ -46,6 +46,66 @@ is developed in [Thinking in Retree](/docs/thinking-in-retree), and the
 first-hour mistakes are catalogued in
 [Common pitfalls](/docs/common-pitfalls).
 
+## Per-request roots with `RetreeProvider`
+
+Module-singleton roots (`const app = Retree.root(...)` at module scope) are
+shared by everything that imports the module. In a client-only app that is
+often exactly right — but in SSR frameworks (Next.js, Remix) module state on
+the server is shared **across requests**, so one user's writes can leak into
+another user's render. It also makes tests share state.
+
+[`RetreeProvider`](/api/react/variables/RetreeProvider) solves both: its
+`create` factory runs exactly once per mounted provider (surviving Strict
+Mode), so each server request — and each test render — gets its own container
+of roots. Descendants read the container with
+[`useRootContext`](/api/react/functions/useRootContext):
+
+```tsx
+import { Retree } from "@retreejs/core";
+import { RetreeProvider, useRootContext, useNode } from "@retreejs/react";
+
+const createRoots = () => ({ counter: Retree.root({ count: 0 }) });
+
+function Counter() {
+    const { counter } = useRootContext<ReturnType<typeof createRoots>>();
+    const state = useNode(counter);
+    return <button onClick={() => (state.count += 1)}>{state.count}</button>;
+}
+
+export function App() {
+    return (
+        <RetreeProvider create={createRoots}>
+            <Counter />
+        </RetreeProvider>
+    );
+}
+```
+
+Prefer [`createRetreeContext`](/api/react/functions/createRetreeContext) when
+you want the container type to flow with no type arguments — the `T` you
+create the context with is the `T` every `useRootContext()` returns:
+
+```tsx
+import { createRetreeContext } from "@retreejs/react";
+
+const { Provider: AppProvider, useRootContext: useAppRoots } =
+    createRetreeContext<ReturnType<typeof createRoots>>("AppProvider");
+```
+
+The provider is a client component, so a server component can render it, but
+the `create` factory runs in the client/SSR render pass — not in React Server
+Components. Apps with one lifetime-of-the-page tree don't need a provider at
+all; module-scope roots and [`useRoot`](/docs/react/use-root) stay the
+simplest paths.
+
+## Testing components
+
+`@retreejs/react/testing` ships two helpers for component tests:
+`createTestRoot(factory)` returns a managed root plus a `cleanup()` that
+clears every listener the test leaked, and `actOnRetree(write)` wraps Retree
+writes in React's `act` so renders flush before your assertions. The
+[Testing guide](/docs/testing) shows them with Testing Library.
+
 ## The five hooks
 
 - [`useRoot`](/docs/react/use-root) — create a root for a component lifetime.

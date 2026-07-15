@@ -1,7 +1,7 @@
 import React, { StrictMode } from "react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { useRoot } from "./useRoot";
+import { useRoot } from "./useRoot.js";
 
 describe("useRoot", () => {
     it("initializes the root once per mount under StrictMode", () => {

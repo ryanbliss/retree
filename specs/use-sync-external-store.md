@@ -51,7 +51,7 @@ The following invariants are required:
    SSR does not throw. Hydrating applications remain responsible for creating
    equivalent server and client Retree data.
 6. The React 16.8 through React 19 peer range remains supported through
-   `use-sync-external-store/shim` and its `with-selector` entry point.
+   `use-sync-external-store/shim`.
 
 ## 3. Core versions
 
@@ -141,10 +141,46 @@ passed to React.
 
 ## 7. `useSelect`
 
-Selections use `useSyncExternalStoreWithSelector` from
-`use-sync-external-store/shim/with-selector`.
+Selections use plain `useSyncExternalStore` from `use-sync-external-store/shim`
+plus a selection-memoization layer owned by `@retreejs/react`. Each hook
+instance caches the last computed selection, the composite store built from
+its discovered sources, and the store snapshot the selection was computed
+against. The external-store snapshot passed to React is an opaque container
+whose identity changes exactly when the component should re-render.
 
-### 7.1 Node form
+### 7.1 Recompute contract
+
+The cached selection recomputes when, and only when:
+
+1. the composite snapshot changes (a subscribed source's version advanced);
+2. the observed node or listener type changes (node form);
+3. the user selector's function identity changes between renders.
+
+Rule 3 is the contract for prop-capturing selectors: an inline selector
+receives a fresh identity every render, so a selector that closes over
+render-scoped values (such as an index prop) recomputes during that render —
+without any Retree write — and can never render a stale selection. Hoisted or
+`useCallback`-stable selectors skip recomputation on unrelated parent
+re-renders entirely. In the tracked form the identity-change recompute runs
+under dependency tracking and resubscribes when the discovered sources moved.
+
+Changing only the `equals` function identity does not trigger a recompute:
+`equals` is consulted when a recompute happens, to stabilize outputs.
+
+### 7.2 Concurrent-rendering safety
+
+The hooks write no refs during render. The per-instance memoization closure is
+created by `useMemo` keyed on the recompute inputs; the last committed state
+(used to stabilize container and store identities across selector-identity
+changes) and the latest `equals` are committed from a `useEffect`. A discarded
+concurrent render therefore cannot leave its closures or selections behind for
+the committed tree's store-change path. Selector-identity recomputes build a
+new state object rather than mutating committed state; snapshot-driven
+refreshes mutate the instance cache in place, which is safe because everything
+cached is derived from global Retree versions plus the instance's fixed
+selector.
+
+### 7.3 Node form
 
 `useSelect(node, selector, options)` evaluates the selector to discover its
 current dependency entries. Its composite source contains:
@@ -152,24 +188,26 @@ current dependency entries. Its composite source contains:
 1. the selected root with the requested listener type;
 2. every distinct Retree-managed dependency entry with `nodeChanged`.
 
-The selector passed to React ignores the opaque composite snapshot and runs
-against the latest root reproxy. Equality remains:
+Recomputes run the selector against the latest root reproxy. Equality remains:
 
 -   the supplied `equals` function when present;
--   otherwise the inverse of `defaultSelectShouldNotify(previous, next)`.
+-   otherwise `defaultSelectShouldNotify` restricted to the dependency indices
+    whose source versions changed, falling back to the whole-selection
+    comparison when no subscribed version changed (including
+    selector-identity recomputes).
 
 This preserves Retree's raw-to-raw managed-node comparisons and explicit
-dependency comparison cells.
+dependency comparison cells, and matches the previous selection semantics for
+prop-capturing selectors.
 
-### 7.2 Tracked form
+### 7.4 Tracked form
 
 `useSelect(selector, options)` performs a tracked evaluation to discover its
 current Retree node dependencies. Every distinct dependency is a
 `nodeChanged` source.
 
-The value selected through React contains both the public selected value and
-the tracked dependency comparison values. Equality preserves the existing
-rules:
+The instance cache stores both the public selected value and the tracked
+dependency comparison values. Equality preserves the existing rules:
 
 -   equivalent Retree-managed selected references are stabilized;
 -   custom `equals` controls selected-value equality;
@@ -181,8 +219,8 @@ Dependency source identity is part of the comparison. If a selector switches
 branches or nodes without changing its displayed value, React still commits
 the new source list and resubscribes.
 
-Source arrays are stabilized by descriptor identity so inline selectors do not
-cause subscription churn when the discovered node set is unchanged.
+Store and source-array identities are reused whenever the discovered source
+set is unchanged, so inline selectors do not cause subscription churn.
 
 ## 8. Concurrency and transitions
 

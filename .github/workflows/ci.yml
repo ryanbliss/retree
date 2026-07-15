@@ -1,0 +1,40 @@
+name: CI
+
+on:
+    push:
+        branches: ["main"]
+    pull_request:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: npm
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Typecheck
+              run: npm run typecheck
+
+            - name: Test
+              run: npm run test
+
+            - name: Package publish shape (publint + attw + node import smoke)
+              run: npm run lint:packages
+
+            - name: Lint & format check
+              run: |
+                  npx prettier --check .
+                  npx eslint "**/src/**/*.{j,t}s{,x}" --no-error-on-unmatched-pattern

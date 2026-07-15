@@ -1,10 +1,11 @@
 {
     "name": "@retreejs/react",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "description": "Easily build stateful React applications using familiar JavaScript patterns.",
     "author": "Ryan Bliss",
     "license": "MIT",
     "private": false,
+    "type": "module",
     "main": "./bin/index.js",
     "types": "./bin/index.d.ts",
     "scripts": {
@@ -14,25 +15,28 @@
         "prepack": "node ../../scripts/sync-package-docs.mjs ."
     },
     "devDependencies": {
-        "@babel/core": "^7.21.8",
-        "@retreejs/core": "0.6.0",
+        "@babel/core": "^7.29.0",
+        "@babel/plugin-transform-modules-commonjs": "^7.28.0",
+        "@babel/preset-react": "^7.27.0",
+        "@retreejs/core": "0.7.0",
         "@types/react": "^19.2.3",
         "@types/react-dom": "^19.2.3",
         "@types/use-sync-external-store": "^1.5.0",
         "babel-loader": "^9.1.2",
+        "babel-plugin-react-compiler": "^1.0.0",
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
-        "@retreejs/core": "0.6.0",
+        "@retreejs/core": "0.7.0",
         "react": "^16.8.0 || ^17 || ^18 || ^19",
         "react-dom": "^16.8.0 || ^17 || ^18 || ^19"
     },
     "repository": {
-        "directory": "packages/retree-core",
+        "directory": "packages/retree-react",
         "type": "git",
-        "url": "https://github.com/ryanbliss/retree"
+        "url": "git+https://github.com/ryanbliss/retree.git"
     },
-    "homepage": "https://studiobliss.io",
+    "homepage": "https://www.retree.dev/docs/react",
     "bugs": {
         "url": "https://github.com/ryanbliss/retree/issues"
     },
@@ -41,9 +45,9 @@
             "types": "./bin/index.d.ts",
             "default": "./bin/index.js"
         },
-        "./internal": {
-            "types": "./bin/internals/index.d.ts",
-            "default": "./bin/internals/index.js"
+        "./testing": {
+            "types": "./bin/testing/index.d.ts",
+            "default": "./bin/testing/index.js"
         }
     },
     "files": [

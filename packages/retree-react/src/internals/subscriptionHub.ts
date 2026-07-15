@@ -16,7 +16,12 @@ type HubListener<T extends TreeNode = TreeNode> = (
 ) => void;
 
 interface SubscriptionHubEntry<T extends TreeNode = TreeNode> {
-    listeners: Set<HubListener<T>>;
+    /**
+     * Listener -> subscription count. Ref-counted (rather than a Set) so the
+     * same callback subscribed twice survives its first unsubscribe; each
+     * listener is still invoked once per notification.
+     */
+    listeners: Map<HubListener<T>, number>;
     unsubscribeRetree: () => void;
 }
 
@@ -38,12 +43,12 @@ export function subscribeToNode<T extends TreeNode = TreeNode>(
 
     let hub = nodeHubs.get(listenerType) as SubscriptionHubEntry<T> | undefined;
     if (!hub) {
-        const listeners = new Set<HubListener<T>>();
+        const listeners = new Map<HubListener<T>, number>();
         const unsubscribeRetree = Retree.on<T>(
             baseProxy,
             listenerType,
             (reproxy, changes) => {
-                for (const callback of [...listeners]) {
+                for (const callback of [...listeners.keys()]) {
                     callback(reproxy, changes);
                 }
             }
@@ -55,9 +60,26 @@ export function subscribeToNode<T extends TreeNode = TreeNode>(
         nodeHubs.set(listenerType, hub as SubscriptionHubEntry);
     }
 
-    hub.listeners.add(listener);
+    const currentCount = hub.listeners.get(listener) ?? 0;
+    hub.listeners.set(listener, currentCount + 1);
 
+    // Idempotency flag: React cleanup (especially StrictMode) can run twice.
+    // Without it, a second call would decrement some other subscription's
+    // ref count, or tear down a hub a newer subscription still relies on.
+    let unsubscribed = false;
     return () => {
+        if (unsubscribed) {
+            return;
+        }
+        unsubscribed = true;
+        const count = hub.listeners.get(listener);
+        if (count === undefined) {
+            return;
+        }
+        if (count > 1) {
+            hub.listeners.set(listener, count - 1);
+            return;
+        }
         hub.listeners.delete(listener);
         if (hub.listeners.size > 0) {
             return;

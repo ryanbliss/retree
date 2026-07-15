@@ -2,7 +2,7 @@ import React from "react";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Retree } from "@retreejs/core";
-import { useTree } from "./useTree";
+import { useTree } from "./useTree.js";
 
 const rootsToCleanup: object[] = [];
 

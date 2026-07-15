@@ -41,10 +41,31 @@ const viteConfig = defineViteConfig({
                 ),
             },
             {
+                find: "@retreejs/query",
+                replacement: path.resolve(
+                    rootDir,
+                    "packages/retree-query/src/index.ts"
+                ),
+            },
+            {
+                find: "@retreejs/devtools",
+                replacement: path.resolve(
+                    rootDir,
+                    "packages/retree-devtools/src/index.ts"
+                ),
+            },
+            {
                 find: "@retreejs/react/benchmark",
                 replacement: path.resolve(
                     rootDir,
                     "packages/retree-react/src/index.benchmark.ts"
+                ),
+            },
+            {
+                find: "@retreejs/react/testing",
+                replacement: path.resolve(
+                    rootDir,
+                    "packages/retree-react/src/testing/index.ts"
                 ),
             },
             {
@@ -108,6 +129,8 @@ const vitestConfig = defineVitestConfig({
                         "packages/retree-core/**/*.spec.tsx",
                         "packages/retree-convex/**/*.spec.ts",
                         "packages/retree-create/**/*.spec.ts",
+                        "packages/retree-devtools/**/*.spec.ts",
+                        "packages/retree-query/**/*.spec.ts",
                         "packages/retree-react-convex/**/*.spec.ts",
                     ],
                     environment: "node",

@@ -1,6 +1,6 @@
 import { checkbox, select } from "@inquirer/prompts";
-import { PromptAdapter } from "./config";
-import { ProfileName, TierName, TierPreset, TIER_NAMES } from "./types";
+import { PromptAdapter } from "./config.js";
+import { ProfileName, TierName, TierPreset, TIER_NAMES } from "./types.js";
 
 const TIER_CHOICES = [
     {

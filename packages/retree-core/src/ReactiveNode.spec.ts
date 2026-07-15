@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ReactiveNode } from "./ReactiveNode";
-import { Retree } from "./Retree";
-import { INodeFieldChanges } from "./types";
-import { ignore, link } from "./decorators";
-import { getCustomProxyHandler, getUnproxiedNode } from "./internals";
-import { proxiedChildrenKey } from "./internals/proxy-types";
+import { ReactiveNode } from "./ReactiveNode.js";
+import { Retree } from "./Retree.js";
+import { INodeFieldChanges } from "./types.js";
+import { ignore, link } from "./decorators.js";
+import { getCustomProxyHandler, getUnproxiedNode } from "./internals/index.js";
+import { proxiedChildrenKey } from "./internals/proxy-types.js";
 import {
     getReactiveDependencies,
     getReactiveDependents,
-} from "./internals/reactive-node-utils";
-import { Transactions } from "./internals/transactions";
+} from "./internals/reactive-node-utils.js";
+import { Transactions } from "./internals/transactions.js";
 
 const rootsToCleanup: object[] = [];
 
@@ -426,9 +426,7 @@ describe("ReactiveNode", () => {
         nodeChanged.mockClear();
 
         expect(
-            getReactiveDependents(rawRemovedItem)?.some(
-                (dependent) => dependent.unproxiedReactiveNode === rawRoot
-            ) ?? false
+            getReactiveDependents(rawRemovedItem)?.has(rawRoot) ?? false
         ).toBe(false);
 
         target.items[9].value = 1;
@@ -469,6 +467,7 @@ describe("ReactiveNode", () => {
 
         expect(root.changes).toEqual([
             {
+                node: Retree.raw(root),
                 key: "value",
                 previous: 0,
                 new: 1,
@@ -812,6 +811,91 @@ describe("ReactiveNode", () => {
         root.project.changeTracker.valueChangeCountsById.valueA++;
 
         expect(nodeChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("defaults dependencies to an empty array when a subclass does not override it", () => {
+        class PlainNode extends ReactiveNode {
+            public value = 0;
+        }
+        const node = trackRoot(Retree.root(new PlainNode()));
+
+        expect(node.dependencies).toEqual([]);
+
+        const nodeChanged = vi.fn();
+        Retree.on(node, "nodeChanged", nodeChanged);
+        node.value = 1;
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("still honors a subclass dependencies getter overriding the default", () => {
+        class OverridingNode extends ReactiveNode {
+            public source = { count: 0 };
+
+            get dependencies() {
+                return [this.dependency(this.source)];
+            }
+        }
+        const node = trackRoot(Retree.root(new OverridingNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(node, "nodeChanged", nodeChanged);
+
+        node.source.count = 1;
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("accepts a dependencies class field assigned via [[Set]] semantics", () => {
+        // Mirrors a subclass compiled with `useDefineForClassFields: false`,
+        // where a `dependencies = [...]` class field becomes a plain
+        // `this.dependencies = [...]` assignment in the constructor. That
+        // assignment walks the prototype chain, so a getter-only accessor on
+        // ReactiveNode would throw "Cannot set property".
+        class FieldNode extends ReactiveNode {
+            public numbers: number[] = [];
+            public assigned: ReactiveNode["dependencies"];
+
+            constructor() {
+                super();
+                const assigned = [this.numbers];
+                this.dependencies = assigned;
+                this.assigned = assigned;
+            }
+        }
+        const raw = new FieldNode();
+        expect(raw.dependencies).toBe(raw.assigned);
+
+        // The base getter resolves the same slot through the managed proxy.
+        const node = trackRoot(Retree.root(new FieldNode()));
+        expect(node.dependencies).toBe(
+            (getUnproxiedNode(node) as FieldNode).assigned
+        );
+    });
+
+    it("returns the default empty dependencies when nothing was assigned", () => {
+        class PlainNode extends ReactiveNode {
+            public count = 0;
+        }
+        const node = trackRoot(Retree.root(new PlainNode()));
+        expect(node.dependencies).toEqual([]);
+    });
+
+    it("keeps a subclass dependencies getter working alongside the base setter", () => {
+        class GetterNode extends ReactiveNode {
+            public source = { count: 0 };
+
+            get dependencies() {
+                return [this.dependency(this.source)];
+            }
+        }
+        const node = trackRoot(Retree.root(new GetterNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(node, "nodeChanged", nodeChanged);
+
+        node.source.count = 1;
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(node.dependencies).toHaveLength(1);
     });
 });
 

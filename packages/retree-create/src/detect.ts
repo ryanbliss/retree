@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
 
 export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
 
@@ -37,59 +38,180 @@ export function parseTargetProject(
     };
 }
 
-export function readTargetProject(cwd: string): TargetProject | undefined {
+/**
+ * Checks whether `packageName` resolves from `cwd`'s node_modules chain.
+ * Ground truth for monorepos where the dependency is declared at the
+ * workspace root instead of the target project's own package.json.
+ */
+export type DependencyResolver = (packageName: string, cwd: string) => boolean;
+
+const nodeRequire = createRequire(import.meta.url);
+
+export const resolveDependencyFromNodeModules: DependencyResolver = (
+    packageName,
+    cwd
+) => {
+    try {
+        nodeRequire.resolve(`${packageName}/package.json`, {
+            paths: [resolve(cwd)],
+        });
+        return true;
+    } catch {
+        return false;
+    }
+};
+
+export function readTargetProject(
+    cwd: string,
+    resolveDependency: DependencyResolver = resolveDependencyFromNodeModules
+): TargetProject | undefined {
     const packageJsonPath = resolve(cwd, "package.json");
     if (!existsSync(packageJsonPath)) {
         return undefined;
     }
-    return parseTargetProject(
+    const target = parseTargetProject(
         readFileSync(packageJsonPath, "utf8"),
         packageJsonPath
     );
+    return {
+        name: target.name,
+        hasReact: target.hasReact || resolveDependency("react", cwd),
+        hasConvex: target.hasConvex || resolveDependency("convex", cwd),
+    };
 }
 
-const LOCKFILES_IN_DETECTION_ORDER: Array<{
+const PACKAGE_MANAGER_MARKERS_IN_DETECTION_ORDER: Array<{
     fileName: string;
     packageManager: PackageManager;
 }> = [
     { fileName: "pnpm-lock.yaml", packageManager: "pnpm" },
+    { fileName: "pnpm-workspace.yaml", packageManager: "pnpm" },
     { fileName: "yarn.lock", packageManager: "yarn" },
     { fileName: "bun.lockb", packageManager: "bun" },
     { fileName: "bun.lock", packageManager: "bun" },
     { fileName: "package-lock.json", packageManager: "npm" },
 ];
 
+function detectPackageManagerFromUserAgent(
+    userAgent: string | undefined
+): PackageManager | undefined {
+    if (userAgent === undefined) {
+        return undefined;
+    }
+    if (userAgent.startsWith("pnpm/")) {
+        return "pnpm";
+    }
+    if (userAgent.startsWith("yarn/")) {
+        return "yarn";
+    }
+    if (userAgent.startsWith("bun/")) {
+        return "bun";
+    }
+    if (userAgent.startsWith("npm/")) {
+        return "npm";
+    }
+    return undefined;
+}
+
 export function detectPackageManager(
     userAgent: string | undefined,
     lockfileExists: (fileName: string) => boolean
 ): PackageManager {
-    if (userAgent !== undefined) {
-        if (userAgent.startsWith("pnpm/")) {
-            return "pnpm";
-        }
-        if (userAgent.startsWith("yarn/")) {
-            return "yarn";
-        }
-        if (userAgent.startsWith("bun/")) {
-            return "bun";
-        }
-        if (userAgent.startsWith("npm/")) {
-            return "npm";
-        }
+    return detectPackageManagerAcrossDirectories(
+        userAgent,
+        ["."],
+        (_directory, fileName) => lockfileExists(fileName)
+    );
+}
+
+/**
+ * Detects the package manager from the invoking user agent, then from
+ * lockfiles/workspace markers checked per directory (nearest directory
+ * first — pass ancestors in walk-up order for monorepo support).
+ */
+export function detectPackageManagerAcrossDirectories(
+    userAgent: string | undefined,
+    directories: string[],
+    fileExistsInDirectory: (directory: string, fileName: string) => boolean
+): PackageManager {
+    const fromUserAgent = detectPackageManagerFromUserAgent(userAgent);
+    if (fromUserAgent !== undefined) {
+        return fromUserAgent;
     }
 
-    for (const lockfile of LOCKFILES_IN_DETECTION_ORDER) {
-        if (lockfileExists(lockfile.fileName)) {
-            return lockfile.packageManager;
+    for (const directory of directories) {
+        for (const marker of PACKAGE_MANAGER_MARKERS_IN_DETECTION_ORDER) {
+            if (fileExistsInDirectory(directory, marker.fileName)) {
+                return marker.packageManager;
+            }
         }
     }
 
     return "npm";
 }
 
+/**
+ * Lists `cwd` and its ancestors, stopping (inclusively) at the first
+ * directory `isSearchBoundary` accepts — typically the git or workspace
+ * root — or at the filesystem root.
+ */
+export function listPackageManagerSearchDirectories(
+    cwd: string,
+    isSearchBoundary: (directory: string) => boolean
+): string[] {
+    const directories: string[] = [];
+    let current = resolve(cwd);
+    for (;;) {
+        directories.push(current);
+        if (isSearchBoundary(current)) {
+            break;
+        }
+        const parent = dirname(current);
+        if (parent === current) {
+            break;
+        }
+        current = parent;
+    }
+    return directories;
+}
+
+function isSearchBoundaryOnDisk(directory: string): boolean {
+    if (existsSync(resolve(directory, ".git"))) {
+        return true;
+    }
+    if (existsSync(resolve(directory, "pnpm-workspace.yaml"))) {
+        return true;
+    }
+    return packageJsonDeclaresWorkspaces(directory);
+}
+
+function packageJsonDeclaresWorkspaces(directory: string): boolean {
+    const packageJsonPath = resolve(directory, "package.json");
+    if (!existsSync(packageJsonPath)) {
+        return false;
+    }
+    try {
+        const parsed: unknown = JSON.parse(
+            readFileSync(packageJsonPath, "utf8")
+        );
+        if (!isRecord(parsed)) {
+            return false;
+        }
+        return "workspaces" in parsed;
+    } catch {
+        return false;
+    }
+}
+
 export function detectPackageManagerInDirectory(cwd: string): PackageManager {
-    return detectPackageManager(process.env.npm_config_user_agent, (fileName) =>
-        existsSync(resolve(cwd, fileName))
+    const directories = listPackageManagerSearchDirectories(
+        cwd,
+        isSearchBoundaryOnDisk
+    );
+    return detectPackageManagerAcrossDirectories(
+        process.env.npm_config_user_agent,
+        directories,
+        (directory, fileName) => existsSync(resolve(directory, fileName))
     );
 }
 
@@ -97,7 +219,11 @@ function hasDependency(
     packageJson: Record<string, unknown>,
     dependencyName: string
 ): boolean {
-    const dependencyFields = ["dependencies", "devDependencies"];
+    const dependencyFields = [
+        "dependencies",
+        "devDependencies",
+        "peerDependencies",
+    ];
     return dependencyFields.some((field) => {
         const dependencies = packageJson[field];
         if (!isRecord(dependencies)) {

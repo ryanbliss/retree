@@ -28,7 +28,7 @@ import { HeroBackground } from "@/components/visualizer/HeroBackground";
 import { HeroVisualizer } from "@/components/visualizer/HeroVisualizer";
 
 export const metadata: Metadata = {
-    title: "Retree — simple state framework for precise, lighting-fast reactive rendering",
+    title: "Retree — simple state framework for precise, lightning-fast reactive rendering",
     description: "React state done better.",
 };
 
@@ -405,7 +405,7 @@ export default function Home() {
                         <Reveal mode="mount" className="min-w-0">
                             <h1 className="max-w-xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
                                 Simple state framework for precise,
-                                lighting-fast reactive rendering.
+                                lightning-fast reactive rendering.
                             </h1>
                             <p className="mt-4 max-w-xl text-lg text-muted">
                                 React state done better.

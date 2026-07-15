@@ -1,14 +1,17 @@
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
-import { Retree } from "./Retree";
-import { ReactiveNode } from "./ReactiveNode";
-import { Transactions } from "./internals/transactions";
-import { getReproxyNode } from "./internals/reproxy";
+import { Retree } from "./Retree.js";
+import { ReactiveNode } from "./ReactiveNode.js";
+import {
+    setRetreeListenerFlushWrapper,
+    Transactions,
+} from "./internals/transactions.js";
+import { getReproxyNode } from "./internals/reproxy.js";
 import {
     getBaseProxy,
     getCustomProxyHandler,
     getUnproxiedNode,
-} from "./internals/proxy";
-import { proxiedChildrenKey } from "./internals/proxy-types";
+} from "./internals/proxy.js";
+import { proxiedChildrenKey } from "./internals/proxy-types.js";
 
 const rootsToCleanup: object[] = [];
 
@@ -400,6 +403,7 @@ describe("Retree", () => {
         expect(nodeChanged).toHaveBeenCalledTimes(1);
         expect(nodeChanged.mock.calls[0]?.[1]).toEqual([
             {
+                node: Retree.raw(root),
                 key: "count",
                 previous: 1,
                 new: 2,
@@ -423,6 +427,9 @@ describe("Retree", () => {
         expect(treeChanged).toHaveBeenCalledTimes(1);
         expect(treeChanged.mock.calls[0]?.[1]).toEqual([
             {
+                // treeChanged forwards the changed descendant's records;
+                // `node` attributes them to the child that actually changed.
+                node: Retree.raw(root.child),
                 key: "count",
                 previous: 1,
                 new: 2,
@@ -448,11 +455,13 @@ describe("Retree", () => {
         expect(nodeChanged).toHaveBeenCalledTimes(1);
         expect(nodeChanged.mock.calls[0]?.[1]).toEqual([
             {
+                node: Retree.raw(root),
                 key: "count",
                 previous: 1,
                 new: 2,
             },
             {
+                node: Retree.raw(root),
                 key: "label",
                 previous: "one",
                 new: "two",
@@ -1213,6 +1222,71 @@ describe("Retree", () => {
         expect(Retree.parent(root.copy.nested)).toBe(root.copy);
     });
 
+    it("clone throws a pinpointed error for RegExp values", () => {
+        const root = trackRoot(
+            Retree.root({ source: { pattern: /abc/g as unknown } })
+        );
+
+        expect(() => Retree.clone(root.source)).toThrowError(
+            /RegExp stored at "node\.pattern"/
+        );
+    });
+
+    it("clone throws a pinpointed error for typed arrays with the key path", () => {
+        const root = trackRoot(
+            Retree.root({
+                source: { nested: { bytes: new Uint8Array(4) as unknown } },
+            })
+        );
+
+        expect(() => Retree.clone(root.source)).toThrowError(
+            /Uint8Array stored at "node\.nested\.bytes"/
+        );
+    });
+
+    it("clone throws a pinpointed error for ArrayBuffer values", () => {
+        const root = trackRoot(
+            Retree.root({ source: { buffer: new ArrayBuffer(8) as unknown } })
+        );
+
+        expect(() => Retree.clone(root.source)).toThrowError(
+            /ArrayBuffer stored at "node\.buffer"/
+        );
+    });
+
+    it("clone throws a pinpointed error for own function values with array paths", () => {
+        const root = trackRoot(
+            Retree.root({
+                source: { handlers: [{ run: (() => 1) as unknown }] },
+            })
+        );
+
+        expect(() => Retree.clone(root.source)).toThrowError(
+            /function stored at "node\.handlers\[0\]\.run"/
+        );
+    });
+
+    it("clone still supports Date, Map, and Set values", () => {
+        const root = trackRoot(
+            Retree.root({
+                source: {
+                    when: new Date(1000),
+                    map: new Map([["a", { v: 1 }]]),
+                    set: new Set([2]),
+                },
+            })
+        );
+
+        const copy = Retree.clone(root.source);
+
+        expect(copy.when.getTime()).toBe(1000);
+        expect(copy.map.get("a")).toEqual({ v: 1 });
+        expect(copy.map.get("a")).not.toBe(
+            Retree.raw(root.source.map.get("a")!)
+        );
+        expect(copy.set.has(2)).toBe(true);
+    });
+
     it("batches transaction notifications per node", () => {
         const root = trackRoot(Retree.root({ count: 0, child: { value: 1 } }));
         const rootNodeChanged = vi.fn();
@@ -1314,6 +1388,103 @@ describe("Retree", () => {
         root.count = 2;
         expect(nodeChanged).toHaveBeenCalledTimes(1);
     });
+
+    it("keeps the rest of an outer runSilent silent after a nested runSilent ends", () => {
+        // Regression: the inner runSilent's finally used to reset the global
+        // flags to false, re-enabling emission for the remainder of the
+        // outer silent body.
+        const root = trackRoot(Retree.root({ count: 0 }));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        Retree.runSilent(() => {
+            root.count = 1;
+            Retree.runSilent(() => {
+                root.count = 2;
+            });
+            root.count = 3;
+        });
+
+        expect(nodeChanged).not.toHaveBeenCalled();
+        expect(root.count).toBe(3);
+
+        root.count = 4;
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps runSilent writes out of an enclosing runTransaction flush", () => {
+        const root = trackRoot(Retree.root({ silent: 0, loud: 0 }));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        Retree.runTransaction(() => {
+            Retree.runSilent(() => {
+                root.silent = 1;
+            });
+        });
+        expect(nodeChanged).not.toHaveBeenCalled();
+
+        Retree.runTransaction(() => {
+            Retree.runSilent(() => {
+                root.silent = 2;
+            });
+            root.loud = 1;
+        });
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(root.silent).toBe(2);
+        expect(root.loud).toBe(1);
+    });
+
+    it("keeps a runTransaction inside runSilent fully silent", () => {
+        const root = trackRoot(Retree.root({ count: 0 }));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        Retree.runSilent(() => {
+            Retree.runTransaction(() => {
+                root.count = 1;
+                root.count = 2;
+            });
+            root.count = 3;
+        });
+
+        expect(nodeChanged).not.toHaveBeenCalled();
+        expect(root.count).toBe(3);
+    });
+
+    it("does not remove another listener when unsubscribe is called twice", () => {
+        // Regression: the second call's findIndex === -1 used to
+        // splice(-1, 1), silently removing the last listener in the array.
+        const root = trackRoot(Retree.root({ count: 0 }));
+        const listenerA = vi.fn();
+        const listenerB = vi.fn();
+        const unsubscribeA = Retree.on(root, "nodeChanged", listenerA);
+        Retree.on(root, "nodeChanged", listenerB);
+
+        unsubscribeA();
+        unsubscribeA();
+
+        root.count = 1;
+        expect(listenerA).not.toHaveBeenCalled();
+        expect(listenerB).toHaveBeenCalledTimes(1);
+    });
+
+    it("removes one occurrence per unsubscribe when the same callback is subscribed twice", () => {
+        const root = trackRoot(Retree.root({ count: 0 }));
+        const listener = vi.fn();
+        const unsubscribeFirst = Retree.on(root, "nodeChanged", listener);
+        const unsubscribeSecond = Retree.on(root, "nodeChanged", listener);
+
+        unsubscribeFirst();
+        unsubscribeFirst();
+
+        root.count = 1;
+        expect(listener).toHaveBeenCalledTimes(1);
+
+        unsubscribeSecond();
+        root.count = 2;
+        expect(listener).toHaveBeenCalledTimes(1);
+    });
 });
 
 describe("Retree.clearListeners", () => {
@@ -1357,6 +1528,37 @@ describe("Retree.clearListeners", () => {
         expect(rootChanged).not.toHaveBeenCalled();
         expect(childChanged).not.toHaveBeenCalled();
         expect(grandchildChanged).not.toHaveBeenCalled();
+    });
+
+    it("shallow=false clears listeners on nodes stored inside Map and Set", () => {
+        // Regression: Object.values(map) and Object.values(set) are [], so
+        // the recursion used to skip everything stored in a Map or Set.
+        const root = trackRoot(
+            Retree.root({
+                map: new Map([["a", { value: 0, nested: { value: 0 } }]]),
+                set: new Set([{ value: 0 }]),
+            })
+        );
+        const mapEntry = root.map.get("a");
+        if (!mapEntry) {
+            throw new Error("expected map entry 'a' to exist");
+        }
+        const setEntry = [...root.set.values()][0];
+        const mapEntryChanged = vi.fn();
+        const mapNestedChanged = vi.fn();
+        const setEntryChanged = vi.fn();
+        Retree.on(mapEntry, "nodeChanged", mapEntryChanged);
+        Retree.on(mapEntry.nested, "nodeChanged", mapNestedChanged);
+        Retree.on(setEntry, "nodeChanged", setEntryChanged);
+
+        Retree.clearListeners(root, false);
+
+        mapEntry.value = 1;
+        mapEntry.nested.value = 1;
+        setEntry.value = 1;
+        expect(mapEntryChanged).not.toHaveBeenCalled();
+        expect(mapNestedChanged).not.toHaveBeenCalled();
+        expect(setEntryChanged).not.toHaveBeenCalled();
     });
 });
 
@@ -1589,5 +1791,231 @@ describe("Retree.peekInto", () => {
         project.tasks[0].done = true;
         expect(callback).not.toHaveBeenCalled();
         unsubscribe();
+    });
+});
+
+interface ITreeChangedWalkProbe {
+    handleNotifyTreeChanged: (...args: unknown[]) => void;
+}
+
+/**
+ * Test probe for the private treeChanged ancestor walk. The walk itself is an
+ * implementation detail, but the P4 guarantee is exactly "unrelated writes do
+ * not run it", so the spec observes it directly.
+ */
+function spyOnTreeChangedWalk() {
+    return vi.spyOn(
+        Retree as unknown as ITreeChangedWalkProbe,
+        "handleNotifyTreeChanged"
+    );
+}
+
+describe("treeChanged ancestor-path gating", () => {
+    it("skips the ancestor walk for writes in a different root", () => {
+        const watched = trackRoot(Retree.root({ count: 0 }));
+        const treeChanged = vi.fn();
+        Retree.on(watched, "treeChanged", treeChanged);
+
+        const unrelated = trackRoot(
+            Retree.root({ child: { grandchild: { value: 0 } } })
+        );
+        // Materialize before spying so lazy proxy construction is excluded.
+        void unrelated.child.grandchild.value;
+
+        const walk = spyOnTreeChangedWalk();
+        try {
+            unrelated.child.grandchild.value = 1;
+            expect(walk).not.toHaveBeenCalled();
+            expect(treeChanged).not.toHaveBeenCalled();
+
+            // The listener's own tree still walks and delivers.
+            watched.count = 1;
+            expect(walk).toHaveBeenCalled();
+            expect(treeChanged).toHaveBeenCalledTimes(1);
+        } finally {
+            walk.mockRestore();
+        }
+    });
+
+    it("skips the ancestor walk for writes in a sibling subtree of the same root", () => {
+        const root = trackRoot(
+            Retree.root({
+                watched: { value: 0 },
+                unwatched: { value: 0 },
+            })
+        );
+        const treeChanged = vi.fn();
+        Retree.on(root.watched, "treeChanged", treeChanged);
+
+        const walk = spyOnTreeChangedWalk();
+        try {
+            root.unwatched.value = 1;
+            expect(walk).not.toHaveBeenCalled();
+            expect(treeChanged).not.toHaveBeenCalled();
+
+            root.watched.value = 1;
+            expect(walk).toHaveBeenCalled();
+            expect(treeChanged).toHaveBeenCalledTimes(1);
+        } finally {
+            walk.mockRestore();
+        }
+    });
+
+    it("preserves treeChanged delivery across Retree.move", () => {
+        const root = trackRoot(
+            Retree.root({
+                source: { item: { value: 0 } } as { item?: { value: number } },
+                destination: {} as { item?: { value: number } },
+            })
+        );
+        const sourceChanged = vi.fn();
+        const destinationChanged = vi.fn();
+        Retree.on(root.source, "treeChanged", sourceChanged);
+        Retree.on(root.destination, "treeChanged", destinationChanged);
+
+        const item = root.source.item;
+        if (!item) {
+            throw new Error("test setup: expected source.item to exist");
+        }
+        const moved = Retree.move(item, root.destination, "item");
+        sourceChanged.mockClear();
+        destinationChanged.mockClear();
+
+        // After the move, the item's ancestor path runs through destination.
+        moved.value = 1;
+        expect(destinationChanged).toHaveBeenCalledTimes(1);
+        expect(sourceChanged).not.toHaveBeenCalled();
+
+        // And unrelated writes to the now-empty source subtree skip the walk.
+        const walk = spyOnTreeChangedWalk();
+        try {
+            const orphan = trackRoot(Retree.root({ value: 0 }));
+            orphan.value = 1;
+            expect(walk).not.toHaveBeenCalled();
+        } finally {
+            walk.mockRestore();
+        }
+    });
+
+    it("stops walking once the last treeChanged listener on the path unsubscribes", () => {
+        const root = trackRoot(Retree.root({ child: { value: 0 } }));
+        const treeChanged = vi.fn();
+        const unsubscribe = Retree.on(root, "treeChanged", treeChanged);
+        // Keep an unrelated treeChanged listener alive so the global count
+        // stays non-zero and only the per-path check can skip the walk.
+        const other = trackRoot(Retree.root({ count: 0 }));
+        Retree.on(other, "treeChanged", vi.fn());
+
+        root.child.value = 1;
+        expect(treeChanged).toHaveBeenCalledTimes(1);
+
+        unsubscribe();
+        const walk = spyOnTreeChangedWalk();
+        try {
+            root.child.value = 2;
+            expect(walk).not.toHaveBeenCalled();
+            expect(treeChanged).toHaveBeenCalledTimes(1);
+        } finally {
+            walk.mockRestore();
+        }
+    });
+
+    it("stops walking after clearListeners removes the path listener", () => {
+        const root = trackRoot(Retree.root({ child: { value: 0 } }));
+        const treeChanged = vi.fn();
+        Retree.on(root, "treeChanged", treeChanged);
+        const other = trackRoot(Retree.root({ count: 0 }));
+        Retree.on(other, "treeChanged", vi.fn());
+
+        Retree.clearListeners(root);
+        const walk = spyOnTreeChangedWalk();
+        try {
+            root.child.value = 1;
+            expect(walk).not.toHaveBeenCalled();
+            expect(treeChanged).not.toHaveBeenCalled();
+        } finally {
+            walk.mockRestore();
+        }
+    });
+
+    it("keeps live-listener bookkeeping correct through double unsubscribes", () => {
+        const root = trackRoot(Retree.root({ a: { v: 0 }, b: { v: 0 } }));
+        const first = vi.fn();
+        const second = vi.fn();
+        const unsubscribeFirst = Retree.on(root.a, "treeChanged", first);
+        Retree.on(root.b, "treeChanged", second);
+
+        unsubscribeFirst();
+        unsubscribeFirst(); // idempotent: must not decrement twice
+
+        root.b.v = 1;
+        expect(second).toHaveBeenCalledTimes(1);
+        expect(first).not.toHaveBeenCalled();
+
+        const walk = spyOnTreeChangedWalk();
+        try {
+            root.a.v = 1;
+            expect(walk).not.toHaveBeenCalled();
+        } finally {
+            walk.mockRestore();
+        }
+    });
+});
+
+describe("listener flush wrapper integration", () => {
+    it("runs one wrapper call around a whole multi-node transaction flush", () => {
+        const root = trackRoot(
+            Retree.root({ first: { v: 0 }, second: { v: 0 } })
+        );
+        const firstChanged = vi.fn();
+        const secondChanged = vi.fn();
+        Retree.on(root.first, "nodeChanged", firstChanged);
+        Retree.on(root.second, "nodeChanged", secondChanged);
+
+        let wrapperCalls = 0;
+        let listenerCallsInsideWrapper = 0;
+        setRetreeListenerFlushWrapper((flush) => {
+            wrapperCalls += 1;
+            flush();
+            listenerCallsInsideWrapper =
+                firstChanged.mock.calls.length +
+                secondChanged.mock.calls.length;
+        });
+        try {
+            Retree.runTransaction(() => {
+                root.first.v = 1;
+                root.second.v = 1;
+            });
+        } finally {
+            setRetreeListenerFlushWrapper(undefined);
+        }
+
+        expect(wrapperCalls).toBe(1);
+        expect(listenerCallsInsideWrapper).toBe(2);
+        expect(firstChanged).toHaveBeenCalledTimes(1);
+        expect(secondChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("runs non-transaction synchronous emission through the wrapper", () => {
+        const root = trackRoot(Retree.root({ v: 0 }));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        let observedInsideWrapper = -1;
+        let wrapperCalls = 0;
+        setRetreeListenerFlushWrapper((flush) => {
+            wrapperCalls += 1;
+            flush();
+            observedInsideWrapper = nodeChanged.mock.calls.length;
+        });
+        try {
+            root.v = 1;
+        } finally {
+            setRetreeListenerFlushWrapper(undefined);
+        }
+
+        expect(wrapperCalls).toBeGreaterThanOrEqual(1);
+        expect(observedInsideWrapper).toBe(1);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
     });
 });

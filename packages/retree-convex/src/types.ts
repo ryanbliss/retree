@@ -11,6 +11,11 @@ import type {
     PaginationResult,
 } from "convex/server";
 import type { ConnectionState, PaginationStatus } from "convex/browser";
+import type { IStateReconciler } from "@retreejs/query";
+
+// The reconciler protocol moved to @retreejs/query (spec §6.2 AsyncQueryNode
+// extraction); re-exported here so existing imports keep working.
+export type { IStateReconciler } from "@retreejs/query";
 
 /**
  * Convex query function reference accepted by Retree Convex query helpers.
@@ -204,6 +209,46 @@ export interface IConvexConnectionClient {
 }
 
 /**
+ * Reactive snapshot of a Convex client's authentication status.
+ */
+export interface ConvexAuthState {
+    /**
+     * True while an auth token fetch started by `setAuth` is in flight and the
+     * server has not confirmed or rejected the credentials yet.
+     */
+    isLoading: boolean;
+    /**
+     * True once the Convex server has validated the current credentials.
+     */
+    isAuthenticated: boolean;
+}
+
+/**
+ * Minimal Convex client auth surface needed by {@link ConvexAuthStateNode}.
+ *
+ * @remarks
+ * Convex clients only expose auth changes through the `onChange` callback of
+ * `setAuth`, so this surface is implemented by adapter clients (such as
+ * `RetreeConvexReactClient` in `@retreejs/react-convex`) that interpose on
+ * `setAuth`/`clearAuth` to make auth state observable. It is deliberately not
+ * part of {@link IConvexClient}: existing client implementations stay valid.
+ */
+export interface IConvexAuthClient {
+    /**
+     * Get the current authentication state.
+     */
+    authState(): ConvexAuthState;
+    /**
+     * Subscribe to authentication state changes.
+     *
+     * @returns Function that removes the listener.
+     */
+    subscribeToAuthState(
+        callback: (authState: ConvexAuthState) => void
+    ): () => void;
+}
+
+/**
  * Minimal Convex client surface accepted by {@link ConvexNode}.
  */
 export interface IConvexClient
@@ -310,38 +355,12 @@ export interface IOptimisticTransform<
      */
     apply(state: TState): void;
     /**
-     * Optional custom rollback. When omitted, Retree Convex restores a snapshot
-     * captured before {@link IOptimisticTransform.apply} ran.
+     * Optional custom rollback. When omitted, Retree Convex restores the
+     * latest clean server baseline at rejection time — including any server
+     * confirmations that arrived after {@link IOptimisticTransform.apply}
+     * ran, so a failed mutation never wipes a confirmed one.
      */
     revert?: (state: TState, snapshot: TState) => void;
-}
-
-/**
- * Reconciles an incoming query value against the current node state.
- */
-export interface IStateReconciler<TState> {
-    /**
-     * Reconcile `next` into `current`.
-     *
-     * @remarks
-     * Reconciliation is read-dominated: it compares every field and writes
-     * only the diffs. **Read from `rawCurrent`, write to `current`.**
-     * `rawCurrent` is the raw object behind `current` (`Retree.raw`) —
-     * native-speed, proxy-free reads. Writes must go through `current` so
-     * changed rows emit `nodeChanged` and item identity stays stable for
-     * `useNode` rows; writes to `rawCurrent` skip emission entirely.
-     *
-     * @param current Current query state, if any. Write surface.
-     * @param next Newly emitted query state (raw server data).
-     * @param rawCurrent Raw view of `current` for fast reads; `undefined`
-     * when `current` is `undefined` or not object-valued.
-     * @returns The state object that should be assigned to the query node.
-     */
-    reconcile(
-        current: TState | undefined,
-        next: TState,
-        rawCurrent?: TState
-    ): TState;
 }
 
 /**
@@ -350,7 +369,15 @@ export interface IStateReconciler<TState> {
 export type ConvexQueryNodeResult<Query extends QueryReference> =
     | { status: "pending" }
     | { status: "skipped" }
-    | { status: "success"; data: FunctionReturnType<Query> }
+    | {
+          status: "success";
+          data: FunctionReturnType<Query>;
+          /**
+           * True while `updateArgs` keeps the previous data visible
+           * (`keepPreviousData`) and the new subscription has not emitted yet.
+           */
+          isStale?: boolean;
+      }
     | { status: "error"; error: Error };
 
 /**
@@ -372,6 +399,12 @@ export type IConvexQueryNodeOptions<Query extends QueryReference> =
                * new query results arrive.
                */
               reconcile?: IStateReconciler<FunctionReturnType<Query>>;
+              /**
+               * Keep the previous `state` visible (with `result.isStale` set to
+               * `true`) while a subscription opened by `updateArgs` loads,
+               * instead of resetting to `"pending"`.
+               */
+              keepPreviousData?: boolean;
           }
         : {
               /**
@@ -387,6 +420,12 @@ export type IConvexQueryNodeOptions<Query extends QueryReference> =
                * new query results arrive.
                */
               reconcile?: IStateReconciler<FunctionReturnType<Query>>;
+              /**
+               * Keep the previous `state` visible (with `result.isStale` set to
+               * `true`) while a subscription opened by `updateArgs` loads,
+               * instead of resetting to `"pending"`.
+               */
+              keepPreviousData?: boolean;
           };
 
 /**

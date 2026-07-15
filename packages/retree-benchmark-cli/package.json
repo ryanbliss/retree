@@ -19,8 +19,8 @@
     },
     "dependencies": {
         "@inquirer/prompts": "^7.0.0",
-        "@retreejs/core": "0.6.0",
-        "@retreejs/react": "0.6.0",
+        "@retreejs/core": "0.7.0",
+        "@retreejs/react": "0.7.0",
         "jsdom": "^26.1.0",
         "react": "^19.2.5",
         "react-dom": "^19.2.5"
@@ -34,9 +34,9 @@
     "repository": {
         "directory": "packages/retree-benchmark-cli",
         "type": "git",
-        "url": "https://github.com/ryanbliss/retree"
+        "url": "git+https://github.com/ryanbliss/retree.git"
     },
-    "homepage": "https://studiobliss.io",
+    "homepage": "https://www.retree.dev",
     "bugs": {
         "url": "https://github.com/ryanbliss/retree/issues"
     },

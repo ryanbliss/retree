@@ -29,6 +29,9 @@ Use this as a quick map before choosing an API:
 -   [`Retree.root`](#how-to-use) makes one object the root of a Retree-managed tree. Use it once at the boundary where plain state enters Retree.
 -   [`Retree.on`](#listen-to-nodechanged-treechanged-and-noderemoved) subscribes to `nodeChanged`, `treeChanged`, or `nodeRemoved`. Use it outside React or inside lower-level integrations.
 -   [`Retree.select`](#select-derived-values) subscribes to a selected value or ordered dependency list. Use it to narrow notifications; it is not a cache.
+-   [`Retree.effect`](#run-effects) runs a function immediately and re-runs it whenever a tracked dependency changes. Use it for side effects with no single value worth selecting.
+-   [`createUndoHistory`](#undo-and-redo) records every change under a root into undo/redo steps; `Retree.applyInverse` and `Retree.applyChanges` are the underlying primitives.
+-   [`Retree.registerRootName`](#name-roots-for-tooling) names a root for debug taps and `@retreejs/devtools`.
 -   [`Retree.parent`](#find-a-parent) returns the structural parent of a node. Use it for tree-local actions like deleting yourself from an array.
 -   [`Retree.isNode`](#read-fast-with-raw) checks whether a value is a Retree-managed node. Use it to guard `Retree.raw` when a value may be managed or plain.
 -   [`Retree.raw`](#read-fast-with-raw) returns the raw, proxy-free object behind a node for native-speed, read-only access. Use it for algorithms that scan large trees.
@@ -194,6 +197,28 @@ By default, `select` listens to `nodeChanged` on the node you pass. This is best
 Dependency-list subscriptions in `Retree.select` are observational. If `self.attributes` or `self.attribute` changes in the example above, the callback can run, but the `row` node passed to `Retree.select` is not forced to receive a fresh reproxy. Use `@select` when a `ReactiveNode` owner should emit `nodeChanged`.
 
 `select` does not cache expensive work for later reads. If the selector is expensive and reused from multiple places, put the expensive part behind `memo`, `@memo`, or `@fnMemo`, then select the cached value.
+
+## Run effects
+
+Use `Retree.effect(fn)` when the work itself is the point — syncing to the DOM, `localStorage`, analytics — and there is no single value worth selecting. The function runs once immediately under dependency tracking and re-runs whenever a tracked dependency changes. It is the third subscription primitive next to `Retree.on` (one node, every change) and `Retree.select` (derived value, change-compared).
+
+```ts
+const settings = Retree.root({ theme: "dark", fontSize: 14 });
+
+const stop = Retree.effect(() => {
+    document.body.dataset.theme = settings.theme;
+});
+
+settings.theme = "light"; // ✅ effect re-runs
+settings.fontSize = 16; // ❌ not read by the effect; skipped
+stop();
+```
+
+Reads are trapped exactly like the selector-only `Retree.select(() => ...)` form: property reads subscribe to their owner node and validate by value, so unrelated writes to a tracked node skip the re-run. Wrap reads that should not subscribe in `Retree.untracked(...)`.
+
+Effects may write Retree state. A run that changes a property it already read re-runs after the current run — including the creation run, so a self-converging effect reaches its fixed point before `Retree.effect` returns. A cascade of more than 100 synchronous re-runs throws an error naming the effect, so a non-converging effect (one that unconditionally writes a dependency it also reads) fails loudly at the line that created it.
+
+Errors thrown by a run do not kill the reaction: they are passed to `options.onError` when provided and rethrown asynchronously otherwise. Either way the effect stays subscribed and can recover on the next relevant change.
 
 ## Move, link, or clone existing nodes
 
@@ -725,6 +750,42 @@ Retree.runSilent(() => {
 }, false);
 ```
 
+## Undo and redo
+
+Every Retree change emits records describing exactly what happened; `createUndoHistory(root)` records them into undo/redo steps:
+
+```ts
+import { Retree, createUndoHistory } from "@retreejs/core";
+
+const project = Retree.root({ tasks: [{ title: "Docs", done: false }] });
+const history = createUndoHistory(project);
+
+project.tasks[0].done = true;
+project.tasks.push({ title: "Tests", done: false });
+
+history.undo(); // ✅ push undone; tasks has one entry
+history.undo(); // ✅ done back to false
+history.redo(); // ✅ done true again
+history.dispose(); // remove the treeChanged subscription on teardown
+```
+
+Everything flushed by one `Retree.runTransaction` is one step; each discrete write outside a transaction is its own step. The `coalesce` option merges a new discrete step into the previous one — use it to fold per-keystroke text edits into one undoable step. `undo()`/`redo()` emit normally (listeners fire, React re-renders) without being recorded; new writes after an undo truncate the redo stack; steps beyond `limit` (default 100) drop oldest-first.
+
+One caveat: avoid mixing `undo()`/`redo()` with unrelated writes in one `Retree.runTransaction` — those writes flush together with the applied records and are skipped from recording with them.
+
+The primitives underneath are available directly: `Retree.applyInverse(changes)` applies a change batch in reverse (structural `op` records — array insert/remove, key add/delete, Map/Set clear — restore structure exactly), and `Retree.applyChanges(changes)` replays it forward. Both wrap the batch in one transaction and throw when a record's node is no longer Retree-managed. Two documented inexact inverses: a direct `array.length = n` shrink restores only the length, and a plain index write that implicitly extended an array restores the value but not the shorter length.
+
+## Name roots for tooling
+
+`Retree.registerRootName(node, name)` registers a display name for a tree root. Naming changes no runtime behavior and does not keep the tree alive (the registry holds it weakly) — it exists for tooling: debug taps report the name of the tree a change happened in, and [`@retreejs/devtools`](https://github.com/ryanbliss/retree/tree/main/packages/retree-devtools#readme) uses the registry to enumerate and label live trees.
+
+```ts
+const settings = Retree.root({ theme: "dark" });
+Retree.registerRootName(settings, "settings");
+```
+
+For Redux DevTools Extension integration (action stream, state inspection, time travel) and the structured change-log tap, see `connectReduxDevTools` and `createChangeLogTap` in `@retreejs/devtools` — passing `roots` there registers the names for you.
+
 ## Performance model
 
 Retree is built on JavaScript proxies plus stable "base" proxies and fresh reproxy identities after changes. That model is ergonomic, but the cost is not uniform. The main rule of thumb is to subscribe and read as narrowly as your UI or workflow allows.
@@ -818,7 +879,7 @@ See the [useNode React hook](https://github.com/ryanbliss/retree/blob/main/packa
 
 ## Docs
 
-Docs are hosted at https://ryanbliss.github.io/retree/.
+Docs are hosted at https://www.retree.dev.
 
 # Licensing & Copyright
 

@@ -1,15 +1,20 @@
+import type { ITrackedSelectionAccesses } from "./internals/dependency-tracking.js";
 import {
     consumeCurrentMemoGetter,
     runMemo,
     runTrappedMemo,
-} from "./internals/memo";
-import type { RetreeLink } from "./Retree";
+} from "./internals/memo.js";
+import {
+    getCustomProxyHandlerFromMetadata,
+    unproxiedBaseNodeKey,
+} from "./internals/proxy-types.js";
+import type { RetreeLink } from "./Retree.js";
 import {
     INodeFieldChanges,
     OptionalNode,
     RetreeObjectMoveKey,
     TreeNode,
-} from "./types";
+} from "./types.js";
 
 type LinkReactiveNode = <TNode extends TreeNode>(
     node: TNode
@@ -185,6 +190,15 @@ export interface IReactiveSelectGetter<
     Dependencies = unknown
 > {
     getDependencies: (self: This) => Dependencies;
+    /**
+     * Optional auto-trapped collection path. When present, Retree uses this
+     * instead of {@link IReactiveSelectGetter.getDependencies} so per-node
+     * read summaries can validate a dependency's `nodeChanged` without
+     * re-running the getter.
+     */
+    collectTrackedDependencies?: (
+        self: This
+    ) => ITrackedSelectionAccesses<unknown>;
     getValue: (self: This) => unknown;
     compareValueBeforeNotify: boolean;
     equals?: (self: This, previous: unknown, next: unknown) => boolean;
@@ -211,7 +225,7 @@ export interface IReactiveSelectGetter<
     get evenNumberCount(): number {
         return this.numbers.filter((number) => number % 2 === 0).length;
     }
-    // Implement abstract dependencies getter
+    // Override the dependencies getter (defaults to [])
     get dependencies() {
         return [this.dependency(this.numbers, [this.evenNumberCount])];
     }
@@ -227,6 +241,28 @@ export interface IReactiveSelectGetter<
  node.numbers.push(3);
  ```
  */
+/**
+ * Storage for `dependencies` values assigned through the base setter (see
+ * {@link ReactiveNode.dependencies}). Keyed by the raw (unproxied) instance
+ * so writes made on the raw `this` during construction and reads made later
+ * through any proxy generation resolve to the same slot. A WeakMap keeps the
+ * slot out of the reactive tree entirely: the assigned array is returned
+ * as-is, exactly like a subclass getter's return value.
+ */
+const assignedDependenciesMap = new WeakMap<object, ReactiveNodeDependency[]>();
+
+/**
+ * Resolve the raw (unproxied) instance behind `instance`, which may be the
+ * raw object itself (constructor time) or any Retree proxy of it.
+ */
+function resolveAssignedDependenciesKey(instance: ReactiveNode): object {
+    const handler = getCustomProxyHandlerFromMetadata(instance);
+    if (handler === undefined) {
+        return instance;
+    }
+    return handler[unproxiedBaseNodeKey];
+}
+
 export abstract class ReactiveNode {
     /**
      * @hidden
@@ -279,10 +315,6 @@ export abstract class ReactiveNode {
      * class Task extends ReactiveNode {
      *     public title = "";
      *
-     *     get dependencies() {
-     *         return [];
-     *     }
-     *
      *     public complete(done: Task[]) {
      *         this.moveTo(done); // same as Retree.move(this, done)
      *     }
@@ -327,10 +359,6 @@ export abstract class ReactiveNode {
      * ```ts
      * class EditorState extends ReactiveNode {
      *     public selected = null as RetreeLink<Task> | null;
-     *
-     *     get dependencies() {
-     *         return [];
-     *     }
      *
      *     public select(task: Task) {
      *         this.selected = this.link(task);
@@ -448,6 +476,10 @@ export abstract class ReactiveNode {
      * @remarks
      * When any {@link IReactiveDependency} criteria is met, a change will be emitted for this {@link ReactiveNode} instance.
      *
+     * Defaults to `[]` (no dependencies). Subclasses only override this
+     * getter when the node should emit for changes to other nodes; plain
+     * state classes need no `dependencies` boilerplate.
+     *
      * Keep this getter deterministic. Do not start subscriptions, perform
      * network work, or mutate state here. Use {@link ReactiveNode.onObserved},
      * {@link ReactiveNode.onUnobserved}, and {@link ReactiveNode.onChanged} for
@@ -474,7 +506,34 @@ export abstract class ReactiveNode {
      * }
      * ```
      */
-    abstract get dependencies(): ReactiveNodeDependency[];
+    get dependencies(): ReactiveNodeDependency[] {
+        const assigned = assignedDependenciesMap.get(
+            resolveAssignedDependenciesKey(this)
+        );
+        if (assigned !== undefined) {
+            return assigned;
+        }
+        return [];
+    }
+
+    /**
+     * Accept `dependencies` assignment so subclasses compiled with
+     * `useDefineForClassFields: false` can declare it as a class field.
+     *
+     * @remarks
+     * That compile mode emits `this.dependencies = [...]` in the subclass
+     * constructor, which walks the prototype chain and would throw
+     * "Cannot set property" against a getter-only accessor. The assigned
+     * value is stored in a private slot that the base getter returns.
+     * Subclasses that override the `dependencies` getter shadow both
+     * accessors and are unaffected.
+     */
+    set dependencies(value: ReactiveNodeDependency[]) {
+        assignedDependenciesMap.set(
+            resolveAssignedDependenciesKey(this),
+            value
+        );
+    }
 
     /**
      * Runs when this {@link ReactiveNode} gets its first active
@@ -492,10 +551,6 @@ export abstract class ReactiveNode {
      * class LiveValue extends ReactiveNode {
      *     public value = "";
      *     @ignore private unsubscribe: (() => void) | null = null;
-     *
-     *     get dependencies() {
-     *         return [];
-     *     }
      *
      *     protected onObserved() {
      *         this.unsubscribe = subscribe((value) => {
@@ -545,10 +600,6 @@ export abstract class ReactiveNode {
      * class SearchState extends ReactiveNode {
      *     public query = "";
      *     public normalizedQuery = "";
-     *
-     *     get dependencies() {
-     *         return [];
-     *     }
      *
      *     protected onChanged() {
      *         const next = this.query.trim().toLowerCase();
@@ -636,10 +687,6 @@ export abstract class ReactiveNode {
      * ```ts
      * class LargeNode extends ReactiveNode {
      *     public sections = [{ title: "Intro", cards: [] }];
-     *
-     *     get dependencies() {
-     *         return [];
-     *     }
      * }
      *
      * const node = Retree.root(new LargeNode());

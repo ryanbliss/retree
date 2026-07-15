@@ -1,4 +1,4 @@
-import { TreeNode } from "../types";
+import { TreeNode } from "../types.js";
 
 export const unproxiedBaseNodeKey = Symbol("retree-base-node");
 export const proxiedParentKey = Symbol("retree-parent");
@@ -23,6 +23,18 @@ export interface IProxyParent<T extends TreeNode = TreeNode> {
 
 /**
  * @internal
+ * Listener-independent external-store versions for one node. `node` bumps on
+ * changes owned by the node; `tree` bumps on changes to the node or any
+ * structural descendant. Records are mutated in place on the write path, so
+ * consumers must read the numbers, never hold the record as a snapshot.
+ */
+export interface ISnapshotVersionRecord {
+    node: number;
+    tree: number;
+}
+
+/**
+ * @internal
  * We use the ["Handler"] to store references to helpful metadata.
  */
 export interface ICustomProxyHandler<TNode extends TreeNode = TreeNode> {
@@ -30,12 +42,28 @@ export interface ICustomProxyHandler<TNode extends TreeNode = TreeNode> {
     [proxiedChildrenKey]: Record<string | symbol, any> | null;
     [proxiedParentKey]: IProxyParent | null;
     /**
+     * External-store snapshot versions for this node, allocated lazily on the
+     * first version advance. Living on the handler (instead of a WeakMap keyed
+     * by raw node) makes the per-write ancestor walk a plain property
+     * read/write per level. Base handlers own the record; reproxy handlers
+     * delegate to their base handler so every proxy of a node shares one
+     * record.
+     */
+    snapshotVersionsRecord: ISnapshotVersionRecord | null;
+    /**
      * Map/Set child proxies keyed by map key / raw member (raw purity: raw
      * collections store raw values only). Base handlers own this; reproxy
      * handlers never need it because internal-slot reads delegate to the
      * base proxy.
      */
     collectionProxies?: Map<any, TCustomProxy<TreeNode>> | null;
+    /**
+     * Reproxy-aware wrappers for the intercepted native array mutators,
+     * keyed by method name and allocated lazily on first read. Owned by the
+     * base handler (never by a reproxy handler) so `arr.push === arr.push`
+     * holds across reads on every reproxy generation of the same node.
+     */
+    reproxyArrayMutatorCache?: Map<string | symbol, Function> | null;
     /**
      * The proxy's direct target when it differs from the raw node. Base proxy
      * handlers omit this (their target is the raw node); reproxy handlers set

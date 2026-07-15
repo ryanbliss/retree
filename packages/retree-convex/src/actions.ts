@@ -8,7 +8,7 @@ import {
     IConvexActionClient,
     OptionalConvexArgs,
     RetreeConvexAction,
-} from "./types";
+} from "./types.js";
 
 /**
  * Create a typed Retree Convex action function from a Convex client and action

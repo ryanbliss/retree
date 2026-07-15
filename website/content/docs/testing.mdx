@@ -1,0 +1,316 @@
+---
+title: Testing
+description: Unit-test Retree state and ReactiveNodes with vitest, test components with Testing Library, and fake the Convex client for query-node tests.
+---
+
+Retree state is plain objects, so most tests need no special setup: create a
+root, mutate it, assert. The examples use [vitest](https://vitest.dev) and
+[Testing Library](https://testing-library.com) — the same stack Retree's own
+test suite uses — but nothing here is runner-specific.
+
+## Unit-test plain state
+
+Create the root inside the test so every test starts from a known tree.
+Assert with plain reads, and assert *emission* by subscribing with
+`Retree.on` and a mock:
+
+```ts title="project.spec.ts"
+import { describe, expect, it, vi } from "vitest";
+import { Retree } from "@retreejs/core";
+
+describe("project", () => {
+    it("emits nodeChanged for own-field writes", () => {
+        const project = Retree.root({
+            title: "Launch checklist",
+            tasks: [{ text: "Write docs", done: false }],
+        });
+        const nodeChanged = vi.fn();
+        Retree.on(project, "nodeChanged", nodeChanged);
+
+        project.title = "Launch checklist v2";
+
+        expect(project.title).toBe("Launch checklist v2");
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps deep writes off the root's nodeChanged", () => {
+        const project = Retree.root({
+            title: "Launch checklist",
+            tasks: [{ text: "Write docs", done: false }],
+        });
+        const nodeChanged = vi.fn();
+        const treeChanged = vi.fn();
+        Retree.on(project, "nodeChanged", nodeChanged);
+        Retree.on(project, "treeChanged", treeChanged);
+
+        project.tasks[0].done = true;
+
+        expect(nodeChanged).not.toHaveBeenCalled(); // ❌ two levels down
+        expect(treeChanged).toHaveBeenCalledTimes(1); // ✅ ancestors see it
+    });
+});
+```
+
+A root created per test is garbage-collected with the test — no global store
+to reset. When state *is* module-scoped (a shared app tree imported by the
+code under test), clear its listeners between tests so one test's
+subscriptions can't leak into the next:
+
+```ts
+import { afterEach } from "vitest";
+import { Retree } from "@retreejs/core";
+import { appState } from "./app-state";
+
+afterEach(() => {
+    // `false` clears listeners on every descendant node too.
+    Retree.clearListeners(appState, false);
+});
+```
+
+React apps can skip the boilerplate: `@retreejs/react/testing` ships
+`createTestRoot`, which pairs a fresh root with a `cleanup` that runs the
+deep listener clear for you:
+
+```ts
+import { afterEach, it } from "vitest";
+import { createTestRoot } from "@retreejs/react/testing";
+
+const { root, cleanup } = createTestRoot(() => new TaskBoard());
+afterEach(cleanup);
+```
+
+## Unit-test ReactiveNodes
+
+`ReactiveNode` classes test like any class — instantiate, call methods,
+assert getters. Pass the instance to `Retree.root` when the behavior under
+test involves reactivity, like a `@select` getter deciding whether the owner
+emits:
+
+```ts title="task-board.spec.ts"
+import { expect, it, vi } from "vitest";
+import { Retree, ReactiveNode, select } from "@retreejs/core";
+
+class TaskBoard extends ReactiveNode {
+    public tasks: { text: string; done: boolean }[] = [];
+
+    @select
+    get doneCount() {
+        return this.tasks.filter((task) => task.done).length;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+it("emits only when the done count changes", () => {
+    const board = Retree.root(new TaskBoard());
+    board.tasks.push({ text: "Write docs", done: false });
+
+    const nodeChanged = vi.fn();
+    Retree.on(board, "nodeChanged", nodeChanged);
+
+    board.tasks[0].done = true; // ✅ doneCount 0 -> 1
+    expect(nodeChanged).toHaveBeenCalledTimes(1);
+
+    board.tasks[0].text = "Better docs"; // ❌ selection unchanged
+    expect(nodeChanged).toHaveBeenCalledTimes(1);
+});
+```
+
+The same shape works for `dependencies` and lifecycle hooks: mutate the
+dependency, assert the owner emitted (or didn't).
+
+## Test components with Testing Library
+
+Components using Retree hooks render and test like any other component.
+Interactions fired through Testing Library (`fireEvent`, `userEvent`) are
+already wrapped in `act`, so event-handler mutations just work. When the test
+mutates the tree *directly* — simulating a change from outside the component —
+wrap the write in `act` so React flushes the update before you assert.
+`@retreejs/react/testing` exports `actOnRetree(write)` as a typed shortcut
+for exactly that (sync and async overloads); the examples below use React's
+`act` directly so the mechanics stay visible:
+
+```tsx title="TaskRow.spec.tsx"
+import React from "react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { expect, it } from "vitest";
+import { Retree } from "@retreejs/core";
+import { useNode } from "@retreejs/react";
+
+function TaskRow({ task }: { task: { text: string; done: boolean } }) {
+    const state = useNode(task);
+    return (
+        <label>
+            <input
+                type="checkbox"
+                checked={state.done}
+                onChange={() => (state.done = !state.done)}
+            />
+            {state.text}
+        </label>
+    );
+}
+
+it("re-renders when the task changes", () => {
+    const project = Retree.root({
+        tasks: [{ text: "Write docs", done: false }],
+    });
+    render(<TaskRow task={project.tasks[0]} />);
+
+    // ✅ fireEvent is act-wrapped — the handler's mutation flushes
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(screen.getByRole<HTMLInputElement>("checkbox").checked).toBe(true);
+
+    // ✅ direct external writes need act()
+    act(() => {
+        project.tasks[0].text = "Ship docs";
+    });
+    expect(screen.getByText("Ship docs")).toBeTruthy();
+});
+```
+
+For async flows (a method that fetches, then mutates), `await waitFor(...)`
+on the expected UI, exactly as you would without Retree.
+
+## Fake the Convex client
+
+Every Convex node takes its client through the
+[`IConvexClient`](/api/convex/interfaces/IConvexClient) interface, so tests
+can substitute a fake and drive "server" emissions by hand — no network, no
+Convex deployment. The fake captures each query subscription; calling a
+captured `callback` plays the role of the server pushing a result:
+
+```ts title="fake-convex-client.ts"
+import { vi } from "vitest";
+import type { ConnectionState } from "convex/browser";
+import type {
+    FunctionArgs,
+    FunctionReference,
+    FunctionReturnType,
+} from "convex/server";
+import type { IConvexClient } from "@retreejs/convex";
+
+const connectedState: ConnectionState = {
+    hasInflightRequests: false,
+    isWebSocketConnected: true,
+    timeOfOldestInflightRequest: null,
+    hasEverConnected: true,
+    connectionCount: 1,
+    connectionRetries: 0,
+    inflightMutations: 0,
+    inflightActions: 0,
+};
+
+export class FakeConvexClient implements IConvexClient {
+    /** One entry per query subscription, in subscribe order. */
+    public subscriptions: {
+        args: unknown;
+        callback: (result: never) => unknown;
+        onError: ((error: Error) => unknown) | undefined;
+        unsubscribe: ReturnType<typeof vi.fn>;
+    }[] = [];
+    /** Every mutation the code under test ran. */
+    public mutationCalls: { mutation: unknown; args: unknown }[] = [];
+    /** Set this before acting to control the next mutation's outcome. */
+    public nextMutationPromise: Promise<unknown> = Promise.resolve(null);
+
+    onUpdate<Query extends FunctionReference<"query">>(
+        _query: Query,
+        args: FunctionArgs<Query>,
+        callback: (result: FunctionReturnType<Query>) => unknown,
+        onError?: (error: Error) => unknown
+    ) {
+        const unsubscribe = vi.fn();
+        this.subscriptions.push({ args, callback, onError, unsubscribe });
+        return Object.assign(unsubscribe, {
+            unsubscribe,
+            getCurrentValue: () => undefined,
+        });
+    }
+
+    mutation<Mutation extends FunctionReference<"mutation">>(
+        mutation: Mutation,
+        args: FunctionArgs<Mutation>
+    ): Promise<Awaited<FunctionReturnType<Mutation>>> {
+        this.mutationCalls.push({ mutation, args });
+        return this.nextMutationPromise as Promise<
+            Awaited<FunctionReturnType<Mutation>>
+        >;
+    }
+
+    // The rest of the surface, stubbed. Grow these into recording fakes
+    // (like `mutation` above) when a test needs them.
+    action(): Promise<never> {
+        throw new Error("FakeConvexClient: action() is not implemented.");
+    }
+
+    query(): Promise<never> {
+        throw new Error("FakeConvexClient: query() is not implemented.");
+    }
+
+    onPaginatedUpdate_experimental(): never {
+        throw new Error(
+            "FakeConvexClient: paginated queries are not implemented."
+        );
+    }
+
+    connectionState(): ConnectionState {
+        return connectedState;
+    }
+
+    subscribeToConnectionState(): () => void {
+        return vi.fn();
+    }
+
+    close(): Promise<void> {
+        return Promise.resolve();
+    }
+}
+```
+
+With the fake in place, a query-node test reads like a conversation with the
+server:
+
+```ts title="tasks-state.spec.ts"
+import { expect, it, vi } from "vitest";
+import { Retree } from "@retreejs/core";
+import { ConvexQueryNode } from "@retreejs/convex";
+import { api } from "../convex/_generated/api";
+import { FakeConvexClient } from "./fake-convex-client";
+
+it("writes server emissions into state", () => {
+    const client = new FakeConvexClient();
+    const node = Retree.root(
+        new ConvexQueryNode(client, api.tasks.get, { initialState: [] })
+    );
+    const nodeChanged = vi.fn();
+    Retree.on(node, "nodeChanged", nodeChanged);
+
+    // Play the server: push a result into the captured subscription.
+    client.subscriptions[0].callback([
+        { _id: "task-1", text: "Buy groceries", isCompleted: false },
+    ] as never);
+
+    expect(node.state).toEqual([
+        { _id: "task-1", text: "Buy groceries", isCompleted: false },
+    ]);
+    expect(nodeChanged).toHaveBeenCalled();
+});
+```
+
+Assert outgoing traffic through `client.mutationCalls`, and drive failure
+paths by pointing `nextMutationPromise` at a rejection or calling a captured
+`onError`. Retree's own
+`packages/retree-convex/src/ConvexQueryNode.spec.ts` uses exactly this
+pattern, with the fake grown to cover actions, pagination, and connection
+state — a good reference when a test outgrows the minimal version.
+
+## Where next
+
+-   [Events & subscriptions](/docs/events-and-subscriptions) — `Retree.on`,
+    payloads, and `clearListeners` in depth.
+-   [Convex integration](/docs/convex) — the nodes the fake client plugs into.
+-   [Common pitfalls](/docs/common-pitfalls) — failure modes worth a
+    regression test of their own.

@@ -1,0 +1,46 @@
+{
+    "name": "@retreejs/query",
+    "version": "0.7.0",
+    "description": "Backend-agnostic async query nodes for Retree reactive state.",
+    "author": "Ryan Bliss",
+    "private": false,
+    "type": "module",
+    "license": "MIT",
+    "main": "./bin/index.js",
+    "types": "./bin/index.d.ts",
+    "scripts": {
+        "clean": "npx shx rm -rf bin",
+        "build": "tsc -p tsconfig.json",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "prepack": "node ../../scripts/sync-package-docs.mjs .",
+        "publish:package": "dotenv -e .env -- npm publish --access public"
+    },
+    "devDependencies": {
+        "@retreejs/core": "0.7.0",
+        "dotenv-cli": "^11.0.0",
+        "typescript": "^6.0.2"
+    },
+    "peerDependencies": {
+        "@retreejs/core": "0.7.0"
+    },
+    "repository": {
+        "directory": "packages/retree-query",
+        "type": "git",
+        "url": "git+https://github.com/ryanbliss/retree.git"
+    },
+    "homepage": "https://www.retree.dev/docs/convex",
+    "bugs": {
+        "url": "https://github.com/ryanbliss/retree/issues"
+    },
+    "exports": {
+        ".": {
+            "types": "./bin/index.d.ts",
+            "default": "./bin/index.js"
+        }
+    },
+    "files": [
+        "bin",
+        "llms.txt"
+    ],
+    "sideEffects": false
+}

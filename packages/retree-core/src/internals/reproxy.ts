@@ -7,8 +7,8 @@ import {
     COLLECTED_KEYS_SYMBOL,
     LINKED_KEYS_SYMBOL,
     ReactiveNode,
-} from "../ReactiveNode";
-import { TreeNode } from "../types";
+} from "../ReactiveNode.js";
+import { TreeNode } from "../types.js";
 import {
     getCustomProxyHandler,
     getBaseProxy,
@@ -16,16 +16,18 @@ import {
     FUNCTION_NAMES_BIND_TO_RAW,
     getCachedBoundFunction,
     isInternalSlotInstance,
-} from "./proxy";
+    isNativeArrayMutatorAccess,
+} from "./proxy.js";
 import {
     isDependencyTrackingActive,
     trackDependencyAccess,
     trackDependencyPropertyAccess,
-} from "./dependency-tracking";
-import { getReactiveNodeGetter, popMemoGetter, pushMemoGetter } from "./memo";
+} from "./dependency-tracking.js";
+import { readReactiveNodeProperty } from "./memo.js";
 import {
     ICustomProxyHandler,
     IProxyParent,
+    ISnapshotVersionRecord,
     isCustomProxy,
     proxiedChildrenKey,
     unproxiedBaseNodeKey,
@@ -34,8 +36,8 @@ import {
     proxyTargetKey,
     registerCustomProxyMetadata,
     TCustomProxy,
-} from "./proxy-types";
-import { advanceSnapshotVersions } from "./snapshot-version";
+} from "./proxy-types.js";
+import { advanceSnapshotVersions } from "./snapshot-version.js";
 
 const reproxyMap: WeakMap<TreeNode, TCustomProxy<TreeNode>> = new WeakMap();
 /**
@@ -183,6 +185,18 @@ class ReproxyHandler<T extends TreeNode>
         this.baseHandler[proxiedChildrenKey] = value;
     }
 
+    /**
+     * Snapshot versions belong to the base handler so every proxy of a node
+     * shares one in-place-mutated record; delegate both directions.
+     */
+    public get snapshotVersionsRecord(): ISnapshotVersionRecord | null {
+        return this.baseHandler.snapshotVersionsRecord;
+    }
+
+    public set snapshotVersionsRecord(value: ISnapshotVersionRecord | null) {
+        this.baseHandler.snapshotVersionsRecord = value;
+    }
+
     private getBoundFunction<TFunction extends Function>(
         prop: string | symbol,
         source: TFunction,
@@ -195,6 +209,35 @@ class ReproxyHandler<T extends TreeNode>
             source,
             thisArg
         );
+    }
+
+    /**
+     * Wrap a base-proxy array mutator so callers holding a reproxy receive
+     * the latest reproxy back when the mutator returns the array itself
+     * (sort/reverse/fill/copyWithin). The wrapper is cached on the BASE
+     * handler, not this reproxy handler: reproxies are rebuilt on every
+     * mutation, and `arr.push === arr.push` must hold across generations so
+     * tracked selectors reading a mutator method do not re-run forever.
+     */
+    private getReproxyAwareArrayMutator(
+        prop: string | symbol,
+        baseMutator: Function
+    ): Function {
+        const cache = (this.baseHandler.reproxyArrayMutatorCache ??= new Map());
+        const cached = cache.get(prop);
+        if (cached !== undefined) {
+            return cached;
+        }
+        const object = this.baseProxyObject;
+        const reproxyAwareMutator = (...args: unknown[]) => {
+            const result = baseMutator(...args);
+            if (result === object) {
+                return getReproxyNode(object);
+            }
+            return result;
+        };
+        cache.set(prop, reproxyAwareMutator);
+        return reproxyAwareMutator;
     }
 
     public get(
@@ -224,13 +267,10 @@ class ReproxyHandler<T extends TreeNode>
                 return getLatestLinkedValue(Reflect.get(target, prop, target));
             }
         }
+        // The children cache has a null prototype, so prototype members like
+        // "constructor" can never appear as phantom cache hits here.
         const children = this.baseHandler[proxiedChildrenKey];
-        if (
-            children !== null &&
-            typeof prop === "string" &&
-            prop !== "constructor" &&
-            children[prop]
-        ) {
+        if (children !== null && typeof prop === "string" && children[prop]) {
             const childProxy = children[prop];
             if (typeof childProxy !== "function") {
                 const reproxy = getReproxyNode(childProxy);
@@ -251,20 +291,35 @@ class ReproxyHandler<T extends TreeNode>
                 Reflect.get(object, prop, object)
             );
         }
+        // Native array mutators must resolve through the base proxy so
+        // wrapArrayMutation handles the whole call as one coherent
+        // nodeChanged emission. Reading the native method off the raw node
+        // here and binding it to the reproxy would replay the per-element
+        // write pipeline (one emission per shifted index).
+        if (isNativeArrayMutatorAccess(rawNode, prop)) {
+            const baseMutator: unknown = Reflect.get(object, prop, object);
+            if (typeof baseMutator !== "function") {
+                // @retree-throws
+                throw new Error(
+                    `Retree internal invariant failed: expected the base proxy to resolve the native array mutator '${String(
+                        prop
+                    )}' to its batching wrapper function, but it resolved to type '${typeof baseMutator}'. This is unexpected and likely a Retree bug. Please file a Retree issue with the array operation that triggered this.`
+                );
+            }
+            // Same dependency-tracking treatment as any other function read,
+            // and a wrapper cached on the base handler so the mutator's
+            // identity is stable across reads and reproxy generations.
+            return trackAccessIfNeeded(
+                this.getReproxyAwareArrayMutator(prop, baseMutator)
+            );
+        }
         const evalTarget = rawNode ?? target;
 
         let value: any;
-        if (
-            evalTarget instanceof ReactiveNode &&
-            getReactiveNodeGetter(evalTarget, prop)
-        ) {
-            // Mirror proxy.ts: track the active getter for keyless `this.memo(...)`.
-            pushMemoGetter(evalTarget, prop);
-            try {
-                value = Reflect.get(evalTarget, prop, receiver);
-            } finally {
-                popMemoGetter(evalTarget);
-            }
+        if (evalTarget instanceof ReactiveNode) {
+            // Mirror proxy.ts: track the active getter for keyless
+            // `this.memo(...)` only on classes known to use it.
+            value = readReactiveNodeProperty(evalTarget, prop, receiver);
         } else {
             value = Reflect.get(evalTarget, prop, receiver);
         }

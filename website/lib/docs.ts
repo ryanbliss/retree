@@ -45,8 +45,10 @@ export const DOCS_NAV: DocNavSection[] = [
                 slug: "events-and-subscriptions",
                 title: "Events & subscriptions",
             },
+            { slug: "effects-and-reactions", title: "Effects & reactions" },
             { slug: "tree-operations", title: "Tree operations" },
             { slug: "transactions", title: "Transactions & silent writes" },
+            { slug: "undo-redo", title: "Undo & redo" },
         ],
     },
     {
@@ -59,8 +61,22 @@ export const DOCS_NAV: DocNavSection[] = [
     {
         title: "Going deeper",
         items: [
+            { slug: "select-semantics", title: "Select semantics" },
             { slug: "performance", title: "Performance" },
+            { slug: "react-compiler", title: "React Compiler" },
+            { slug: "testing", title: "Testing" },
+            { slug: "devtools", title: "DevTools" },
             { slug: "convex", title: "Convex integration" },
+            { slug: "query", title: "Async queries" },
+            { slug: "compatibility", title: "Compatibility" },
+        ],
+    },
+    {
+        title: "Migrate",
+        items: [
+            { slug: "migrate/mobx", title: "From MobX" },
+            { slug: "migrate/zustand", title: "From Zustand" },
+            { slug: "migrate/redux", title: "From Redux Toolkit" },
         ],
     },
 ];

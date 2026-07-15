@@ -1,4 +1,4 @@
-import { BenchmarkSummary } from "./types";
+import { BenchmarkSummary } from "./types.js";
 
 export function summarizeDurations(durationsMs: number[]): BenchmarkSummary {
     if (durationsMs.length === 0) {

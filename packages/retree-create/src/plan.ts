@@ -27,10 +27,33 @@ const INSTALL_SUBCOMMANDS: Record<PackageManager, string> = {
     bun: "add",
 };
 
-export const SKILL_INSTALL_COMMAND: PlannedCommand = {
-    command: "npx",
-    args: ["skills", "add", "ryanbliss/retree", "--skill", "retree"],
+const SKILL_RUNNERS: Record<
+    PackageManager,
+    { command: string; prefixArgs: string[] }
+> = {
+    npm: { command: "npx", prefixArgs: [] },
+    pnpm: { command: "pnpm", prefixArgs: ["dlx"] },
+    yarn: { command: "yarn", prefixArgs: ["dlx"] },
+    bun: { command: "bunx", prefixArgs: [] },
 };
+
+const SKILL_INSTALL_ARGS = [
+    "skills",
+    "add",
+    "ryanbliss/retree",
+    "--skill",
+    "retree",
+];
+
+export function buildSkillInstallCommand(
+    packageManager: PackageManager
+): PlannedCommand {
+    const runner = SKILL_RUNNERS[packageManager];
+    return {
+        command: runner.command,
+        args: [...runner.prefixArgs, ...SKILL_INSTALL_ARGS],
+    };
+}
 
 export function resolveInstallPlan(
     selections: InstallSelections,
@@ -66,7 +89,9 @@ export function resolveInstallPlan(
             command: packageManager,
             args: [INSTALL_SUBCOMMANDS[packageManager], ...packageSpecs],
         },
-        skillCommand: selections.skill ? SKILL_INSTALL_COMMAND : undefined,
+        skillCommand: selections.skill
+            ? buildSkillInstallCommand(packageManager)
+            : undefined,
     };
 }
 

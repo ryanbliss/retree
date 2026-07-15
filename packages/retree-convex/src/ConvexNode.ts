@@ -4,17 +4,18 @@
  */
 
 import { ignore } from "@retreejs/core";
-import { ConvexQueryNode } from "./ConvexQueryNode";
-import { ConvexConnectionStateNode } from "./ConvexConnectionStateNode";
-import { ConvexPaginatedQueryNode } from "./ConvexPaginatedQueryNode";
-import { BaseConvexNode } from "./BaseConvexNode";
+import { addNodeDisposalListener } from "./internals/disposal.js";
+import { ConvexQueryNode } from "./ConvexQueryNode.js";
+import { ConvexConnectionStateNode } from "./ConvexConnectionStateNode.js";
+import { ConvexPaginatedQueryNode } from "./ConvexPaginatedQueryNode.js";
+import { BaseConvexNode } from "./BaseConvexNode.js";
 import {
     ConvexPaginatedQueryNodeOptionsArgs,
     ConvexQueryNodeOptionsArgs,
     IConvexClient,
     PaginatedQueryReference,
     QueryReference,
-} from "./types";
+} from "./types.js";
 
 interface IConvexNodeDisposable {
     dispose(): void;
@@ -179,24 +180,40 @@ export abstract class ConvexNode extends BaseConvexNode {
      * Stop live Convex children created by this node.
      *
      * @remarks
-     * React integrations usually do not need to call this directly. Retree runs
-     * it automatically when the `ConvexNode` loses its final active observer.
-     * Calling it manually is still useful for non-React app shutdown.
+     * React integrations usually do not need to call this directly. Query and
+     * connection-state children clean themselves up when they lose their last
+     * active observer, and resubscribe when observed again. Calling this
+     * manually is still useful for non-React app shutdown.
+     *
+     * Children stop being tracked once they are disposed (including
+     * self-disposal on losing their last observer). A child that resubscribes
+     * afterwards manages its own lifecycle through observation.
      */
     public dispose(): void {
-        for (const child of this.liveChildren) {
+        // Copy first: disposed children remove themselves from liveChildren.
+        for (const child of [...this.liveChildren]) {
             child.dispose();
         }
-    }
-
-    protected onUnobserved(): void {
-        this.dispose();
     }
 
     private trackLiveChild<TChild extends IConvexNodeDisposable>(
         child: TChild
     ): TChild {
         this.liveChildren.push(child);
+        // Drop disposed children so liveChildren cannot grow (and pin
+        // disposed nodes) forever when factories run repeatedly.
+        addNodeDisposalListener(child, () => {
+            this.removeLiveChild(child);
+        });
         return child;
+    }
+
+    private removeLiveChild(child: IConvexNodeDisposable): void {
+        const index = this.liveChildren.indexOf(child);
+        if (index === -1) {
+            return;
+        }
+
+        this.liveChildren.splice(index, 1);
     }
 }

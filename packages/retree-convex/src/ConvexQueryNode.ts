@@ -3,24 +3,24 @@
  * Licensed under the MIT License.
  */
 
-import { ignore, Retree, TreeNode } from "@retreejs/core";
-import { getUnproxiedNode } from "@retreejs/core/internal";
-import type { FunctionReturnType } from "convex/server";
-import { BaseConvexNode } from "./BaseConvexNode";
-import { tryReconcileConvexDocuments } from "./internals/reconcile";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import { IQueryNodeOptions, IQuerySubscriptionSource } from "@retreejs/query";
+import { BaseConvexQueryNode } from "./BaseConvexQueryNode.js";
+import { notifyNodeDisposed } from "./internals/disposal.js";
+import { tryReconcileConvexDocuments } from "./internals/reconcile.js";
 import {
     ConvexQueryNodeOptionsArgs,
     ConvexQueryArgs,
     ConvexQueryNodeResult,
     ConvexQueryNodeState,
+    ConvexQuerySkip,
     IConvexClient,
+    IConvexQueryClient,
     IConvexQueryNodeOptions,
-    IConvexQuerySubscription,
     IOptimisticTransform,
-    IStateReconciler,
     MutationReference,
     QueryReference,
-} from "./types";
+} from "./types.js";
 
 /**
  * Reactive query node that subscribes to a Convex query and writes emitted
@@ -30,6 +30,11 @@ import {
  * Use this directly or through {@link ConvexNode.query} when query results
  * should be live Retree state. Convex emissions update `state`, `result`, and
  * `error`, which can emit `nodeChanged` and re-render React subscribers.
+ *
+ * This class is a Convex adapter over the backend-agnostic
+ * `QueryNode` from `@retreejs/query`, which owns the status machine,
+ * subscription lifecycle, args comparison, reconciliation, and optimistic
+ * update machinery.
  *
  * Dispose query nodes when their owner is torn down. Use `"skip"` when the
  * query should be temporarily disabled. Prefer reconciled arrays so unchanged
@@ -49,65 +54,16 @@ import {
  */
 export class ConvexQueryNode<
     Query extends QueryReference
-> extends BaseConvexNode {
-    @ignore
-    private queryReference: Query;
-    @ignore
-    private args: ConvexQueryArgs<Query>;
-    @ignore
-    private unsubscribe: IConvexQuerySubscription<
-        FunctionReturnType<Query>
-    > | null = null;
-    @ignore
-    private subscribedArgComparisons: unknown[] | undefined;
-    @ignore
-    private reconciler: IStateReconciler<FunctionReturnType<Query>> | undefined;
+> extends BaseConvexQueryNode<FunctionArgs<Query>, FunctionReturnType<Query>> {
     /**
      * Latest query state emitted by Convex, or the initial state before Convex
      * emits.
      */
-    public state: ConvexQueryNodeState<Query>;
+    public declare state: ConvexQueryNodeState<Query>;
     /**
      * Latest structured query result.
      */
-    public result: ConvexQueryNodeResult<Query>;
-    /**
-     * Latest subscription or mutation rollback error.
-     */
-    public error: Error | null = null;
-    /**
-     * Last state emitted by the Convex subscription that Retree accepted as a
-     * clean server baseline. During overlapping optimistic updates this may
-     * advance even when `state` intentionally keeps the newer optimistic value.
-     */
-    private lastEmittedState: ConvexQueryNodeState<Query>;
-    /**
-     * True while local optimistic state differs from the last clean server
-     * baseline and may still need confirmation or rollback.
-     */
-    private isOptimisticDirty = false;
-    /**
-     * Monotonic id assigned to each optimistic update. Promise handlers compare
-     * against this so an older mutation cannot rollback or confirm over newer
-     * local state.
-     */
-    private optimisticGeneration = 0;
-    /**
-     * Generation that opened the current dirty window. If a later generation is
-     * still pending, server emissions are treated as older confirmations and do
-     * not overwrite the newer optimistic state.
-     */
-    private dirtyWindowStartGeneration: number | undefined;
-    /**
-     * Snapshot captured before the current dirty window began. Used for default
-     * rollback when the latest optimistic mutation rejects.
-     */
-    private optimisticRollbackState: ConvexQueryNodeState<Query>;
-    /**
-     * Newest optimistic mutation promise that has not resolved successfully yet.
-     * Only this generation is allowed to clear the pending marker.
-     */
-    private pendingOptimisticGeneration: number | undefined;
+    public declare result: ConvexQueryNodeResult<Query>;
 
     /**
      * Create a node for a Convex query subscription.
@@ -135,32 +91,28 @@ export class ConvexQueryNode<
         query: Query,
         ...options: ConvexQueryNodeOptionsArgs<Query>
     ) {
-        super(client);
-        const rawOptions = options[0];
-        const queryOptions = getQueryOptions(rawOptions);
-        this.queryReference = query;
-        this.args = getQueryArgs(rawOptions, queryOptions);
-        this.reconciler = queryOptions?.reconcile;
-        this.state = queryOptions?.initialState;
-        this.result = getInitialResult(rawOptions, this.state);
-        this.lastEmittedState = this.cloneState(queryOptions?.initialState);
+        super(
+            client,
+            createConvexQuerySource(client, query),
+            getQueryNodeOptions(options[0])
+        );
     }
 
-    get dependencies() {
-        return [];
-    }
-
-    protected onObserved(): void {
-        this.syncArgs(this.args, false);
-    }
-
-    protected onChanged(): void {
-        this.syncArgs(this.args, false);
+    protected get queryNodeName(): string {
+        return "ConvexQueryNode";
     }
 
     /**
-     * Update the query arguments and resubscribe when the shallow argument
-     * comparison changes.
+     * Default Convex reconciliation: document arrays are reconciled by `_id`
+     * so unchanged rows keep identity even without an explicit reconciler.
+     */
+    protected tryDefaultReconcile(next: FunctionReturnType<Query>): boolean {
+        return tryReconcileConvexDocuments(this.state, next);
+    }
+
+    /**
+     * Update the query arguments and resubscribe when the arguments change
+     * (compared deeply, matching Convex's own structural comparison).
      *
      * @remarks
      * Use this when query args are controlled by Retree state, routing, or user
@@ -168,6 +120,13 @@ export class ConvexQueryNode<
      * `result.status` to `"skipped"`.
      *
      * Updating args can emit because `state`, `result`, and `error` may change.
+     * When the node was constructed with `keepPreviousData`, the previous
+     * `state` stays visible while the new subscription loads and
+     * `result.isStale` is `true` until the first value arrives.
+     *
+     * On a disposed node this records the new args without opening a
+     * subscription; the node resubscribes with the latest args when it is
+     * observed again.
      *
      * @param args Next query arguments, or `"skip"` to disable the subscription.
      *
@@ -178,65 +137,27 @@ export class ConvexQueryNode<
      * ```
      */
     public updateArgs(args: ConvexQueryArgs<Query>): void {
-        this.args = args;
-        this.syncArgs(args, true);
+        super.updateArgs(args);
     }
 
-    private syncArgs(
-        args: ConvexQueryArgs<Query>,
-        resetBeforeSubscribe: boolean
-    ): void {
-        let receivedValue = false;
-        const argComparisons = this.getArgComparisons(args);
-        if (
-            this.unsubscribe !== null &&
-            shallowEqualArrays(this.subscribedArgComparisons, argComparisons)
-        ) {
-            return;
-        }
-
-        this.dispose();
-        if (args === "skip") {
-            if (resetBeforeSubscribe) {
-                this.setSkipped();
-            }
-            return;
-        }
-
-        const subscription = this.client.onUpdate(
-            this.queryReference,
-            args,
-            (result) => {
-                receivedValue = true;
-                Retree.runTransaction(() => {
-                    this.setEmittedState(result);
-                    this.error = null;
-                });
-            },
-            (error) => {
-                this.setError(error);
-            }
-        );
-        this.unsubscribe = subscription;
-        this.subscribedArgComparisons = argComparisons;
-        const currentValue = subscription.getCurrentValue();
-        if (currentValue !== undefined) {
-            receivedValue = true;
-            Retree.runTransaction(() => {
-                this.setEmittedState(currentValue);
-                this.error = null;
-            });
-        }
-
-        if (!resetBeforeSubscribe) {
-            return;
-        }
-
-        if (receivedValue) {
-            return;
-        }
-
-        this.setPending();
+    /**
+     * Re-subscribe to the query after `result.status` is `"error"`.
+     *
+     * @remarks
+     * Use this from retry affordances in UI. It closes the errored
+     * subscription and opens a fresh one with the current args, moving the
+     * result to `"pending"` (or the cached value when Convex has one). Does
+     * nothing unless the current status is `"error"`.
+     *
+     * @example
+     * ```ts
+     * if (tasks.result.status === "error") {
+     *     tasks.retry(); // ✅ re-opens the subscription
+     * }
+     * ```
+     */
+    public retry(): void {
+        super.retry();
     }
 
     /**
@@ -276,161 +197,21 @@ export class ConvexQueryNode<
     public optimisticUpdate<Mutation extends MutationReference>(
         transform: IOptimisticTransform<FunctionReturnType<Query>, Mutation>
     ): void {
-        const generation = this.markOptimisticDirty();
-        if (transform.ctx !== undefined) {
-            this.pendingOptimisticGeneration = generation;
-            transform.ctx.promise.then(
-                () => {
-                    // A newer optimistic mutation may have started while this
-                    // one was in flight. In that case, this confirmation is too
-                    // old to mark the optimistic state as no longer pending.
-                    if (this.pendingOptimisticGeneration !== generation) {
-                        return;
-                    }
-                    this.pendingOptimisticGeneration = undefined;
-                },
-                () => {
-                    return;
-                }
-            );
-        }
-        if (this.state !== undefined) {
-            transform.apply(this.state);
-        }
-
-        transform.ctx?.promise.catch((error: unknown) => {
-            Retree.runTransaction(() => {
-                // Rejecting an older mutation should not rollback a newer local
-                // edit. The newest generation owns rollback for the dirty window.
-                if (
-                    !this.isOptimisticDirty ||
-                    this.optimisticGeneration !== generation
-                ) {
-                    return;
-                }
-
-                if (
-                    this.state !== undefined &&
-                    this.optimisticRollbackState !== undefined &&
-                    transform.revert !== undefined
-                ) {
-                    transform.revert(this.state, this.optimisticRollbackState);
-                } else {
-                    this.restoreState(this.optimisticRollbackState);
-                }
-                this.clearOptimisticDirty();
-                this.setResultFromState();
-                this.error = getError(error);
-            });
-        });
-    }
-
-    private setPending(): void {
-        Retree.runTransaction(() => {
-            this.state = undefined;
-            this.error = null;
-            this.result = { status: "pending" };
-        });
-    }
-
-    private setSkipped(): void {
-        Retree.runTransaction(() => {
-            this.state = undefined;
-            this.lastEmittedState = undefined;
-            this.clearOptimisticDirty();
-            this.error = null;
-            this.result = { status: "skipped" };
-        });
-    }
-
-    private setError(error: Error): void {
-        Retree.runTransaction(() => {
-            this.error = error;
-            this.result = { status: "error", error };
-        });
-    }
-
-    private setEmittedState(next: FunctionReturnType<Query>): void {
-        // Convex can confirm an older mutation while a newer optimistic edit is
-        // still pending. Keep that server value as the latest baseline, but do
-        // not restore it into `state` because that would make the UI rubber-band
-        // back to the older value.
-        if (
-            this.isOptimisticDirty &&
-            this.hasPendingSupersedingOptimisticMutation()
-        ) {
-            this.lastEmittedState = this.cloneState(next);
-            return;
-        }
-
-        // When Convex re-emits the baseline that existed before the optimistic
-        // write, the write has not been confirmed yet. Keep the optimistic state
-        // visible and keep waiting for either confirmation or rollback.
-        if (
-            this.isOptimisticDirty &&
-            this.stateEquals(next, this.lastEmittedState)
-        ) {
-            this.lastEmittedState = this.cloneState(next);
-            return;
-        }
-
-        this.clearOptimisticDirty();
-        this.restoreState(next);
-        this.lastEmittedState = this.cloneState(this.state);
-        this.setResultFromState(next);
-    }
-
-    private setResultFromState(next?: FunctionReturnType<Query>): void {
-        if (this.state !== undefined) {
-            this.result = { status: "success", data: this.state };
-            return;
-        }
-
-        if (next !== undefined) {
-            this.result = { status: "success", data: next };
-            return;
-        }
-
-        this.result = { status: "pending" };
-    }
-
-    private restoreState(next: ConvexQueryNodeState<Query>): void {
-        if (next === undefined) {
-            this.state = undefined;
-            return;
-        }
-
-        if (this.reconciler === undefined) {
-            if (tryReconcileConvexDocuments(this.state, next)) {
-                return;
-            }
-
-            this.state = next;
-            return;
-        }
-
-        const current = this.state;
-        // Read from raw, write through the managed state (raw purity makes
-        // the raw view proxy-free and native-speed).
-        const rawCurrent =
-            current !== null && typeof current === "object"
-                ? ((getUnproxiedNode(current as TreeNode) ??
-                      current) as typeof current)
-                : current;
-        const reconciled = this.reconciler.reconcile(current, next, rawCurrent);
-        if (reconciled === current) {
-            return;
-        }
-
-        this.state = reconciled;
+        super.optimisticUpdate(transform);
     }
 
     /**
      * Stop the active Convex query subscription.
      *
      * @remarks
-     * Call this when the owner of the query node is torn down. Disposing stops
-     * future Convex updates; it does not clear `state`, `result`, or `error`.
+     * Retree calls this automatically when the node loses its last active
+     * observer. Call it manually when tearing the owner down outside Retree
+     * observation. Disposing stops future Convex updates; it does not clear
+     * `state`, `result`, or `error`.
+     *
+     * Disposal is sticky: writes to the node no longer reopen the
+     * subscription. The node resubscribes when it gains a new observer, or
+     * when {@link ConvexQueryNode.retry} runs after an error.
      *
      * @example
      * ```ts
@@ -449,157 +230,44 @@ export class ConvexQueryNode<
      * ```
      */
     public dispose(): void {
-        if (this.unsubscribe === null) {
-            return;
-        }
-
-        this.unsubscribe.unsubscribe();
-        this.unsubscribe = null;
-        this.subscribedArgComparisons = undefined;
-    }
-
-    private getArgComparisons(args: ConvexQueryArgs<Query>): unknown[] {
-        if (args === "skip") {
-            return ["skip"];
-        }
-
-        return Object.keys(args)
-            .sort()
-            .flatMap((key) => [key, args[key]]);
-    }
-
-    private cloneState<T>(state: T): T {
-        if (state === undefined) {
-            return state;
-        }
-
-        const serializedState = JSON.stringify(state);
-        if (serializedState === undefined) {
-            throw new Error(
-                "ConvexQueryNode.cloneState: expected query state to be JSON-serializable, but JSON.stringify returned undefined."
-            );
-        }
-
-        return JSON.parse(serializedState) as T;
-    }
-
-    private markOptimisticDirty(): number {
-        if (!this.isOptimisticDirty) {
-            this.isOptimisticDirty = true;
-            this.optimisticRollbackState = this.cloneState(
-                this.lastEmittedState
-            );
-        }
-
-        this.optimisticGeneration++;
-        // The first generation in a dirty window is the oldest optimistic write
-        // whose server confirmation could still arrive before newer writes.
-        if (this.dirtyWindowStartGeneration === undefined) {
-            this.dirtyWindowStartGeneration = this.optimisticGeneration;
-        }
-        return this.optimisticGeneration;
-    }
-
-    private clearOptimisticDirty(): void {
-        this.isOptimisticDirty = false;
-        this.dirtyWindowStartGeneration = undefined;
-        this.optimisticRollbackState = undefined;
-        this.pendingOptimisticGeneration = undefined;
-    }
-
-    private hasPendingSupersedingOptimisticMutation(): boolean {
-        if (this.pendingOptimisticGeneration === undefined) {
-            return false;
-        }
-        if (this.dirtyWindowStartGeneration === undefined) {
-            return false;
-        }
-        // A pending generation after the window start means at least one newer
-        // optimistic write is still in flight, so incoming server state may only
-        // be confirming an older write in the same dirty window.
-        return (
-            this.pendingOptimisticGeneration > this.dirtyWindowStartGeneration
-        );
-    }
-
-    private stateEquals(
-        left: ConvexQueryNodeState<Query>,
-        right: ConvexQueryNodeState<Query>
-    ): boolean {
-        return JSON.stringify(left) === JSON.stringify(right);
+        notifyNodeDisposed(this);
+        super.dispose();
     }
 }
 
-function shallowEqualArrays(
-    left: unknown[] | undefined,
-    right: unknown[] | undefined
-): boolean {
-    if (left === undefined) {
-        return right === undefined;
-    }
-
-    if (right === undefined) {
-        return false;
-    }
-
-    if (left.length !== right.length) {
-        return false;
-    }
-
-    for (let index = 0; index < left.length; index++) {
-        if (!Object.is(left[index], right[index])) {
-            return false;
-        }
-    }
-
-    return true;
+function createConvexQuerySource<Query extends QueryReference>(
+    client: IConvexQueryClient,
+    query: Query
+): IQuerySubscriptionSource<FunctionArgs<Query>, FunctionReturnType<Query>> {
+    return {
+        subscribe(args, onValue, onError) {
+            // The Convex subscription handle already satisfies the generic
+            // handle protocol (unsubscribe + getCurrentValue).
+            return client.onUpdate(query, args, onValue, onError);
+        },
+    };
 }
 
-function getError(error: unknown): Error {
-    if (error instanceof Error) {
-        return error;
-    }
-
-    return new Error(
-        `ConvexQueryNode.optimisticUpdate: mutation failed with a non-Error rejection: ${String(
-            error
-        )}`
-    );
-}
-
-function getInitialResult<Query extends QueryReference>(
-    rawOptions: IConvexQueryNodeOptions<Query> | "skip" | undefined,
-    state: ConvexQueryNodeState<Query>
-): ConvexQueryNodeResult<Query> {
-    if (rawOptions === "skip") {
-        return { status: "skipped" };
-    }
-
-    if (state === undefined) {
-        return { status: "pending" };
-    }
-
-    return { status: "success", data: state };
-}
-
-function getQueryOptions<Query extends QueryReference>(
-    options: IConvexQueryNodeOptions<Query> | "skip" | undefined
-): IConvexQueryNodeOptions<Query> | undefined {
-    if (options === "skip") {
-        return undefined;
-    }
-
-    return options;
-}
-
-function getQueryArgs<Query extends QueryReference>(
-    rawOptions: IConvexQueryNodeOptions<Query> | "skip" | undefined,
-    options: IConvexQueryNodeOptions<Query> | undefined
-): ConvexQueryArgs<Query> {
+function getQueryNodeOptions<Query extends QueryReference>(
+    rawOptions: IConvexQueryNodeOptions<Query> | ConvexQuerySkip | undefined
+):
+    | IQueryNodeOptions<FunctionArgs<Query>, FunctionReturnType<Query>>
+    | ConvexQuerySkip {
     if (rawOptions === "skip") {
         return "skip";
     }
 
+    return {
+        args: getQueryArgs(rawOptions),
+        initialState: rawOptions?.initialState,
+        reconcile: rawOptions?.reconcile,
+        keepPreviousData: rawOptions?.keepPreviousData,
+    };
+}
+
+function getQueryArgs<Query extends QueryReference>(
+    options: IConvexQueryNodeOptions<Query> | undefined
+): FunctionArgs<Query> {
     if (options?.args !== undefined) {
         return options.args;
     }

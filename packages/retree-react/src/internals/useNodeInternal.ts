@@ -2,41 +2,33 @@
  * Copyright (c) Ryan Bliss. All rights reserved.
  * Licensed under the MIT License.
  */
+// "use no memo" is load-bearing when this source is compiled by the React
+// Compiler (source-inclusion setups only; consumers' compilers skip the
+// published bin/ output in node_modules). See useNodeInternalCore.ts and
+// react-compiler.spec.tsx for the failure mode and proof.
 "use no memo";
+"use client";
 
 import { TreeNode } from "@retreejs/core";
-import {
-    getBaseProxy,
-    getNodeSnapshotVersion,
-    getReproxyNode,
-    getTreeSnapshotVersion,
-} from "@retreejs/core/internal";
-import { NodeFactory } from "../types";
-import { subscribeToNode } from "./subscriptionHub";
+import { getBaseProxy, getReproxyNode } from "@retreejs/core/internal";
+import { NodeFactory } from "../types.js";
+import { getRetreeExternalStoreSource } from "./externalStore.js";
+import { NodeFactoryHookName } from "./factoryWarning.js";
 import {
     useNodeInternalCore,
     UseNodeInternalListenerType,
     UseNodeInternalOperations,
-} from "./useNodeInternalCore";
+} from "./useNodeInternalCore.js";
 
 const operations: UseNodeInternalOperations = {
-    cleanupSubscription(_listenerType, unsubscribe) {
-        unsubscribe();
-    },
     getRenderBaseProxy(_listenerType, node) {
         return getBaseProxy(node);
     },
     getRenderReproxyNode(_listenerType, node) {
         return getReproxyNode(node);
     },
-    getSnapshotVersion(listenerType, node) {
-        if (listenerType === "treeChanged") {
-            return getTreeSnapshotVersion(node);
-        }
-        return getNodeSnapshotVersion(node);
-    },
-    subscribeToNode(listenerType, node, listener) {
-        return subscribeToNode(node, listenerType, listener);
+    getSource(listenerType, baseProxy) {
+        return getRetreeExternalStoreSource(baseProxy, listenerType);
     },
 };
 
@@ -45,7 +37,8 @@ const operations: UseNodeInternalOperations = {
  */
 export function useNodeInternal<T extends TreeNode = TreeNode>(
     node: T | NodeFactory<T>,
-    listenerType: UseNodeInternalListenerType
+    listenerType: UseNodeInternalListenerType,
+    hookName: NodeFactoryHookName
 ): T {
-    return useNodeInternalCore(node, listenerType, operations);
+    return useNodeInternalCore(node, listenerType, hookName, operations);
 }

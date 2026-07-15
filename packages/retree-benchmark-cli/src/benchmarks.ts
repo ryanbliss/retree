@@ -25,8 +25,8 @@ import {
     createBenchmarkLeaf,
     createBenchmarkTree,
     setBenchmarkDependencies,
-} from "./tree";
-import { summarizeDurations } from "./stats";
+} from "./tree.js";
+import { summarizeDurations } from "./stats.js";
 import {
     BenchmarkCaseResult,
     BenchmarkConfig,
@@ -51,7 +51,7 @@ import {
     SelectionMode,
     SkippedBenchmarkCase,
     TierDefinition,
-} from "./types";
+} from "./types.js";
 
 type ListenerEvent = "nodeChanged" | "treeChanged";
 

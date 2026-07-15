@@ -7,13 +7,19 @@ import {
     COLLECTED_KEYS_SYMBOL,
     LINKED_KEYS_SYMBOL,
     ReactiveNode,
-} from "../ReactiveNode";
-import { INodeFieldChanges, TreeNode } from "../types";
-import { TreeChangeEmitter } from "./NodeChangeEmitter";
+} from "../ReactiveNode.js";
+import {
+    INodeFieldChanges,
+    TNodeFieldChangeKey,
+    TNodeFieldChangeOp,
+    TreeNode,
+} from "../types.js";
+import { TreeChangeEmitter } from "./NodeChangeEmitter.js";
 import {
     ICustomProxy,
     ICustomProxyHandler,
     IProxyParent,
+    ISnapshotVersionRecord,
     getCustomProxyHandlerFromMetadata,
     getCustomProxyTargetFromMetadata,
     isCustomProxy,
@@ -25,22 +31,24 @@ import {
     registerCustomProxyMetadata,
     TCustomProxy,
     unproxiedBaseNodeKey,
-} from "./proxy-types";
-import { getReactiveNodeGetter, popMemoGetter, pushMemoGetter } from "./memo";
+} from "./proxy-types.js";
+import { readReactiveNodeProperty } from "./memo.js";
 import {
     getManagedProxyForUnproxiedNode,
     getReproxyNode,
     registerBaseProxy,
     updateReproxyNode,
     updateReproxyNodeForChange,
-} from "./reproxy";
+} from "./reproxy.js";
 import {
     isDependencyTrackingActive,
     trackDependencyAccess,
+    trackDependencyKeyPresenceAccess,
+    trackDependencyKeysAccess,
     trackDependencyPropertyAccess,
     trackDependencyPropertyWrite,
-} from "./dependency-tracking";
-import { Transactions } from "./transactions";
+} from "./dependency-tracking.js";
+import { Transactions } from "./transactions.js";
 
 export const FUNCTION_NAMES_BIND_TO_RAW: ReadonlySet<string | symbol> = new Set(
     ["valueOf", "toISOString", "toJSON"]
@@ -48,6 +56,62 @@ export const FUNCTION_NAMES_BIND_TO_RAW: ReadonlySet<string | symbol> = new Set(
 
 const MAP_MUTATING_METHODS = new Set(["set", "delete", "clear"]);
 const SET_MUTATING_METHODS = new Set(["add", "delete", "clear"]);
+
+type ArrayMutatingMethodName =
+    | "copyWithin"
+    | "fill"
+    | "pop"
+    | "push"
+    | "reverse"
+    | "shift"
+    | "sort"
+    | "splice"
+    | "unshift";
+/**
+ * Native array mutators intercepted in the base get trap so each call runs
+ * once against the raw target and emits one coherent `nodeChanged`, instead
+ * of one full write pipeline per shifted element. Values are the native
+ * functions so overridden methods on array subclasses fall through to the
+ * default per-property write path.
+ */
+const ARRAY_MUTATING_METHODS: Record<ArrayMutatingMethodName, Function> = {
+    copyWithin: Array.prototype.copyWithin,
+    fill: Array.prototype.fill,
+    pop: Array.prototype.pop,
+    push: Array.prototype.push,
+    reverse: Array.prototype.reverse,
+    shift: Array.prototype.shift,
+    sort: Array.prototype.sort,
+    splice: Array.prototype.splice,
+    unshift: Array.prototype.unshift,
+};
+
+function isArrayMutatingMethod(prop: string): prop is ArrayMutatingMethodName {
+    return Object.prototype.hasOwnProperty.call(ARRAY_MUTATING_METHODS, prop);
+}
+
+/**
+ * @internal
+ * True when reading `prop` on the raw array `node` resolves to one of the
+ * nine native array mutators intercepted by the base proxy's get trap (see
+ * {@link ARRAY_MUTATING_METHODS}). Overridden methods on array subclasses
+ * return false so they stay on the default per-property write path.
+ */
+export function isNativeArrayMutatorAccess(
+    node: TreeNode,
+    prop: string | symbol
+): boolean {
+    if (!Array.isArray(node)) {
+        return false;
+    }
+    if (typeof prop !== "string") {
+        return false;
+    }
+    if (!isArrayMutatingMethod(prop)) {
+        return false;
+    }
+    return Reflect.get(node, prop, node) === ARRAY_MUTATING_METHODS[prop];
+}
 
 function trackAccessIfNeeded<T>(value: T): T {
     if (!isDependencyTrackingActive()) {
@@ -77,12 +141,26 @@ function trackPropertyWriteIfNeeded(
     trackDependencyPropertyWrite(owner, propertyKey);
 }
 
+/**
+ * Build the one-record change set for a field-level mutation.
+ *
+ * @param node the RAW node whose field changed (never a proxy); listeners
+ * resolve it with `Retree.managed` when needed.
+ * @param key the original key: property key for object writes, the original
+ * Map key value (including object keys) for Map mutations, or an operation
+ * name for collection-level operations.
+ */
 function createNodeFieldChanges(
-    key: string | symbol,
+    node: TreeNode,
+    key: TNodeFieldChangeKey,
     previous: unknown,
-    next: unknown
+    next: unknown,
+    op?: TNodeFieldChangeOp
 ): INodeFieldChanges[] {
-    return [{ key: String(key), previous, new: next }];
+    if (op === undefined) {
+        return [{ node, key, previous, new: next }];
+    }
+    return [{ node, key, previous, new: next, op }];
 }
 
 type DateMutatingMethodName =
@@ -214,18 +292,38 @@ class BaseProxyHandler<T extends TreeNode>
     public [proxiedChildrenKey]: Record<string | symbol, any> | null;
     public [proxiedParentKey]: IProxyParent | null;
     public [proxyTargetKey]?: T;
+    /**
+     * External-store snapshot versions; allocated on first advance and then
+     * mutated in place (see snapshot-version.ts).
+     */
+    public snapshotVersionsRecord: ISnapshotVersionRecord | null = null;
     public baseProxy!: TCustomProxy<T>;
     public readonly emitter: TreeChangeEmitter;
     public readonly reactiveObject: ReactiveNode | undefined;
     private readonly mapObject: Map<any, any> | undefined;
     private readonly setObject: Set<any> | undefined;
     private readonly dateObject: Date | undefined;
+    private readonly arrayObject: (T & unknown[]) | undefined;
     private readonly hasInternalSlots: boolean;
     private isApplyingSet = false;
     private boundFunctionCache: Map<
         string | symbol,
         BoundFunctionCacheEntry
     > | null = null;
+    /**
+     * Batching wrappers for the intercepted native array mutators, keyed by
+     * method name and allocated lazily on first read. Caching keeps
+     * `arr.push === arr.push` true across reads, so tracked selectors that
+     * read a mutator method compare equal instead of re-running forever.
+     */
+    private arrayMutatorCache: Map<ArrayMutatingMethodName, Function> | null =
+        null;
+    /**
+     * Reproxy-aware mutator wrappers; see {@link ICustomProxyHandler}. Owned
+     * here (the base handler) so the cache survives reproxy churn.
+     */
+    public reproxyArrayMutatorCache: Map<string | symbol, Function> | null =
+        null;
     /**
      * Raw purity: Map/Set targets store raw values only; their child proxies
      * live here, keyed by map key (Map) or raw member (Set). Lazily
@@ -248,6 +346,7 @@ class BaseProxyHandler<T extends TreeNode>
         this.mapObject = object instanceof Map ? object : undefined;
         this.setObject = object instanceof Set ? object : undefined;
         this.dateObject = object instanceof Date ? object : undefined;
+        this.arrayObject = Array.isArray(object) ? object : undefined;
         this.hasInternalSlots =
             this.mapObject !== undefined ||
             this.setObject !== undefined ||
@@ -266,6 +365,26 @@ class BaseProxyHandler<T extends TreeNode>
             source,
             thisArg
         );
+    }
+
+    private getArrayMutator(
+        prop: ArrayMutatingMethodName,
+        arrayObject: T & unknown[]
+    ): Function {
+        this.arrayMutatorCache ??= new Map();
+        const cached = this.arrayMutatorCache.get(prop);
+        if (cached !== undefined) {
+            return cached;
+        }
+        const wrapper = wrapArrayMutation(
+            this,
+            prop,
+            arrayObject,
+            this.baseProxy,
+            this.emitter
+        );
+        this.arrayMutatorCache.set(prop, wrapper);
+        return wrapper;
     }
 
     public get(target: T, prop: string | symbol, receiver: any): any {
@@ -384,20 +503,25 @@ class BaseProxyHandler<T extends TreeNode>
             }
             return trackPropertyAccessIfNeeded(baseProxy, prop, value);
         }
-        let value: any;
+        const arrayObject = this.arrayObject;
         if (
-            reactiveObject !== undefined &&
-            getReactiveNodeGetter(reactiveObject, prop)
+            arrayObject !== undefined &&
+            typeof prop === "string" &&
+            isArrayMutatingMethod(prop) &&
+            Reflect.get(target, prop, target) === ARRAY_MUTATING_METHODS[prop]
         ) {
-            // For ReactiveNode getters, push the getter name onto the memo-getter
-            // stack so a keyless `this.memo(fn, deps)` inside the getter can derive
-            // its cache key from `prop`. Pop in `finally` so a throwing getter
-            pushMemoGetter(reactiveObject, prop);
-            try {
-                value = Reflect.get(target, prop, receiver);
-            } finally {
-                popMemoGetter(reactiveObject);
-            }
+            // Same dependency-tracking treatment as any other function read,
+            // and a per-(handler, method) cached wrapper so the mutator's
+            // identity is stable across reads.
+            return trackAccessIfNeeded(this.getArrayMutator(prop, arrayObject));
+        }
+        let value: any;
+        if (reactiveObject !== undefined) {
+            // ReactiveNode getter reads may need a memo-getter frame so a
+            // keyless `this.memo(fn, deps)` inside the getter can derive its
+            // cache key from `prop`; classes that never use keyless memo skip
+            // the frame bookkeeping entirely.
+            value = readReactiveNodeProperty(reactiveObject, prop, receiver);
         } else {
             value = Reflect.get(target, prop, receiver);
         }
@@ -474,6 +598,7 @@ class BaseProxyHandler<T extends TreeNode>
                 if (!Transactions.skipReproxy) {
                     const reproxy = updateReproxyNodeForChange(baseProxy);
                     const changes = createNodeFieldChanges(
+                        this[unproxiedBaseNodeKey],
                         prop,
                         prev,
                         rawNewValue
@@ -497,9 +622,16 @@ class BaseProxyHandler<T extends TreeNode>
             }
         }
         const prev = (target as any)[prop];
+        // Exact-inversion metadata: a write that creates the key is marked
+        // "add" so undo can delete the key rather than leave it present with
+        // value `undefined`. The `hasOwn` check only runs when `prev` is
+        // `undefined` (the only ambiguous case), keeping the hot rewrite path
+        // free of it.
+        const createsKey = prev === undefined && !Object.hasOwn(target, prop);
         // Raw-to-raw comparison: reassigning the node already stored at this
         // property (via its base proxy or any reproxy) is a no-op.
-        const hasChanged = prev !== rawNewValue;
+        // `Object.is` so NaN-to-NaN writes are treated as unchanged.
+        const hasChanged = !Object.is(prev, rawNewValue);
         if (hasChanged) {
             const nodeRemoved = handleNodeRemoved(baseProxy, prop);
             if (newValue !== null && typeof newValue === "object") {
@@ -557,7 +689,13 @@ class BaseProxyHandler<T extends TreeNode>
             // If in a skip reproxy transaction, do not reproxy node
             if (!Transactions.skipReproxy) {
                 const reproxy = updateReproxyNodeForChange(baseProxy);
-                const changes = createNodeFieldChanges(prop, prev, rawNewValue);
+                const changes = createNodeFieldChanges(
+                    this[unproxiedBaseNodeKey],
+                    prop,
+                    prev,
+                    rawNewValue,
+                    createsKey ? "add" : undefined
+                );
                 // Still emit here if in a `skipEmit` transaction so that parents get reproxied
                 this.emitter.emit(
                     "nodeChanged",
@@ -683,7 +821,13 @@ class BaseProxyHandler<T extends TreeNode>
                     this[unproxiedBaseNodeKey],
                     baseProxy,
                     reproxy,
-                    createNodeFieldChanges(prop, previousValue, nextValue)
+                    createNodeFieldChanges(
+                        this[unproxiedBaseNodeKey],
+                        prop,
+                        previousValue,
+                        nextValue,
+                        currentDescriptor === undefined ? "add" : undefined
+                    )
                 );
             } else {
                 console.warn(
@@ -703,6 +847,34 @@ class BaseProxyHandler<T extends TreeNode>
         return returnValue;
     }
 
+    /**
+     * `in` reads participate in dependency tracking (C2): a tracked selector
+     * checking `"id" in record` records a presence dependency on this node
+     * for that key, so adding or deleting the key re-runs the selector while
+     * unrelated value writes validate away.
+     */
+    public has(target: T, prop: string | symbol): boolean {
+        const result = Reflect.has(target, prop);
+        if (isDependencyTrackingActive()) {
+            trackDependencyKeyPresenceAccess(this.baseProxy, prop, result);
+        }
+        return result;
+    }
+
+    /**
+     * Iteration-shape reads (`Object.keys`, `for...in`, spread, `Reflect.ownKeys`)
+     * participate in dependency tracking (C2): a tracked selector enumerating
+     * this node's keys records a keys dependency, so key additions and
+     * deletions re-run the selector while value writes to existing keys
+     * validate away.
+     */
+    public ownKeys(target: T): ArrayLike<string | symbol> {
+        if (isDependencyTrackingActive()) {
+            trackDependencyKeysAccess(this.baseProxy);
+        }
+        return Reflect.ownKeys(target);
+    }
+
     public deleteProperty(target: T, prop: string | symbol): boolean {
         const reactiveObject = this.reactiveObject;
         if (reactiveObject !== undefined) {
@@ -714,6 +886,12 @@ class BaseProxyHandler<T extends TreeNode>
             ) {
                 return Reflect.deleteProperty(target, prop);
             }
+        }
+        // Deleting a key that is not an own property is a no-op (`delete`
+        // never affects the prototype chain); do not reproxy or emit a
+        // spurious nodeChanged for it.
+        if (!Object.hasOwn(target, prop)) {
+            return Reflect.deleteProperty(target, prop);
         }
         // Good example of `deleteProperty` is when an item is removed / moved in a list.
         // `deleteProperty` does not expose the receiver...get the latest reproxy instead.
@@ -740,7 +918,13 @@ class BaseProxyHandler<T extends TreeNode>
                     this[unproxiedBaseNodeKey],
                     baseProxy,
                     reproxy,
-                    createNodeFieldChanges(prop, previousValue, undefined)
+                    createNodeFieldChanges(
+                        this[unproxiedBaseNodeKey],
+                        prop,
+                        previousValue,
+                        undefined,
+                        "delete"
+                    )
                 );
             } else {
                 console.warn(
@@ -896,7 +1080,14 @@ function setProxiedChild(
     prop: string | symbol,
     value: unknown
 ) {
-    (proxyHandler[proxiedChildrenKey] ??= {})[prop] = value;
+    // Null prototype: cache lookups must never resolve Object.prototype
+    // members ("constructor", "toString", ...) as phantom children, and
+    // "__proto__" must behave as a normal key.
+    (proxyHandler[proxiedChildrenKey] ??= createChildrenCache())[prop] = value;
+}
+
+function createChildrenCache(): Record<string | symbol, any> {
+    return Object.create(null) as Record<string | symbol, any>;
 }
 
 function isReactiveNodeProxy(node: object): node is TCustomProxy<ReactiveNode> {
@@ -1284,6 +1475,10 @@ function wrapMapMutation(
     if (prop === "set") {
         return function setWrapper(key: any, value: any) {
             const previous = target.get(key);
+            // Exact-inversion metadata: a set that creates the entry is
+            // marked "add" so undo deletes the key instead of restoring
+            // `undefined` as its value.
+            const hadKey = Map.prototype.has.call(target, key);
             const rawValue = unwrapCollectionValue(value);
             const removedNodes: object[] = [];
             // If we are replacing an existing object child of this map, detach it.
@@ -1329,9 +1524,23 @@ function wrapMapMutation(
                 baseProxy,
                 emitter,
                 removedNodes,
-                createNodeFieldChanges(key, previous, rawValue)
+                createNodeFieldChanges(
+                    target,
+                    key,
+                    previous,
+                    rawValue,
+                    hadKey ? undefined : "add"
+                )
             );
             // Map.prototype.set returns the map itself; return the proxy so chaining stays reactive.
+            // Note: reproxy callers receive this base proxy as well. Unlike
+            // array mutators (whose reproxy reads map a base-proxy return to
+            // the latest reproxy in ReproxyHandler.get), Map/Set method reads
+            // delegate through the internal-slot branch wholesale, and
+            // wrapping every delegated method there to remap the return
+            // value would break bound-function identity stability. Chaining
+            // off the base proxy stays fully reactive, so this is a
+            // documented trade-off.
             return baseProxy;
         };
     }
@@ -1365,7 +1574,13 @@ function wrapMapMutation(
                     baseProxy,
                     emitter,
                     removedNodes,
-                    createNodeFieldChanges(key, previous, undefined)
+                    createNodeFieldChanges(
+                        target,
+                        key,
+                        previous,
+                        undefined,
+                        "delete"
+                    )
                 );
             }
             return result;
@@ -1392,6 +1607,26 @@ function wrapMapMutation(
                 }
             });
             const previousSize = target.size;
+            // Exact-inversion metadata: one "delete"-marked record per entry
+            // (the discarded entries are otherwise unrecoverable), then the
+            // summary record existing consumers key off of.
+            const changes: INodeFieldChanges[] = [];
+            Map.prototype.forEach.call(target, (value, key) => {
+                changes.push({
+                    node: target,
+                    key,
+                    previous: value,
+                    new: undefined,
+                    op: "delete",
+                });
+            });
+            changes.push({
+                node: target,
+                key: "clear",
+                previous: previousSize,
+                new: 0,
+                op: "clear",
+            });
             Map.prototype.clear.call(target);
             handler.collectionProxies?.clear();
             emitCollectionChange(
@@ -1399,7 +1634,7 @@ function wrapMapMutation(
                 baseProxy,
                 emitter,
                 removedNodes,
-                createNodeFieldChanges("clear", previousSize, 0)
+                changes
             );
         };
     }
@@ -1538,8 +1773,11 @@ function wrapSetMutation(
                 baseProxy,
                 emitter,
                 [],
-                createNodeFieldChanges("add", undefined, rawValue)
+                createNodeFieldChanges(target, "add", undefined, rawValue)
             );
+            // Set.prototype.add returns the set itself; reproxy callers also
+            // receive this base proxy (see the trade-off note in
+            // wrapMapMutation's set wrapper).
             return baseProxy;
         };
     }
@@ -1576,7 +1814,12 @@ function wrapSetMutation(
                     baseProxy,
                     emitter,
                     removedNodes,
-                    createNodeFieldChanges("delete", valueToDelete, undefined)
+                    createNodeFieldChanges(
+                        target,
+                        "delete",
+                        valueToDelete,
+                        undefined
+                    )
                 );
             }
             return result;
@@ -1603,6 +1846,27 @@ function wrapSetMutation(
                 }
             });
             const previousSize = target.size;
+            // Exact-inversion metadata: one "delete"-keyed record per member
+            // (the discarded members are otherwise unrecoverable), then the
+            // summary record existing consumers key off of. Per-member
+            // records match the shape `Set.delete` emits, so inversion has
+            // one Set-removal form.
+            const changes: INodeFieldChanges[] = [];
+            Set.prototype.forEach.call(target, (value) => {
+                changes.push({
+                    node: target,
+                    key: "delete",
+                    previous: value,
+                    new: undefined,
+                });
+            });
+            changes.push({
+                node: target,
+                key: "clear",
+                previous: previousSize,
+                new: 0,
+                op: "clear",
+            });
             Set.prototype.clear.call(target);
             handler.collectionProxies?.clear();
             emitCollectionChange(
@@ -1610,7 +1874,7 @@ function wrapSetMutation(
                 baseProxy,
                 emitter,
                 removedNodes,
-                createNodeFieldChanges("clear", previousSize, 0)
+                changes
             );
         };
     }
@@ -1664,11 +1928,855 @@ function wrapDateMutation(
                 baseProxy,
                 emitter,
                 [],
-                createNodeFieldChanges(prop, previousTime, nextTime)
+                createNodeFieldChanges(target, prop, previousTime, nextTime)
             );
         }
         return result;
     };
+}
+
+function toIntegerOrZero(value: unknown): number {
+    const numeric = Math.trunc(Number(value));
+    if (Number.isNaN(numeric)) {
+        return 0;
+    }
+    return numeric;
+}
+
+/**
+ * Normalize a relative array offset the way the native array methods do
+ * (`ToIntegerOrInfinity` + negative-from-end + clamping into `[0, length]`).
+ */
+function normalizeArrayOffset(
+    value: unknown,
+    length: number,
+    defaultValue: number
+): number {
+    if (value === undefined) {
+        return defaultValue;
+    }
+    const relative = toIntegerOrZero(value);
+    if (relative < 0) {
+        return Math.max(length + relative, 0);
+    }
+    return Math.min(relative, length);
+}
+
+/**
+ * Bookkeeping for a value entering an array at `index`, mirroring the base
+ * `set` trap's branches: reparent/cache managed proxies, keep lazily
+ * proxyable plain objects out of the cache, and return the **raw** value the
+ * raw target should store (raw purity).
+ */
+function prepareInsertedArrayValue(
+    handler: ICustomProxyHandler<any>,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter,
+    index: number,
+    value: unknown
+): unknown {
+    const propName = String(index);
+    if (value === null || typeof value !== "object") {
+        deleteProxiedChild(handler, propName);
+        return value;
+    }
+    const parentToSet: IProxyParent<any> = {
+        proxyNode: baseProxy,
+        propName,
+    };
+    if (isCustomProxy(value)) {
+        setProxiedChild(handler, propName, reparentProxy(value, parentToSet));
+        return getUnproxiedNode(value) ?? value;
+    }
+    if (getManagedProxyForUnproxiedNode(value) !== undefined) {
+        setProxiedChild(
+            handler,
+            propName,
+            createStructuralProxyForValue(value, parentToSet, emitter)
+        );
+        return value;
+    }
+    if (shouldCreatePlainObjectProxyLazily(value)) {
+        deleteProxiedChild(handler, propName);
+        return value;
+    }
+    setProxiedChild(
+        handler,
+        propName,
+        createStructuralProxyForValue(value, parentToSet, emitter)
+    );
+    return value;
+}
+
+/**
+ * Resolve the managed node for an element leaving an array at `index`,
+ * detach its parent edge when this array owns it (queueing it for a
+ * `nodeRemoved` emission), and clear its children-cache entry. Returns the
+ * value method callers should hand back to userland: the managed proxy for
+ * object elements (matching what a read through the proxy returns), or the
+ * primitive as-is.
+ */
+function takeRemovedArrayElement(
+    handler: ICustomProxyHandler<any>,
+    target: unknown[],
+    index: number,
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter,
+    removedNodes: object[]
+): unknown {
+    const rawValue = target[index];
+    const propName = String(index);
+    if (rawValue === null || typeof rawValue !== "object") {
+        deleteProxiedChild(handler, propName);
+        return rawValue;
+    }
+    const childProxy = getOrCreateProxiedChild(
+        handler,
+        propName,
+        rawValue,
+        baseProxy,
+        emitter
+    );
+    const childHandler = getCustomProxyHandler(childProxy);
+    if (childHandler !== undefined) {
+        const parent = childHandler[proxiedParentKey];
+        if (
+            parent !== null &&
+            parent.proxyNode === baseProxy &&
+            parent.propName === propName
+        ) {
+            parent.propName = null;
+            parent.proxyNode = null;
+            removedNodes.push(childProxy);
+        }
+    }
+    deleteProxiedChild(handler, propName);
+    return childProxy;
+}
+
+/**
+ * Snapshot the children-cache entries for indices `[0, length)` so cache
+ * records can be re-keyed after the raw target's indices shift.
+ */
+function snapshotArrayChildCache(
+    handler: ICustomProxyHandler<any>,
+    length: number
+): unknown[] {
+    const snapshot = new Array<unknown>(length);
+    const children = handler[proxiedChildrenKey];
+    if (children === null) {
+        return snapshot;
+    }
+    for (let i = 0; i < length; i++) {
+        const entry = children[String(i)];
+        if (entry !== undefined) {
+            snapshot[i] = entry;
+        }
+    }
+    return snapshot;
+}
+
+/**
+ * Re-key one surviving element's cache entry from `fromIndex` to `toIndex`
+ * and repoint its parent edge at the new index. Reads only the pre-mutation
+ * `cacheSnapshot` so move order never matters.
+ */
+function moveArrayChild(
+    handler: ICustomProxyHandler<any>,
+    target: unknown[],
+    fromIndex: number,
+    toIndex: number,
+    baseProxy: TCustomProxy<any>,
+    cacheSnapshot: unknown[]
+): void {
+    const toKey = String(toIndex);
+    const entry = cacheSnapshot[fromIndex];
+    if (entry !== undefined) {
+        setProxiedChild(handler, toKey, entry);
+    } else {
+        deleteProxiedChild(handler, toKey);
+    }
+    let movedProxy: unknown = entry;
+    if (movedProxy === undefined || movedProxy === null) {
+        // Children materialized outside this handler's cache (e.g. via a
+        // managed raw assignment elsewhere) still need their parent edge
+        // repointed; the registry resolves them by raw identity.
+        const rawValue = target[toIndex];
+        if (rawValue === null || typeof rawValue !== "object") {
+            return;
+        }
+        movedProxy = getManagedProxyForUnproxiedNode(rawValue);
+    }
+    if (
+        movedProxy === undefined ||
+        movedProxy === null ||
+        typeof movedProxy !== "object"
+    ) {
+        return;
+    }
+    const childHandler = getCustomProxyHandler(movedProxy);
+    if (childHandler === undefined) {
+        return;
+    }
+    const parent = childHandler[proxiedParentKey];
+    if (
+        parent !== null &&
+        parent.proxyNode === baseProxy &&
+        parent.propName === String(fromIndex)
+    ) {
+        parent.propName = toKey;
+    }
+}
+
+function setArrayChildParentIndex(
+    childProxy: object,
+    baseProxy: TCustomProxy<any>,
+    toKey: string
+): void {
+    const childHandler = getCustomProxyHandler(childProxy);
+    if (childHandler === undefined) {
+        return;
+    }
+    const parent = childHandler[proxiedParentKey];
+    if (parent !== null && parent.proxyNode === baseProxy) {
+        parent.propName = toKey;
+    }
+}
+
+/**
+ * After an in-place reorder (`sort`/`reverse`) of the raw target, re-key
+ * every object element's cache entry to its new index by raw identity and
+ * repoint parent edges.
+ */
+function rebuildArrayChildrenAfterReorder(
+    handler: ICustomProxyHandler<any>,
+    target: unknown[],
+    baseProxy: TCustomProxy<any>,
+    rawBefore: unknown[],
+    cacheSnapshot: unknown[]
+): void {
+    const entryByRaw = new Map<object, unknown>();
+    // Reverse iteration so the first occurrence of a duplicated raw wins.
+    for (let i = rawBefore.length - 1; i >= 0; i--) {
+        const raw = rawBefore[i];
+        if (raw !== null && typeof raw === "object") {
+            entryByRaw.set(raw, cacheSnapshot[i]);
+        }
+    }
+    for (let i = 0; i < target.length; i++) {
+        const key = String(i);
+        const raw = target[i];
+        if (raw === null || typeof raw !== "object") {
+            deleteProxiedChild(handler, key);
+            continue;
+        }
+        let entry = entryByRaw.get(raw);
+        if (entry === undefined || entry === null) {
+            entry = getManagedProxyForUnproxiedNode(raw);
+        }
+        if (
+            entry === undefined ||
+            entry === null ||
+            typeof entry !== "object"
+        ) {
+            deleteProxiedChild(handler, key);
+            continue;
+        }
+        setProxiedChild(handler, key, entry);
+        setArrayChildParentIndex(entry, baseProxy, key);
+    }
+}
+
+function collectReorderedArrayChanges(
+    rawBefore: unknown[],
+    target: unknown[]
+): INodeFieldChanges[] {
+    const changes: INodeFieldChanges[] = [];
+    for (let i = 0; i < rawBefore.length; i++) {
+        if (!Object.is(rawBefore[i], target[i])) {
+            changes.push({
+                node: target,
+                key: String(i),
+                previous: rawBefore[i],
+                new: target[i],
+            });
+        }
+    }
+    return changes;
+}
+
+/**
+ * Wrap one native array mutator so the whole call runs against the raw
+ * target and emits exactly one `nodeChanged` with one coherent change-record
+ * set (removed/inserted entries plus the length change, or per-index records
+ * for in-place rewrites), instead of one write pipeline per touched index.
+ */
+function wrapArrayMutation(
+    handler: ICustomProxyHandler<any>,
+    prop: ArrayMutatingMethodName,
+    target: unknown[],
+    baseProxy: TCustomProxy<any>,
+    emitter: TreeChangeEmitter
+): Function {
+    if (prop === "push") {
+        return function pushWrapper(...items: unknown[]) {
+            const previousLength = target.length;
+            if (items.length === 0) {
+                return previousLength;
+            }
+            const changes: INodeFieldChanges[] = [];
+            const rawItems: unknown[] = [];
+            for (let i = 0; i < items.length; i++) {
+                const index = previousLength + i;
+                const rawItem = prepareInsertedArrayValue(
+                    handler,
+                    baseProxy,
+                    emitter,
+                    index,
+                    items[i]
+                );
+                rawItems.push(rawItem);
+                changes.push({
+                    node: target,
+                    key: String(index),
+                    previous: undefined,
+                    new: rawItem,
+                    op: "insert",
+                });
+            }
+            Array.prototype.push.apply(target, rawItems);
+            changes.push({
+                node: target,
+                key: "length",
+                previous: previousLength,
+                new: target.length,
+                op: "length",
+            });
+            emitCollectionChange(target, baseProxy, emitter, [], changes);
+            return target.length;
+        };
+    }
+    if (prop === "pop") {
+        return function popWrapper() {
+            const previousLength = target.length;
+            if (previousLength === 0) {
+                return undefined;
+            }
+            const index = previousLength - 1;
+            const rawRemoved = target[index];
+            const removedNodes: object[] = [];
+            const removed = takeRemovedArrayElement(
+                handler,
+                target,
+                index,
+                baseProxy,
+                emitter,
+                removedNodes
+            );
+            Array.prototype.pop.call(target);
+            emitCollectionChange(target, baseProxy, emitter, removedNodes, [
+                {
+                    node: target,
+                    key: String(index),
+                    previous: rawRemoved,
+                    new: undefined,
+                    op: "remove",
+                },
+                {
+                    node: target,
+                    key: "length",
+                    previous: previousLength,
+                    new: index,
+                    op: "length",
+                },
+            ]);
+            return removed;
+        };
+    }
+    if (prop === "shift") {
+        return function shiftWrapper() {
+            const previousLength = target.length;
+            if (previousLength === 0) {
+                return undefined;
+            }
+            const rawRemoved = target[0];
+            const removedNodes: object[] = [];
+            const removed = takeRemovedArrayElement(
+                handler,
+                target,
+                0,
+                baseProxy,
+                emitter,
+                removedNodes
+            );
+            const cacheSnapshot = snapshotArrayChildCache(
+                handler,
+                previousLength
+            );
+            Array.prototype.shift.call(target);
+            for (let i = 1; i < previousLength; i++) {
+                moveArrayChild(
+                    handler,
+                    target,
+                    i,
+                    i - 1,
+                    baseProxy,
+                    cacheSnapshot
+                );
+            }
+            deleteProxiedChild(handler, String(previousLength - 1));
+            emitCollectionChange(target, baseProxy, emitter, removedNodes, [
+                {
+                    node: target,
+                    key: "0",
+                    previous: rawRemoved,
+                    new: undefined,
+                    op: "remove",
+                },
+                {
+                    node: target,
+                    key: "length",
+                    previous: previousLength,
+                    new: target.length,
+                    op: "length",
+                },
+            ]);
+            return removed;
+        };
+    }
+    if (prop === "unshift") {
+        return function unshiftWrapper(...items: unknown[]) {
+            const previousLength = target.length;
+            const insertCount = items.length;
+            if (insertCount === 0) {
+                return previousLength;
+            }
+            const cacheSnapshot = snapshotArrayChildCache(
+                handler,
+                previousLength
+            );
+            const rawItems = items.map(unwrapCollectionValue);
+            Array.prototype.unshift.apply(target, rawItems);
+            for (let i = previousLength - 1; i >= 0; i--) {
+                moveArrayChild(
+                    handler,
+                    target,
+                    i,
+                    i + insertCount,
+                    baseProxy,
+                    cacheSnapshot
+                );
+            }
+            const changes: INodeFieldChanges[] = [];
+            for (let i = 0; i < insertCount; i++) {
+                prepareInsertedArrayValue(
+                    handler,
+                    baseProxy,
+                    emitter,
+                    i,
+                    items[i]
+                );
+                changes.push({
+                    node: target,
+                    key: String(i),
+                    previous: undefined,
+                    new: rawItems[i],
+                    op: "insert",
+                });
+            }
+            changes.push({
+                node: target,
+                key: "length",
+                previous: previousLength,
+                new: target.length,
+                op: "length",
+            });
+            emitCollectionChange(target, baseProxy, emitter, [], changes);
+            return target.length;
+        };
+    }
+    if (prop === "splice") {
+        return function spliceWrapper(...args: unknown[]) {
+            const previousLength = target.length;
+            const removed: unknown[] = [];
+            if (args.length === 0) {
+                return removed;
+            }
+            const start = normalizeArrayOffset(args[0], previousLength, 0);
+            let deleteCount: number;
+            if (args.length === 1) {
+                deleteCount = previousLength - start;
+            } else {
+                deleteCount = Math.min(
+                    Math.max(toIntegerOrZero(args[1]), 0),
+                    previousLength - start
+                );
+            }
+            const items = args.slice(2);
+            const insertCount = items.length;
+            if (deleteCount === 0 && insertCount === 0) {
+                return removed;
+            }
+            const removedNodes: object[] = [];
+            const changes: INodeFieldChanges[] = [];
+            for (let i = 0; i < deleteCount; i++) {
+                const index = start + i;
+                const rawRemoved = target[index];
+                removed.push(
+                    takeRemovedArrayElement(
+                        handler,
+                        target,
+                        index,
+                        baseProxy,
+                        emitter,
+                        removedNodes
+                    )
+                );
+                changes.push({
+                    node: target,
+                    key: String(index),
+                    previous: rawRemoved,
+                    new: undefined,
+                    op: "remove",
+                });
+            }
+            const cacheSnapshot = snapshotArrayChildCache(
+                handler,
+                previousLength
+            );
+            const rawItems = items.map(unwrapCollectionValue);
+            Array.prototype.splice.call(
+                target,
+                start,
+                deleteCount,
+                ...rawItems
+            );
+            const indexDelta = insertCount - deleteCount;
+            if (indexDelta < 0) {
+                for (let i = start + deleteCount; i < previousLength; i++) {
+                    moveArrayChild(
+                        handler,
+                        target,
+                        i,
+                        i + indexDelta,
+                        baseProxy,
+                        cacheSnapshot
+                    );
+                }
+                for (let i = target.length; i < previousLength; i++) {
+                    deleteProxiedChild(handler, String(i));
+                }
+            } else if (indexDelta > 0) {
+                for (
+                    let i = previousLength - 1;
+                    i >= start + deleteCount;
+                    i--
+                ) {
+                    moveArrayChild(
+                        handler,
+                        target,
+                        i,
+                        i + indexDelta,
+                        baseProxy,
+                        cacheSnapshot
+                    );
+                }
+            }
+            for (let i = 0; i < insertCount; i++) {
+                const index = start + i;
+                prepareInsertedArrayValue(
+                    handler,
+                    baseProxy,
+                    emitter,
+                    index,
+                    items[i]
+                );
+                changes.push({
+                    node: target,
+                    key: String(index),
+                    previous: undefined,
+                    new: rawItems[i],
+                    op: "insert",
+                });
+            }
+            if (target.length !== previousLength) {
+                changes.push({
+                    node: target,
+                    key: "length",
+                    previous: previousLength,
+                    new: target.length,
+                    op: "length",
+                });
+            }
+            emitCollectionChange(
+                target,
+                baseProxy,
+                emitter,
+                removedNodes,
+                changes
+            );
+            return removed;
+        };
+    }
+    if (prop === "sort") {
+        return function sortWrapper(
+            comparator?: (a: unknown, b: unknown) => number
+        ) {
+            if (comparator !== undefined && typeof comparator !== "function") {
+                // Match the native TypeError so callers see standard behavior.
+                throw new TypeError(
+                    "The comparison function must be either a function or undefined"
+                );
+            }
+            const previousLength = target.length;
+            if (previousLength <= 1) {
+                return baseProxy;
+            }
+            const rawBefore = target.slice();
+            let comparatorToUse:
+                | ((a: unknown, b: unknown) => number)
+                | undefined;
+            if (comparator !== undefined) {
+                // The user comparator must observe managed nodes (identical
+                // to reading elements through the proxy), so reads inside it
+                // stay reactive and dependency-tracked.
+                const managedByRaw = new Map<object, unknown>();
+                for (let i = 0; i < previousLength; i++) {
+                    const raw = target[i];
+                    if (
+                        raw !== null &&
+                        typeof raw === "object" &&
+                        !managedByRaw.has(raw)
+                    ) {
+                        managedByRaw.set(
+                            raw,
+                            getOrCreateProxiedChild(
+                                handler,
+                                String(i),
+                                raw,
+                                baseProxy,
+                                emitter
+                            )
+                        );
+                    }
+                }
+                const toManaged = (value: unknown) => {
+                    if (value === null || typeof value !== "object") {
+                        return value;
+                    }
+                    return managedByRaw.get(value) ?? value;
+                };
+                comparatorToUse = (a, b) =>
+                    comparator(toManaged(a), toManaged(b));
+            }
+            const cacheSnapshot = snapshotArrayChildCache(
+                handler,
+                previousLength
+            );
+            try {
+                Array.prototype.sort.call(target, comparatorToUse);
+            } finally {
+                // A throwing comparator can abort the sort after the raw
+                // target was partially reordered (engine-dependent), so
+                // rebuild the children cache and parent edges
+                // unconditionally to keep bookkeeping aligned with the raw
+                // target. On throw the error propagates without a
+                // nodeChanged emission: no completed mutation means no
+                // identity advance, but reads stay consistent either way.
+                rebuildArrayChildrenAfterReorder(
+                    handler,
+                    target,
+                    baseProxy,
+                    rawBefore,
+                    cacheSnapshot
+                );
+            }
+            const changes = collectReorderedArrayChanges(rawBefore, target);
+            if (changes.length === 0) {
+                return baseProxy;
+            }
+            emitCollectionChange(target, baseProxy, emitter, [], changes);
+            return baseProxy;
+        };
+    }
+    if (prop === "reverse") {
+        return function reverseWrapper() {
+            const previousLength = target.length;
+            if (previousLength <= 1) {
+                return baseProxy;
+            }
+            const rawBefore = target.slice();
+            const cacheSnapshot = snapshotArrayChildCache(
+                handler,
+                previousLength
+            );
+            Array.prototype.reverse.call(target);
+            const changes = collectReorderedArrayChanges(rawBefore, target);
+            if (changes.length === 0) {
+                return baseProxy;
+            }
+            rebuildArrayChildrenAfterReorder(
+                handler,
+                target,
+                baseProxy,
+                rawBefore,
+                cacheSnapshot
+            );
+            emitCollectionChange(target, baseProxy, emitter, [], changes);
+            return baseProxy;
+        };
+    }
+    if (prop === "fill") {
+        return function fillWrapper(
+            value?: unknown,
+            start?: unknown,
+            end?: unknown
+        ) {
+            const length = target.length;
+            const fillStart = normalizeArrayOffset(start, length, 0);
+            const fillEnd = normalizeArrayOffset(end, length, length);
+            const rawValue = unwrapCollectionValue(value);
+            const changedIndices: number[] = [];
+            for (let i = fillStart; i < fillEnd; i++) {
+                if (!Object.is(target[i], rawValue)) {
+                    changedIndices.push(i);
+                }
+            }
+            if (changedIndices.length === 0) {
+                return baseProxy;
+            }
+            const removedNodes: object[] = [];
+            const changes: INodeFieldChanges[] = [];
+            for (const index of changedIndices) {
+                const previousRaw = target[index];
+                if (previousRaw !== null && typeof previousRaw === "object") {
+                    takeRemovedArrayElement(
+                        handler,
+                        target,
+                        index,
+                        baseProxy,
+                        emitter,
+                        removedNodes
+                    );
+                }
+                changes.push({
+                    node: target,
+                    key: String(index),
+                    previous: previousRaw,
+                    new: rawValue,
+                });
+            }
+            Array.prototype.fill.call(target, rawValue, fillStart, fillEnd);
+            for (const index of changedIndices) {
+                prepareInsertedArrayValue(
+                    handler,
+                    baseProxy,
+                    emitter,
+                    index,
+                    value
+                );
+            }
+            emitCollectionChange(
+                target,
+                baseProxy,
+                emitter,
+                removedNodes,
+                changes
+            );
+            return baseProxy;
+        };
+    }
+    if (prop === "copyWithin") {
+        return function copyWithinWrapper(
+            targetStart?: unknown,
+            start?: unknown,
+            end?: unknown
+        ) {
+            const length = target.length;
+            const to = normalizeArrayOffset(targetStart, length, 0);
+            const from = normalizeArrayOffset(start, length, 0);
+            const finalIndex = normalizeArrayOffset(end, length, length);
+            const count = Math.min(finalIndex - from, length - to);
+            if (count <= 0) {
+                return baseProxy;
+            }
+            const rawBefore = target.slice();
+            const cacheSnapshot = snapshotArrayChildCache(handler, length);
+            const removedNodes: object[] = [];
+            const changes: INodeFieldChanges[] = [];
+            // Detach overwritten object children before the raw move.
+            for (let offset = 0; offset < count; offset++) {
+                const destination = to + offset;
+                const sourceRaw = rawBefore[from + offset];
+                const destinationRaw = rawBefore[destination];
+                if (Object.is(sourceRaw, destinationRaw)) {
+                    continue;
+                }
+                if (
+                    destinationRaw !== null &&
+                    typeof destinationRaw === "object"
+                ) {
+                    takeRemovedArrayElement(
+                        handler,
+                        target,
+                        destination,
+                        baseProxy,
+                        emitter,
+                        removedNodes
+                    );
+                }
+                changes.push({
+                    node: target,
+                    key: String(destination),
+                    previous: destinationRaw,
+                    new: sourceRaw,
+                });
+            }
+            if (changes.length === 0) {
+                return baseProxy;
+            }
+            Array.prototype.copyWithin.call(target, to, from, finalIndex);
+            for (let offset = 0; offset < count; offset++) {
+                const destination = to + offset;
+                const sourceIndex = from + offset;
+                const sourceRaw = rawBefore[sourceIndex];
+                if (Object.is(sourceRaw, rawBefore[destination])) {
+                    continue;
+                }
+                const destinationKey = String(destination);
+                if (sourceRaw === null || typeof sourceRaw !== "object") {
+                    deleteProxiedChild(handler, destinationKey);
+                    continue;
+                }
+                let entry = cacheSnapshot[sourceIndex];
+                if (entry === undefined || entry === null) {
+                    entry = getManagedProxyForUnproxiedNode(sourceRaw);
+                }
+                if (
+                    entry === undefined ||
+                    entry === null ||
+                    typeof entry !== "object"
+                ) {
+                    deleteProxiedChild(handler, destinationKey);
+                    continue;
+                }
+                setProxiedChild(handler, destinationKey, entry);
+                setArrayChildParentIndex(entry, baseProxy, destinationKey);
+            }
+            emitCollectionChange(
+                target,
+                baseProxy,
+                emitter,
+                removedNodes,
+                changes
+            );
+            return baseProxy;
+        };
+    }
+    // @retree-throws
+    throw new Error(
+        `Retree internal invariant failed: unsupported Array mutation '${prop}'. This is unexpected and likely a Retree bug because this wrapper should only receive push, pop, shift, unshift, splice, sort, reverse, fill, or copyWithin. Please file a Retree issue with the Array operation that triggered this.`
+    );
 }
 
 function detachCollectionChild(

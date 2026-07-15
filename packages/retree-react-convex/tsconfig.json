@@ -1,9 +1,9 @@
 {
     "compilerOptions": {
         "target": "es2020",
-        "module": "esnext",
-        "moduleResolution": "bundler",
-        "lib": ["es2020", "DOM"],
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "lib": ["es2022", "DOM"],
         "allowJs": false,
         "declaration": true,
         "sourceMap": true,

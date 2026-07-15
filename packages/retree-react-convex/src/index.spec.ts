@@ -7,11 +7,13 @@ import type {
 } from "convex/server";
 import type { QueryJournal } from "convex/browser";
 import type { Watch } from "convex/react";
-import type {
-    PaginatedQueryArgs,
-    RetreePaginatedQueryResult,
+import { Retree } from "@retreejs/core";
+import {
+    ConvexQueryNode,
+    type PaginatedQueryArgs,
+    type RetreePaginatedQueryResult,
 } from "@retreejs/convex";
-import { RetreeConvexReactClient } from "./index";
+import { RetreeConvexReactClient } from "./index.js";
 
 type TasksQuery = FunctionReference<
     "query",
@@ -214,6 +216,41 @@ describe("RetreeConvexReactClient", () => {
         firstWatch.emit();
 
         expect(callback).toHaveBeenCalledWith(firstResult);
+    });
+
+    it("surfaces an errored watch through ConvexQueryNode as error, not eternal pending", () => {
+        const client = new RetreeConvexReactClient("https://test.convex.cloud");
+        const goodWatch = new FakeWatch<FunctionReturnType<TasksQuery>>([
+            "cached",
+        ]);
+        const errorWatch = new FakeWatch<FunctionReturnType<TasksQuery>>(
+            undefined
+        );
+        errorWatch.setError(new Error("Query failed"));
+        vi.spyOn(client, "watchQuery")
+            .mockReturnValueOnce(goodWatch)
+            .mockReturnValueOnce(errorWatch);
+
+        const node = Retree.root(
+            new ConvexQueryNode(client, tasksQuery, {
+                args: { listId: "today" },
+            })
+        );
+        Retree.on(node, "nodeChanged", () => undefined);
+        expect(node.result).toEqual({ status: "success", data: ["cached"] });
+
+        // The new watch's cached value is an error; the node must show the
+        // error instead of resetting to pending forever.
+        node.updateArgs({ listId: "tomorrow" });
+
+        expect(node.result.status).toBe("error");
+        if (node.result.status !== "error") {
+            throw new Error(
+                "RetreeConvexReactClient test expected an error query result."
+            );
+        }
+        expect(node.result.error.message).toBe("Query failed");
+        expect(node.error?.message).toBe("Query failed");
     });
 
     it("throws a helpful error when paginated watches are unavailable", () => {

@@ -1,0 +1,139 @@
+---
+title: Select semantics
+description: The canonical reference for Retree's three selects — useSelect and Retree.select are observational, @select makes the owning node emit — and when to reach for each.
+---
+
+Three Retree APIs share the name "select":
+[`useSelect`](/api/react/functions/useSelect) in React,
+[`Retree.select`](/api/core/classes/Retree) in core, and the
+[`@select`](/api/core/functions/select) decorator on `ReactiveNode` getters.
+They share the name because they share a job — react to a *selection* instead
+of a whole node — but they split into two behaviors, and mixing them up is the
+most common source of "why didn't that update?" questions. This page is the
+reference for the distinction; every other mention of these APIs links back
+here.
+
+## The one distinction
+
+`useSelect` and `Retree.select` are **observational**: when a selected
+dependency changes, *your* subscriber is notified — the component re-renders,
+the callback runs — but the node you passed in is not touched. It does not
+emit `nodeChanged`, and it does not receive a fresh
+[reproxy](/docs/thinking-in-retree#reproxy), so other subscribers and memo
+comparisons of that node see no change.
+
+`@select` is **emitting**: when the getter's selected dependencies change, the
+owning `ReactiveNode` itself emits `nodeChanged` and reproxies. Every
+`useNode(owner)` subscriber re-renders, and the owner's identity changes for
+`React.memo` and dependency arrays.
+
+| API                                            | Where it runs             | When the selection changes                          | Observed node reproxied? |
+| ---------------------------------------------- | ------------------------- | --------------------------------------------------- | ------------------------ |
+| [`useSelect`](/docs/react/use-select)          | A React component         | That component re-renders                           | ❌ observational         |
+| [`Retree.select`](/docs/events-and-subscriptions#narrow-with-retreeselect) | Anywhere — no React needed | Your callback runs                                  | ❌ observational         |
+| [`@select`](/docs/view-models#select-selective-getters) | A `ReactiveNode` getter   | The owner emits `nodeChanged` and reproxies — every subscriber updates | ✅ emitting              |
+
+## Observational: `useSelect` and `Retree.select`
+
+The subscription belongs to the caller, and the notification stops there. In
+the example below the selection changes, so the callback runs — but the tasks
+array never emits `nodeChanged`, because none of its own fields changed:
+
+```ts
+import { Retree } from "@retreejs/core";
+
+const project = Retree.root({
+    tasks: [
+        { title: "Docs", done: false },
+        { title: "Tests", done: true },
+    ],
+});
+
+Retree.on(project.tasks, "nodeChanged", () => console.log("tasks emitted"));
+
+Retree.select(
+    project.tasks,
+    (tasks) => tasks.filter((task) => task.done).length,
+    (doneCount) => console.log("done count:", doneCount),
+    { listenerType: "treeChanged" }
+);
+
+project.tasks[0].done = true;
+// ✅ "done count: 2" — the selection changed, the callback ran
+// ❌ no "tasks emitted" — the observed node did not emit or reproxy
+```
+
+`useSelect` is the same primitive with a re-render instead of a callback.
+That privacy is the point: a header can watch a done-count across the whole
+tree without making any other component — or any memo comparison — believe
+the tree changed.
+
+## Emitting: `@select`
+
+Put the selection *on the node* when the derived value belongs to the node
+and everyone subscribed to it should see updates. `@select` traps the
+getter's reads (or takes an explicit selector), and when the selection
+changes, the owner emits like one of its own fields changed:
+
+```ts
+import { Retree, ReactiveNode, select } from "@retreejs/core";
+
+class TaskBoard extends ReactiveNode {
+    public tasks = [
+        { title: "Docs", done: false },
+        { title: "Tests", done: true },
+    ];
+
+    @select
+    get doneCount() {
+        return this.tasks.filter((task) => task.done).length;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+const board = Retree.root(new TaskBoard());
+Retree.on(board, "nodeChanged", () => console.log("board emitted"));
+
+board.tasks[0].done = true; // ✅ "board emitted" — doneCount changed
+board.tasks[0].title = "Better docs"; // ❌ silent — the selection stayed 2
+```
+
+Because the owner reproxies, plain `useNode(board)` is enough in components —
+no `useSelect` needed at the call sites. The full decorator forms (bare,
+explicit selector, `equals` option) are covered in
+[ReactiveNode & decorators](/docs/view-models#select-selective-getters).
+
+## Which one do I want
+
+-   **One component narrowing its own re-renders** — `useSelect`. The
+    selection matters to that component only.
+-   **A callback outside React** — `Retree.select`. Services, tests,
+    integrations.
+-   **A derived value that belongs to the node** — `@select`. Every
+    `useNode(owner)` subscriber, memo comparison, and dependency array should
+    see the owner change when the selection does.
+
+A useful smell: if several components call `useSelect` with the same selector
+over the same node, that selection probably wants to be a `@select` getter on
+the node instead.
+
+## None of them cache
+
+All three selects narrow *notification* — none of them cache the selector's
+result for reuse. Selectors can run on candidate changes just to decide
+whether the selection changed. Put expensive computation behind
+[`memo`](/docs/view-models#memoize-computed-values) and select the cached
+value; memoization caches, selection narrows, and neither substitutes for the
+other. See [the matching pitfall](/docs/common-pitfalls#using-useselect-as-a-memo-cache).
+
+## Where next
+
+-   [useSelect](/docs/react/use-select) — the React hook's three forms and a
+    live demo.
+-   [Events & subscriptions](/docs/events-and-subscriptions) — `Retree.select`
+    alongside `Retree.on`.
+-   [ReactiveNode & decorators](/docs/view-models) — `@select` forms and the
+    memo family.

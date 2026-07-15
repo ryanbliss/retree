@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { TypedEventEmitter } from "./TypedEventEmitter";
+import { TypedEventEmitter } from "./TypedEventEmitter.js";
 
 class TestEmitter extends TypedEventEmitter<any> {}
 

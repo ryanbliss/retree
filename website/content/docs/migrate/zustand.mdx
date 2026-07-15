@@ -1,0 +1,131 @@
+---
+title: From Zustand
+description: A concept-by-concept map from Zustand to Retree — create/set/get, selectors, slices, and middleware — with a before/after store and the gotchas.
+---
+
+Zustand and Retree agree on a lot: no provider, no reducers, state defined in
+plain code and used through hooks. The shift is the update model — Zustand
+replaces state with `set(...)`, Retree mutates one long-lived tree directly —
+and re-render granularity, which Zustand gets from selector equality and
+Retree gets from per-node subscriptions. This page is the routing table, not
+a tutorial; the [Quickstart](/docs/quick-start) and
+[Thinking in Retree](/docs/thinking-in-retree) cover the destination
+properly.
+
+## Concept map
+
+| Zustand                             | Retree                                                                                          |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `create((set, get) => ({ ... }))`   | [`Retree.root({ ... })`](/docs/quick-start) — a plain object or class instance                  |
+| `useStore()`                        | [`useNode(node)`](/docs/react/use-node) — per node, not per store                               |
+| `useStore((s) => s.doneCount)`      | [`useSelect(() => node.doneCount)`](/docs/react/use-select)                                     |
+| `set({ count: 1 })` / `set(fn)`     | `node.count = 1` — plain assignment                                                             |
+| `get().count`                       | `node.count` — plain reads, anywhere                                                            |
+| Actions defined inside the store    | Methods on classes in the tree, or plain functions that mutate it                               |
+| Slices pattern                      | Child nodes — one object per domain under the root                                              |
+| `subscribe` / `subscribeWithSelector` | [`Retree.on`](/docs/events-and-subscriptions) / [`Retree.select`](/docs/events-and-subscriptions#narrow-with-retreeselect) |
+| `immer` middleware                  | Not needed — mutation is the model                                                              |
+| `persist` middleware                | None today — [`Retree.raw(node)`](/docs/thinking-in-retree#raw-value) gives a serializable snapshot to save yourself |
+| `devtools` middleware               | None today                                                                                      |
+
+## Before and after
+
+A tasks store with an action and a derived count:
+
+```ts title="Zustand"
+import { create } from "zustand";
+
+interface TaskState {
+    tasks: { id: number; text: string; done: boolean }[];
+    toggle: (id: number) => void;
+}
+
+const useTaskStore = create<TaskState>((set) => ({
+    tasks: [{ id: 1, text: "Write docs", done: false }],
+    toggle: (id) =>
+        set((state) => ({
+            tasks: state.tasks.map((task) =>
+                task.id === id ? { ...task, done: !task.done } : task
+            ),
+        })),
+}));
+
+function DoneBadge() {
+    // Selector equality decides when this re-renders.
+    const doneCount = useTaskStore(
+        (state) => state.tasks.filter((task) => task.done).length
+    );
+    return <span>{doneCount}</span>;
+}
+```
+
+```tsx title="Retree"
+import { Retree } from "@retreejs/core";
+import { useNode, useSelect } from "@retreejs/react";
+
+const taskStore = Retree.root({
+    tasks: [{ id: 1, text: "Write docs", done: false }],
+});
+
+function toggle(id: number) {
+    const task = taskStore.tasks.find((task) => task.id === id);
+    if (task) task.done = !task.done; // no spread, no map
+}
+
+function DoneBadge() {
+    // Subscribes to the reads the selector performs.
+    const doneCount = useSelect(
+        () => taskStore.tasks.filter((task) => task.done).length
+    );
+    return <span>{doneCount}</span>;
+}
+
+function TaskRow({ task }: { task: (typeof taskStore.tasks)[number] }) {
+    // Per-node subscription: other tasks' changes never render this row.
+    const state = useNode(task);
+    return (
+        <label>
+            <input
+                type="checkbox"
+                checked={state.done}
+                onChange={() => toggle(state.id)}
+            />
+            {state.text}
+        </label>
+    );
+}
+```
+
+The selector hook translates almost one-to-one. What has no Zustand
+equivalent is `TaskRow`: subscribing a component to *one item* directly,
+without selector plumbing — that granularity is the main thing you gain.
+
+## Gotchas
+
+-   **Mutate, don't rebuild.** The `map`-and-spread idiom still *works* in
+    Retree (assigning a new array is a write like any other), but it defeats
+    per-node granularity — replacing the array touches every row. Reach for
+    direct mutation first.
+-   **Subscription follows the hook, not the selector.** `useNode(node)`
+    re-renders for that node's own fields only; each child a component
+    renders needs its own subscription. The rule and its fix are in
+    [Common pitfalls](/docs/common-pitfalls#writes-to-a-nested-node-dont-re-render).
+-   **Identity works differently.** Zustand gives you new object identities
+    on every update; Retree nodes reproxy on change, so `React.memo` and
+    dependency arrays work with nodes — but not with
+    [raw values](/docs/common-pitfalls#raw-references-as-memo-props-or-deps).
+-   **No middleware system.** `persist` and `devtools` have no Retree
+    equivalent today; cross-cutting concerns hang off
+    [`Retree.on`](/docs/events-and-subscriptions) subscriptions instead.
+-   **Classes are welcome but optional.** Everything above is plain objects
+    and functions. When a domain accumulates derived state, graduate it to a
+    [`ReactiveNode`](/docs/view-models) — there's no equivalent step to
+    graduate *to* in Zustand.
+
+## Where next
+
+-   [Choosing a hook](/docs/react) — the granularity options replacing
+    selector-equality tuning.
+-   [Select semantics](/docs/select-semantics) — what `useSelect` does and
+    doesn't do.
+-   [Why Retree](/why) — the live re-render comparison.

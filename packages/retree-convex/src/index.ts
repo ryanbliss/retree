@@ -3,12 +3,14 @@
  * Licensed under the MIT License.
  */
 
-export * from "./types";
-export * from "./actions";
-export * from "./BaseConvexNode";
-export * from "./ConvexNode";
-export * from "./ConvexConnectionStateNode";
-export * from "./ConvexPaginatedQueryNode";
-export * from "./ConvexQueryNode";
-export * from "./mutations";
-export * from "./reconcile";
+export * from "./types.js";
+export * from "./actions.js";
+export * from "./BaseConvexNode.js";
+export * from "./BaseConvexQueryNode.js";
+export * from "./ConvexNode.js";
+export * from "./ConvexAuthStateNode.js";
+export * from "./ConvexConnectionStateNode.js";
+export * from "./ConvexPaginatedQueryNode.js";
+export * from "./ConvexQueryNode.js";
+export * from "./mutations.js";
+export * from "./reconcile.js";

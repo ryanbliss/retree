@@ -1,30 +1,32 @@
-# React + TypeScript + Vite
+# 03. React recursion — useNode vs useTree, side by side
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A recursive tree of counter cards rendered twice with the same state classes:
+`NodeExample` gives every card its own `useNode` subscription, while
+`TreeExample` uses a single `useTree` at the top. Click "+count" on a deeply
+nested card in each and compare: the `useNode` version re-renders only that
+card (with `React.memo` keeping siblings quiet), while the `useTree` version
+re-renders its whole example for every write. Same data, same layout — the
+hook choice alone decides the render blast radius.
 
-Currently, two official plugins are available:
+## What it also teaches
 
--   [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
--   [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+-   `ReactiveNode` with `dependencies` and `this.dependency(...)` comparisons.
+-   `Retree.parent` walks (`grandparent`), reparenting a card upward, and
+    swapping child lists between nodes inside `Retree.runTransaction`.
+-   `Retree.runSilent` writes, with a toggle for the `skipReproxy` flag.
+-   `@ignore` keeping a field out of reactivity.
 
-## Expanding the ESLint configuration
+## Where to look
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+-   `src/node-state.ts` — the `Card` and `Tree` classes; all the tree
+    operations live here.
+-   `src/NodeExample.tsx` / `src/TreeExample.tsx` — the two subscription
+    strategies.
 
--   Configure the top-level `parserOptions` property like this:
+## How to run
 
-```js
-export default {
-    // other rules...
-    parserOptions: {
-        ecmaVersion: "latest",
-        sourceType: "module",
-        project: ["./tsconfig.json", "./tsconfig.node.json"],
-        tsconfigRootDir: __dirname,
-    },
-};
+```bash
+npm install && npm run build:packages   # from the repo root
+cd samples/03.react-recursion
+npm run dev
 ```
-
--   Replace `plugin:@typescript-eslint/recommended` to `plugin:@typescript-eslint/recommended-type-checked` or `plugin:@typescript-eslint/strict-type-checked`
--   Optionally add `plugin:@typescript-eslint/stylistic-type-checked`
--   Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and add `plugin:react/recommended` & `plugin:react/jsx-runtime` to the `extends` list

@@ -3,16 +3,16 @@
  * Licensed under the MIT License.
  */
 
-import { ReactiveNode } from "../ReactiveNode";
-import { TreeNode } from "../types";
+import { ReactiveNode } from "../ReactiveNode.js";
+import { TreeNode } from "../types.js";
 import {
     DependencyComparisonAccessor,
     collectDependencyComparisonAccesses,
     replayDependencyComparisonAccesses,
-} from "./dependency-tracking";
-import { getDependencyComparisonValues } from "./dependencies";
-import { getUnproxiedNode } from "./proxy";
-import { getManagedProxyForUnproxiedNode } from "./reproxy";
+} from "./dependency-tracking.js";
+import { getDependencyComparisonValues } from "./dependencies.js";
+import { getUnproxiedNode } from "./proxy.js";
+import { getManagedProxyForUnproxiedNode } from "./reproxy.js";
 
 /**
  * @internal
@@ -398,6 +398,124 @@ const reactiveNodePrototypeGetterNamesCache = new WeakMap<
     Set<string | symbol>
 >();
 
+/**
+ * Prototypes whose getters are known to call the keyless `this.memo(fn, deps)`
+ * form. Getter reads on any other prototype skip memo-frame bookkeeping
+ * entirely (the common case); membership is established lazily on the first
+ * keyless memo call via {@link KeylessMemoFrameRequest}.
+ */
+const keylessMemoPrototypes = new WeakSet<object>();
+
+/**
+ * Test probe: total {@link pushMemoGetter} frames ever pushed. Lets specs
+ * assert that getter reads on classes without keyless memo skip frame
+ * bookkeeping.
+ *
+ * @internal
+ */
+export function getMemoGetterFramePushCount(): number {
+    return memoGetterFramePushCount;
+}
+let memoGetterFramePushCount = 0;
+
+const KEYLESS_MEMO_GUIDANCE =
+    "memo() was called without a key outside of a ReactiveNode getter. " +
+    "This is expected when keyless memo is used from a method, callback, constructor, or async continuation after the getter has returned. " +
+    "Fix: call keyless memo directly inside a ReactiveNode getter, or pass an explicit key as the first argument: `this.memo('myKey', fn, deps)`.";
+
+/**
+ * Control-flow signal thrown by the first-ever keyless memo call on a class
+ * whose getter reads took the frame-free fast path. The proxy get trap that
+ * invoked the getter catches it (instance-matched) and re-runs the getter
+ * with a memo-getter frame pushed; the prototype is marked before throwing so
+ * every later getter read takes the frame-pushing slow path directly.
+ *
+ * Consequences for keyless-memo users:
+ *
+ * - The first-ever keyless call on a class RE-RUNS the getter body from the
+ *   top (once). Getters are assumed pure, so the re-run is unobservable for
+ *   idiomatic getters; a getter with side effects (counters, logging,
+ *   mutations) would observe its body running twice on that first read.
+ * - A user `try`/`catch` inside the getter that wraps the `this.memo(...)`
+ *   call can swallow this control-flow request before the proxy trap sees
+ *   it, leaving the getter to complete without a memo cell (or to surface a
+ *   confusing outside-a-getter message on a later call). If you must wrap
+ *   keyless memo in a `try`/`catch`, rethrow errors whose constructor is
+ *   `KeylessMemoFrameRequest` (matched by `error.name ===
+ *   "KeylessMemoFrameRequest"`), or avoid the problem entirely by passing an
+ *   explicit key: `this.memo('myKey', fn, deps)`.
+ *
+ * If this error ever reaches user code outside a getter, no getter read was
+ * on the stack, so the call really was made outside a getter — the message
+ * carries the same guidance as the regular outside-a-getter error for that
+ * case.
+ */
+class KeylessMemoFrameRequest extends Error {
+    public readonly retreeKeylessMemoOwner: ReactiveNode;
+    constructor(owner: ReactiveNode) {
+        super(KEYLESS_MEMO_GUIDANCE);
+        this.name = "KeylessMemoFrameRequest";
+        this.retreeKeylessMemoOwner = owner;
+    }
+}
+
+function isKeylessMemoFrameRequestFor(
+    error: unknown,
+    owner: ReactiveNode
+): error is KeylessMemoFrameRequest {
+    if (!(error instanceof KeylessMemoFrameRequest)) {
+        return false;
+    }
+    return error.retreeKeylessMemoOwner === owner;
+}
+
+/**
+ * @internal
+ * Read a property of a raw ReactiveNode on behalf of a proxy get trap,
+ * pushing a memo-getter frame around getter invocations only when the
+ * instance's class is known to use the keyless `this.memo(...)` form.
+ *
+ * Fast path (class never marked): one WeakSet lookup, no getter detection,
+ * no frame allocation. The first keyless memo call on such a class throws
+ * {@link KeylessMemoFrameRequest} from `consumeCurrentMemoGetter`, which is
+ * caught here and answered by re-running the getter with a frame — so keyless
+ * memo still works on its first-ever call.
+ */
+export function readReactiveNodeProperty(
+    instance: ReactiveNode,
+    prop: string | symbol,
+    receiver: unknown
+): unknown {
+    const owner = resolveStackOwner(instance);
+    const prototype = Object.getPrototypeOf(owner);
+    if (prototype !== null && keylessMemoPrototypes.has(prototype)) {
+        if (getReactiveNodeGetter(instance, prop)) {
+            pushMemoGetter(instance, prop);
+            try {
+                return Reflect.get(instance, prop, receiver);
+            } finally {
+                popMemoGetter(instance);
+            }
+        }
+        return Reflect.get(instance, prop, receiver);
+    }
+    try {
+        return Reflect.get(instance, prop, receiver);
+    } catch (error) {
+        if (!isKeylessMemoFrameRequestFor(error, owner)) {
+            throw error;
+        }
+        // consumeCurrentMemoGetter marked the prototype before throwing;
+        // re-run the getter with a frame so this first call succeeds.
+        pushMemoGetter(instance, prop);
+        try {
+            return Reflect.get(instance, prop, receiver);
+        } finally {
+            popMemoGetter(instance);
+        }
+    }
+}
+
 function resolveStackOwner(target: object): ReactiveNode {
     // The stack must always be keyed by the unproxied instance so that pushes from
     // proxy.ts (which sees the raw target) and reads from `this.memo(...)` (which
@@ -424,6 +542,7 @@ export function pushMemoGetter(
         memoGetterStackMap.set(owner, stack);
     }
     stack.push({ getterName, memoCalled: false });
+    memoGetterFramePushCount += 1;
 }
 
 /**
@@ -450,12 +569,18 @@ export function consumeCurrentMemoGetter(
     const stack = memoGetterStackMap.get(owner);
     const top = stack && stack.length > 0 ? stack[stack.length - 1] : undefined;
     if (!top) {
+        const prototype = Object.getPrototypeOf(owner);
+        if (prototype !== null && !keylessMemoPrototypes.has(prototype)) {
+            // First keyless memo call for this class: getter reads have been
+            // taking the frame-free fast path, so no frame exists even if we
+            // are inside a getter right now. Mark the prototype and ask the
+            // invoking proxy trap (if any) to re-run the getter with a frame.
+            keylessMemoPrototypes.add(prototype);
+            // @retree-throws
+            throw new KeylessMemoFrameRequest(owner);
+        }
         // @retree-throws
-        throw new Error(
-            "memo() was called without a key outside of a ReactiveNode getter. " +
-                "This is expected when keyless memo is used from a method, callback, constructor, or async continuation after the getter has returned. " +
-                "Fix: call keyless memo directly inside a ReactiveNode getter, or pass an explicit key as the first argument: `this.memo('myKey', fn, deps)`."
-        );
+        throw new Error(KEYLESS_MEMO_GUIDANCE);
     }
     if (top.memoCalled) {
         // @retree-throws

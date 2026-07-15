@@ -14,8 +14,8 @@ import { render } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it } from "vitest";
 import { Retree } from "@retreejs/core";
-import { useNode } from "./useNode";
-import { useRaw } from "./useRaw";
+import { useNode } from "./useNode.js";
+import { useRaw } from "./useRaw.js";
 
 interface WideRow {
     id: number;

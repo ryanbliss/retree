@@ -107,7 +107,15 @@ todos.splice(0, 1); // ✅ nodeRemoved fires
   it.
 - `changes` is an array of
   [`INodeFieldChanges`](/api/core/interfaces/INodeFieldChanges) records:
-  `{ key, previous, new }`, one per changed field.
+  `{ node, key, previous, new }`, one per changed field.
+
+`node` is the **raw node whose field changed** — useful for telling your own
+records apart from dependency-forwarded ones on a `ReactiveNode`, and the
+primitive that makes change logs attributable. `key` is the original key
+value: a property name for objects and arrays, or the **actual Map key**
+(number, object, whatever you used) for Map entries — object keys are no
+longer stringified to `"[object Object]"`, and numeric Map keys arrive as
+numbers, not strings.
 
 `previous` and `new` are **always raw values** — change records describe the
 past, not live handles. When you need the managed node behind a payload
@@ -186,12 +194,12 @@ Retree.select(
 
 Two boundaries to keep in mind:
 
-- Dependency-list subscriptions are
+- `Retree.select` subscriptions are
   [observational](/docs/thinking-in-retree#observational-subscription):
-  a selected dependency change can run the callback, but it does not force
-  the node you passed in to receive a fresh reproxy. When a `ReactiveNode`
-  owner should emit `nodeChanged` for a selection, use the `@select`
-  decorator instead — see [View models](/docs/view-models).
+  a selected dependency change runs the callback, but the node you passed in
+  never emits or reproxies. When a `ReactiveNode` owner should emit
+  `nodeChanged` for a selection, that's `@select` — the full distinction is
+  in [Select semantics](/docs/select-semantics).
 - `Retree.select` narrows *notification*; it is **not a cache**. If the
   selector is expensive and reused, put the expensive part behind `memo` /
   `@memo` / `@fnMemo` and select the cached value (see

@@ -14,7 +14,9 @@ const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const rootLlmsPath = resolve(rootDir, "llms.txt");
 const packageDirectories = [
     "packages/retree-core",
+    "packages/retree-query",
     "packages/retree-react",
+    "packages/retree-devtools",
     "packages/retree-convex",
     "packages/retree-react-convex",
     "packages/retree-benchmark-cli",

@@ -7,7 +7,7 @@ import {
     IConvexMutationClient,
     MutationReference,
     RetreeConvexMutation,
-} from "./types";
+} from "./types.js";
 
 /**
  * Create a typed Retree Convex mutation function from a Convex client and

@@ -3,13 +3,13 @@ import {
     BenchmarkStoppedError,
     getBenchmarkScenarioDefinitions,
     runBenchmarkScenarioWithProgress,
-} from "./benchmarks";
+} from "./benchmarks.js";
 import {
     CONTROL_PAUSED_INDEX,
     CONTROL_STEP_INDEX,
     CONTROL_STOPPED_INDEX,
-} from "./parallel";
-import { BenchmarkConfig, ScenarioId } from "./types";
+} from "./parallel.js";
+import { BenchmarkConfig, ScenarioId } from "./types.js";
 
 interface ScenarioWorkerData {
     config: BenchmarkConfig;

@@ -3,10 +3,10 @@
  * Licensed under the MIT License.
  */
 
-import type { IReactiveDependency } from "../ReactiveNode";
-import { TreeNode } from "../types";
-import { getCustomProxyHandler, getUnproxiedNode } from "./proxy";
-import { TCustomProxy } from "./proxy-types";
+import type { IReactiveDependency } from "../ReactiveNode.js";
+import { TreeNode } from "../types.js";
+import { getCustomProxyHandler, getUnproxiedNode } from "./proxy.js";
+import { TCustomProxy } from "./proxy-types.js";
 
 export interface NormalizedDependencySlot {
     node: TCustomProxy<TreeNode> | undefined;

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { TypedEventEmitter } from "./internals/TypedEventEmitter";
+import { TypedEventEmitter } from "./internals/TypedEventEmitter.js";
 
 interface ITestEvents {
     (event: "ping", listener: (value: number) => void): void;

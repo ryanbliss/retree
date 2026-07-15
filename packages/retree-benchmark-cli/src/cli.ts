@@ -1,21 +1,24 @@
 import { pathToFileURL } from "node:url";
-import { parseCompareArgs, renderBenchmarkComparison } from "./compare";
-import { parseCliArgs, renderHelp, resolveBenchmarkConfig } from "./config";
-import { createInquirerPromptAdapter } from "./prompts";
-import { BenchmarkStoppedError, estimateBenchmarkWork } from "./benchmarks";
+import { parseCompareArgs, renderBenchmarkComparison } from "./compare.js";
+import { parseCliArgs, renderHelp, resolveBenchmarkConfig } from "./config.js";
+import { createInquirerPromptAdapter } from "./prompts.js";
+import { BenchmarkStoppedError, estimateBenchmarkWork } from "./benchmarks.js";
 import {
     CONTROL_BUFFER_LENGTH,
     CONTROL_PAUSED_INDEX,
     CONTROL_STEP_INDEX,
     CONTROL_STOPPED_INDEX,
     runBenchmarksInParallelWithProgress,
-} from "./parallel";
-import { renderConsoleSummaryReport, writeBenchmarkArtifacts } from "./report";
+} from "./parallel.js";
+import {
+    renderConsoleSummaryReport,
+    writeBenchmarkArtifacts,
+} from "./report.js";
 import {
     BenchmarkProgressEvent,
     BenchmarkProgressTask,
     BenchmarkProgressTaskStatus,
-} from "./types";
+} from "./types.js";
 
 export async function main(argv = process.argv.slice(2)) {
     if (argv.includes("compare") || argv.includes("--compare")) {

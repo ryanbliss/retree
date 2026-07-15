@@ -31,10 +31,22 @@ const PACKAGES = [
         title: "@retreejs/core",
     },
     {
+        slug: "query",
+        dir: "retree-query",
+        npmName: "@retreejs/query",
+        title: "@retreejs/query",
+    },
+    {
         slug: "react",
         dir: "retree-react",
         npmName: "@retreejs/react",
         title: "@retreejs/react",
+    },
+    {
+        slug: "devtools",
+        dir: "retree-devtools",
+        npmName: "@retreejs/devtools",
+        title: "@retreejs/devtools",
     },
     {
         slug: "convex",
@@ -145,12 +157,23 @@ async function writeLlmsTxt() {
         "react/use-select",
         "react/use-raw",
         "events-and-subscriptions",
+        "effects-and-reactions",
         "tree-operations",
         "transactions",
+        "undo-redo",
         "view-models",
         "setup-and-decorators",
+        "select-semantics",
         "performance",
+        "react-compiler",
+        "testing",
+        "devtools",
         "convex",
+        "query",
+        "compatibility",
+        "migrate/mobx",
+        "migrate/zustand",
+        "migrate/redux",
     ];
     const docLines = docSlugs
         .map(

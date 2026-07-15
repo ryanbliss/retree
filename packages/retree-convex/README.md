@@ -2,6 +2,8 @@
 
 `@retreejs/convex` connects Convex query subscriptions to Retree `ReactiveNode` state. It lets a Retree node own a Convex client, create typed query nodes with `this.query(...)`, run one-off queries with `this.queryOnce(...)`, call actions and mutations, and keep optimistic updates close to the query state they affect.
 
+The Convex nodes are adapters over the backend-agnostic `QueryNode` from [`@retreejs/query`](https://github.com/ryanbliss/retree/tree/main/packages/retree-query#readme) — the status machine, args lifecycle, and optimistic machinery are shared.
+
 ## How to install
 
 The quickest way is the interactive installer — it detects React and Convex and installs the matching Retree packages:
@@ -29,6 +31,7 @@ yarn add @retreejs/core @retreejs/convex convex
 -   [`ConvexQueryNode`](#query-status-and-skipping) stores one live Convex query in Retree state. Use it for subscribed query results that should trigger Retree/React updates.
 -   [`ConvexPaginatedQueryNode`](#paginated-queries) stores one live paginated Convex query and exposes `loadMore(...)`.
 -   [`ConvexConnectionStateNode`](#connection-state) stores the Convex client's connection state in Retree state.
+-   [`ConvexAuthStateNode`](#reactive-auth-state) stores the Convex client's authentication state (`isLoading` / `isAuthenticated`) in Retree state — the `useConvexAuth` equivalent.
 -   [`createRetreeConvexMutation`](#standalone-action-and-mutation-helpers) and [`createRetreeConvexAction`](#standalone-action-and-mutation-helpers) create typed imperative helpers when you are not inside a `BaseConvexNode`.
 -   [`optimisticUpdate`](#optimistic-updates) mutates a query node optimistically and emits through Retree immediately.
 -   [`reconcileConvexDocuments` and `reconcileArrayById`](#reconciliation) preserve item identity across server results so child `useNode(item)` components stay narrow.
@@ -133,8 +136,37 @@ this.tasks.updateArgs(projectId ? { projectId } : "skip");
 
 ```ts
 tasks.updateArgs({ projectId: "p1" }); // ✅ changes args and resubscribes
+tasks.updateArgs({ projectId: "p1" }); // ❌ deep-equal args — no resubscribe
 tasks.updateArgs("skip"); // ✅ emits skipped state and unsubscribes
 tasks.dispose(); // ✅ stops the subscription; call during app cleanup
+```
+
+Args are compared deeply (matching Convex's own structural comparison), so passing a fresh-but-equal args object causes no churn. Disposal is sticky: writes to a disposed node do not silently reopen the subscription; the node resubscribes when it gains a new Retree observer.
+
+### Keep previous data while args change
+
+By default a resubscribe resets the node to `pending`. Pass `keepPreviousData` to keep the previous `state` visible while the new subscription loads — `result` stays `success` with `isStale: true` until the first value arrives:
+
+```ts
+this.tasks = this.query(api.tasks.byProject, {
+    args: { projectId },
+    keepPreviousData: true,
+});
+
+this.tasks.updateArgs({ projectId: nextId });
+// ✅ state keeps the old rows; result is { status: "success", data, isStale: true }
+```
+
+### Retry after an error
+
+After `result.status === "error"`, call `retry()` to close the errored subscription and open a fresh one with the current args. It does nothing in any other status, so it wires straight to a button:
+
+```tsx
+{
+    tasks.result.status === "error" ? (
+        <button onClick={() => tasks.retry()}>Retry</button>
+    ) : null;
+}
 ```
 
 ## Actions and one-off queries
@@ -186,11 +218,22 @@ this.messages = this.paginatedQuery(api.messages.list, {
 this.messages.loadMore(20);
 ```
 
-`loadMore(...)` requests another page and returns `false` when there is no active subscription to extend. New pages update the paginated query node and emit through Retree.
+`loadMore(...)` requests another page and returns `false` when there is no active subscription to extend. New pages update the paginated query node and emit through Retree. Loaded rows are reconciled by `_id` when any page updates or `loadMore` lands, so row nodes keep identity and `useNode(row)` subscriptions stay narrow.
 
 ```ts
 const didRequestMore = this.messages.loadMore(20);
 this.messages.dispose();
+```
+
+Paginated nodes support `optimisticUpdate(...)` too — the transform mutates the loaded `state.results` rows in place, and rollback restores the loaded rows and pagination status while keeping the `loadMore` function by reference:
+
+```ts
+this.messages.optimisticUpdate({
+    ctx,
+    apply(page) {
+        page.results.unshift(localMessage);
+    },
+});
 ```
 
 ## Connection state
@@ -209,6 +252,30 @@ function ConnectionBadge({ state }: { state: ConvexConnectionStateNode }) {
     return <span>{status.hasInflightRequests ? "Syncing" : "Idle"}</span>;
 }
 ```
+
+## Reactive auth state
+
+`ConvexAuthStateNode` tracks a Convex client's authentication state — the Retree equivalent of Convex React's `useConvexAuth`. Convex clients only surface auth changes through `setAuth` callbacks, so the node needs a client implementing Retree's observable auth surface (`IConvexAuthClient`); `RetreeConvexReactClient` from `@retreejs/react-convex` implements it by interposing on `setAuth`/`clearAuth`:
+
+```ts
+import { Retree } from "@retreejs/core";
+import { ConvexAuthStateNode } from "@retreejs/convex";
+
+const auth = Retree.root(new ConvexAuthStateNode(convexClient));
+
+Retree.on(auth, "nodeChanged", () => {
+    console.log(auth.isLoading, auth.isAuthenticated);
+});
+
+// Wire your auth provider as usual; state flows automatically:
+convexClient.setAuth(fetchToken);
+```
+
+`isLoading` is `true` while a token change awaits server confirmation; `isAuthenticated` flips once the server validates the credentials. The node subscribes while observed and cleans up when it loses its last observer.
+
+## Server-side rendering (Next.js preload)
+
+For Next.js RSC hydration — server-fetched data on first render, live values once the websocket emits — use `preloadedQueryOptions(...)` from [`@retreejs/react-convex`](https://github.com/ryanbliss/retree/tree/main/packages/retree-react-convex#readme) to derive `args` and `initialState` for a `ConvexQueryNode` from a `preloadQuery` payload.
 
 ## Optimistic updates
 
@@ -237,7 +304,7 @@ return toggleCompleted(
 );
 ```
 
-If the mutation promise rejects before a changed server value arrives, `ConvexQueryNode` restores the last clean server value. If Convex sends a changed value first, the dirty optimistic state is cleared and later mutation rejection is ignored. Server echoes that match the last clean value keep the optimistic state in place. You can provide `revert(...)` when you need custom rollback behavior.
+If the mutation promise rejects before a changed server value arrives, `ConvexQueryNode` restores the latest clean server baseline as of rejection time — overlapping mutations are generation-tracked, so an older mutation's failure never wipes a newer confirmed one. If Convex sends a changed value first, the dirty optimistic state is cleared and later mutation rejection is ignored. Server echoes that match the last clean value keep the optimistic state in place. You can provide `revert(...)` when you need custom rollback behavior.
 
 ## Reconciliation
 
@@ -285,7 +352,7 @@ already read raw and write through `current` internally.
 
 ## Docs
 
-Docs are hosted at https://ryanbliss.github.io/retree/.
+Docs are hosted at https://www.retree.dev — see the [Convex integration guide](https://www.retree.dev/docs/convex).
 
 # Licensing & Copyright
 

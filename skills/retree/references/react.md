@@ -36,6 +36,8 @@ yarn add @retreejs/core @retreejs/react
 -   [`useTree`](#usetree-hook) subscribes to `treeChanged` events from a node and descendants. Use it for small subtrees that should re-render together.
 -   [`useSelect`](#useselect-hook) subscribes to a selected value or ordered dependency list and re-renders only when it changes. Use it for counts, totals, booleans, labels, and other narrow projections.
 -   [`useRaw`](#useraw-hook) subscribes like `useNode` but returns `[raw, toManaged]` for native-speed, proxy-free reads. Use it for components that read wide during render.
+-   [`RetreeProvider` and `createRetreeContext`](#per-request-roots-with-retreeprovider) provide a per-mounted-provider container of roots — per-request roots in SSR apps and isolated roots in tests, instead of module singletons.
+-   [`@retreejs/react/testing`](#testing-utilities) ships `createTestRoot` (root plus deep listener cleanup) and `actOnRetree` (act-wrapped Retree writes) for component tests.
 -   [`@select`](https://github.com/ryanbliss/retree/tree/main/packages/retree-core#reactive-dependencies) decorates a getter with an ordered dependency list. Use it when VM logic should stay in the `ReactiveNode` while `useNode(node)` stays selective.
 -   [`ReactiveNode.dependencies`](#reactivenode) can make a node emit `nodeChanged` from narrow dependencies. Return raw reactive nodes/primitives directly, or wrap one slot with `this.dependency(node, comparisons)`.
 -   [`memo`, `@memo`, and `@fnMemo`](https://github.com/ryanbliss/retree/tree/main/packages/retree-core#memoize-computed-getters) cache expensive computed values. They do not trigger renders by themselves.
@@ -43,7 +45,7 @@ yarn add @retreejs/core @retreejs/react
 
 ## How to use
 
-It's extremely easy to get started with Retree. The main React hooks are `useNode`, `useTree`, and `useSelect`. Each has specific advantages while leveraging the same simple interface.
+It's extremely easy to get started with Retree. The main React hooks are `useRoot`, `useNode`, `useTree`, `useSelect`, and `useRaw`. Each has specific advantages while leveraging the same simple interface.
 
 ### useRoot hook
 
@@ -444,6 +446,69 @@ const TaskRow = React.memo(function TaskRow({ task }: { task: Task }) {
 -   Never write to raw values, and never use raw references as `React.memo`
     props or `useMemo` deps.
 
+## Per-request roots with RetreeProvider
+
+Module-singleton roots (`const app = Retree.root(...)` at module scope) are shared by everything that imports the module. In a client-only app that is often what you want — but in SSR frameworks (Next.js, Remix) module state on the server is shared **across requests**, so one user's writes can leak into another user's render, and tests share state unless every test resets the module.
+
+`RetreeProvider` solves both: its `create` factory runs exactly once per mounted provider instance (surviving React Strict Mode), so each server request — and each test render — gets its own container of roots. Descendants read the container with `useRootContext`:
+
+```tsx
+import { Retree } from "@retreejs/core";
+import { RetreeProvider, useRootContext, useNode } from "@retreejs/react";
+
+const createRoots = () => ({ counter: Retree.root({ count: 0 }) });
+
+function Counter() {
+    const { counter } = useRootContext<ReturnType<typeof createRoots>>();
+    const state = useNode(counter);
+    return <button onClick={() => (state.count += 1)}>{state.count}</button>;
+}
+
+export function App() {
+    return (
+        <RetreeProvider create={createRoots}>
+            <Counter />
+        </RetreeProvider>
+    );
+}
+```
+
+Prefer `createRetreeContext` when the container type should flow without a type argument at every call site — the `T` you create the context with is the `T` every `useRootContext()` returns:
+
+```tsx
+import { createRetreeContext } from "@retreejs/react";
+
+const { Provider: AppProvider, useRootContext: useAppRoots } =
+    createRetreeContext<ReturnType<typeof createRoots>>("AppProvider");
+```
+
+The provider is a client component (`"use client"`), so a server component can render it, but the `create` factory runs in the client/SSR render pass — not in React Server Components. Apps with one lifetime-of-the-page tree don't need a provider; module-scope roots and `useRoot` stay the simplest paths.
+
+## Testing utilities
+
+`@retreejs/react/testing` is a separate subpath so the main entry stays free of test-only code:
+
+-   `createTestRoot(factory)` returns `{ root, cleanup }` — a managed root plus a `cleanup()` that clears listeners on the root and every descendant (`Retree.clearListeners(root, false)`), so one test's subscriptions can't leak into the next. Register `cleanup` with your runner's `afterEach`.
+-   `actOnRetree(write)` wraps Retree writes in React's `act` (sync and async overloads) and manages `IS_REACT_ACT_ENVIRONMENT` for you, so every re-render the writes trigger is flushed before the next assertion. Requires react >= 18.3.0 (the `React.act` export); `act` from `@testing-library/react` works interchangeably.
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import { actOnRetree, createTestRoot } from "@retreejs/react/testing";
+
+it("re-renders on a write", () => {
+    const { root, cleanup } = createTestRoot(() => ({ count: 0 }));
+    try {
+        render(<Counter counter={root} />);
+        actOnRetree(() => {
+            root.count += 1;
+        });
+        expect(screen.getByRole("button").textContent).toBe("1");
+    } finally {
+        cleanup();
+    }
+});
+```
+
 ## React performance guide
 
 Retree's fastest React path is narrow subscription plus narrow render work:
@@ -551,7 +616,7 @@ See the [Cat Facts sample](https://github.com/ryanbliss/retree/tree/main/samples
 
 ## Docs
 
-Docs are hosted at https://ryanbliss.github.io/retree/.
+Docs are hosted at https://www.retree.dev.
 
 # Licensing & Copyright
 

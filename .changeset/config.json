@@ -1,0 +1,28 @@
+{
+    "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
+    "changelog": "@changesets/cli/changelog",
+    "commit": false,
+    "fixed": [
+        [
+            "@retreejs/core",
+            "@retreejs/query",
+            "@retreejs/react",
+            "@retreejs/devtools",
+            "@retreejs/convex",
+            "@retreejs/react-convex",
+            "@retreejs/create"
+        ]
+    ],
+    "linked": [],
+    "access": "public",
+    "baseBranch": "main",
+    "updateInternalDependencies": "patch",
+    "ignore": [
+        "website",
+        "@retreejs/example-core",
+        "02.react-example",
+        "03.react-recursion",
+        "04.convex-react-nextjs",
+        "@retreejs/benchmark-cli"
+    ]
+}

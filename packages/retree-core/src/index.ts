@@ -3,7 +3,8 @@
  * Licensed under the MIT License.
  */
 
-export * from "./Retree";
-export * from "./types";
-export * from "./ReactiveNode";
-export * from "./decorators";
+export * from "./Retree.js";
+export * from "./types.js";
+export * from "./ReactiveNode.js";
+export * from "./decorators.js";
+export * from "./undoHistory.js";

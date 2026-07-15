@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ReactiveNode } from "./ReactiveNode";
-import { Retree } from "./Retree";
-import { fnMemo, ignore, link, memo, select } from "./decorators";
-import { getReproxyNode } from "./internals/reproxy";
-import { Transactions } from "./internals/transactions";
+import { ReactiveNode } from "./ReactiveNode.js";
+import { Retree } from "./Retree.js";
+import { fnMemo, ignore, link, memo, select } from "./decorators.js";
+import { getMemoGetterFramePushCount } from "./internals/memo.js";
+import { getReproxyNode } from "./internals/reproxy.js";
+import { Transactions } from "./internals/transactions.js";
 
 const rootsToCleanup: object[] = [];
 
@@ -1578,5 +1579,70 @@ describe("memo (keyless method form)", () => {
         // If push/pop weren't balanced, `good`'s memo would inherit `bad`'s frame
         // and either collide or pick up an already-consumed frame.
         expect(root.good).toBe(99);
+    });
+});
+
+describe("keyless memo getter fast path", () => {
+    it("skips memo-getter frame bookkeeping for classes that never use keyless memo", () => {
+        class NoKeylessMemo extends ReactiveNode {
+            public count = 0;
+
+            get doubled(): number {
+                return this.count * 2;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new NoKeylessMemo()));
+        // Warm the read path once (prototype getter-name caches, proxies).
+        expect(root.doubled).toBe(0);
+
+        const framesBefore = getMemoGetterFramePushCount();
+        for (let i = 0; i < 25; i++) {
+            void root.doubled;
+        }
+        // Read through a reproxy too (reproxy.ts mirrors the fast path).
+        const nodeChanged = vi.fn();
+        const unsubscribe = Retree.on(root, "nodeChanged", nodeChanged);
+        root.count = 1;
+        const reproxy = getReproxyNode(root);
+        expect(reproxy.doubled).toBe(2);
+        unsubscribe();
+
+        expect(getMemoGetterFramePushCount()).toBe(framesBefore);
+    });
+
+    it("still answers the first-ever keyless memo call and pushes frames afterwards", () => {
+        class FirstCall extends ReactiveNode {
+            public counter = 0;
+            public computeCount = 0;
+
+            get cached(): number {
+                return this.memo(() => {
+                    this.computeCount += 1;
+                    return this.counter;
+                }, [this.counter]);
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new FirstCall()));
+        // The very first read arrives with the class unmarked: the fast path
+        // must recover (mark + re-run with a frame) and return the value.
+        expect(root.cached).toBe(0);
+        expect(root.computeCount).toBe(1);
+
+        const framesBefore = getMemoGetterFramePushCount();
+        expect(root.cached).toBe(0);
+        // Marked class: getter reads now push frames again.
+        expect(getMemoGetterFramePushCount()).toBeGreaterThan(framesBefore);
+        // And the memo cache still holds (no recompute).
+        expect(root.computeCount).toBe(1);
     });
 });

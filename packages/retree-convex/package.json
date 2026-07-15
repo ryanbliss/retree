@@ -1,9 +1,10 @@
 {
     "name": "@retreejs/convex",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "description": "Sync Convex queries into Retree reactive nodes.",
     "author": "Ryan Bliss",
     "private": false,
+    "type": "module",
     "license": "MIT",
     "main": "./bin/index.js",
     "types": "./bin/index.d.ts",
@@ -14,13 +15,15 @@
         "publish:package": "dotenv -e .env -- npm publish --access public"
     },
     "devDependencies": {
-        "@retreejs/core": "0.6.0",
+        "@retreejs/core": "0.7.0",
+        "@retreejs/query": "0.7.0",
         "convex": "^1.39.1",
         "dotenv-cli": "^11.0.0",
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
-        "@retreejs/core": "0.6.0",
+        "@retreejs/core": "0.7.0",
+        "@retreejs/query": "0.7.0",
         "convex": "^1.39.1"
     },
     "repository": {
@@ -28,7 +31,7 @@
         "type": "git",
         "url": "git+https://github.com/ryanbliss/retree.git"
     },
-    "homepage": "https://studiobliss.io",
+    "homepage": "https://www.retree.dev/docs/convex",
     "bugs": {
         "url": "https://github.com/ryanbliss/retree/issues"
     },
