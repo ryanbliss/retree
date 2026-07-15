@@ -14,19 +14,19 @@ properly.
 
 ## Concept map
 
-| Zustand                             | Retree                                                                                          |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `create((set, get) => ({ ... }))`   | [`Retree.root({ ... })`](/docs/quick-start) — a plain object or class instance                  |
-| `useStore()`                        | [`useNode(node)`](/docs/react/use-node) — per node, not per store                               |
-| `useStore((s) => s.doneCount)`      | [`useSelect(() => node.doneCount)`](/docs/react/use-select)                                     |
-| `set({ count: 1 })` / `set(fn)`     | `node.count = 1` — plain assignment                                                             |
-| `get().count`                       | `node.count` — plain reads, anywhere                                                            |
-| Actions defined inside the store    | Methods on classes in the tree, or plain functions that mutate it                               |
-| Slices pattern                      | Child nodes — one object per domain under the root                                              |
+| Zustand                               | Retree                                                                                                                     |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `create((set, get) => ({ ... }))`     | [`Retree.root({ ... })`](/docs/quick-start) — a plain object or class instance                                             |
+| `useStore()`                          | [`useNode(node)`](/docs/react/use-node) — per node, not per store                                                          |
+| `useStore((s) => s.doneCount)`        | [`useSelect(() => node.doneCount)`](/docs/react/use-select)                                                                |
+| `set({ count: 1 })` / `set(fn)`       | `node.count = 1` — plain assignment                                                                                        |
+| `get().count`                         | `node.count` — plain reads, anywhere                                                                                       |
+| Actions defined inside the store      | Methods on classes in the tree, or plain functions that mutate it                                                          |
+| Slices pattern                        | Child nodes — one object per domain under the root                                                                         |
 | `subscribe` / `subscribeWithSelector` | [`Retree.on`](/docs/events-and-subscriptions) / [`Retree.select`](/docs/events-and-subscriptions#narrow-with-retreeselect) |
-| `immer` middleware                  | Not needed — mutation is the model                                                              |
-| `persist` middleware                | None today — [`Retree.raw(node)`](/docs/thinking-in-retree#raw-value) gives a serializable snapshot to save yourself |
-| `devtools` middleware               | None today                                                                                      |
+| `immer` middleware                    | Not needed — mutation is the model                                                                                         |
+| `persist` middleware                  | None today — [`Retree.raw(node)`](/docs/thinking-in-retree#raw-value) gives a serializable snapshot to save yourself       |
+| `devtools` middleware                 | [`@retreejs/devtools`](/docs/devtools) — `connectReduxDevTools()`                                                          |
 
 ## Before and after
 
@@ -97,12 +97,12 @@ function TaskRow({ task }: { task: (typeof taskStore.tasks)[number] }) {
 ```
 
 The selector hook translates almost one-to-one. What has no Zustand
-equivalent is `TaskRow`: subscribing a component to *one item* directly,
+equivalent is `TaskRow`: subscribing a component to _one item_ directly,
 without selector plumbing — that granularity is the main thing you gain.
 
 ## Gotchas
 
--   **Mutate, don't rebuild.** The `map`-and-spread idiom still *works* in
+-   **Mutate, don't rebuild.** The `map`-and-spread idiom still _works_ in
     Retree (assigning a new array is a write like any other), but it defeats
     per-node granularity — replacing the array touches every row. Reach for
     direct mutation first.
@@ -114,13 +114,17 @@ without selector plumbing — that granularity is the main thing you gain.
     on every update; Retree nodes reproxy on change, so `React.memo` and
     dependency arrays work with nodes — but not with
     [raw values](/docs/common-pitfalls#raw-references-as-memo-props-or-deps).
--   **No middleware system.** `persist` and `devtools` have no Retree
-    equivalent today; cross-cutting concerns hang off
-    [`Retree.on`](/docs/events-and-subscriptions) subscriptions instead.
+-   **No middleware system.** Cross-cutting concerns hang off
+    [`Retree.on`](/docs/events-and-subscriptions) subscriptions instead of a
+    middleware chain. `devtools` has a first-party equivalent
+    ([`@retreejs/devtools`](/docs/devtools)); `persist` does not — save
+    [`Retree.raw(node)`](/docs/thinking-in-retree#raw-value) snapshots
+    yourself, or replay [change records](/docs/undo-redo) with
+    `Retree.applyChanges`.
 -   **Classes are welcome but optional.** Everything above is plain objects
     and functions. When a domain accumulates derived state, graduate it to a
     [`ReactiveNode`](/docs/view-models) — there's no equivalent step to
-    graduate *to* in Zustand.
+    graduate _to_ in Zustand.
 
 ## Where next
 

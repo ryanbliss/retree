@@ -166,11 +166,18 @@ export default function WhyPage() {
                     </p>
                     <p>
                         Valtio is 2.8 kB min+gzip in our measurements to
-                        Retree&apos;s 20.5 kB for core + react, and it ships
-                        Redux DevTools support, which Retree does not yet. What
-                        Retree&apos;s bytes buy: per-node subscriptions, tree
-                        operations (parent / move / clone / link), view models
-                        with optional decorators, transactions, and a
+                        Retree&apos;s 28.2 kB for core + react. Both ship Redux
+                        DevTools support — Retree&apos;s lives in{" "}
+                        <Link
+                            href="/docs/devtools"
+                            className="text-accent underline underline-offset-2 hover:no-underline"
+                        >
+                            @retreejs/devtools
+                        </Link>
+                        . What Retree&apos;s bytes buy: per-node subscriptions,
+                        tree operations (parent / move / clone / link), view
+                        models with optional decorators, transactions, effects,
+                        undo/redo on attributable change records, and a
                         first-party Convex integration — all in one object, with
                         no state/snapshot split.
                     </p>
@@ -276,7 +283,7 @@ export default function WhyPage() {
                             4. Project status
                         </h3>
                         <p className="mt-2 text-base leading-7 text-muted">
-                            Retree is v0.6.x, MIT-licensed, and built by a solo
+                            Retree is MIT-licensed and built by a solo
                             maintainer. It is pre-1.0: minor versions may move
                             APIs, and the ecosystem of tutorials and Stack
                             Overflow answers is still growing. What you can

@@ -24,7 +24,9 @@ const COLUMNS: {
         title: "Reference",
         links: [
             { href: "/api/core", label: "@retreejs/core" },
+            { href: "/api/query", label: "@retreejs/query" },
             { href: "/api/react", label: "@retreejs/react" },
+            { href: "/api/devtools", label: "@retreejs/devtools" },
             { href: "/api/convex", label: "@retreejs/convex" },
             { href: "/api/react-convex", label: "@retreejs/react-convex" },
         ],

@@ -49,7 +49,7 @@ export interface ComparisonLibrary {
 }
 
 export const COMPARISON_LIBRARIES: ComparisonLibrary[] = [
-    { id: "retree", name: "Retree", detail: "@retreejs/core + react 0.6.0" },
+    { id: "retree", name: "Retree", detail: "@retreejs/core + react 0.7.1" },
     { id: "mobx", name: "MobX", detail: "6.16 + mobx-react-lite 4.1" },
     { id: "valtio", name: "Valtio", detail: "2.3" },
 ];
@@ -68,7 +68,7 @@ export const FOOTNOTES = {
     backendClaim:
         "The precise claim: no official backend integration exists for MobX or Valtio, while @retreejs/convex is first-party. Community-built bindings may exist for either library.",
     bundleMethod:
-        "Measured by us with esbuild, minified + gzip, react and react-dom externalized, July 2026 — same method for every library. Full set: @retreejs/core 17.1 kB; core + react 20.5 kB; mobx 19.1 kB; mobx + mobx-react-lite 21.5 kB; valtio 2.8 kB; zustand 0.4 kB. Valtio and Zustand are far smaller; Retree undercuts the MobX stack by ~1.0 kB. @retreejs/core has zero runtime dependencies and both packages declare sideEffects for tree-shaking, so an app importing only Retree.root + useNode bundles ~17.2 kB. The difference is what ships in the bytes: per-node subscriptions, React external-store consistency, tree operations, view models, transactions, and the Convex integration.",
+        "Measured by us with esbuild, minified + gzip, react and react-dom externalized, July 2026 — same method for every library. Full set: @retreejs/core 24.7 kB; core + react 28.2 kB; mobx 19.1 kB; mobx + mobx-react-lite 21.5 kB; valtio 2.8 kB; zustand 0.4 kB. Valtio and Zustand are far smaller, and the MobX stack is now ~6.7 kB lighter than core + react. @retreejs/core has zero runtime dependencies and both packages declare sideEffects for tree-shaking, so an app importing only Retree.root + useNode bundles ~23.6 kB. The difference is what ships in the bytes: per-node subscriptions, React external-store consistency, tree operations, view models, transactions, effects, undo/redo on attributable change records, the devtools tap, and the Convex integration.",
     notScored:
         "Not scored: every scored cell in this table was verified against the listed versions, and this one has not been through that check yet — a blank beats a guess. Corrections via PR are welcome.",
     concurrentReact:
@@ -76,9 +76,9 @@ export const FOOTNOTES = {
     retreeCoreOutsideReact:
         "@retreejs/core runs without React (Retree.root, Retree.on, Retree.select), but React is the only first-class view binding today.",
     retreeLoses:
-        "MobX and Valtio have years of production mileage; Retree is v0.6.x. The counterweight is auditability: the API surface is small, and the test suite and benchmark harness are open in the repo.",
+        "MobX and Valtio have years of production mileage; Retree is pre-1.0. The counterweight is auditability: the API surface is small, and the test suite and benchmark harness are open in the repo.",
     devtoolsNote:
-        "Valtio ships Redux DevTools support; Retree has no devtools today. Retree.on subscriptions are the current way to observe changes programmatically.",
+        "Both ship Redux DevTools support. Retree's is @retreejs/devtools: an action stream with state snapshots and JSON-state time travel, plus createChangeLogTap for custom tooling. Time travel reconciles JSON-representable state only — Map/Set/Date contents and class identities are preserved, not rebuilt.",
 } as const;
 
 export type FootnoteId = keyof typeof FOOTNOTES;
@@ -292,11 +292,10 @@ export const COMPARISON_ROWS: ComparisonRow[] = [
     {
         id: "devtools",
         feature: "Devtools",
-        retreeLoses: true,
         cells: {
             retree: {
-                tier: "absent",
-                label: "None today",
+                tier: "first-class",
+                label: "@retreejs/devtools (Redux DevTools + change-log tap)",
                 footnotes: ["devtoolsNote"],
             },
             mobx: notScored,
@@ -337,7 +336,7 @@ export const COMPARISON_ROWS: ComparisonRow[] = [
         cells: {
             retree: {
                 tier: "neutral",
-                label: "20.5 kB (core + react)",
+                label: "28.2 kB (core + react)",
                 footnotes: ["bundleMethod"],
             },
             mobx: {
@@ -373,7 +372,7 @@ export const COMPARISON_ROWS: ComparisonRow[] = [
         cells: {
             retree: {
                 tier: "absent",
-                label: "v0.6.x — no known large deployments",
+                label: "Pre-1.0 — no known large deployments",
                 footnotes: ["retreeLoses"],
             },
             mobx: {
@@ -401,11 +400,10 @@ export const COMPARISON_ROWS: ComparisonRow[] = [
     {
         id: "redux-devtools",
         feature: "Redux DevTools support",
-        retreeLoses: true,
         cells: {
             retree: {
-                tier: "absent",
-                label: "No",
+                tier: "first-class",
+                label: "Yes — @retreejs/devtools",
                 footnotes: ["devtoolsNote"],
             },
             mobx: notScored,

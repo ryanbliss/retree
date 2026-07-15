@@ -170,7 +170,7 @@ export default function CompareValtioPage() {
                 <CodeBlock
                     code={retreeNested}
                     lang="tsx"
-                    title="Deeply nested write — Retree 0.5"
+                    title="Deeply nested write — Retree"
                 />
                 <CodeBlock
                     code={valtioNested}
@@ -203,7 +203,7 @@ export default function CompareValtioPage() {
                 <CodeBlock
                     code={retreeCounter}
                     lang="tsx"
-                    title="Counter — Retree 0.5"
+                    title="Counter — Retree"
                 />
                 <CodeBlock
                     code={valtioCounter}
@@ -244,13 +244,14 @@ export default function CompareValtioPage() {
                 </p>
                 <p>
                     Now the other side of the ledger. Valtio is 2.8 kB min+gzip
-                    in our measurements; Retree core + react is 20.5 kB. What
+                    in our measurements; Retree core + react is 28.2 kB. What
                     those bytes buy: per-node subscriptions, tree operations,
-                    view models with optional decorators, transactions, and the
-                    Convex integration — the things you would otherwise build
-                    yourself on top of a minimal proxy. Valtio also supports
-                    Redux DevTools, which Retree does not yet, and it has
-                    production mileage where Retree is v0.6.x. The{" "}
+                    view models with optional decorators, transactions, effects,
+                    undo/redo, devtools, and the Convex integration — the things
+                    you would otherwise build yourself on top of a minimal
+                    proxy. Both support Redux DevTools (Retree via
+                    @retreejs/devtools), and Valtio has production mileage where
+                    Retree is pre-1.0. The{" "}
                     <Link
                         href="/why"
                         className="text-accent underline underline-offset-2 hover:no-underline"
