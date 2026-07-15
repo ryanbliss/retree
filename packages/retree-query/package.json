@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/query",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "description": "Backend-agnostic async query nodes for Retree reactive state.",
     "author": "Ryan Bliss",
     "private": false,
@@ -16,12 +16,12 @@
         "publish:package": "dotenv -e .env -- npm publish --access public"
     },
     "devDependencies": {
-        "@retreejs/core": "0.6.0",
+        "@retreejs/core": "0.7.0",
         "dotenv-cli": "^11.0.0",
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
-        "@retreejs/core": "0.6.0"
+        "@retreejs/core": "0.7.0"
     },
     "repository": {
         "directory": "packages/retree-query",
