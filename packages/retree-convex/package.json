@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/convex",
-    "version": "0.7.0",
+    "version": "0.7.1",
     "description": "Sync Convex queries into Retree reactive nodes.",
     "author": "Ryan Bliss",
     "private": false,
@@ -15,15 +15,15 @@
         "publish:package": "dotenv -e .env -- npm publish --access public"
     },
     "devDependencies": {
-        "@retreejs/core": "0.7.0",
-        "@retreejs/query": "0.7.0",
+        "@retreejs/core": "0.7.1",
+        "@retreejs/query": "0.7.1",
         "convex": "^1.39.1",
         "dotenv-cli": "^11.0.0",
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
-        "@retreejs/core": "0.7.0",
-        "@retreejs/query": "0.7.0",
+        "@retreejs/core": "0.7.1",
+        "@retreejs/query": "0.7.1",
         "convex": "^1.39.1"
     },
     "repository": {
