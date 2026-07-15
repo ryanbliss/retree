@@ -21,6 +21,9 @@ jobs:
                   cache: npm
                   registry-url: https://registry.npmjs.org
 
+            - name: Install latest npm for trusted publishing
+              run: npm install -g npm@latest
+
             - name: Install dependencies
               run: npm ci
 
@@ -32,5 +35,3 @@ jobs:
 
             - name: Publish packages (lockstep, with provenance)
               run: node scripts/publish-packages.mjs --provenance
-              env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
