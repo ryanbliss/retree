@@ -3,7 +3,7 @@ import { ReactiveNode, Retree, type IReactiveDependency } from "@retreejs/core";
 import type {
     BenchmarkSetupMeasurement,
     BenchmarkSetupOperation,
-} from "./types";
+} from "./types.js";
 
 export interface BuildBenchmarkTreeOptions {
     depth: number;

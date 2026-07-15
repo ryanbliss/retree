@@ -4,6 +4,7 @@
     "description": "React to changes in your object trees.",
     "author": "Ryan Bliss",
     "private": false,
+    "type": "module",
     "license": "MIT",
     "main": "./bin/index.js",
     "types": "./bin/index.d.ts",
@@ -23,9 +24,9 @@
     "repository": {
         "directory": "packages/retree-core",
         "type": "git",
-        "url": "https://github.com/ryanbliss/retree"
+        "url": "git+https://github.com/ryanbliss/retree.git"
     },
-    "homepage": "https://studiobliss.io",
+    "homepage": "https://www.retree.dev/docs/quick-start",
     "bugs": {
         "url": "https://github.com/ryanbliss/retree/issues"
     },

@@ -9,12 +9,12 @@
  * Sets — finds zero values with proxy metadata, under every write path.
  */
 import { describe, expect, it, vi } from "vitest";
-import { ReactiveNode } from "./ReactiveNode";
-import { Retree } from "./Retree";
-import { ignore, link } from "./decorators";
-import { getCustomProxyHandler } from "./internals";
-import { COLLECTED_KEYS_SYMBOL, LINKED_KEYS_SYMBOL } from "./ReactiveNode";
-import { INodeFieldChanges, TreeNode } from "./types";
+import { ReactiveNode } from "./ReactiveNode.js";
+import { Retree } from "./Retree.js";
+import { ignore, link } from "./decorators.js";
+import { getCustomProxyHandler } from "./internals/index.js";
+import { COLLECTED_KEYS_SYMBOL, LINKED_KEYS_SYMBOL } from "./ReactiveNode.js";
+import { INodeFieldChanges, TreeNode } from "./types.js";
 
 /**
  * Deep-walks a raw tree and returns the paths of every value that carries

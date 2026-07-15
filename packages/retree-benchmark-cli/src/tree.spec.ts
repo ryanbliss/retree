@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBenchmarkTree, serializeBenchmarkNode } from "./tree";
+import { createBenchmarkTree, serializeBenchmarkNode } from "./tree.js";
 
 describe("benchmark tree generation", () => {
     it("creates deterministic object trees for the same depth and seed", () => {

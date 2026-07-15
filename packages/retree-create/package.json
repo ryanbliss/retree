@@ -25,9 +25,9 @@
     "repository": {
         "directory": "packages/retree-create",
         "type": "git",
-        "url": "https://github.com/ryanbliss/retree"
+        "url": "git+https://github.com/ryanbliss/retree.git"
     },
-    "homepage": "https://studiobliss.io",
+    "homepage": "https://www.retree.dev",
     "bugs": {
         "url": "https://github.com/ryanbliss/retree/issues"
     },

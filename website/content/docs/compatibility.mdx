@@ -1,0 +1,89 @@
+---
+title: Compatibility
+description: What Retree runs on — ESM-only packages, the Node and React floors, browsers, React Native status, and where the collection-type semantics live.
+---
+
+The short version: Retree ships modern ESM for modern runtimes. Everything a
+current Node LTS, an evergreen browser, or any bundler consumes works; the
+notes below cover the edges.
+
+## Module format: ESM only
+
+Every `@retreejs/*` package publishes **ESM only** — `"type": "module"`,
+extensioned relative imports, and a proper `exports` map with `types`
+conditions. There is no CommonJS build, deliberately: dual publishing is the
+main source of resolution bugs, and the CJS-consumer story is covered anyway.
+
+-   **`import`** works everywhere ESM does: bundlers (Vite, webpack, Next.js,
+    esbuild, Rollup), modern Node, Deno, Bun.
+-   **`require("@retreejs/core")` from CommonJS** works natively on
+    Node ≥ 20.19 or ≥ 22.12 (`require(esm)`). On older Node, CJS code cannot
+    `require` Retree — use `import` or dynamic `import()`.
+-   **Legacy Jest configs** without ESM support cannot load Retree. Use
+    Vitest, or configure Jest for ESM (`transformIgnorePatterns` alone is not
+    enough for a CJS-mode Jest). The repository's own suites run on Vitest.
+
+## React
+
+-   **Floor: React `^16.8`** (hooks), through React 19. One nuance below the
+    default: on React 16/17, multi-node
+    [transactions](/docs/transactions) batch into one render pass because
+    Retree wraps its listener flush in `react-dom`'s
+    `unstable_batchedUpdates` when it is available; on React 18+ automatic
+    batching makes this a no-op. Test coverage runs on current React;
+    the 16/17 path is supported via that wrapper.
+-   **React Compiler**: Retree's hooks are `useSyncExternalStore`-based and
+    compiler-safe — see [React Compiler](/docs/react-compiler).
+-   **Server components**: hooks are client-only and marked `"use client"`,
+    so importing them from a server component fails at the module boundary
+    with a clear error instead of deep inside rendering. For per-request
+    server roots, see the provider pattern in
+    [Choosing a hook](/docs/react#per-request-roots-with-retreeprovider).
+
+## React Native
+
+**Not currently supported.** `@retreejs/react` imports `react-dom` at runtime
+(for the `unstable_batchedUpdates` wrapper above), and `react-dom` is a
+required peer — React Native apps have no `react-dom`. Removing that hard
+edge is on the roadmap; until then, `@retreejs/core` itself has no React
+dependency and works anywhere JavaScript runs.
+
+## Browsers
+
+Retree is built on `Proxy`, which cannot be polyfilled — that rules out
+IE11 and other pre-2016 engines. Every evergreen browser (Chrome, Edge,
+Firefox, Safari) is fine, as are modern mobile WebViews.
+
+## TypeScript and decorators
+
+Retree needs **zero build configuration** to use. Authoring the optional
+`@`-prefixed decorators in your own classes requires standard (TC39 2023-11)
+decorator support: TypeScript 5+ with `experimentalDecorators` **not** set,
+or Babel with `@babel/plugin-proposal-decorators` in `2023-11` mode. Every
+decorator has a non-decorator equivalent. Full guide:
+[Setup & decorators](/docs/setup-and-decorators).
+
+## Versioning across packages
+
+`@retreejs/react`, `@retreejs/query`, `@retreejs/convex`, `@retreejs/devtools`,
+and `@retreejs/react-convex` pin their `@retreejs/*` peers to the **exact**
+same version, deliberately: the family upgrades in lockstep, so a mismatched
+pair fails at install time instead of misbehaving at runtime. Upgrade all
+installed `@retreejs/*` packages together.
+
+## Collection-type semantics
+
+`Map`, `Set`, and `Date` values are full nodes with defined emission
+semantics — one place documents them:
+[What can go in a tree](/docs/thinking-in-retree#what-can-go-in-a-tree).
+Tool-specific limits (for example, Redux DevTools time travel skipping
+Map/Set/Date on jumps because of JSON serialization) are covered in
+[DevTools](/docs/devtools#what-time-travel-does-and-doesnt).
+
+## Where next
+
+-   [Quickstart](/docs/quick-start) — install and first tree.
+-   [Setup & decorators](/docs/setup-and-decorators) — the optional decorator
+    toolchain.
+-   [React Compiler](/docs/react-compiler) — the compiler-compatibility
+    statement in full.

@@ -39,6 +39,18 @@ const references = [
         note: "Generated from the Convex package README used by TypeDoc package docs.",
     },
     {
+        output: "query.md",
+        title: "@retreejs/query README",
+        source: "packages/retree-query/README.md",
+        note: "Generated from the backend-agnostic query package README.",
+    },
+    {
+        output: "devtools.md",
+        title: "@retreejs/devtools README",
+        source: "packages/retree-devtools/README.md",
+        note: "Generated from the devtools package README.",
+    },
+    {
         output: "react-convex.md",
         title: "@retreejs/react-convex README",
         source: "packages/retree-react-convex/README.md",

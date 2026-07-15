@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { DEFAULT_OUTPUT_DIR } from "./config";
+import { DEFAULT_OUTPUT_DIR } from "./config.js";
 import {
     BenchmarkCaseResult,
     BenchmarkMeasurementDetailOperation,
@@ -8,7 +8,7 @@ import {
     BenchmarkScenarioResult,
     BenchmarkSummary,
     BenchmarkSetupOperation,
-} from "./types";
+} from "./types.js";
 
 export interface ParsedCompareArgs {
     leftName: string;

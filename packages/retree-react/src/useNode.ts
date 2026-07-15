@@ -2,11 +2,16 @@
  * Copyright (c) Ryan Bliss. All rights reserved.
  * Licensed under the MIT License.
  */
+// "use no memo" is load-bearing when this source is compiled by the React
+// Compiler (source-inclusion setups only; consumers' compilers skip the
+// published bin/ output in node_modules). See useNodeInternalCore.ts and
+// react-compiler.spec.tsx for the failure mode and proof.
 "use no memo";
+"use client";
 
 import { TreeNode } from "@retreejs/core";
-import { useNodeInternal } from "./internals/useNodeInternal";
-import { NodeFactory } from "./types";
+import { useNodeInternal } from "./internals/useNodeInternal.js";
+import { NodeFactory } from "./types.js";
 
 const LISTENER_TYPE = "nodeChanged";
 
@@ -23,6 +28,10 @@ const LISTENER_TYPE = "nodeChanged";
  * Use `useNode` for focused components such as list rows, panels, and forms.
  * Prefer it over `useTree` for hot paths. If the component only needs a
  * derived value, prefer `useSelect`.
+ *
+ * An inline node factory like `useNode(() => Retree.root({ ... }))` re-runs
+ * every render and silently resets state: hoist the factory (and its
+ * `Retree.root` call) outside the component, or use `useRoot`.
  *
  * @param node object to make stateful
  * @returns a stateful version of the node provided.
@@ -92,5 +101,5 @@ export default App;
 export function useNode<T extends TreeNode = TreeNode>(
     node: T | NodeFactory<T>
 ): T {
-    return useNodeInternal(node, LISTENER_TYPE);
+    return useNodeInternal(node, LISTENER_TYPE, "useNode");
 }

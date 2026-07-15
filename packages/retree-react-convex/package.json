@@ -5,6 +5,7 @@
     "author": "Ryan Bliss",
     "license": "MIT",
     "private": false,
+    "type": "module",
     "main": "./bin/index.js",
     "types": "./bin/index.d.ts",
     "scripts": {
@@ -29,7 +30,7 @@
         "type": "git",
         "url": "git+https://github.com/ryanbliss/retree.git"
     },
-    "homepage": "https://studiobliss.io",
+    "homepage": "https://www.retree.dev/docs/convex",
     "bugs": {
         "url": "https://github.com/ryanbliss/retree/issues"
     },

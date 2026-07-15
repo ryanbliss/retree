@@ -5,8 +5,8 @@
 
 import { ignore, ReactiveNode } from "@retreejs/core";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
-import { createRetreeConvexAction } from "./actions";
-import { createRetreeConvexMutation } from "./mutations";
+import { createRetreeConvexAction } from "./actions.js";
+import { createRetreeConvexMutation } from "./mutations.js";
 import {
     ActionReference,
     IConvexClient,
@@ -15,7 +15,7 @@ import {
     QueryReference,
     RetreeConvexAction,
     RetreeConvexMutation,
-} from "./types";
+} from "./types.js";
 
 /**
  * Base Retree node for classes that own a Convex client.

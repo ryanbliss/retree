@@ -229,11 +229,11 @@ stays silent. This pattern is the recommended shape for hot filtered lists;
 see [Performance](/docs/performance).
 
 <Note>
-    `@select` differs from `useSelect` in one important way: dependency-list
-    subscriptions in `useSelect` / `Retree.select` are *observational* — they
-    can re-render the subscribing component, but they do not force the node to
-    receive a fresh reproxy. `@select` makes the owning `ReactiveNode` itself
-    emit `nodeChanged`, so every `useNode(node)` subscriber updates.
+    `@select` differs from `useSelect` / `Retree.select` in one important
+    way: those are observational, while `@select` makes the owning
+    `ReactiveNode` itself emit `nodeChanged`, so every `useNode(node)`
+    subscriber updates. The full distinction is in
+    [Select semantics](/docs/select-semantics).
 </Note>
 
 ## Memoize computed values
@@ -241,7 +241,20 @@ see [Performance](/docs/performance).
 `ReactiveNode` provides [`memo`](/api/core/functions/memo) caching, similar in
 spirit to React's `useMemo`. Memoization is a **cache, not a subscription** —
 `@memo` and `@fnMemo` never emit events or trigger renders by themselves. Use
-`dependencies`, `@select`, or `useSelect` when you also need notification.
+`dependencies`, `@select`, or `useSelect` when you also need notification
+(the distinction lives in [Select semantics](/docs/select-semantics)).
+
+It is one caching API with four ways to attach it, not four features. All
+share the same cache and the same invalidation rules
+([below](#cache-semantics)); pick the attachment point that fits, and fall
+back a level whenever you need more control:
+
+-   **`@memo`** on a getter — the default for computed properties.
+-   **`@fnMemo`** on a method — the same cache keyed by arguments too.
+-   **`this.memo(fn, deps?)`** inside a getter — the decorator behavior
+    without a decorator; wraps part of a getter body, needs zero build config.
+-   **`this.memo(key, fn, deps?)`** — the fully explicit escape hatch:
+    multiple cells per getter, or caching inside a method.
 
 ### `@memo` — computed getters
 

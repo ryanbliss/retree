@@ -132,4 +132,54 @@ describe("resolveInstallPlan", () => {
             args: ["skills", "add", "ryanbliss/retree", "--skill", "retree"],
         });
     });
+
+    it("runs the skill through pnpm dlx for pnpm projects", () => {
+        const plan = resolveInstallPlan(
+            selections({ skill: true }),
+            bareTarget,
+            "pnpm"
+        );
+        expect(plan.skillCommand).toEqual({
+            command: "pnpm",
+            args: [
+                "dlx",
+                "skills",
+                "add",
+                "ryanbliss/retree",
+                "--skill",
+                "retree",
+            ],
+        });
+    });
+
+    it("runs the skill through yarn dlx for yarn projects", () => {
+        const plan = resolveInstallPlan(
+            selections({ skill: true }),
+            bareTarget,
+            "yarn"
+        );
+        expect(plan.skillCommand).toEqual({
+            command: "yarn",
+            args: [
+                "dlx",
+                "skills",
+                "add",
+                "ryanbliss/retree",
+                "--skill",
+                "retree",
+            ],
+        });
+    });
+
+    it("runs the skill through bunx for bun projects", () => {
+        const plan = resolveInstallPlan(
+            selections({ skill: true }),
+            bareTarget,
+            "bun"
+        );
+        expect(plan.skillCommand).toEqual({
+            command: "bunx",
+            args: ["skills", "add", "ryanbliss/retree", "--skill", "retree"],
+        });
+    });
 });

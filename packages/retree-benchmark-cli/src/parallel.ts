@@ -6,7 +6,7 @@ import {
     getBenchmarkScenarioCallbackReadModes,
     getBenchmarkScenarioDefinitions,
     BenchmarkStoppedError,
-} from "./benchmarks";
+} from "./benchmarks.js";
 import {
     BenchmarkConfig,
     BenchmarkProgressEvent,
@@ -18,8 +18,8 @@ import {
     CallbackReadMode,
     ScenarioId,
     TierDefinition,
-} from "./types";
-import { summarizeDurations } from "./stats";
+} from "./types.js";
+import { summarizeDurations } from "./stats.js";
 
 export const CONTROL_PAUSED_INDEX = 0;
 export const CONTROL_STOPPED_INDEX = 1;

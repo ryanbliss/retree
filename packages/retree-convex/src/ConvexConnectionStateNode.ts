@@ -5,8 +5,9 @@
 
 import { ignore, Retree } from "@retreejs/core";
 import type { ConnectionState } from "convex/browser";
-import { BaseConvexNode } from "./BaseConvexNode";
-import { IConvexClient } from "./types";
+import { BaseConvexNode } from "./BaseConvexNode.js";
+import { notifyNodeDisposed } from "./internals/disposal.js";
+import { IConvexClient } from "./types.js";
 
 /**
  * Reactive node that tracks a Convex client's connection state.
@@ -86,6 +87,7 @@ export class ConvexConnectionStateNode extends BaseConvexNode {
      * ```
      */
     public dispose(): void {
+        notifyNodeDisposed(this);
         if (this.unsubscribe === null) {
             return;
         }

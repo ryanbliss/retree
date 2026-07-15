@@ -116,6 +116,73 @@ this.messages = this.paginatedQuery(api.messages.list, {
 
 If a future Convex version removes the paginated watch method, the adapter throws a targeted error from `onPaginatedUpdate_experimental(...)` so the incompatible surface is obvious.
 
+## Server-side rendering (Next.js RSC preload)
+
+`preloadedQueryOptions(...)` is the Retree equivalent of Convex React's `usePreloadedQuery`. A server component runs `preloadQuery` from `convex/nextjs` and passes the payload to a client component; the client derives `args` and `initialState` for a `ConvexQueryNode`, so the first render shows server data with `result.status === "success"` (no pending flash) and the node switches to live values once the websocket subscription emits.
+
+```tsx
+// app/tasks/page.tsx (server component)
+import { preloadQuery } from "convex/nextjs";
+import { api } from "@/convex/_generated/api";
+import { TasksClient } from "./TasksClient";
+
+export default async function TasksPage() {
+    const preloaded = await preloadQuery(api.tasks.list, { listId: "today" });
+    return <TasksClient preloaded={preloaded} />;
+}
+```
+
+```tsx
+// app/tasks/TasksClient.tsx
+"use client";
+
+import type { Preloaded } from "convex/react";
+import { ConvexQueryNode } from "@retreejs/convex";
+import { preloadedQueryOptions } from "@retreejs/react-convex";
+import { useNode, useRoot } from "@retreejs/react";
+import { api } from "@/convex/_generated/api";
+import { convexClient } from "./providers";
+
+export function TasksClient(props: {
+    preloaded: Preloaded<typeof api.tasks.list>;
+}) {
+    const root = useRoot(
+        () =>
+            new ConvexQueryNode(convexClient, api.tasks.list, {
+                ...preloadedQueryOptions(props.preloaded),
+            })
+    );
+    const tasks = useNode(root);
+
+    return (
+        <ul>
+            {tasks.state?.map((task) => {
+                return <li key={task._id}>{task.text}</li>;
+            })}
+        </ul>
+    );
+}
+```
+
+The payload's args become the node's initial args, so the live subscription runs the exact query the server preloaded. Inside a `ConvexNode`, spread the same options into `this.query(api.tasks.list, { ...preloadedQueryOptions(preloaded) })`.
+
+## Reactive auth state
+
+`RetreeConvexReactClient` makes Convex auth observable by interposing on `setAuth`/`clearAuth`, so a `ConvexAuthStateNode` (the `useConvexAuth` equivalent) can render `isLoading`/`isAuthenticated` reactively:
+
+```ts
+import { ConvexAuthStateNode } from "@retreejs/convex";
+
+const auth = Retree.root(new ConvexAuthStateNode(convexClient));
+
+Retree.on(auth, "nodeChanged", () => {
+    console.log(auth.isLoading, auth.isAuthenticated);
+});
+
+// Wire your auth provider as usual; state flows automatically:
+convexClient.setAuth(fetchToken);
+```
+
 ## When to use this package
 
 Use `@retreejs/react-convex` in React apps that already use Convex React or `ConvexProvider`. Use `@retreejs/convex` with `ConvexClient` from `convex/browser` for non-React apps or for state that does not need to share Convex React's client instance.

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ReactiveNode } from "../ReactiveNode";
-import { Retree } from "../Retree";
-import { getBaseProxy } from "./proxy";
-import { isCustomProxy } from "./proxy-types";
-import { getReproxyNode, updateReproxyNode } from "./reproxy";
+import { ReactiveNode } from "../ReactiveNode.js";
+import { Retree } from "../Retree.js";
+import { getBaseProxy } from "./proxy.js";
+import { isCustomProxy } from "./proxy-types.js";
+import { getReproxyNode, updateReproxyNode } from "./reproxy.js";
 
 class MethodNode extends ReactiveNode {
     public value = 0;

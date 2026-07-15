@@ -8,7 +8,7 @@ import {
     TierName,
     TierPreset,
     TIER_NAMES,
-} from "./types";
+} from "./types.js";
 
 export interface PromptAdapter {
     chooseProfile(): Promise<ProfileName>;

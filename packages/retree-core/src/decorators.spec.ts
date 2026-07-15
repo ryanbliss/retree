@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ReactiveNode } from "./ReactiveNode";
-import { Retree } from "./Retree";
-import { fnMemo, ignore, link, memo, select } from "./decorators";
-import { getUnproxiedNode } from "./internals";
-import { getReproxyNode } from "./internals/reproxy";
-import { Transactions } from "./internals/transactions";
+import { ReactiveNode } from "./ReactiveNode.js";
+import { Retree } from "./Retree.js";
+import { fnMemo, ignore, link, memo, select } from "./decorators.js";
+import { getUnproxiedNode } from "./internals/index.js";
+import { getReproxyNode } from "./internals/reproxy.js";
+import { Transactions } from "./internals/transactions.js";
 
 class IgnoredNode extends ReactiveNode {
     @ignore
@@ -302,6 +302,44 @@ class AutoSelectTaskListNode extends ReactiveNode {
                 this.filters.isCompleted === null ||
                 task.isCompleted === this.filters.isCompleted
         );
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+let scanBoardGetterRuns = 0;
+
+class ScanBoardNode extends ReactiveNode {
+    public items = [
+        { name: "a", score: 1 },
+        { name: "b", score: 2 },
+        { name: "c", score: 3 },
+    ];
+
+    @select()
+    get total(): number {
+        scanBoardGetterRuns++;
+        let total = 0;
+        for (const item of this.items) {
+            total += item.score;
+        }
+        return total;
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+class OrderedSelectNode extends ReactiveNode {
+    public first = { value: 0 };
+    public second = { value: 0 };
+
+    @select((self: OrderedSelectNode) => [self.first, self.second.value])
+    get summary(): string {
+        return `${this.first.value}:${this.second.value}`;
     }
 
     get dependencies() {
@@ -699,6 +737,45 @@ describe("select", () => {
         expect(root.tasks.map((task) => task.text)).toEqual([
             "Fresh task object",
         ]);
+    });
+
+    it("skips trapped @select dependency collection for writes to unread fields", () => {
+        const root = trackRoot(Retree.root(new ScanBoardNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+        expect(root.total).toBe(6);
+
+        const runsBeforeUnrelated = scanBoardGetterRuns;
+        root.items[1].name = "renamed";
+
+        expect(nodeChanged).not.toHaveBeenCalled();
+        expect(scanBoardGetterRuns).toBe(runsBeforeUnrelated);
+
+        root.items[1].score = 10;
+
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(scanBoardGetterRuns).toBeGreaterThan(runsBeforeUnrelated);
+        expect(root.total).toBe(14);
+    });
+
+    it("compares trailing dependency values when an earlier @select dependency emits", () => {
+        const root = trackRoot(Retree.root(new OrderedSelectNode()));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        // `first` changed, but the trailing comparison window
+        // (`second.value`) is unchanged.
+        root.first.value = 1;
+        expect(nodeChanged).not.toHaveBeenCalled();
+
+        // Primitive-only dependencies have no subscription of their own.
+        root.second.value = 5;
+        expect(nodeChanged).not.toHaveBeenCalled();
+
+        // Now `first` emits and the trailing window differs (0 -> 5).
+        root.first.value = 2;
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+        expect(root.summary).toBe("2:5");
     });
 });
 

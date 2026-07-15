@@ -1,0 +1,90 @@
+---
+title: React Compiler
+description: Retree works under the React Compiler with no config — the hooks are useSyncExternalStore-based, so compiler memoization cannot detach a subscription. Here's what's verified and how.
+---
+
+The [React Compiler](https://react.dev/learn/react-compiler) memoizes your
+components automatically. Libraries that track reads through an observer
+wrapper (an HOC or a Babel transform of your components) can fight it: when
+the compiler caches a value, the wrapper never sees the read, and the
+subscription silently narrows or detaches. Retree doesn't work that way, so
+there is nothing to fight.
+
+## Why Retree is compiler-safe by construction
+
+Retree's hooks — [`useNode`](/docs/react/use-node),
+[`useTree`](/docs/react/use-tree), [`useSelect`](/docs/react/use-select),
+[`useRaw`](/docs/react/use-raw) — subscribe through React's own
+`useSyncExternalStore`. The subscription is established by the hook call
+itself, not by observing which fields your JSX happens to read during render.
+That means:
+
+-   **No observer HOC.** Components are plain functions; `React.memo` is
+    optional, and the compiler's automatic memoization takes its place.
+-   **No Babel transform of your code.** There is nothing to configure in
+    your build for Retree — the compiler plugin and Retree never touch the
+    same code.
+-   **Compiler memoization can't detach a subscription.** The compiler never
+    memoizes hook calls, so every render re-runs the hook and
+    `useSyncExternalStore` keeps the subscription wired. What the compiler
+    *does* memoize — derived values, JSX — is keyed on the hook's return
+    value, and Retree gives a changed node a fresh reference (a new
+    [reproxy](/docs/thinking-in-retree)) on every change, so those caches
+    invalidate exactly when the data changed.
+
+That last point is the whole contract: **a changed node is a new reference.**
+The compiler's caches key on references, Retree renews references on change,
+and the two compose.
+
+## What is verified by test
+
+`react-compiler.spec.tsx` in `@retreejs/react` compiles test components with
+the real `babel-plugin-react-compiler` (and the real memo-cache runtime from
+`react/compiler-runtime`), renders them, and asserts behavior — not just that
+compilation succeeds:
+
+-   A compiler-memoized component using `useNode` re-renders on writes to its
+    node and does not re-render on writes to sibling nodes.
+-   A compiler-memoized component using `useSelect` (node form) re-renders
+    when the selected value changes and skips writes that leave the selection
+    unchanged.
+-   A compiler-memoized component using `useSelect` (tracked selector form)
+    re-renders on tracked reads only.
+-   Compiler-memoized *derived values* keyed on a node recompute after a
+    write, because the hook returned a fresh reproxy reference.
+
+The suite also pins why the hook source files carry `"use no memo"`
+directives — see below.
+
+## Guidance if you use the compiler
+
+Turn it on; there is no Retree-specific setup. Two notes:
+
+-   **Let the compiler do the memoizing.** Hand-written `React.memo` around
+    row components still works (the [useNode-per-child
+    pattern](/docs/react/use-node) is unchanged), but under the compiler it
+    is usually redundant.
+-   **Don't compile Retree's source.** This only applies if your build
+    compiles dependencies or you vendor Retree's `src/` directly — the
+    default (compiling your app, skipping `node_modules`) is already correct.
+    The published packages ship plain compiled output that the compiler
+    skips.
+
+## Why the hooks say "use no memo"
+
+The hook source files carry `"use no memo"` directives. They exist for the
+one setup where the compiler would process Retree's *own source*: monorepos
+or playgrounds that alias `@retreejs/react` to its `src/` files.
+
+Retree's hook internals read mutable module state during render on purpose —
+that is how a hook returns the *latest* reproxy for a base proxy whose
+identity is deliberately stable across writes. Compiled, that read gets
+memoized on the stable base proxy and keeps returning the pre-write
+reference, breaking the "changed node is a new reference" contract. The test
+suite proves this concretely: stripping the directive from
+`useNodeInternalCore.ts` and compiling it makes a compiler-memoized consumer
+render stale UI, while the shipped hook stays correct under the same
+compiled consumer.
+
+Your components never need `"use no memo"` to use Retree — the directives
+protect the library's internals, not yours.

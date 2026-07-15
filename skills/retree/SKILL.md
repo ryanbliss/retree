@@ -1,6 +1,6 @@
 ---
 name: retree
-description: Build, debug, or review Retree code for object-tree state management, React hooks, and Convex integration. Use when working with @retreejs/core, @retreejs/react, @retreejs/convex, @retreejs/react-convex, Retree.root, ReactiveNode, useNode, useTree, useSelect, useRoot, useRaw, Retree.select, Retree.raw, Retree.isNode, Retree.peekInto, Retree.managed, Retree.untracked, Retree.move, Retree.link, memo decorators, or Retree Convex query nodes.
+description: Build, debug, or review Retree code for object-tree state management, React hooks, async queries, and Convex integration. Use when working with @retreejs/core, @retreejs/react, @retreejs/query, @retreejs/convex, @retreejs/react-convex, @retreejs/devtools, Retree.root, ReactiveNode, useNode, useTree, useSelect, useRoot, useRaw, Retree.select, Retree.effect, createUndoHistory, RetreeProvider, Retree.raw, Retree.isNode, Retree.peekInto, Retree.managed, Retree.untracked, Retree.move, Retree.link, memo decorators, QueryNode, connectReduxDevTools, or Retree Convex query nodes.
 ---
 
 # Retree
@@ -11,10 +11,12 @@ Prefer the package README and local package contents when available. If document
 
 ## Package Selection
 
--   Use `@retreejs/core` for object-tree reactivity, `Retree.root`, listeners, ownership helpers, `ReactiveNode`, decorators, transactions, and memoization.
--   Use `@retreejs/react` with `@retreejs/core` for React hooks: `useRoot`, `useNode`, `useTree`, and `useSelect`.
--   Use `@retreejs/convex` with `@retreejs/core` and `convex` for Retree nodes that own Convex clients, live query nodes, paginated query nodes, actions, mutations, one-off queries, optimistic updates, and reconciliation.
--   Use `@retreejs/react-convex` when a React app already uses Convex React and wants one `ConvexReactClient` instance shared between Convex React hooks and Retree Convex nodes.
+-   Use `@retreejs/core` for object-tree reactivity, `Retree.root`, listeners, `Retree.effect`, ownership helpers, `ReactiveNode`, decorators, transactions, undo history, and memoization.
+-   Use `@retreejs/react` with `@retreejs/core` for React hooks (`useRoot`, `useNode`, `useTree`, `useSelect`, `useRaw`), the `RetreeProvider` context, and the `@retreejs/react/testing` utilities.
+-   Use `@retreejs/query` with `@retreejs/core` for backend-agnostic async query nodes (`QueryNode`, `fetchQueryNode`) over your own fetch/WebSocket/realtime backend. `@retreejs/convex` is built on it.
+-   Use `@retreejs/convex` with `@retreejs/core` and `convex` for Retree nodes that own Convex clients, live query nodes, paginated query nodes, actions, mutations, one-off queries, auth state, optimistic updates, and reconciliation.
+-   Use `@retreejs/react-convex` when a React app already uses Convex React and wants one `ConvexReactClient` instance shared between Convex React hooks and Retree Convex nodes, plus the Next.js `preloadedQueryOptions` SSR helper.
+-   Use `@retreejs/devtools` in development builds for the Redux DevTools Extension bridge (`connectReduxDevTools`) and the structured change stream (`createChangeLogTap`).
 -   Use `@retreejs/benchmark-cli` only for Retree performance benchmark runs and comparisons.
 
 Install interactively with `npm create @retreejs@latest`, or install common combinations manually:
@@ -123,6 +125,28 @@ function TaskListView({ list }: { list: TaskList }) {
 
 Pass **nodes** to children via `toManaged`, never raw values. `toManaged` always resolves direct children of the subscribed node (object/array children, Map values, Set members). Deep changes re-render only when declared — via the node's `dependencies` / `@select`, via `useSelect` for derived views, or via `listenerType: "treeChanged"`. Never write to raw values or use raw references as `React.memo` props or `useMemo` deps.
 
+## Provider for SSR and Tests
+
+Module-scope `Retree.root(...)` is shared across server requests in SSR frameworks (Next.js, Remix) and across tests. Use `RetreeProvider` (or a typed context from `createRetreeContext<T>()`) when each request or test render should get its own roots — the `create` factory runs exactly once per mounted provider, surviving Strict Mode:
+
+```tsx
+import { RetreeProvider, useRootContext, useNode } from "@retreejs/react";
+
+const createRoots = () => ({ counter: Retree.root({ count: 0 }) });
+
+function Counter() {
+    const { counter } = useRootContext<ReturnType<typeof createRoots>>();
+    const state = useNode(counter);
+    return <button onClick={() => (state.count += 1)}>{state.count}</button>;
+}
+
+<RetreeProvider create={createRoots}>
+    <Counter />
+</RetreeProvider>;
+```
+
+For tests, `@retreejs/react/testing` exports `createTestRoot(factory)` (root + deep listener-clearing `cleanup()` for `afterEach`) and `actOnRetree(write)` (act-wrapped Retree writes, sync and async).
+
 ## Core APIs
 
 Use `Retree.on(node, listenerType, callback)` outside React or inside integrations. Listener types are `nodeChanged`, `treeChanged`, and `nodeRemoved`.
@@ -160,6 +184,33 @@ Retree.runTransaction(() => {
 ```
 
 Use `Retree.runSilent(...)` for non-rendered bookkeeping writes that should skip listener emissions.
+
+## Effects
+
+Use `Retree.effect(fn)` for side effects (DOM, storage, analytics) that should re-run when tracked Retree reads change. The function runs once immediately; property reads subscribe to their owner and validate by value, so unrelated writes skip the re-run. Wrap non-triggering reads in `Retree.untracked(...)`.
+
+```ts
+const stop = Retree.effect(() => {
+    document.body.dataset.theme = settings.theme;
+});
+stop(); // on teardown
+```
+
+Effects may write state, but a write to a tracked dependency must be conditional so the effect converges — a cascade of more than 100 synchronous re-runs throws (including at creation). Errors in a run go to `options.onError` or rethrow asynchronously; the effect stays subscribed either way.
+
+## Undo and Redo
+
+Use `createUndoHistory(root, options?)` from `@retreejs/core` to record changes under a root into undo/redo steps:
+
+```ts
+const history = createUndoHistory(project);
+project.tasks[0].done = true;
+history.undo(); // done back to false
+history.redo(); // done true again
+history.dispose(); // on teardown
+```
+
+One `Retree.runTransaction` is one step; discrete writes are their own steps; the `coalesce(previous, next)` option folds keystroke bursts into one step. Applying history emits normally (React re-renders) but is not re-recorded. Do not mix `undo()`/`redo()` with unrelated writes in one transaction — those writes are skipped from recording. The primitives `Retree.applyInverse(changes)` / `Retree.applyChanges(changes)` apply a listener-payload change batch backwards/forwards for custom history or persistence replay.
 
 ## Raw Reads
 
@@ -241,6 +292,18 @@ Do not start subscriptions, network work, or synchronization inside the `depende
 
 Methods on `ReactiveNode` can read their own data raw via `this.raw()`, run untracked bulk reads via `this.untracked(fn)`, and query raw data while returning managed nodes via `this.peekInto(fn)` — all delegating to the equivalent `Retree` statics.
 
+### Decorator toolchain (optional)
+
+Decorators are opt-in; everything else in Retree needs zero build configuration. Authoring `@memo`/`@fnMemo`/`@select`/`@ignore`/`@link` requires standard TC39 2023-11 decorators: TypeScript 5+ works out of the box **only if `experimentalDecorators` is NOT set** (legacy semantics throw a pinpointed Retree error at runtime); Babel toolchains need `@babel/plugin-proposal-decorators` with `{ "version": "2023-11" }`. Non-decorator equivalents: `this.memo(...)` for `@memo`/`@fnMemo`, the `dependencies` getter + `this.dependency(...)` for `@select`, `Retree.link(...)` for `@link`. Setup guide: https://www.retree.dev/docs/setup-and-decorators
+
+## Async Queries (@retreejs/query)
+
+Use `QueryNode` from `@retreejs/query` for non-Convex async backends — the same status machine (`result.status`: `pending` / `success` / `error` / `skipped`), deep-compared `updateArgs` (`"skip"` disables), `keepPreviousData` (`result.isStale` while a resubscribe loads), `retry()` after errors, generation-tracked `optimisticUpdate` with rollback, and identity-preserving `reconcile`. Subscriptions open on first Retree observer and close (sticky) on the last; implement `IQuerySubscriptionSource` for a custom backend, or use `fetchQueryNode(asyncFn, { args, refetchInterval? })` for plain fetches. Reconcile server lists with `reconcileArrayById("id")` so `useNode(item)` rows stay narrow.
+
+## DevTools
+
+Use `connectReduxDevTools({ name?, roots?, maxAge?, stateSnapshots? })` from `@retreejs/devtools` in development builds to inspect writes in the Redux DevTools Extension: every write is an action, transactions are one action, and snapshots enable time travel (JSON-representable state only — Map/Set/Date keep current contents on jumps; `stateSnapshots: false` disables snapshots and time travel for large trees). Passing `roots: { app }` registers names via `Retree.registerRootName`; safe no-op when the extension is absent; call `dispose()` on teardown. Use `createChangeLogTap(sink, { paths? })` for a structured change stream (`{ kind, rootName, path, records, transaction, silent }`) feeding custom tooling, persistence, or `Retree.applyInverse` / `Retree.applyChanges`.
+
 ## Convex Integration
 
 Use `ConvexNode` when a Retree app-state class should own a Convex client and create query, paginated query, connection-state, action, mutation, and one-off query helpers.
@@ -272,7 +335,9 @@ export class TasksState extends ConvexNode {
 
 Use `BaseConvexNode` when the node only needs `this.action(...)`, `this.mutation(...)`, or `this.queryOnce(...)` and does not need query-node factories.
 
-`ConvexQueryNode` stores one live query in Retree state. It exposes convenient `state` plus structured `result` status for pending, success, skipped, and error states. Pass `"skip"` to constructors, helpers, or `updateArgs(...)` to disable a subscription.
+`ConvexQueryNode` stores one live query in Retree state. It exposes convenient `state` plus structured `result` status for pending, success, skipped, and error states. Pass `"skip"` to constructors, helpers, or `updateArgs(...)` to disable a subscription. Args compare deeply; pass `keepPreviousData: true` to keep the previous `state` visible (`result.isStale`) while a resubscribe loads; call `retry()` after `result.status === "error"`.
+
+`ConvexAuthStateNode` tracks `isLoading` / `isAuthenticated` reactively (the `useConvexAuth` equivalent); it needs an observable-auth client such as `RetreeConvexReactClient`. For Next.js RSC hydration, derive `args` + `initialState` from a `preloadQuery` payload with `preloadedQueryOptions(preloaded)` from `@retreejs/react-convex`.
 
 Actions, mutations, and `queryOnce(...)` do not emit by themselves. They only update Retree subscribers if the result is written into Retree state or paired with an optimistic update.
 
@@ -284,7 +349,7 @@ Use `reconcileConvexDocuments` or `reconcileArrayById` when server lists refresh
 
 Custom reconcilers receive a third `rawCurrent` argument (the proxy-free raw view of `current`). Read from `rawCurrent` at native speed, write diffs to `current` so changed rows emit. The built-in reconcilers already do this internally.
 
-Dispose query, paginated query, and connection-state nodes when their owner is torn down. With `@retreejs/react-convex`, query children created by `ConvexNode` helpers can subscribe when observed and clean up when the owning Retree node loses its final active observer.
+Query, paginated query, auth, and connection-state nodes clean themselves up when they lose their last Retree observer and resubscribe when observed again; disposal is sticky in between (writes do not silently reopen a subscription). Call `dispose()` manually only for teardown outside Retree observation, such as non-React app shutdown.
 
 ## React Convex Adapter
 
@@ -331,8 +396,10 @@ When available, prefer local files in this order:
 -   `references/llms.md` for the highest-signal routing guide.
 -   `references/repository.md` for cross-package examples and feature glossary.
 -   `references/core.md` for core reactivity, ownership, select, decorators, memoization, and transactions.
--   `references/react.md` for React hook behavior.
--   `references/convex.md` for Convex query nodes, mutations, optimistic updates, status, skipping, pagination, and reconciliation.
+-   `references/react.md` for React hook behavior, the provider, and testing utilities.
+-   `references/query.md` for backend-agnostic query nodes and fetch adapters.
+-   `references/devtools.md` for the Redux DevTools bridge and change-log tap.
+-   `references/convex.md` for Convex query nodes, mutations, optimistic updates, status, skipping, pagination, auth state, and reconciliation.
 -   `references/react-convex.md` for sharing one Convex React client with Retree Convex state.
 -   `references/benchmark-cli.md` for benchmark commands.
 

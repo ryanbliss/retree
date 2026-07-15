@@ -3,22 +3,33 @@
  * Licensed under the MIT License.
  */
 
-import { ignore, Retree } from "@retreejs/core";
+import { TreeNode } from "@retreejs/core";
+import { getUnproxiedNode } from "@retreejs/core/internal";
 import type { PaginationStatus } from "convex/browser";
-import { BaseConvexNode } from "./BaseConvexNode";
+import {
+    deepEquals,
+    IQueryNodeOptions,
+    IQuerySubscriptionSource,
+} from "@retreejs/query";
+import { BaseConvexQueryNode } from "./BaseConvexQueryNode.js";
+import { notifyNodeDisposed } from "./internals/disposal.js";
+import { tryReconcileConvexDocuments } from "./internals/reconcile.js";
 import {
     ConvexPaginatedQueryArgs,
     ConvexPaginatedQueryNodeOptionsArgs,
     ConvexPaginatedQueryNodeResult,
     ConvexPaginatedQueryNodeState,
+    ConvexQuerySkip,
     IConvexClient,
     IConvexPaginatedQueryNodeOptions,
-    IConvexQuerySubscription,
+    IConvexQueryClient,
+    IOptimisticTransform,
+    MutationReference,
     PaginatedQueryArgs,
     PaginatedQueryItem,
     PaginatedQueryReference,
     RetreePaginatedQueryResult,
-} from "./types";
+} from "./types.js";
 
 /**
  * Reactive paginated query node that subscribes to a Convex paginated query and
@@ -28,6 +39,12 @@ import {
  * Use this directly or through {@link ConvexNode.paginatedQuery} for live
  * paginated lists. New pages update `state`, `result`, and `error`, which can
  * emit Retree changes and re-render React subscribers.
+ *
+ * This class is a Convex adapter over the backend-agnostic `QueryNode` from
+ * `@retreejs/query`, sharing its status machine, args lifecycle, and
+ * optimistic-update machinery with {@link ConvexQueryNode}. Optimistic
+ * transforms run against the loaded `state.results` rows; rollback baselines
+ * clone the loaded rows while keeping the `loadMore` function by reference.
  *
  * Dispose the node when its owner is torn down. Use `"skip"` when the query
  * should be temporarily disabled.
@@ -42,29 +59,18 @@ import {
  */
 export class ConvexPaginatedQueryNode<
     Query extends PaginatedQueryReference
-> extends BaseConvexNode {
-    @ignore
-    private queryReference: Query;
-    @ignore
-    private args: ConvexPaginatedQueryArgs<Query>;
-    @ignore
-    private initialNumItems: number;
-    @ignore
-    private unsubscribe: IConvexQuerySubscription<unknown> | null = null;
-    @ignore
-    private subscribedArgComparisons: unknown[] | undefined;
+> extends BaseConvexQueryNode<
+    PaginatedQueryArgs<Query>,
+    RetreePaginatedQueryResult<PaginatedQueryItem<Query>>
+> {
     /**
      * Latest paginated query state emitted by Convex.
      */
-    public state: ConvexPaginatedQueryNodeState<Query>;
+    public declare state: ConvexPaginatedQueryNodeState<Query>;
     /**
      * Latest structured query result.
      */
-    public result: ConvexPaginatedQueryNodeResult<Query>;
-    /**
-     * Latest subscription error.
-     */
-    public error: Error | null = null;
+    public declare result: ConvexPaginatedQueryNodeResult<Query>;
 
     /**
      * Create a node for a Convex paginated query subscription.
@@ -93,36 +99,36 @@ export class ConvexPaginatedQueryNode<
         query: Query,
         ...options: ConvexPaginatedQueryNodeOptionsArgs<Query>
     ) {
-        super(client);
         const rawOptions = options[0];
         const queryOptions = getQueryOptions(rawOptions);
-        this.queryReference = query;
-        this.args = getPaginatedQueryArgs(rawOptions, queryOptions);
-        this.initialNumItems = queryOptions?.initialNumItems ?? 0;
-        this.state = queryOptions?.initialState;
-        this.result = getInitialResult(rawOptions, this.state);
+        super(
+            client,
+            createConvexPaginatedQuerySource(
+                client,
+                query,
+                queryOptions?.initialNumItems ?? 0
+            ),
+            getPaginatedQueryNodeOptions(rawOptions, queryOptions)
+        );
     }
 
-    get dependencies() {
-        return [];
-    }
-
-    protected onObserved(): void {
-        this.syncArgs(this.args, false);
-    }
-
-    protected onChanged(): void {
-        this.syncArgs(this.args, false);
+    protected get queryNodeName(): string {
+        return "ConvexPaginatedQueryNode";
     }
 
     /**
-     * Update the query arguments and resubscribe when the shallow argument
-     * comparison changes. Pass `"skip"` to disable the subscription.
+     * Update the query arguments and resubscribe when the arguments change
+     * (compared deeply, matching Convex's own structural comparison). Pass
+     * `"skip"` to disable the subscription.
      *
      * @remarks
      * Updating args can emit because `state`, `result`, and `error` may change.
      * Passing `"skip"` disables the active subscription and sets
      * `result.status` to `"skipped"`.
+     *
+     * On a disposed node this records the new args without opening a
+     * subscription; the node resubscribes with the latest args when it is
+     * observed again.
      *
      * @param args Next query arguments, or `"skip"`.
      *
@@ -133,57 +139,54 @@ export class ConvexPaginatedQueryNode<
      * ```
      */
     public updateArgs(args: ConvexPaginatedQueryArgs<Query>): void {
-        this.args = args;
-        this.syncArgs(args, true);
+        super.updateArgs(args);
     }
 
-    private syncArgs(
-        args: ConvexPaginatedQueryArgs<Query>,
-        resetBeforeSubscribe: boolean
+    /**
+     * Apply an optimistic update to the loaded paginated results. If a
+     * mutation context is provided, rollback when its promise rejects unless a
+     * newer server value resolves the dirty state first.
+     *
+     * @remarks
+     * Use this from a mutation's `withOptimisticUpdate` callback when the UI
+     * should update immediately before Convex confirms the write. The transform
+     * mutates the existing paginated state (typically `state.results`) in
+     * place and emits through Retree.
+     *
+     * Rollback restores the latest clean server baseline for the loaded rows
+     * and pagination status; the `loadMore` function is kept by reference and
+     * never cloned.
+     *
+     * @param transform Optimistic transform and optional mutation context.
+     *
+     * @example
+     * ```ts
+     * const toggle = this.mutation(api.tasks.toggleCompleted);
+     * return toggle(
+     *     { taskId },
+     *     {
+     *         withOptimisticUpdate: (ctx) => {
+     *             this.messages.optimisticUpdate({
+     *                 ctx,
+     *                 apply(page) {
+     *                     const task = page.results.find(
+     *                         (item) => item._id === taskId
+     *                     );
+     *                     if (task) task.isCompleted = !task.isCompleted;
+     *                 },
+     *             });
+     *         },
+     *     }
+     * );
+     * ```
+     */
+    public optimisticUpdate<Mutation extends MutationReference>(
+        transform: IOptimisticTransform<
+            RetreePaginatedQueryResult<PaginatedQueryItem<Query>>,
+            Mutation
+        >
     ): void {
-        let receivedValue = false;
-        const argComparisons = this.getArgComparisons(args);
-        if (
-            this.unsubscribe !== null &&
-            shallowEqualArrays(this.subscribedArgComparisons, argComparisons)
-        ) {
-            return;
-        }
-
-        this.dispose();
-        if (args === "skip") {
-            if (resetBeforeSubscribe) {
-                this.setSkipped();
-            }
-            return;
-        }
-
-        const subscription = this.client.onPaginatedUpdate_experimental(
-            this.queryReference,
-            args,
-            { initialNumItems: this.initialNumItems },
-            (result) => {
-                receivedValue = this.setPaginatedStateFromUnknown(result);
-            },
-            (error) => {
-                this.setError(error);
-            }
-        );
-        this.unsubscribe = subscription;
-        this.subscribedArgComparisons = argComparisons;
-        receivedValue = this.setPaginatedStateFromUnknown(
-            subscription.getCurrentValue()
-        );
-
-        if (!resetBeforeSubscribe) {
-            return;
-        }
-
-        if (receivedValue) {
-            return;
-        }
-
-        this.setPending();
+        super.optimisticUpdate(transform);
     }
 
     /**
@@ -223,9 +226,13 @@ export class ConvexPaginatedQueryNode<
      * Stop the active Convex paginated query subscription.
      *
      * @remarks
-     * Call this when the owner of the paginated query node is torn down.
-     * Disposing stops future Convex updates; it does not clear `state`,
-     * `result`, or `error`.
+     * Retree calls this automatically when the node loses its last active
+     * observer. Call it manually when tearing the owner down outside Retree
+     * observation. Disposing stops future Convex updates; it does not clear
+     * `state`, `result`, or `error`.
+     *
+     * Disposal is sticky: writes to the node no longer reopen the
+     * subscription. The node resubscribes when it gains a new observer.
      *
      * @example
      * ```ts
@@ -235,94 +242,148 @@ export class ConvexPaginatedQueryNode<
      * ```
      */
     public dispose(): void {
-        if (this.unsubscribe === null) {
+        notifyNodeDisposed(this);
+        super.dispose();
+    }
+
+    /**
+     * Write a freshly emitted (or rollback) paginated result into `state`,
+     * reconciling loaded rows by `_id` so unchanged row nodes keep identity
+     * when any page updates or `loadMore` lands.
+     */
+    protected restoreState(next: ConvexPaginatedQueryNodeState<Query>): void {
+        if (next === undefined) {
+            this.state = undefined;
             return;
         }
 
-        this.unsubscribe.unsubscribe();
-        this.unsubscribe = null;
-        this.subscribedArgComparisons = undefined;
+        const current = this.state;
+        if (current === undefined) {
+            this.state = next;
+            return;
+        }
+
+        if (!tryReconcileConvexDocuments(current.results, next.results)) {
+            // Rows without `_id` cannot be reconciled by identity; replace the
+            // loaded rows wholesale like the non-paginated node does.
+            current.results = next.results;
+        }
+
+        // Page bookkeeping: compare against the raw view so the function
+        // reference check is not affected by proxy wrapping.
+        const rawCurrent =
+            (getUnproxiedNode(current as unknown as TreeNode) as
+                | typeof current
+                | undefined) ?? current;
+        if (rawCurrent.status !== next.status) {
+            current.status = next.status;
+        }
+        if (rawCurrent.loadMore !== next.loadMore) {
+            current.loadMore = next.loadMore;
+        }
     }
 
-    private setPaginatedStateFromUnknown(result: unknown): boolean {
-        if (!isPaginatedQueryResult<Query>(result)) {
+    /**
+     * Clone paginated state for optimistic rollback baselines.
+     *
+     * @remarks
+     * `structuredClone` throws on the `loadMore` function stored in paginated
+     * state, so this clones the loaded rows and pagination status while
+     * keeping `loadMore` by reference.
+     */
+    protected cloneState(
+        state: ConvexPaginatedQueryNodeState<Query>
+    ): ConvexPaginatedQueryNodeState<Query> {
+        if (state === undefined) {
+            return undefined;
+        }
+
+        const raw = unwrapPaginatedState(state);
+        return {
+            results: structuredClone(raw.results),
+            status: raw.status,
+            loadMore: raw.loadMore,
+        };
+    }
+
+    /**
+     * Compare paginated emissions by loaded rows and pagination status.
+     *
+     * @remarks
+     * Convex creates a fresh `loadMore` function per emission, so including it
+     * in the comparison would make every server echo look like a change and
+     * defeat the optimistic dirty-window logic.
+     */
+    protected stateEquals(
+        left: ConvexPaginatedQueryNodeState<Query>,
+        right: ConvexPaginatedQueryNodeState<Query>
+    ): boolean {
+        if (left === undefined) {
+            return right === undefined;
+        }
+        if (right === undefined) {
             return false;
         }
 
-        Retree.runTransaction(() => {
-            this.state = result;
-            this.error = null;
-            this.result = { status: "success", data: result };
-        });
-        return true;
-    }
-
-    private setPending(): void {
-        Retree.runTransaction(() => {
-            this.state = undefined;
-            this.error = null;
-            this.result = { status: "pending" };
-        });
-    }
-
-    private setSkipped(): void {
-        Retree.runTransaction(() => {
-            this.state = undefined;
-            this.error = null;
-            this.result = { status: "skipped" };
-        });
-    }
-
-    private setError(error: Error): void {
-        Retree.runTransaction(() => {
-            this.error = error;
-            this.result = { status: "error", error };
-        });
-    }
-
-    private getArgComparisons(
-        args: ConvexPaginatedQueryArgs<Query>
-    ): unknown[] {
-        if (args === "skip") {
-            return ["skip", this.initialNumItems];
+        const rawLeft = unwrapPaginatedState(left);
+        const rawRight = unwrapPaginatedState(right);
+        if (rawLeft.status !== rawRight.status) {
+            return false;
         }
-
-        return [
-            this.initialNumItems,
-            ...Object.entries(args)
-                .sort()
-                .flatMap(([key, value]) => [key, value]),
-        ];
+        return deepEquals(rawLeft.results, rawRight.results);
     }
 }
 
-function shallowEqualArrays(
-    left: unknown[] | undefined,
-    right: unknown[] | undefined
-): boolean {
-    if (left === undefined) {
-        return right === undefined;
-    }
+function unwrapPaginatedState<TState extends object>(state: TState): TState {
+    return (
+        (getUnproxiedNode(state as unknown as TreeNode) as
+            | TState
+            | undefined) ?? state
+    );
+}
 
-    if (right === undefined) {
-        return false;
-    }
-
-    if (left.length !== right.length) {
-        return false;
-    }
-
-    for (let index = 0; index < left.length; index++) {
-        if (!Object.is(left[index], right[index])) {
-            return false;
-        }
-    }
-
-    return true;
+function createConvexPaginatedQuerySource<
+    Query extends PaginatedQueryReference
+>(
+    client: IConvexQueryClient,
+    query: Query,
+    initialNumItems: number
+): IQuerySubscriptionSource<
+    PaginatedQueryArgs<Query>,
+    RetreePaginatedQueryResult<PaginatedQueryItem<Query>>
+> {
+    return {
+        subscribe(args, onValue, onError) {
+            const subscription = client.onPaginatedUpdate_experimental(
+                query,
+                args,
+                { initialNumItems },
+                (result) => {
+                    // Values that do not look like paginated results are
+                    // dropped so the node never stores a malformed page.
+                    if (!isPaginatedQueryResult<Query>(result)) {
+                        return;
+                    }
+                    onValue(result);
+                },
+                onError
+            );
+            return {
+                unsubscribe: () => subscription.unsubscribe(),
+                getCurrentValue: () => {
+                    const value = subscription.getCurrentValue();
+                    if (!isPaginatedQueryResult<Query>(value)) {
+                        return undefined;
+                    }
+                    return value;
+                },
+            };
+        },
+    };
 }
 
 function getQueryOptions<Query extends PaginatedQueryReference>(
-    options: IConvexPaginatedQueryNodeOptions<Query> | "skip"
+    options: IConvexPaginatedQueryNodeOptions<Query> | ConvexQuerySkip
 ): IConvexPaginatedQueryNodeOptions<Query> | undefined {
     if (options === "skip") {
         return undefined;
@@ -331,34 +392,33 @@ function getQueryOptions<Query extends PaginatedQueryReference>(
     return options;
 }
 
-function getPaginatedQueryArgs<Query extends PaginatedQueryReference>(
-    rawOptions: IConvexPaginatedQueryNodeOptions<Query> | "skip",
+function getPaginatedQueryNodeOptions<Query extends PaginatedQueryReference>(
+    rawOptions: IConvexPaginatedQueryNodeOptions<Query> | ConvexQuerySkip,
     options: IConvexPaginatedQueryNodeOptions<Query> | undefined
-): ConvexPaginatedQueryArgs<Query> {
+):
+    | IQueryNodeOptions<
+          PaginatedQueryArgs<Query>,
+          RetreePaginatedQueryResult<PaginatedQueryItem<Query>>
+      >
+    | ConvexQuerySkip {
     if (rawOptions === "skip") {
         return "skip";
     }
 
+    return {
+        args: getPaginatedQueryArgs(options),
+        initialState: options?.initialState,
+    };
+}
+
+function getPaginatedQueryArgs<Query extends PaginatedQueryReference>(
+    options: IConvexPaginatedQueryNodeOptions<Query> | undefined
+): PaginatedQueryArgs<Query> {
     if (options?.args !== undefined) {
         return options.args;
     }
 
     return {} as PaginatedQueryArgs<Query>;
-}
-
-function getInitialResult<Query extends PaginatedQueryReference>(
-    rawOptions: IConvexPaginatedQueryNodeOptions<Query> | "skip",
-    state: ConvexPaginatedQueryNodeState<Query>
-): ConvexPaginatedQueryNodeResult<Query> {
-    if (rawOptions === "skip") {
-        return { status: "skipped" };
-    }
-
-    if (state === undefined) {
-        return { status: "pending" };
-    }
-
-    return { status: "success", data: state };
 }
 
 function isPaginatedQueryResult<Query extends PaginatedQueryReference>(

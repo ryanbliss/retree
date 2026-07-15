@@ -8,6 +8,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     const staticRoutes = [
         "",
         "/why",
+        "/compare",
         "/compare/mobx",
         "/compare/valtio",
         "/api",

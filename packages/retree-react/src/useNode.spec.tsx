@@ -3,7 +3,7 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode, Retree, select } from "@retreejs/core";
 import { renderToString } from "react-dom/server";
-import { useNode } from "./useNode";
+import { useNode } from "./useNode.js";
 
 class SelectedOwnerNode extends ReactiveNode {
     public child = { value: 1 };

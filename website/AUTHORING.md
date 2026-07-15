@@ -42,13 +42,14 @@ Use Tailwind classes backed by tokens — never raw hex:
     -   `<Sandbox height={420}>` wrapping fenced code blocks — live editable
         Sandpack demo. Each fence needs `name="/App.tsx"` meta; optional meta:
         `hidden`, `active`, `readonly`; Sandbox props: `height`, `manualRun`.
-        Template is `react-ts` with `@retreejs/react@0.4.17` + core installed.
+        Template is `react-ts` with `@retreejs/react` + core installed (versions pinned in `components/sandpack/sandpackTheme.ts` — bump them on each release).
         `/App.tsx` must default-export the demo component.
     -   Plain fences: ` ```ts title="optional-label" ` — Shiki-highlighted with
         copy button; `nocopy` meta hides the button.
 -   Content rules (spec §6): static fences by default; a `<Sandbox>` only where
     editing genuinely teaches (roughly one per hook/quickstart page). Only use
-    APIs that exist in the published 0.4.17 packages.
+    APIs that exist in the published packages at the versions pinned in
+    `components/sandpack/sandpackTheme.ts`.
 -   Style: honest, precise, no hype adjectives. Use the ✅/❌ annotated-example
     format from the README for behavior tables. Define terms per the glossary
     in Thinking in Retree and link on first use. Keep the terminology: node,

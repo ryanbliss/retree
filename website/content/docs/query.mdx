@@ -1,0 +1,172 @@
+---
+title: Async queries
+description: "@retreejs/query is the backend-agnostic async layer behind Retree's Convex bindings: QueryNode's status machine, optimistic updates, and reconciliation over any subscription source."
+---
+
+`@retreejs/query` is the backend-agnostic async-query layer for Retree.
+[`QueryNode`](/api/query/classes/QueryNode) is a `ReactiveNode` that
+subscribes to an async source and writes emitted values into Retree state,
+owning the whole state machine: status/result, argument lifecycle,
+observation-driven subscription cleanup, optimistic updates with rollback,
+and identity-preserving reconciliation.
+
+`@retreejs/convex` builds `ConvexQueryNode` and `ConvexPaginatedQueryNode` on
+this package — everything on this page applies to the
+[Convex integration](/docs/convex) too. Use `@retreejs/query` directly when
+you want the same machinery over your own backend: a fetch endpoint, a
+WebSocket topic, any realtime client.
+
+## Install
+
+<PMTabs packages="@retreejs/core @retreejs/query" />
+
+## The smallest backend: a fetch function
+
+[`fetchQueryNode`](/api/query/functions/fetchQueryNode) adapts a plain async
+function — one-shot or polled — into a query node:
+
+```ts
+import { Retree } from "@retreejs/core";
+import { fetchQueryNode } from "@retreejs/query";
+
+const weather = Retree.root(
+    fetchQueryNode((args: { city: string }) => fetchWeather(args.city), {
+        args: { city: "Seattle" },
+        refetchInterval: 60_000, // omit for one fetch per subscription
+    })
+);
+
+Retree.on(weather, "nodeChanged", (next) => {
+    console.log(next.result.status, next.state);
+});
+```
+
+The fetch runs when the node gains its first Retree observer — in React,
+that's a component subscribing with `useNode` — and results flow through the
+same status machine as realtime backends.
+
+## State, result, and status
+
+A query node writes three fields, and writing them emits through Retree like
+any other node:
+
+-   **`state`** — the latest query value (`undefined` until loaded, or your
+    `initialState`).
+-   **`result`** — a status union: `{ status: "pending" }`,
+    `{ status: "skipped" }`, `{ status: "success", data, isStale? }`, or
+    `{ status: "error", error }`.
+-   **`error`** — the last subscription or rollback error, if any.
+
+### Args, `keepPreviousData`, and `retry`
+
+`updateArgs(nextArgs)` resubscribes only when the arguments actually changed
+(deep comparison), and `"skip"` disables the query:
+
+```ts
+node.updateArgs({ city: "Portland" }); // ✅ resubscribes, may emit
+node.updateArgs({ city: "Portland" }); // ❌ deep-equal args — no churn
+node.updateArgs("skip"); // ✅ emits skipped state and unsubscribes
+```
+
+By default a resubscribe resets to `pending`. Construct the node with
+`keepPreviousData: true` to keep the previous `state` visible while the new
+subscription loads — `result` stays `success` with `isStale: true` until the
+first value arrives. That's the difference between a search page that blanks
+on every keystroke and one that doesn't.
+
+After `result.status === "error"`, call `retry()` to close the errored
+subscription and open a fresh one with the current args. It does nothing in
+any other status, so it is safe to wire straight to a button.
+
+## Subscriptions follow observation
+
+The source is subscribed when the node gains its first Retree observer and
+disposed when it loses its last one — no query runs for state nobody is
+rendering or listening to. Disposal is sticky: writes to a disposed node do
+not silently reopen the backend subscription; only a new observer (or
+`retry()` after an error) does. Call `dispose()` yourself when tearing down
+outside Retree observation.
+
+## Optimistic updates
+
+`optimisticUpdate` mutates the current state in place — a normal Retree
+mutation, so only components subscribed to the changed nodes re-render — and,
+when given a mutation promise, rolls back if the mutation rejects:
+
+```ts
+node.optimisticUpdate({
+    ctx: { promise: saveTask(taskId) },
+    apply(tasks) {
+        const task = tasks.find((item) => item.id === taskId);
+        if (task) task.isCompleted = true;
+    },
+});
+```
+
+Overlapping mutations are generation-tracked: an older confirmation or
+failure never clobbers newer local edits, and rollback restores the latest
+clean server baseline at rejection time — including confirmations that
+arrived mid-flight — so a failed mutation never wipes a confirmed one. Pass
+`revert(state, snapshot)` when the default baseline restore is not specific
+enough.
+
+## Reconciliation
+
+Without reconciliation, every emission replaces `state` wholesale and every
+row loses identity. Pass `reconcile` to keep unchanged items' object identity
+stable across emissions, so a `useNode(item)` row only re-renders when *its*
+data changed:
+
+```ts
+import { reconcileArrayById } from "@retreejs/query";
+
+const node = fetchQueryNode(listTasks, {
+    reconcile: reconcileArrayById("id"),
+});
+```
+
+Custom reconcilers implement
+[`IStateReconciler`](/api/query/interfaces/IStateReconciler):
+`reconcile(current, next, rawCurrent)`. Reconciliation is read-dominated —
+**read from `rawCurrent`** (the proxy-free raw view, native-speed) **and
+write diffs to `current`** so changed rows emit. The built-in reconcilers
+already do this internally.
+
+## Bring your own backend
+
+Everything above is driven through one interface —
+[`IQuerySubscriptionSource`](/api/query/interfaces/IQuerySubscriptionSource):
+
+```ts
+import { Retree } from "@retreejs/core";
+import { QueryNode, IQuerySubscriptionSource } from "@retreejs/query";
+
+const source: IQuerySubscriptionSource<{ room: string }, string[]> = {
+    subscribe(args, onValue, onError) {
+        const socket = openRoomSocket(args.room, onValue, onError);
+        return {
+            unsubscribe: () => socket.close(),
+            // Synchronously cached value, or undefined when none exists.
+            getCurrentValue: () => socket.cachedMessages,
+        };
+    },
+};
+
+const messages = Retree.root(
+    new QueryNode(source, { args: { room: "general" }, initialState: [] })
+);
+```
+
+Implement `subscribe` and you get the status machine, args lifecycle,
+optimistic updates, and reconciliation for free. Subclasses with non-plain
+state shapes can override the protected hooks (`tryDefaultReconcile`,
+`cloneState`, `stateEquals`, `restoreState`) — that is exactly how the Convex
+paginated node keeps its `loadMore` function out of clone and compare paths.
+
+## Where next
+
+-   [Convex integration](/docs/convex) — the first-party backend built on
+    this package.
+-   [Events & subscriptions](/docs/events-and-subscriptions) — how emissions
+    reach listeners and React.
+-   [`@retreejs/query` API reference](/api/query).

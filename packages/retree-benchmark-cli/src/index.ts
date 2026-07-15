@@ -8,7 +8,7 @@ export {
     resolveBenchmarkConfig,
     type PromptAdapter,
     type ResolveConfigOptions,
-} from "./config";
+} from "./config.js";
 export {
     BenchmarkStoppedError,
     estimateBenchmarkScenarioWork,
@@ -19,7 +19,7 @@ export {
     runBenchmarksWithProgress,
     type BenchmarkScenarioDefinition,
     type RunBenchmarksProgressOptions,
-} from "./benchmarks";
+} from "./benchmarks.js";
 export {
     CONTROL_BUFFER_LENGTH,
     CONTROL_PAUSED_INDEX,
@@ -27,7 +27,7 @@ export {
     CONTROL_STOPPED_INDEX,
     runBenchmarksInParallelWithProgress,
     type RunBenchmarksParallelOptions,
-} from "./parallel";
+} from "./parallel.js";
 export {
     renderConsoleReport,
     renderConsoleSummaryReport,
@@ -35,7 +35,7 @@ export {
     renderMarkdownVerboseReport,
     writeBenchmarkArtifacts,
     type WrittenBenchmarkArtifacts,
-} from "./report";
+} from "./report.js";
 export {
     BenchmarkLeafNode,
     BenchmarkNode,
@@ -50,8 +50,8 @@ export {
     type BuiltBenchmarkTree,
     type SerializableBenchmarkLeaf,
     type SerializableBenchmarkNode,
-} from "./tree";
-export { summarizeDurations } from "./stats";
+} from "./tree.js";
+export { summarizeDurations } from "./stats.js";
 export type {
     BenchmarkArtifactPaths,
     BenchmarkCaseResult,
@@ -79,4 +79,4 @@ export type {
     TierMap,
     TierName,
     TierPreset,
-} from "./types";
+} from "./types.js";

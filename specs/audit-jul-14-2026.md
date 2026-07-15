@@ -1,10 +1,11 @@
 # Spec: July 2026 full-repo audit — findings and remediation plan
 
-Status: **reviewed — decisions resolved** (2026-07-14). Nothing here is
-implemented yet; the open decisions were resolved in review (see §8, Resolved
-decisions). Findings marked **(verified)** were reproduced directly (probes
-or direct inspection) during the audit; the rest were confirmed against the
-cited source locations.
+Status: **implemented** (2026-07-14). Every actionable item is done and
+verified — see the §9 ledger for what shipped and the measured results; the
+only remaining §6 items are the ones this spec explicitly deferred
+(`specs/retree-query.md` future work; `Retree.snapshot` pinned per §8).
+Findings marked **(verified)** were reproduced directly during the audit.
+Line numbers refer to pre-implementation code and have drifted.
 
 Scope: all packages (`core`, `react`, `convex`, `react-convex`, `create`),
 docs/website/samples, release tooling, plus competitive research on the
@@ -16,7 +17,7 @@ already fixed there is repeated.
 
 ## 1. Verified bugs (silent-corruption class; fix first)
 
-### B1. Double-unsubscribe removes a *different* listener (verified)
+### B1. Double-unsubscribe removes a _different_ listener (verified)
 
 `packages/retree-core/src/Retree.ts:1026` — `buildUnsubscribeCallback` does
 `findIndex` then `splice(findIndex, 1)` with no `-1` guard. Calling an
@@ -49,7 +50,7 @@ and test `runSilent` × `runTransaction` interleaving while there.
 ### B3. Convex optimistic rollback restores a stale baseline, losing confirmed server data
 
 `packages/retree-convex/src/ConvexQueryNode.ts:486-501` captures
-`optimisticRollbackState` once, when the dirty window *opens*. If mutation
+`optimisticRollbackState` once, when the dirty window _opens_. If mutation
 A's server confirmation advances `lastEmittedState` while mutation B is still
 pending, and B then rejects, the catch handler restores the pre-A snapshot —
 wiping A's confirmed change from the UI, which stays wrong until the next
@@ -73,10 +74,10 @@ rollback baseline lazily only when an optimistic window opens.
 
 ### B5. Spurious emissions: delete-of-missing-key and NaN writes (verified)
 
-- `delete node.missing` emits `nodeChanged` — `proxy.ts:706-761` never checks
-  the property existed.
-- `node.v = NaN` when already `NaN` emits every time — `proxy.ts:502` uses
-  `!==`; the Date wrapper already uses `Object.is` (`proxy.ts:1661`).
+-   `delete node.missing` emits `nodeChanged` — `proxy.ts:706-761` never checks
+    the property existed.
+-   `node.v = NaN` when already `NaN` emits every time — `proxy.ts:502` uses
+    `!==`; the Date wrapper already uses `Object.is` (`proxy.ts:1661`).
 
 Each spurious emission is a render. **Plan:** `Reflect.has` check in
 `deleteProperty`; `Object.is` in `set`.
@@ -177,7 +178,7 @@ result). Fixes both the re-run cost and the shim dependence.
 
 ### P4. One `treeChanged` listener anywhere makes every write in every tree walk its full ancestor chain
 
-`Retree.ts:1334` — `this.treeChangedListeners.size > 0` is a *global* gate;
+`Retree.ts:1334` — `this.treeChangedListeners.size > 0` is a _global_ gate;
 after it passes, `handleNotifyTreeChanged` walks the changed node's entire
 ancestor path (allocating a Map + arrays per write, `Retree.ts:1114-1118`)
 even when no ancestor is listening. One `useTree` on a sidebar taxes every
@@ -201,6 +202,12 @@ deep-equal. Defeats the identity-stability pitch exactly where it matters
 into plain objects/arrays in `reconcileObject` (or deep-equal before
 writing); add nested-doc reconcile specs.
 
+**Implemented (2026-07-14):** `reconcileField` in `internals/reconcile.ts`
+deep-equal-gates every field write and reconciles same-shape nested
+objects/arrays in place (shape changes still replace). Nested-doc specs added
+(metadata object + tags array: deep-equal → zero emissions, changed nested →
+nested-node emission with raw identity kept).
+
 ### P7. Paginated query node: no reconciliation, no optimistic updates
 
 `ConvexPaginatedQueryNode.ts:252-258` assigns `this.state = result` wholesale
@@ -209,23 +216,32 @@ lands. No `optimisticUpdate` on the paginated node at all. **Plan:** reconcile
 `state.results` by `_id` (reuse `tryReconcileConvexDocuments`); port — or
 better, extract (§6.2) — the optimistic machinery.
 
+**Implemented (2026-07-14):** `applyPaginatedState` reconciles
+`state.results` via `tryReconcileConvexDocuments` and diff-writes
+status/loadMore bookkeeping; rows and the state object keep identity across
+page updates and `loadMore`. `optimisticUpdate` deliberately not ported — the
+query node's baseline snapshots use `structuredClone`, which throws on the
+`loadMore` function stored in paginated state; a TODO in
+`ConvexPaginatedQueryNode.ts` defers it to the §6.2 AsyncQueryNode
+extraction.
+
 ### P8. Smaller constant costs
 
-- Listener registries are strong `Map`s keyed by raw nodes
-  (`Retree.ts:164-169`) — forgotten unsubscribes pin nodes+subtrees+closures
-  forever; the maps are never iterated, so `WeakMap` + a live-listener
-  counter for the `stopListening` gate works. Optionally auto-clear a node's
-  listeners on `nodeRemoved`.
-- Children cache is a prototype-ful plain record (`proxy.ts:899`) —
-  `Object.create(null)`, then delete the reproxy `constructor` special-case
-  (`reproxy.ts:231`).
-- `getSnapshot` allocates a fresh array per call (`externalStore.ts:125`).
-- Every getter read on any ReactiveNode pays `pushMemoGetter`/`popMemoGetter`
-  frames (`proxy.ts:395-400`) even for classes that never use keyless memo —
-  candidate for a per-prototype fast path after P1 lands.
-- `useNodeInternalCore` builds per-hook source objects while
-  `useRaw`/`useSelect` use the shared `getRetreeExternalStoreSource` cache —
-  unify on the cache.
+-   Listener registries are strong `Map`s keyed by raw nodes
+    (`Retree.ts:164-169`) — forgotten unsubscribes pin nodes+subtrees+closures
+    forever; the maps are never iterated, so `WeakMap` + a live-listener
+    counter for the `stopListening` gate works. Optionally auto-clear a node's
+    listeners on `nodeRemoved`.
+-   Children cache is a prototype-ful plain record (`proxy.ts:899`) —
+    `Object.create(null)`, then delete the reproxy `constructor` special-case
+    (`reproxy.ts:231`).
+-   `getSnapshot` allocates a fresh array per call (`externalStore.ts:125`).
+-   Every getter read on any ReactiveNode pays `pushMemoGetter`/`popMemoGetter`
+    frames (`proxy.ts:395-400`) even for classes that never use keyless memo —
+    candidate for a per-prototype fast path after P1 lands.
+-   `useNodeInternalCore` builds per-hook source objects while
+    `useRaw`/`useSelect` use the shared `getRetreeExternalStoreSource` cache —
+    unify on the cache.
 
 ---
 
@@ -256,7 +272,7 @@ matrix (§7).
 exactly. **Resolved in review: exact pins are deliberate and stay** —
 lockstep family upgrades prevent mismatched-version bugs, which in practice
 cause more support pain than range flexibility saves. The audit's real risk
-is therefore the *half-published family*: `publish-packages.mjs` publishes
+is therefore the _half-published family_: `publish-packages.mjs` publishes
 sequentially and can stop mid-family, and with exact pins a partial publish
 leaves npm in an unresolvable state. **Plan:** make the publish atomic —
 verify all tarballs/pins locally, then publish all packages in one CI job
@@ -296,23 +312,23 @@ release-script bumps + a grep check for hardcoded versions in `samples/`,
 
 **Confirmed during audit review: decorators are opt-in.** Specifics:
 
-- The published packages ship compiled JS; no consumer toolchain support is
-  needed to *use* Retree. `Retree.root`, all hooks, `ReactiveNode` with the
-  `dependencies` getter, `this.memo(...)`/`this.dependency(...)`, and
-  `Retree.link(...)` all work with zero decorator config.
-- Decorator support is only needed when a consumer **authors**
-  `@memo`/`@fnMemo`/`@select`/`@ignore`/`@link` in their own classes. On
-  TypeScript 5+ with `experimentalDecorators` **absent**, standard (2023-11)
-  decorators compile out of the box — no config at all. The two real failure
-  modes: (a) `experimentalDecorators: true` in the consumer's tsconfig
-  (legacy semantics), (b) Babel-transformed toolchains without
-  `@babel/plugin-proposal-decorators` `{ version: "2023-11" }`.
-- **The runtime guard already exists** (audit originally proposed adding it):
-  every decorator checks `isLegacyDecoratorPropertyKey(context)` and throws a
-  pinpoint error naming the decorator, the cause, and both fixes
-  (`decorators.ts:58, 112, 192, 235`, …). Failure mode (a) is therefore
-  already loud and self-diagnosing at runtime; (b) fails at build time with
-  the toolchain's own error.
+-   The published packages ship compiled JS; no consumer toolchain support is
+    needed to _use_ Retree. `Retree.root`, all hooks, `ReactiveNode` with the
+    `dependencies` getter, `this.memo(...)`/`this.dependency(...)`, and
+    `Retree.link(...)` all work with zero decorator config.
+-   Decorator support is only needed when a consumer **authors**
+    `@memo`/`@fnMemo`/`@select`/`@ignore`/`@link` in their own classes. On
+    TypeScript 5+ with `experimentalDecorators` **absent**, standard (2023-11)
+    decorators compile out of the box — no config at all. The two real failure
+    modes: (a) `experimentalDecorators: true` in the consumer's tsconfig
+    (legacy semantics), (b) Babel-transformed toolchains without
+    `@babel/plugin-proposal-decorators` `{ version: "2023-11" }`.
+-   **The runtime guard already exists** (audit originally proposed adding it):
+    every decorator checks `isLegacyDecoratorPropertyKey(context)` and throws a
+    pinpoint error naming the decorator, the cause, and both fixes
+    (`decorators.ts:58, 112, 192, 235`, …). Failure mode (a) is therefore
+    already loud and self-diagnosing at runtime; (b) fails at build time with
+    the toolchain's own error.
 
 Remaining plan (docs + installer, no runtime work):
 
@@ -339,20 +355,20 @@ Remaining plan (docs + installer, no runtime work):
 
 ### R7. Installer (`@retreejs/create`) — remaining gaps
 
-- **Non-TTY is a hard error with no flags** (`cli.ts:48-55`) — no
-  `--react/--convex/--skill/--yes`. The marquee checkbox installs an AI skill
-  for coding agents, who are exactly the non-TTY callers. Add
-  non-interactive flags.
-- **Monorepo detection misses workspace roots** (`detect.ts:90-108`):
-  lockfiles only checked in `cwd`; `hasDependency` ignores
-  peerDeps/workspace-root deps. Walk up to the git/workspace root for
-  lockfiles; check `peerDependencies`; use
-  `require.resolve("react/package.json", { paths: [cwd] })` as ground truth.
-- **Skill install hardcodes `npx`** (`plan.ts:30-33`) — use
-  `pnpm dlx`/`bunx`/`yarn dlx` per detected manager; consider pinning the
-  `skills` CLI version.
-- Distinguish "packages installed, only the skill failed" in the exit path
-  (`cli.ts:113-119`).
+-   **Non-TTY is a hard error with no flags** (`cli.ts:48-55`) — no
+    `--react/--convex/--skill/--yes`. The marquee checkbox installs an AI skill
+    for coding agents, who are exactly the non-TTY callers. Add
+    non-interactive flags.
+-   **Monorepo detection misses workspace roots** (`detect.ts:90-108`):
+    lockfiles only checked in `cwd`; `hasDependency` ignores
+    peerDeps/workspace-root deps. Walk up to the git/workspace root for
+    lockfiles; check `peerDependencies`; use
+    `require.resolve("react/package.json", { paths: [cwd] })` as ground truth.
+-   **Skill install hardcodes `npx`** (`plan.ts:30-33`) — use
+    `pnpm dlx`/`bunx`/`yarn dlx` per detected manager; consider pinning the
+    `skills` CLI version.
+-   Distinguish "packages installed, only the skill failed" in the exit path
+    (`cli.ts:113-119`).
 
 ### R8. Metadata nits
 
@@ -369,70 +385,83 @@ Verify `sideEffects: ["./bin/Retree.js"]` is truly needed.
 
 ## 4. Correctness & semantics (beyond §1)
 
-- **C1. Multi-node transactions batch into one render only on React 18+** —
-  `transactions.ts:93-104` emits once per changed node; React 16/17 (which
-  the peer range claims) gets N renders. **Resolved: keep 16/17 support** —
-  wrap the flush in `unstable_batchedUpdates` when available.
-  Also document that uSES store updates inside `startTransition` de-opt to
-  sync renders (the JSDoc suggestion at `Retree.ts:900` doesn't help).
-- **C2. Dependency tracking misses `in`, `Object.keys`, and iteration-shape
-  reads** — only get/set feed tracking; record-of-entities state
-  (`{ [id]: entity }`) never invalidates on key add/remove (arrays are saved
-  only because `length` is a get). MobX/Valtio trap `has`/`ownKeys`. Add a
-  keys pseudo-dependency invalidated by set-of-new-key/deleteProperty.
-- **C3. `useSelect` overload dispatch is a latent hook-order violation**
-  (`useSelect.ts:360-378`) — node form vs selector form have different hook
-  counts; a call site flipping between them throws a confusing React error.
-  Dev-mode ref + precise Retree error ("useSelect switched between
-  selector-only and node form").
-- **C4. NodeFactory inline-lambda footgun** — `useMemo(() => getNode(node),
-  [node])` re-runs on every prop identity change;
-  `useNode(() => Retree.root({...}))` silently resets state every render.
-  Dev-mode detection (resolved base proxy differs repeatedly for the same
-  hook) + docs.
-- **C5. `runSilent(fn, true)` vs `(fn, false)` differ on whether `onChanged`
-  and dependency refresh run** (`proxy.ts:558` vs `Retree.ts:1343-1345`) —
-  should be one documented decision, not an accident of the reproxy flag.
-- **C6. Change records carry no node identity** (`types.ts:40-44`);
-  ReactiveNode dependents receive foreign records (`Retree.ts:2008-2013`) —
-  `select.ts:497-500` must exclude ReactiveNodes from key-scoping because of
-  this. Adding the source raw node (+ ideally a path segment) to records is
-  also the enabling primitive for undo/redo (§6.1).
-- **C7. Convex query nodes: no self-cleanup** — `ConvexQueryNode`/
-  `ConvexPaginatedQueryNode` have no `onUnobserved`; standalone usage (shown
-  in the class doc example, `ConvexQueryNode.ts:126-130`) leaks a live
-  websocket query forever after the last unmount. `ConvexConnectionStateNode`
-  already self-cleans (`ConvexConnectionStateNode.ts:70-72`). Add
-  `onUnobserved() { this.dispose(); }` with resubscribe-on-reobserve (which
-  already works), and drop parent-driven disposal.
-- **C8. Convex misc:** `dispose()` not sticky — any `onChanged` resurrects
-  the subscription (`ConvexQueryNode.ts:157-159, 451-459`); shallow arg
-  comparison causes resubscribe churn + pending flash for object args
-  (Convex's own `useQuery` compares structurally); `updateArgs` drops data
-  with no `keepPreviousData` option; error state clobbered to "pending" on
-  `updateArgs` when the new watch's cached value is an error
-  (`retree-react-convex/src/index.ts:139-146` + `ConvexQueryNode.ts:222-239`);
-  no `retry()` affordance after `status: "error"`; `transform.apply` runs
-  outside a transaction (`ConvexQueryNode.ts:297-299`); `liveChildren` only
-  grows (`ConvexNode.ts:196-201`); dev-mode warning when `optimisticUpdate`
-  no-ops because state is undefined; Map object keys stringify to
-  `"[object Object]"` in change payloads (`proxy.ts:80-86`).
-- **C9. Ref writes during render** (`externalStore.ts:158-164`,
-  `useRaw.ts:109-110`) — rules-of-React violation; consequence is only an
-  extra resubscribe after a discarded concurrent render, but clean up.
-  Related: `toManaged`'s materialize-on-miss behaves differently inside vs
-  outside render (`useRaw.ts:112-126`) — key retries on version, not render.
-- **C10. Test coverage gaps:** every verified bug in §1 lacks a test; no
-  `Set.spec.ts` (Map has 519 lines); `transactions.spec` has no
-  exception-mid-transaction, nested-transaction, or
-  runSilent-inside-runTransaction cases; sample 04 has zero tests and no
-  `status === "error"` branch.
-- **Low/polish:** dead unreachable throw in `clone` (`Retree.ts:1537-1543`);
-  `clone` mangles RegExp/typed arrays/ArrayBuffer — support or throw a
-  pinpointed error; `TreeNode<T extends object = object> = T` is an identity
-  alias adding zero checking; missing dev warnings (writes during tracked
-  selectors, mutating `Retree.raw` results, `nodeChanged` select reading
-  descendants).
+-   **C1. Multi-node transactions batch into one render only on React 18+** —
+    `transactions.ts:93-104` emits once per changed node; React 16/17 (which
+    the peer range claims) gets N renders. **Resolved: keep 16/17 support** —
+    wrap the flush in `unstable_batchedUpdates` when available.
+    Also document that uSES store updates inside `startTransition` de-opt to
+    sync renders (the JSDoc suggestion at `Retree.ts:900` doesn't help).
+-   **C2. Dependency tracking misses `in`, `Object.keys`, and iteration-shape
+    reads** — only get/set feed tracking; record-of-entities state
+    (`{ [id]: entity }`) never invalidates on key add/remove (arrays are saved
+    only because `length` is a get). MobX/Valtio trap `has`/`ownKeys`. Add a
+    keys pseudo-dependency invalidated by set-of-new-key/deleteProperty.
+-   **C3. `useSelect` overload dispatch is a latent hook-order violation**
+    (`useSelect.ts:360-378`) — node form vs selector form have different hook
+    counts; a call site flipping between them throws a confusing React error.
+    Dev-mode ref + precise Retree error ("useSelect switched between
+    selector-only and node form").
+-   **C4. NodeFactory inline-lambda footgun** — `useMemo(() => getNode(node),
+[node])` re-runs on every prop identity change;
+    `useNode(() => Retree.root({...}))` silently resets state every render.
+    Dev-mode detection (resolved base proxy differs repeatedly for the same
+    hook) + docs.
+-   **C5. `runSilent(fn, true)` vs `(fn, false)` differ on whether `onChanged`
+    and dependency refresh run** (`proxy.ts:558` vs `Retree.ts:1343-1345`) —
+    should be one documented decision, not an accident of the reproxy flag.
+-   **C6. Change records carry no node identity** (`types.ts:40-44`);
+    ReactiveNode dependents receive foreign records (`Retree.ts:2008-2013`) —
+    `select.ts:497-500` must exclude ReactiveNodes from key-scoping because of
+    this. Adding the source raw node (+ ideally a path segment) to records is
+    also the enabling primitive for undo/redo (§6.1).
+-   **C7. Convex query nodes: no self-cleanup** — `ConvexQueryNode`/
+    `ConvexPaginatedQueryNode` have no `onUnobserved`; standalone usage (shown
+    in the class doc example, `ConvexQueryNode.ts:126-130`) leaks a live
+    websocket query forever after the last unmount. `ConvexConnectionStateNode`
+    already self-cleans (`ConvexConnectionStateNode.ts:70-72`). Add
+    `onUnobserved() { this.dispose(); }` with resubscribe-on-reobserve (which
+    already works), and drop parent-driven disposal.
+    **Implemented (2026-07-14):** both query nodes self-clean on
+    `onUnobserved` and resubscribe on `onObserved`; parent-driven disposal
+    removed from `ConvexNode` (verified: dependency-observed children receive
+    unobserve when the parent stops being observed, and independently observed
+    children are no longer torn down by parent unobserve).
+-   **C8. Convex misc:** `dispose()` not sticky — any `onChanged` resurrects
+    the subscription (`ConvexQueryNode.ts:157-159, 451-459`); shallow arg
+    comparison causes resubscribe churn + pending flash for object args
+    (Convex's own `useQuery` compares structurally); `updateArgs` drops data
+    with no `keepPreviousData` option; error state clobbered to "pending" on
+    `updateArgs` when the new watch's cached value is an error
+    (`retree-react-convex/src/index.ts:139-146` + `ConvexQueryNode.ts:222-239`);
+    no `retry()` affordance after `status: "error"`; `transform.apply` runs
+    outside a transaction (`ConvexQueryNode.ts:297-299`); `liveChildren` only
+    grows (`ConvexNode.ts:196-201`); dev-mode warning when `optimisticUpdate`
+    no-ops because state is undefined; Map object keys stringify to
+    `"[object Object]"` in change payloads (`proxy.ts:80-86`).
+    **Implemented (2026-07-14), all but the Map-key item (core, out of this
+    pass's scope):** sticky `isDisposed` (reobserve or `retry()` reopens);
+    deep arg comparison via `deepEquals` on both query nodes;
+    `keepPreviousData` option + `result.isStale`; synchronous watch errors no
+    longer clobbered to pending; public `retry()`; `transform.apply` wrapped
+    in `Retree.runTransaction`; `liveChildren` drops disposed children via an
+    internal disposal-listener registry; dev-mode `console.warn` on
+    state-undefined `optimisticUpdate`.
+-   **C9. Ref writes during render** (`externalStore.ts:158-164`,
+    `useRaw.ts:109-110`) — rules-of-React violation; consequence is only an
+    extra resubscribe after a discarded concurrent render, but clean up.
+    Related: `toManaged`'s materialize-on-miss behaves differently inside vs
+    outside render (`useRaw.ts:112-126`) — key retries on version, not render.
+-   **C10. Test coverage gaps:** every verified bug in §1 lacks a test; no
+    `Set.spec.ts` (Map has 519 lines); `transactions.spec` has no
+    exception-mid-transaction, nested-transaction, or
+    runSilent-inside-runTransaction cases; sample 04 has zero tests and no
+    `status === "error"` branch.
+-   **Low/polish:** dead unreachable throw in `clone` (`Retree.ts:1537-1543`);
+    `clone` mangles RegExp/typed arrays/ArrayBuffer — support or throw a
+    pinpointed error; `TreeNode<T extends object = object> = T` is an identity
+    alias adding zero checking; missing dev warnings (writes during tracked
+    selectors, mutating `Retree.raw` results, `nodeChanged` select reading
+    descendants).
 
 ---
 
@@ -440,21 +469,21 @@ Verify `sideEffects: ["./bin/Retree.js"]` is truly needed.
 
 Market facts (State of React 2025 + ecosystem research; sources in §8):
 
-- Zustand is the default (~22.6M weekly downloads); the standard stack is
-  "TanStack Query for server state + tiny client store." Top pain points
-  industry-wide: complexity (20%) and boilerplate (15%) — not raw perf.
-- **React Compiler went stable (Oct 2025)** and breaks observer-HOC tracking
-  (MobX, Preact Signals transform). `useSyncExternalStore`-based libraries
-  are the safe path — Retree already is one, but nobody knows.
-- MobX/MST is the aging incumbent for rich object graphs and is actively
-  bleeding compiler-worried users; Valtio is compiler-safe but shallow on
-  classes/transactions/sync; the sync-engine newcomers (TanStack DB, Zero,
-  LiveStore, Legend State v3) abandoned the mutable-object-graph model
-  entirely. **Retree sits exactly in the gap.**
-- TC39 signals: still Stage 1; React explicitly opted out. Don't wait for it.
-- TanStack DB set a public bar: sub-ms incremental live-query updates over
-  100K-row collections, transactional optimistic mutations with automatic
-  rollback.
+-   Zustand is the default (~22.6M weekly downloads); the standard stack is
+    "TanStack Query for server state + tiny client store." Top pain points
+    industry-wide: complexity (20%) and boilerplate (15%) — not raw perf.
+-   **React Compiler went stable (Oct 2025)** and breaks observer-HOC tracking
+    (MobX, Preact Signals transform). `useSyncExternalStore`-based libraries
+    are the safe path — Retree already is one, but nobody knows.
+-   MobX/MST is the aging incumbent for rich object graphs and is actively
+    bleeding compiler-worried users; Valtio is compiler-safe but shallow on
+    classes/transactions/sync; the sync-engine newcomers (TanStack DB, Zero,
+    LiveStore, Legend State v3) abandoned the mutable-object-graph model
+    entirely. **Retree sits exactly in the gap.**
+-   TC39 signals: still Stage 1; React explicitly opted out. Don't wait for it.
+-   TanStack DB set a public bar: sub-ms incremental live-query updates over
+    100K-row collections, transactional optimistic mutations with automatic
+    rollback.
 
 Table stakes Retree currently misses: a verified React Compiler compatibility
 statement, devtools (even a Redux DevTools bridge), a documented SSR/Next.js
@@ -521,36 +550,36 @@ framework-agnostic adapters before React is nailed.
 
 ## 7. Docs & API-shape notes
 
-- Root README is a 1,233-line monolith competing with retree.dev; cut to
-  hero + quick start + glossary + links into the site.
-- `abstract get dependencies()` (`ReactiveNode.ts:477`) forces
-  `get dependencies() { return []; }` ceremony on every subclass — the most
-  repeated line in the docs corpus. Default it to `[]`.
-- Three "select"s with different semantics (`useSelect`/`Retree.select`
-  observational — dependency changes notify subscribers but never reproxy the
-  node — vs `@select` emitting `nodeChanged` on the owner) + four memo forms.
-  **Resolved: keep the names.** Instead, write one canonical "select
-  semantics" doc section that every mention of `useSelect`/`Retree.select`/
-  `@select` links to, replacing the scattered warning boxes. Document the
-  memo forms as one API with escape hatches rather than four siblings.
-  Consider the `runSilent` `skipReproxy` double-negative separately (additive
-  option rename is possible without breakage).
-- No migration guides (Redux/Zustand/MobX — the MobX one is nearly free given
-  `website/lib/comparison-data.ts`), no recipes (forms, undo, websockets,
-  optimistic-outside-Convex), **no testing guidance anywhere**.
-- Sample READMEs are boilerplate/TODO; no sample covers `useRaw`,
-  `move/link/clone` as APIs, virtualized large lists, or undo. One
-  "hard-parts" sample (virtualized 10k list + `useRaw` + undo via
-  transactions) doubles as a benchmark showcase. Sample 04 hand-rolls
-  per-row reactivity (`page.tsx:147-155`) — if `useNode(task)` on reconciled
-  docs is the idiomatic path, the flagship sample should show it.
-- Compatibility matrix undocumented: Node (broken today per R1), React
-  Native/Hermes, the React floor actually tested (specs run React 19 only;
-  peers claim ^16.8), Map/Set/Date semantics in one place.
-- Strengths to preserve: the useNode-per-child footgun teaching (4 places,
-  excellent), the AI-agent surface (llms.txt in tarballs, skill, /raw/docs
-  routes) ahead of the field, Pagefind search + Sandpack playgrounds on every
-  hook page, `specs/` quality.
+-   Root README is a 1,233-line monolith competing with retree.dev; cut to
+    hero + quick start + glossary + links into the site.
+-   `abstract get dependencies()` (`ReactiveNode.ts:477`) forces
+    `get dependencies() { return []; }` ceremony on every subclass — the most
+    repeated line in the docs corpus. Default it to `[]`.
+-   Three "select"s with different semantics (`useSelect`/`Retree.select`
+    observational — dependency changes notify subscribers but never reproxy the
+    node — vs `@select` emitting `nodeChanged` on the owner) + four memo forms.
+    **Resolved: keep the names.** Instead, write one canonical "select
+    semantics" doc section that every mention of `useSelect`/`Retree.select`/
+    `@select` links to, replacing the scattered warning boxes. Document the
+    memo forms as one API with escape hatches rather than four siblings.
+    Consider the `runSilent` `skipReproxy` double-negative separately (additive
+    option rename is possible without breakage).
+-   No migration guides (Redux/Zustand/MobX — the MobX one is nearly free given
+    `website/lib/comparison-data.ts`), no recipes (forms, undo, websockets,
+    optimistic-outside-Convex), **no testing guidance anywhere**.
+-   Sample READMEs are boilerplate/TODO; no sample covers `useRaw`,
+    `move/link/clone` as APIs, virtualized large lists, or undo. One
+    "hard-parts" sample (virtualized 10k list + `useRaw` + undo via
+    transactions) doubles as a benchmark showcase. Sample 04 hand-rolls
+    per-row reactivity (`page.tsx:147-155`) — if `useNode(task)` on reconciled
+    docs is the idiomatic path, the flagship sample should show it.
+-   Compatibility matrix undocumented: Node (broken today per R1), React
+    Native/Hermes, the React floor actually tested (specs run React 19 only;
+    peers claim ^16.8), Map/Set/Date semantics in one place.
+-   Strengths to preserve: the useNode-per-child footgun teaching (4 places,
+    excellent), the AI-agent surface (llms.txt in tarballs, skill, /raw/docs
+    routes) ahead of the field, Pagefind search + Sandpack playgrounds on every
+    hook page, `specs/` quality.
 
 ---
 
@@ -589,6 +618,130 @@ framework-agnostic adapters before React is nailed.
 6. **B7 — dedupe-and-insert via map-consume.** Zero-overhead (`delete` after
    the existing `get`); duplicates are only possible from user-constructed
    query results, never plain `.collect()`. No throw, no validation pass.
+
+---
+
+## 9. Implementation ledger (2026-07-14)
+
+Every item below shipped with tests and passed an adversarial review pass
+(reviewer-found defects were fixed and re-verified; full suite green at each
+checkpoint).
+
+**§1 verified bugs — all done.** B1 (idempotent unsubscribe + ref-counted
+hub), B2 (save/restore silent flags + interleaving semantics tests), B3
+(rejection-time rollback baseline), B4 (structuredClone + `deepEquals`; lazy
+baseline capture — zero clones per emission), B5 (`Object.hasOwn` delete
+guard + `Object.is` set compare), B6 (Map/Set descendant clear), B7
+(map-consume dedupe + reviewer-found identity-guard fix in the slot-stability
+check).
+
+**§2 performance — all done.**
+
+-   P1: suffix comparisons flattened to one shared array + offsets; validation
+    gate ported to auto-trapped `@select`; two more quadratics found and fixed
+    (stale-dep sweep, dependents-store scan). Measured: unrelated write at
+    2,000 items 4,265 ms → 0.007 ms; related 11,131 ms → 13.8 ms (linear).
+-   P2: nine array mutators wrapped Map/Set-style — one emission, one coherent
+    record set, `nodeRemoved` preserved; reviewer-found reproxy bypass fixed
+    (mutators through `useNode` reproxies now batch too); throwing-sort
+    consistency; wrapper identity cached per handler (tracked selectors safe).
+    splice(0,1)@1000: 1,001 emissions → 1.
+-   P3: `useSelect` owns its selection-memoization layer over plain
+    `useSyncExternalStore`; selector runs once per render for inline closures,
+    zero for stable ones; reviewer-found prop-capture staleness and
+    stranded-store-on-swap regressions fixed (stable swappable subscribe
+    handle); render-phase ref writes removed. specs/use-sync-external-store.md
+    updated.
+-   P4: treeChanged ancestor walk gated by allocation-free parent-chain
+    precheck (7.6 → 3.5 µs/write with an unrelated listener; 0.6 µs with none).
+-   P5: snapshot-version records live on handlers, mutated in place; gated by
+    live-listener count with a pending-dirty-set flush model (flush on gated
+    read or gate reopen; overflow valve at 10k) — sound for all read/write/
+    subscribe orderings; single-render bootstrap preserved (reviewer hole
+    closed).
+-   P6: deep reconcile for nested Convex doc fields (deep-equal gate, in-place
+    same-shape reconcile). P7: paginated results reconcile by `_id`; paginated
+    `optimisticUpdate` landed with the @retreejs/query extraction.
+-   P8: WeakMap listener registries + counters; `Object.create(null)` children
+    cache (fixed a latent prototype-name-collision bug); per-prototype keyless-
+    memo fast path; `getSnapshot` allocation-free on the unchanged path;
+    unified source plumbing.
+
+**§3 packaging/release.** R2 done (atomic lockstep publish: preflight
+version/pin/build/dry-run assertions, idempotent retry, `--provenance`).
+R4 done (ci.yml, release.yml, changesets fixed-group config, CONTRIBUTING.md;
+`@changesets/cli` devDep install pending final pass). R5 done (samples on
+workspace links; Sandpack pins were already current — audit finding partially
+stale; AUTHORING.md fixed). R6 done (llms.txt/SKILL.md/root-README decorator
+notes; installer conflict detection with optional framing + guarded
+interactive fix; the runtime legacy-decorator guard predated the audit).
+R7 done (non-TTY flags, walk-up monorepo detection, peerDeps +
+`require.resolve` ground truth, PM-aware dlx, split exit paths). R8 done
+(repository.directory, homepages → retree.dev, typo, compare index; OG image
+already existed — stale finding; the dead `./internal` export on
+retree-react was removed). R1 done: ESM-only across the family
+(`"type": "module"`, nodenext resolution, extensioned specifiers), gated by
+`npm run lint:packages` (publint `--strict` + attw `--profile esm-only` +
+a child-process Node import smoke test over every entry incl.
+`@retreejs/react/testing`) wired into CI and the publish preflight;
+independently verified by packing all seven tarballs into a fresh project —
+ESM import and Node 22 `require(esm)` both load every package. R3 done
+(`"use client"` on all 13 emitted react entry/hook files, directive-prologue
+placement verified).
+
+**§4 correctness.** C1 done (core flush-wrapper hook +
+`unstable_batchedUpdates` registration; react-dom stays a required peer —
+supersedes the R8 removal idea). C2 done (`has`/`ownKeys` keys-dependencies
+feeding both validation paths). C3 done (form-flip guard, always-on).
+C4 done (dev-mode inline-factory warning + JSDoc). C5 done ("silence means
+silence" in both runSilent modes). C6 done (records carry raw `node` +
+original `key` — Map object keys no longer stringified; docs updated).
+C7/C8 done (self-disposing query nodes, sticky dispose, deep arg compare,
+`keepPreviousData`/`isStale`, error-vs-pending fix, `retry()`, transactional
+transforms, disposal registry, dev warnings). C9 done (commit-effect ref
+pattern). C10 done (Set.spec, run-silent/change-records/keys-dependency
+specs, Array.spec). isDevMode define-compat fixed (literal read in
+`try/catch`). M2 done (`dependencies` defaults to `[]`, with a
+field-assignment-compatible setter).
+
+**§6 strategic.** 6.2 first tranche done: `@retreejs/query` package
+(`QueryNode`, `IQuerySubscriptionSource`, `fetchQueryNode`, reconcilers),
+convex refactored on top with frozen specs passing unmodified,
+`ConvexAuthStateNode`, `preloadedQueryOptions` SSR helper
+(specs/retree-query.md documents the design; offline queue/TanStack/WS
+adapters deferred there). 6.1 done: `Retree.applyInverse`/`applyChanges` on
+op-tagged change records (exact inversion incl. array structural ops and
+Map/Set clear ordering; two documented inexact length cases) +
+`createUndoHistory` (transaction = one step, coalescing incl. discrete
+ReactiveNode keystrokes, redo truncation, limit, undo-inside-transaction
+suppression). 6.3 done: zero-overhead debug tap + named-root registry in
+core, `@retreejs/devtools` package with `connectReduxDevTools` (honest
+time-travel scope) and `createChangeLogTap`. 6.4 done: `Retree.effect`
+(validation-gated re-runs, self-write convergence incl. creation run,
+100-rerun loop guard, `onError`). 6.6 done: react-compiler integration spec
+compiles real hook internals with the compiler and proves both directions —
+components stay reactive under compiler memoization, and the `"use no memo"`
+directive on hook internals is load-bearing (stripping it pins the exact
+staleness failure); website react-compiler page documents the story.
+6.7 done: `createRetreeContext`/`RetreeProvider` (StrictMode-safe, sibling
+isolation) for per-request SSR roots and test isolation. 6.8 done:
+`@retreejs/react/testing` subpath (`createTestRoot`, `actOnRetree`).
+Post-review fix round closed five reviewer-confirmed defects (effect
+stop-inside-body leak, undo-inside-transaction recording, ReactiveNode
+coalesce, clear-order inversion, creation-run cascade).
+
+**§7 docs.** Select-semantics page, three migration guides, testing guide
+(incl. the shipped utilities), compare index, sample READMEs,
+events-and-subscriptions payload docs, root README trim (1,242 → ~130
+lines), package README sync for every new API, compatibility page (ESM-only,
+Node ≥ 20.19/22.12 `require(esm)`, React ^16.8 via `unstable_batchedUpdates`,
+RN unsupported for now), performance page updated to the §9 measured
+numbers, new website pages for effects, undo/redo, devtools, and query,
+llms.txt + SKILL.md + skill references regenerated, TypeDoc covering all six
+library packages, sample 04 idiomatic per-row `useNode` + error/retry —
+all done. Final verification: 831/831 tests, typecheck (all packages +
+samples), `lint:packages`, `npm run docs`, and the full website build
+(166 MDX files, zero broken links) all green on the final tree.
 
 ---
 

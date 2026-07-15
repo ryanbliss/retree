@@ -1,0 +1,136 @@
+---
+title: From Redux Toolkit
+description: A concept-by-concept map from Redux Toolkit to Retree — slices, reducers, dispatch, and useSelector — with a before/after slice and the gotchas.
+---
+
+Here's the friendly irony of this migration: the "mutating" code you write in
+`createSlice` reducers is already Retree code — Redux Toolkit runs it through
+Immer to produce immutable updates, while Retree just runs it. Moving over
+mostly means deleting the machinery around that code: actions, dispatch, the
+store configuration, and the selector layer. This page is the routing table,
+not a tutorial; the [Quickstart](/docs/quick-start) and
+[Thinking in Retree](/docs/thinking-in-retree) cover the destination
+properly.
+
+## Concept map
+
+| Redux Toolkit                        | Retree                                                                                       |
+| ------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `configureStore`                     | [`Retree.root`](/docs/quick-start) — one call, no reducer map                                |
+| `createSlice`                        | A child node per domain — a plain object or class under the root                             |
+| Reducers (Immer-style mutation)      | Methods that mutate `this` — the same code, running for real                                 |
+| `dispatch(action)`                   | Call the method                                                                              |
+| `useSelector`                        | [`useSelect`](/docs/react/use-select) — or [`useNode`](/docs/react/use-node) on the node a component owns |
+| `useDispatch`                        | Not needed                                                                                   |
+| `createSelector` (reselect)          | [`@memo`](/docs/view-models#memoize-computed-values) getters on a `ReactiveNode`             |
+| `createAsyncThunk`                   | Plain `async` methods that mutate state before/after `await`                                 |
+| `<Provider store={store}>`           | Not needed                                                                                   |
+| RTK Query                            | [`@retreejs/convex`](/docs/convex) for Convex; otherwise fetch inside async methods — no general data-fetching layer today |
+| Redux DevTools                       | None today                                                                                   |
+| Middleware                           | None — cross-cutting reactions subscribe with [`Retree.on`](/docs/events-and-subscriptions)  |
+
+## Before and after
+
+A tasks slice with a reducer, a thunk, and a selector:
+
+```ts title="Redux Toolkit"
+import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
+
+export const loadTasks = createAsyncThunk("tasks/load", () => fetchTasks());
+
+const tasksSlice = createSlice({
+    name: "tasks",
+    initialState: { items: [] as Task[], loading: false },
+    reducers: {
+        toggled(state, action: { payload: number }) {
+            const task = state.items.find((t) => t.id === action.payload);
+            if (task) task.done = !task.done;
+        },
+    },
+    extraReducers: (builder) => {
+        builder
+            .addCase(loadTasks.pending, (state) => {
+                state.loading = true;
+            })
+            .addCase(loadTasks.fulfilled, (state, action) => {
+                state.items = action.payload;
+                state.loading = false;
+            });
+    },
+});
+
+// In a component:
+const doneCount = useSelector(
+    (state: RootState) =>
+        state.tasks.items.filter((task) => task.done).length
+);
+dispatch(tasksSlice.actions.toggled(taskId));
+```
+
+```tsx title="Retree"
+import { Retree } from "@retreejs/core";
+import { useSelect } from "@retreejs/react";
+
+class TasksSlice {
+    items: Task[] = [];
+    loading = false;
+
+    toggled(id: number) {
+        const task = this.items.find((t) => t.id === id);
+        if (task) task.done = !task.done; // the reducer body, unwrapped
+    }
+
+    async load() {
+        this.loading = true;
+        this.items = await fetchTasks();
+        this.loading = false;
+    }
+}
+
+const store = Retree.root({ tasks: new TasksSlice() });
+
+// In a component:
+const doneCount = useSelect(
+    () => store.tasks.items.filter((task) => task.done).length
+);
+store.tasks.toggled(taskId);
+```
+
+The reducer body survived verbatim; the action type, the dispatch, the thunk
+lifecycle cases, and the provider did not.
+
+## Gotchas
+
+-   **There is no action log.** Redux's contract — every change is a
+    serializable action through one pipeline — is what buys time-travel
+    debugging and middleware. Retree deliberately trades that for direct
+    mutation: writes emit change events
+    ([observable via `Retree.on`](/docs/events-and-subscriptions)), but there
+    is no replayable log and no devtools today.
+-   **State is mutable for real.** Any code holding a node can write to it,
+    and the write emits — there is no reducer boundary to funnel changes
+    through. Convention (methods on the owning class) replaces enforcement.
+-   **Re-renders come from subscriptions, not root immutability.**
+    `useSelector` re-runs on every store update and compares results; a
+    Retree component subscribes to the nodes it reads and is simply not
+    notified for the rest. Give each rendered child node its own
+    [`useNode`](/docs/common-pitfalls#writes-to-a-nested-node-dont-re-render).
+-   **Normalization is optional.** Without immutable updates, deep nesting
+    stops being expensive — an update three levels down is one write, not
+    three spreads. Keep entity maps where they model the domain well; drop
+    the ones that only existed to keep reducers shallow. Retree enforces
+    [one structural parent per node](/docs/common-pitfalls#putting-one-node-in-two-places),
+    with [`link`](/docs/tree-operations) for cross-references.
+-   **Batch multi-step updates.** Each write emits individually where a
+    reducer emitted once per action. Wrap multi-write updates in
+    [`Retree.runTransaction`](/docs/transactions) when subscribers should see
+    them as one change.
+
+## Where next
+
+-   [Thinking in Retree](/docs/thinking-in-retree) — the model replacing the
+    store/action/reducer triangle.
+-   [View models](/docs/view-models) — where reselect-style derived state
+    lives.
+-   [Testing](/docs/testing) — asserting on state and emission without a
+    dispatch pipeline.

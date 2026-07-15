@@ -8,9 +8,9 @@ import {
     renderMarkdownReport,
     renderMarkdownVerboseReport,
     writeBenchmarkArtifacts,
-} from "./report";
-import { summarizeDurations } from "./stats";
-import { BenchmarkResults } from "./types";
+} from "./report.js";
+import { summarizeDurations } from "./stats.js";
+import { BenchmarkResults } from "./types.js";
 
 describe("benchmark stats and reports", () => {
     it("summarizes raw durations", () => {

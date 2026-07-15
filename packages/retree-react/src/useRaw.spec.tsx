@@ -6,9 +6,14 @@ import { act, render, screen } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ReactiveNode, Retree, select } from "@retreejs/core";
-import { getCustomProxyHandler } from "@retreejs/core/internal";
-import { useNode } from "./useNode";
-import { useRaw } from "./useRaw";
+import {
+    getCustomProxyHandler,
+    materializeDirectChildren,
+} from "@retreejs/core/internal";
+import { useNode } from "./useNode.js";
+import { ToManaged, useRaw } from "./useRaw.js";
+
+vi.mock("@retreejs/core/internal", { spy: true });
 
 interface Task {
     id: string;
@@ -230,5 +235,45 @@ describe("useRaw", () => {
             root.tasks[0].title = "Deep";
         });
         expect(renders).toHaveBeenCalledTimes(2);
+    });
+
+    it("keys toManaged materialization retries on the node version, not the render", () => {
+        const materializeSpy = vi.mocked(materializeDirectChildren);
+        materializeSpy.mockClear();
+        const root = Retree.root({ tasks: makeTasks() });
+        let capturedToManaged: ToManaged | undefined;
+
+        function List() {
+            const [tasksRaw, toManaged] = useRaw(root.tasks);
+            capturedToManaged = toManaged;
+            return <div data-testid="count">{tasksRaw.length}</div>;
+        }
+
+        const view = render(<List />);
+        const foreign: Task = { id: "x", title: "X", isComplete: false };
+
+        // A miss runs exactly one materialization pass at this version.
+        expect(capturedToManaged!(foreign)).toBeUndefined();
+        expect(materializeSpy).toHaveBeenCalledTimes(1);
+
+        // A second miss at the same version — even after a fresh render —
+        // does not run another pass.
+        view.rerender(<List />);
+        expect(capturedToManaged!(foreign)).toBeUndefined();
+        expect(materializeSpy).toHaveBeenCalledTimes(1);
+
+        // A node change grants exactly one new pass, including outside render.
+        act(() => {
+            root.tasks.push({ id: "c", title: "Gamma", isComplete: false });
+        });
+        expect(capturedToManaged!(foreign)).toBeUndefined();
+        expect(materializeSpy).toHaveBeenCalledTimes(2);
+        expect(capturedToManaged!(foreign)).toBeUndefined();
+        expect(materializeSpy).toHaveBeenCalledTimes(2);
+
+        // Direct children still resolve throughout.
+        const managed = capturedToManaged!(Retree.raw(root.tasks)[2]);
+        expect(managed).toBeDefined();
+        expect(Retree.raw(managed!)).toBe(Retree.raw(root.tasks)[2]);
     });
 });

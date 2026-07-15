@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseCompareArgs, renderBenchmarkComparison } from "./compare";
+import { parseCompareArgs, renderBenchmarkComparison } from "./compare.js";
 
 describe("benchmark compare", () => {
     it("parses compare args after root-script benchmark flags", () => {

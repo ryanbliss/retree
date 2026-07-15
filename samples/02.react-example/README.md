@@ -1,30 +1,30 @@
-# React + TypeScript + Vite
+# 02. React example — async class state
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A minimal Vite + React app: a class fetches cat facts and mutates itself, and
+the UI follows along. No actions, no reducers — `randomize()` just writes to
+`this`.
 
-Currently, two official plugins are available:
+## What it teaches
 
--   [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
--   [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+-   `Retree.root` over a class instance whose async method drives
+    loading/error/data state with plain assignments.
+-   `useTree` subscribing one component to the whole app tree.
+-   Passing a child node (`root.facts`) into a `React.memo` component and
+    letting reproxy identity trigger its re-renders.
+-   Testing the flow with Testing Library and a stubbed `fetch` — see
+    `src/App.spec.tsx` and the [testing guide](https://www.retree.dev/docs/testing).
 
-## Expanding the ESLint configuration
+## Where to look
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+-   `src/App.tsx` — the `CatFacts` class, the app tree, and both components.
+-   `src/App.spec.tsx` — success and failure paths under vitest.
 
--   Configure the top-level `parserOptions` property like this:
+## How to run
 
-```js
-export default {
-    // other rules...
-    parserOptions: {
-        ecmaVersion: "latest",
-        sourceType: "module",
-        project: ["./tsconfig.json", "./tsconfig.node.json"],
-        tsconfigRootDir: __dirname,
-    },
-};
+```bash
+npm install && npm run build:packages   # from the repo root
+cd samples/02.react-example
+npm run dev
 ```
 
--   Replace `plugin:@typescript-eslint/recommended` to `plugin:@typescript-eslint/recommended-type-checked` or `plugin:@typescript-eslint/strict-type-checked`
--   Optionally add `plugin:@typescript-eslint/stylistic-type-checked`
--   Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and add `plugin:react/recommended` & `plugin:react/jsx-runtime` to the `extends` list
+`npm run test` at the repo root runs this sample's spec too.

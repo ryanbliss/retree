@@ -9,13 +9,15 @@ import {
     getCustomProxyHandler,
     getUnproxiedNode,
     getUnproxiedNodeFromProxy,
-} from "./internals";
-import { TreeChangeEmitter } from "./internals/NodeChangeEmitter";
+} from "./internals/index.js";
+import { TreeChangeEmitter } from "./internals/NodeChangeEmitter.js";
 import {
     isCustomProxy,
     proxiedParentKey,
     TCustomProxy,
-} from "./internals/proxy-types";
+    unproxiedBaseNodeKey,
+} from "./internals/proxy-types.js";
+import { setSnapshotVersionAdvancementActive } from "./internals/snapshot-version.js";
 import {
     deleteReactiveDependencies,
     deleteReactiveDependent,
@@ -23,36 +25,48 @@ import {
     getReactiveDependents,
     IActiveReactiveDependency,
     IPreviousReactiveDependent,
+    IReactiveDependentGroup,
     retainReactiveDependencySubscription,
     setReactiveDependencies,
     setReactiveDependents,
-} from "./internals/reactive-node-utils";
+} from "./internals/reactive-node-utils.js";
 import {
     getManagedProxyForUnproxiedNode,
     getReproxyNode,
     getReproxyNodeForUnproxiedNode,
     updateReproxyNode,
     updateReproxyNodeForChange,
-} from "./internals/reproxy";
+} from "./internals/reproxy.js";
 import {
+    canSkipTrackedDependencyChange,
     createRetreeSelectionObserver,
+    createRetreeTrackedEffect,
     createRetreeTrackedSelectionObserver,
     defaultSelectEquals,
     normalizeSelectDependencies,
     RetreeSelectEquals,
     RetreeSelectSelector,
     RetreeTrackedSelectSelector,
-} from "./internals/select";
+} from "./internals/select.js";
+import {
+    applyNodeFieldChangesForward,
+    applyNodeFieldChangesInverse,
+} from "./internals/apply-node-changes.js";
+import {
+    notifyRetreeDebugTaps,
+    registerRetreeRootName,
+    retreeDebugTapCount,
+} from "./internals/debug-tap.js";
 import {
     runWithIsolatedDependencyTracking,
     runWithoutDependencyTracking,
-} from "./internals/dependency-tracking";
+} from "./internals/dependency-tracking.js";
 import {
     areDependencyValuesEqual,
-    getDependencyComparisonValues,
     normalizeDependencyEntry,
-} from "./internals/dependencies";
-import { Transactions } from "./internals/transactions";
+    NormalizedDependencySlot,
+} from "./internals/dependencies.js";
+import { Transactions } from "./internals/transactions.js";
 import {
     LINKED_KEYS_SYMBOL,
     IReactiveSelectGetter,
@@ -66,7 +80,7 @@ import {
     setReactiveNodeRawImplementation,
     setReactiveNodePeekIntoImplementation,
     setReactiveNodeUntrackedImplementation,
-} from "./ReactiveNode";
+} from "./ReactiveNode.js";
 import {
     RetreeObjectMoveKey,
     TRetreeEvents,
@@ -75,11 +89,28 @@ import {
     TreeNode,
     TRetreeChangedEvents,
     INodeFieldChanges,
-} from "./types";
+} from "./types.js";
 
 export interface RetreeSelectOptions<TSelected = unknown> {
     equals?: RetreeSelectEquals<TSelected>;
     listenerType?: TRetreeChangedEvents;
+}
+
+/**
+ * Options for {@link Retree.effect}.
+ */
+export interface RetreeEffectOptions {
+    /**
+     * Called with any error the effect function throws during a run.
+     *
+     * @remarks
+     * When omitted, errors are rethrown asynchronously (as an uncaught
+     * exception on a fresh stack) so one bad run neither kills the reaction
+     * nor propagates into the mutation that triggered it. Either way the
+     * effect stays subscribed: dependencies read before the throw re-run it,
+     * so it can recover on the next relevant change.
+     */
+    onError?: (error: unknown) => void;
 }
 
 type TInternalNodeChangedListener = (
@@ -161,12 +192,31 @@ export class Retree {
         Map<string | symbol, unknown>
     >();
 
-    private static treeChangedListeners: Map<TreeNode, TNodeChangedListener[]> =
-        new Map();
-    private static nodeChangedListeners: Map<TreeNode, TNodeChangedListener[]> =
-        new Map();
-    private static nodeRemovedListeners: Map<TreeNode, (() => void)[]> =
-        new Map();
+    // Listener registries are WeakMaps keyed by raw nodes so a forgotten
+    // unsubscribe cannot pin a node (plus its subtree and listener closures)
+    // in memory forever. They are never iterated; the live-listener counters
+    // below stand in for the old `Map.size` gates.
+    //
+    // Counter-leak trade-off: the counters cannot observe GC. A forgotten
+    // unsubscribe on a node that has since been garbage-collected leaves its
+    // increment in the counters forever, overcounting live listeners and
+    // keeping the snapshot-version advancement gate open (every write keeps
+    // paying the ancestor version walk). That is strictly better than the
+    // old strong-Map registries, where the same forgotten unsubscribe pinned
+    // the node, its subtree, and its listener closures in memory instead.
+    private static treeChangedListeners: WeakMap<
+        TreeNode,
+        TNodeChangedListener[]
+    > = new WeakMap();
+    private static nodeChangedListeners: WeakMap<
+        TreeNode,
+        TNodeChangedListener[]
+    > = new WeakMap();
+    private static nodeRemovedListeners: WeakMap<TreeNode, (() => void)[]> =
+        new WeakMap();
+    private static treeChangedListenerCount = 0;
+    private static nodeChangedListenerCount = 0;
+    private static nodeRemovedListenerCount = 0;
     private static nodeChangeEmitter = new TreeChangeEmitter();
     private static reactiveDependentNodeChangedListener = (
         reproxy: TreeNode,
@@ -277,7 +327,11 @@ export class Retree {
      */
     static clone<TNode extends TreeNode>(node: TNode): TNode {
         this.assertRetreeManagedNode(node, "Retree.clone");
-        return this.cloneValue(getUnproxiedNode(node), new WeakMap()) as TNode;
+        return this.cloneValue(
+            getUnproxiedNode(node),
+            new WeakMap(),
+            "node"
+        ) as TNode;
     }
 
     /**
@@ -437,6 +491,7 @@ export class Retree {
         } else {
             listeners.push(callback as TRetreeListeners);
         }
+        this.handleListenerCountChanged(relevantListenerMap, 1);
         if (node instanceof ReactiveNode && isReactiveChangeListener) {
             if (!wasObserved) {
                 ReactiveNode[RUN_OBSERVED_EFFECT_SYMBOL](node);
@@ -585,6 +640,192 @@ export class Retree {
                 this.on(selectedNode, selectedListenerType, listener),
             onChange: callback,
         });
+    }
+
+    /**
+     * Run an auto-tracked reaction: `fn` runs immediately under dependency
+     * tracking and re-runs whenever a tracked dependency changes.
+     *
+     * @remarks
+     * `effect` is the third subscription primitive next to {@link Retree.on}
+     * (one node, every change) and {@link Retree.select} (derived value,
+     * change-compared). It has no selected value and no comparison: every
+     * dependency change that survives validation re-runs `fn`. Reads are
+     * trapped exactly like the selector-only `Retree.select(() => ...)` form
+     * — property reads subscribe to their owner node and validate by value,
+     * so unrelated writes to a tracked node skip the re-run. Wrap reads that
+     * should not subscribe in {@link Retree.untracked}.
+     *
+     * `fn` may write Retree state. A run that changes the value of a
+     * property it already read re-runs after the current run completes —
+     * including the creation run, so a self-converging effect reaches its
+     * fixed point before `Retree.effect` returns. A cascade of more than 100
+     * synchronous re-runs throws an error naming the effect, because the
+     * effect cannot converge. Note that reads of a property the same run
+     * also writes are excluded from dependency tracking, exactly as in
+     * tracked selectors.
+     *
+     * Errors thrown by `fn` do not kill the reaction: they are passed to
+     * `options.onError` when provided, and rethrown asynchronously (as an
+     * uncaught exception) otherwise. See {@link RetreeEffectOptions.onError}.
+     *
+     * @param fn Reaction body; run once immediately, then on every relevant
+     * dependency change.
+     * @param options Optional {@link RetreeEffectOptions}.
+     * @returns Unsubscribe function that stops all re-runs.
+     *
+     * @example
+     * ```ts
+     * const settings = Retree.root({ theme: "dark", fontSize: 14 });
+     *
+     * const stop = Retree.effect(() => {
+     *     document.body.dataset.theme = settings.theme;
+     * });
+     *
+     * settings.theme = "light"; // ✅ effect re-runs
+     * settings.fontSize = 16; // ❌ not read by the effect; skipped
+     * stop();
+     * ```
+     */
+    static effect(
+        fn: () => void,
+        options: RetreeEffectOptions = {}
+    ): () => void {
+        if (typeof fn !== "function") {
+            // @retree-throws
+            throw new Error(
+                "Retree.effect: expected a function as the first argument. This is expected when a value or the result of calling the function is passed instead. Fix: pass the effect function itself, e.g. Retree.effect(() => { ... })."
+            );
+        }
+        return createRetreeTrackedEffect({
+            fn,
+            effectName: fn.name === "" ? "anonymous" : fn.name,
+            onError: options.onError,
+            subscribeToNode: (node, listenerType, listener) =>
+                this.on(node, listenerType, listener),
+        });
+    }
+
+    /**
+     * Apply the inverse of a change batch, restoring the state the records
+     * describe mutating away from.
+     *
+     * @remarks
+     * Records are applied in reverse order; for each one, `previous` is
+     * restored at `record.key` on the managed node behind `record.node`
+     * (see {@link Retree.managed}). Structural records restore structure
+     * exactly: array `insert`/`remove` records splice elements back into
+     * place, `add`-marked records delete the key they created, `delete`-
+     * marked records restore the deleted entry, and `Map.clear`/`Set.clear`
+     * restore every discarded entry from their per-entry records (see
+     * {@link TNodeFieldChangeOp}).
+     *
+     * The whole batch applies inside one {@link Retree.runTransaction}, and
+     * every write goes through managed nodes, so listeners (and React)
+     * observe the restoration as one normal batched change.
+     *
+     * Known inexact inverses, by design: a direct `array.length = n`
+     * assignment that shrank the array restores only the length (the
+     * discarded elements emitted no records), and a plain write that
+     * implicitly extended an array restores the value but not the shorter
+     * length.
+     *
+     * Throws when a record's node is no longer Retree-managed — records must
+     * be applied to the live tree that emitted them.
+     *
+     * @param changes Change records exactly as emitted to a
+     * {@link Retree.on} listener (one batch).
+     *
+     * @example
+     * ```ts
+     * const project = Retree.root({ tasks: [{ title: "Docs" }] });
+     * let lastChanges: INodeFieldChanges[] = [];
+     * Retree.on(project, "treeChanged", (_node, changes) => {
+     *     lastChanges = changes;
+     * });
+     *
+     * project.tasks.push({ title: "Tests" });
+     * Retree.applyInverse(lastChanges); // ✅ tasks is back to one entry
+     * ```
+     */
+    static applyInverse(changes: INodeFieldChanges[]): void {
+        this.runTransaction(() => {
+            applyNodeFieldChangesInverse(changes, "Retree.applyInverse");
+        });
+    }
+
+    /**
+     * Replay a change batch forward, re-applying the state the records
+     * describe mutating to.
+     *
+     * @remarks
+     * The redo counterpart of {@link Retree.applyInverse}: records apply in
+     * emission order and each record's `new` state is applied at
+     * `record.key` on the managed node behind `record.node`. Structural
+     * records replay structurally (array `insert`/`remove` records splice,
+     * `delete`-marked records delete, `clear` summary records clear), so
+     * replaying a batch that {@link Retree.applyInverse} undid restores the
+     * exact post-mutation state.
+     *
+     * The whole batch applies inside one {@link Retree.runTransaction}.
+     * Throws when a record's node is no longer Retree-managed.
+     *
+     * @param changes Change records exactly as emitted to a
+     * {@link Retree.on} listener (one batch).
+     *
+     * @example
+     * ```ts
+     * project.tasks.push({ title: "Tests" });
+     * Retree.applyInverse(lastChanges); // undo
+     * Retree.applyChanges(lastChanges); // ✅ redo: "Tests" is back
+     * ```
+     */
+    static applyChanges(changes: INodeFieldChanges[]): void {
+        this.runTransaction(() => {
+            applyNodeFieldChangesForward(changes, "Retree.applyChanges");
+        });
+    }
+
+    /**
+     * Register a display name for a Retree root node.
+     *
+     * @remarks
+     * Named roots exist for tooling: debug taps report the name of the tree
+     * a change happened in, and `@retreejs/devtools` uses the registry to
+     * enumerate and label live trees. Naming a root changes no runtime
+     * behavior and does not keep the tree alive (the registry holds it
+     * weakly).
+     *
+     * Re-registering the same node replaces its name; re-registering the
+     * same name points it at the new node.
+     *
+     * @param node A Retree-managed node; typically the object returned by
+     * {@link Retree.root}. The name attaches to the node's tree root
+     * identity, so pass the root itself.
+     * @param name Display name for the tree.
+     *
+     * @example
+     * ```ts
+     * const settings = Retree.root({ theme: "dark" });
+     * Retree.registerRootName(settings, "settings");
+     * ```
+     */
+    static registerRootName(node: TreeNode, name: string): void {
+        this.assertRetreeManagedNode(node, "Retree.registerRootName");
+        if (typeof name !== "string" || name.length === 0) {
+            // @retree-throws
+            throw new Error(
+                "Retree.registerRootName: expected a non-empty string name. This is expected when the name argument is missing or empty. Fix: pass a display name, e.g. Retree.registerRootName(root, 'settings')."
+            );
+        }
+        const rawNode = getUnproxiedNode(node);
+        if (!rawNode) {
+            // @retree-throws
+            throw new Error(
+                "Retree internal invariant failed in Retree.registerRootName: the node passed managed-node validation but has no raw node. This is unexpected and likely a Retree bug. Please file an issue with how the node was created."
+            );
+        }
+        registerRetreeRootName(rawNode, name);
     }
 
     /**
@@ -864,6 +1105,16 @@ export class Retree {
      * Pass `skipReproxy = false` when you want to suppress listener emission
      * but still refresh reproxy identities.
      *
+     * **Silence means silence, in both modes.** The only difference between
+     * `skipReproxy = true` and `skipReproxy = false` is whether reproxy
+     * identities (and parent identities) refresh. Everything observable is
+     * suppressed identically in both modes: `Retree.on` listeners do not
+     * emit, {@link ReactiveNode} lifecycle does not run (`onChanged` is not
+     * called), dependency subscriptions are not refreshed, and dependents of
+     * changed dependencies are not notified. If a silent write changes what
+     * a `ReactiveNode.dependencies` getter returns, subscriptions resync on
+     * that node's next non-silent change.
+     *
      * @param transaction transaction function to run
      * @param skipReproxy skip reproxying nodes such that subsequent comparisons are equal.
      * defaults to true.
@@ -881,14 +1132,18 @@ export class Retree {
      * ```
      */
     static runSilent(transaction: () => void, skipReproxy = true) {
+        // Save/restore rather than reset-to-false so a nested runSilent does
+        // not re-enable emission for the remainder of an outer runSilent body.
+        const previousSkipEmit = Transactions.skipEmit;
+        const previousSkipReproxy = Transactions.skipReproxy;
         Transactions.skipEmit = true;
         Transactions.skipReproxy = skipReproxy;
         try {
             transaction();
         } finally {
             // Silent mode uses global flags, so always restore them even when the caller's work fails.
-            Transactions.skipEmit = false;
-            Transactions.skipReproxy = false;
+            Transactions.skipEmit = previousSkipEmit;
+            Transactions.skipReproxy = previousSkipReproxy;
         }
     }
 
@@ -918,6 +1173,11 @@ export class Retree {
             return;
         }
 
+        // Debug taps observe outermost transaction boundaries; the numeric
+        // gate keeps the zero-tap path allocation- and call-free.
+        if (retreeDebugTapCount > 0) {
+            notifyRetreeDebugTaps({ kind: "transactionStart" });
+        }
         Transactions.runningTransaction = true;
         try {
             transaction();
@@ -928,6 +1188,9 @@ export class Retree {
             } finally {
                 // Listener callbacks run during the flush can throw; never leave future updates stuck in transaction mode.
                 Transactions.runningTransaction = false;
+                if (retreeDebugTapCount > 0) {
+                    notifyRetreeDebugTaps({ kind: "transactionEnd" });
+                }
             }
         }
     }
@@ -967,18 +1230,14 @@ export class Retree {
         const shouldStopReactiveNode =
             node instanceof ReactiveNode &&
             this.hasReactiveChangedListeners(rawNode);
-        this.nodeChangedListeners.delete(rawNode);
-        this.nodeRemovedListeners.delete(rawNode);
-        this.treeChangedListeners.delete(rawNode);
+        this.deleteListenerRegistryEntry(this.nodeChangedListeners, rawNode);
+        this.deleteListenerRegistryEntry(this.nodeRemovedListeners, rawNode);
+        this.deleteListenerRegistryEntry(this.treeChangedListeners, rawNode);
         if (shouldStopReactiveNode) {
             this.stopReactiveNode(node, rawNode);
             ReactiveNode[RUN_UNOBSERVED_EFFECT_SYMBOL](node);
         }
-        if (
-            this.treeChangedListeners.size === 0 &&
-            this.nodeChangedListeners.size === 0 &&
-            this.nodeRemovedListeners.size === 0
-        ) {
+        if (this.liveListenerCount() === 0) {
             this.stopListening();
         }
         if (shallow) return;
@@ -995,7 +1254,17 @@ export class Retree {
         node: TreeNode,
         seen: Set<TreeNode>
     ) {
-        Object.values(node).forEach((child) => {
+        // `Object.values` returns [] for Map/Set, so their entries must be
+        // walked explicitly or descendants stored inside them stay subscribed.
+        let children: unknown[];
+        if (node instanceof Map) {
+            children = [...node.values()];
+        } else if (node instanceof Set) {
+            children = [...node.values()];
+        } else {
+            children = Object.values(node);
+        }
+        children.forEach((child) => {
             if (child === null || typeof child !== "object") {
                 return;
             }
@@ -1014,17 +1283,75 @@ export class Retree {
         });
     }
 
+    /**
+     * Live listeners across all three registries. Stands in for the old
+     * `Map.size` checks now that the registries are non-iterable WeakMaps.
+     */
+    private static liveListenerCount(): number {
+        return (
+            this.nodeChangedListenerCount +
+            this.treeChangedListenerCount +
+            this.nodeRemovedListenerCount
+        );
+    }
+
+    /**
+     * Adjust the live-listener counter backing `relevantListenerMap` and keep
+     * the snapshot-version gate in sync: versions only advance while at least
+     * one listener exists anywhere (the React external-store integration
+     * always subscribes through {@link Retree.on}).
+     */
+    private static handleListenerCountChanged(
+        relevantListenerMap: WeakMap<TreeNode, TRetreeListeners[]>,
+        delta: number
+    ): void {
+        if (relevantListenerMap === this.nodeChangedListeners) {
+            this.nodeChangedListenerCount += delta;
+        } else if (relevantListenerMap === this.treeChangedListeners) {
+            this.treeChangedListenerCount += delta;
+        } else {
+            this.nodeRemovedListenerCount += delta;
+        }
+        setSnapshotVersionAdvancementActive(this.liveListenerCount() > 0);
+    }
+
+    /**
+     * Remove a node's whole entry from one registry, keeping the live
+     * counter in sync with the number of listeners dropped.
+     */
+    private static deleteListenerRegistryEntry(
+        relevantListenerMap: WeakMap<TreeNode, TRetreeListeners[]>,
+        rawNode: TreeNode
+    ): void {
+        const listeners = relevantListenerMap.get(rawNode);
+        if (listeners === undefined) {
+            return;
+        }
+        relevantListenerMap.delete(rawNode);
+        this.handleListenerCountChanged(relevantListenerMap, -listeners.length);
+    }
+
     private static buildUnsubscribeCallback(
         unproxiedNode: TreeNode,
         proxiedNode: TreeNode,
         callback: TRetreeListeners,
-        relevantListenerMap: Map<TreeNode, TNodeChangedListener[]>
+        relevantListenerMap: WeakMap<TreeNode, TNodeChangedListener[]>
     ) {
+        // Idempotency flag: React cleanup (especially StrictMode) routinely
+        // calls unsubscribe twice. Without it, the second call's
+        // `findIndex === -1` would `splice(-1, 1)` and silently remove some
+        // other subscriber's listener.
+        let unsubscribed = false;
         const unsubscribe = () => {
+            if (unsubscribed) return;
+            unsubscribed = true;
             const _listeners = relevantListenerMap.get(unproxiedNode);
             if (_listeners) {
                 const findIndex = _listeners.findIndex((l) => l === callback);
-                _listeners.splice(findIndex, 1);
+                if (findIndex !== -1) {
+                    _listeners.splice(findIndex, 1);
+                    this.handleListenerCountChanged(relevantListenerMap, -1);
+                }
                 if (_listeners.length === 0) {
                     relevantListenerMap.delete(unproxiedNode);
                 }
@@ -1051,11 +1378,7 @@ export class Retree {
                     ReactiveNode[RUN_UNOBSERVED_EFFECT_SYMBOL](proxiedNode);
                 }
             }
-            if (
-                this.treeChangedListeners.size === 0 &&
-                this.nodeChangedListeners.size === 0 &&
-                this.nodeRemovedListeners.size === 0
-            ) {
+            if (this.liveListenerCount() === 0) {
                 this.stopListening();
             }
         };
@@ -1103,6 +1426,35 @@ export class Retree {
         for (const callback of [...listeners]) {
             callback();
         }
+    }
+
+    /**
+     * Allocation-free precheck for the treeChanged ancestor walk: true when
+     * the changed node or any structural ancestor has a direct treeChanged
+     * listener. This is pure pointer-chasing over live parent metadata (the
+     * same `proxiedParentKey` chain {@link Retree.move} and node removal
+     * mutate in place), so it needs no bookkeeping to stay correct across
+     * moves, removals, and clearListeners — while writes with no treeChanged
+     * listener on their path skip {@link Retree.handleNotifyTreeChanged}'s
+     * per-write Map/array/record allocations entirely.
+     */
+    private static hasTreeChangedListenerOnAncestorPath(
+        proxyNode: TCustomProxy<TreeNode>
+    ): boolean {
+        let handler = getCustomProxyHandler(proxyNode);
+        while (handler !== undefined) {
+            if (this.treeChangedListeners.has(handler[unproxiedBaseNodeKey])) {
+                return true;
+            }
+            const parentProxyNode = handler[proxiedParentKey]?.proxyNode;
+            if (!parentProxyNode) {
+                return false;
+            }
+            handler = getCustomProxyHandler(parentProxyNode);
+        }
+        // Metadata missing at or above the changed node: run the full walk so
+        // it can report its precise internal invariant error.
+        return true;
     }
 
     private static handleNotifyTreeChanged(
@@ -1166,7 +1518,9 @@ export class Retree {
                     });
                 } else {
                     // Emit immediately
-                    handleEmitTreeChanged(changes);
+                    Transactions.runListenerFlush(() =>
+                        handleEmitTreeChanged(changes)
+                    );
                 }
             }
             // If our "treeChanged" listener was for the node that changed, skip parents
@@ -1208,7 +1562,9 @@ export class Retree {
                         });
                     } else {
                         // Emit immediately
-                        handlePNodeEmitTreeChanged(changes);
+                        Transactions.runListenerFlush(() =>
+                            handlePNodeEmitTreeChanged(changes)
+                        );
                     }
                 }
                 // If this checked pNode was the top-most node the app is listening to, skip reproxying rest of parents
@@ -1240,14 +1596,23 @@ export class Retree {
                 proxyNode instanceof ReactiveNode &&
                 !Transactions.runningTransaction
             ) {
-                this.runTransaction(() => {
-                    this.handleNodeChanged(
-                        unproxiedNode,
-                        proxyNode,
-                        reproxyNode,
-                        changes
-                    );
-                });
+                // Internal wrapper, not a user transaction: mark it so undo
+                // history records this flush as a discrete write (one step
+                // per write, eligible for coalescing) rather than a
+                // user-transaction step.
+                Transactions.runningInternalReactiveNodeTransaction = true;
+                try {
+                    this.runTransaction(() => {
+                        this.handleNodeChanged(
+                            unproxiedNode,
+                            proxyNode,
+                            reproxyNode,
+                            changes
+                        );
+                    });
+                } finally {
+                    Transactions.runningInternalReactiveNodeTransaction = false;
+                }
                 return;
             }
 
@@ -1277,7 +1642,7 @@ export class Retree {
                 });
             } else {
                 // emit immediately
-                emitNodeRemovedListeners();
+                Transactions.runListenerFlush(emitNodeRemovedListeners);
             }
             // TODO: notify all child nodes as well? or maybe add a treeRemoved listener?
         };
@@ -1292,8 +1657,15 @@ export class Retree {
         changes: INodeFieldChanges[]
     ) {
         return runWithIsolatedDependencyTracking(() => {
-            const isReactiveNode = proxyNode instanceof ReactiveNode;
-            if (isReactiveNode) {
+            // runSilent semantics: silence means silence. During a skipEmit
+            // window (either runSilent mode), no ReactiveNode lifecycle runs —
+            // no onChanged effect, no dependency resubscription, no dependent
+            // notification — so both runSilent modes behave identically apart
+            // from reproxying. Subscriptions refresh on the next non-silent
+            // change of the node.
+            const runReactiveNodeLifecycle =
+                proxyNode instanceof ReactiveNode && !Transactions.skipEmit;
+            if (runReactiveNodeLifecycle) {
                 this.handleReactiveNode(proxyNode, unproxiedNode);
             }
 
@@ -1321,7 +1693,9 @@ export class Retree {
                 }
 
                 // emit immediately
-                emitNodeChangedListeners(changes);
+                Transactions.runListenerFlush(() =>
+                    emitNodeChangedListeners(changes)
+                );
             };
 
             if (!Transactions.skipEmit) {
@@ -1329,9 +1703,14 @@ export class Retree {
             }
 
             // Still handle here so we reproxy parents, despite skipping emit later in biz logic.
-            // If no treeChanged listeners exist, no parent can observe this work.
+            // If no treeChanged listener exists on the changed node or any of
+            // its ancestors, nothing can observe this work, so the allocating
+            // ancestor walk in handleNotifyTreeChanged is skipped entirely.
             // Note that we should never have gotten this far if skipReproxy is true, so we skip checking again.
-            if (this.treeChangedListeners.size > 0) {
+            if (
+                this.treeChangedListenerCount > 0 &&
+                this.hasTreeChangedListenerOnAncestorPath(proxyNode)
+            ) {
                 this.handleNotifyTreeChanged(
                     unproxiedNode,
                     proxyNode,
@@ -1340,7 +1719,7 @@ export class Retree {
                 );
             }
 
-            if (isReactiveNode) {
+            if (runReactiveNodeLifecycle) {
                 ReactiveNode[RUN_CHANGED_EFFECT_SYMBOL](proxyNode, changes);
             }
         });
@@ -1355,9 +1734,9 @@ export class Retree {
         }
         this.nodeChangeListener = null;
         this.nodeRemovedListener = null;
-        this.nodeRemovedListeners.clear();
-        this.nodeChangedListeners.clear();
-        this.treeChangedListeners.clear();
+        // No registry clearing: stopListening only runs once liveListenerCount()
+        // is zero, so every WeakMap entry has already been emptied and deleted
+        // by unsubscribe/clearListeners (and WeakMaps cannot be iterated).
     }
 
     private static getParentInternal(node: TreeNode): {
@@ -1528,22 +1907,27 @@ export class Retree {
 
     private static cloneValue(
         value: unknown,
-        seen: WeakMap<object, object>
+        seen: WeakMap<object, object>,
+        path: string
     ): unknown {
+        if (typeof value === "function") {
+            // @retree-throws
+            throw new Error(
+                `Retree.clone: cannot clone the function stored at "${path}". Function values close over the original instance, so sharing them across clones would silently keep operating on the source node. Fix: define behavior on the class prototype (regular methods clone-safe automatically), mark the field with @ignore, or delete it before cloning.`
+            );
+        }
         if (value === null || typeof value !== "object") {
             return value;
         }
 
-        const rawValue = getUnproxiedNode(value);
-        if (!rawValue) {
-            // @retree-throws
-            throw new Error(
-                "Retree.clone: expected object values to be cloneable Retree nodes while walking the source tree. This is unexpected if the source came from Retree.root(...) and was only mutated through Retree-managed proxies. Fix: avoid storing raw unmanaged objects inside managed nodes except in @ignore fields; if the value is managed, file a Retree issue with the value shape."
-            );
-        }
+        // Values reached through Retree.raw(...) are always raw already, but
+        // a caller-supplied proxy at the root (or an @ignore field holding a
+        // managed node) still resolves to its raw node here.
+        const rawValue = getUnproxiedNode(value) ?? value;
         if (seen.has(rawValue)) {
             return seen.get(rawValue);
         }
+        this.assertCloneableExoticValue(rawValue, path);
 
         if (rawValue instanceof Date) {
             const clonedDate = new Date(rawValue.getTime());
@@ -1555,7 +1939,14 @@ export class Retree {
             const clonedMap = new Map();
             seen.set(rawValue, clonedMap);
             for (const [mapKey, mapValue] of rawValue.entries()) {
-                clonedMap.set(mapKey, this.cloneValue(mapValue, seen));
+                clonedMap.set(
+                    mapKey,
+                    this.cloneValue(
+                        mapValue,
+                        seen,
+                        `${path}.get(${String(mapKey)})`
+                    )
+                );
             }
             return clonedMap;
         }
@@ -1563,8 +1954,16 @@ export class Retree {
         if (rawValue instanceof Set) {
             const clonedSet = new Set();
             seen.set(rawValue, clonedSet);
+            let memberIndex = 0;
             for (const setValue of rawValue.values()) {
-                clonedSet.add(this.cloneValue(setValue, seen));
+                clonedSet.add(
+                    this.cloneValue(
+                        setValue,
+                        seen,
+                        `${path}<Set member ${memberIndex}>`
+                    )
+                );
+                memberIndex++;
             }
             return clonedSet;
         }
@@ -1573,7 +1972,11 @@ export class Retree {
             const clonedArray: unknown[] = [];
             seen.set(rawValue, clonedArray);
             rawValue.forEach((item, index) => {
-                clonedArray[index] = this.cloneValue(item, seen);
+                clonedArray[index] = this.cloneValue(
+                    item,
+                    seen,
+                    `${path}[${index}]`
+                );
             });
             return clonedArray;
         }
@@ -1588,13 +1991,55 @@ export class Retree {
             if ("value" in descriptor) {
                 Reflect.defineProperty(clonedObject, key, {
                     ...descriptor,
-                    value: this.cloneValue(descriptor.value, seen),
+                    value: this.cloneValue(
+                        descriptor.value,
+                        seen,
+                        `${path}.${String(key)}`
+                    ),
                 });
                 continue;
             }
             Reflect.defineProperty(clonedObject, key, descriptor);
         }
         return clonedObject;
+    }
+
+    /**
+     * Throw a pinpointed error for exotic object types `Retree.clone` would
+     * otherwise mangle (their data lives in internal slots that a
+     * `Reflect.ownKeys` walk cannot copy).
+     */
+    private static assertCloneableExoticValue(
+        rawValue: object,
+        path: string
+    ): void {
+        if (rawValue instanceof RegExp) {
+            // @retree-throws
+            throw new Error(
+                `Retree.clone: cannot clone the RegExp stored at "${path}". RegExp state lives in internal slots, so a property-walk clone would produce a broken empty object. Fix: mark the field with @ignore, or store the pattern as { source, flags } strings and build the RegExp where it is used.`
+            );
+        }
+        if (rawValue instanceof ArrayBuffer) {
+            // @retree-throws
+            throw new Error(
+                `Retree.clone: cannot clone the ArrayBuffer stored at "${path}". Binary buffer contents live in internal slots, so a property-walk clone would silently drop the bytes. Fix: mark the field with @ignore, or store the data in a plain number array.`
+            );
+        }
+        if (
+            typeof SharedArrayBuffer !== "undefined" &&
+            rawValue instanceof SharedArrayBuffer
+        ) {
+            // @retree-throws
+            throw new Error(
+                `Retree.clone: cannot clone the SharedArrayBuffer stored at "${path}". Shared binary buffer contents live in internal slots, so a property-walk clone would silently drop the bytes. Fix: mark the field with @ignore.`
+            );
+        }
+        if (ArrayBuffer.isView(rawValue)) {
+            // @retree-throws
+            throw new Error(
+                `Retree.clone: cannot clone the ${rawValue.constructor.name} stored at "${path}". Typed-array and DataView contents live in internal slots, so a property-walk clone would silently drop the bytes. Fix: mark the field with @ignore, or store the data in a plain number array.`
+            );
+        }
     }
 
     private static handleReactiveNode(
@@ -1675,11 +2120,13 @@ export class Retree {
                     reactiveNode: proxiedDependentNode,
                     unproxiedReactiveNode: unproxiedDependentNode,
                     comparisons: currentDependency.comparisons,
+                    comparisonsOffset: currentDependency.comparisonsOffset,
                     key: currentDependency.key,
                     selectGetterName: currentDependency.selectGetterName,
                     selectValue: currentDependency.selectValue,
                     compareSelectValueBeforeNotify:
                         currentDependency.compareSelectValueBeforeNotify,
+                    getAccessSummaries: currentDependency.getAccessSummaries,
                 });
                 unsubscribe = previousDependency?.unsubscribeListener;
             } else {
@@ -1696,11 +2143,14 @@ export class Retree {
                         reactiveNode: proxiedDependentNode,
                         unproxiedReactiveNode: unproxiedDependentNode,
                         comparisons: currentDependency.comparisons,
+                        comparisonsOffset: currentDependency.comparisonsOffset,
                         key: currentDependency.key,
                         selectGetterName: currentDependency.selectGetterName,
                         selectValue: currentDependency.selectValue,
                         compareSelectValueBeforeNotify:
                             currentDependency.compareSelectValueBeforeNotify,
+                        getAccessSummaries:
+                            currentDependency.getAccessSummaries,
                     });
                     if (newDependencyNode) {
                         unsubscribe = retainReactiveDependencySubscription(
@@ -1721,20 +2171,21 @@ export class Retree {
                 key: currentDependency.key,
                 node: currentDependency.node,
                 comparisons: currentDependency.comparisons,
+                comparisonsOffset: currentDependency.comparisonsOffset,
                 selectGetterName: currentDependency.selectGetterName,
                 selectValue: currentDependency.selectValue,
                 compareSelectValueBeforeNotify:
                     currentDependency.compareSelectValueBeforeNotify,
+                getAccessSummaries: currentDependency.getAccessSummaries,
                 unsubscribeListener: unsubscribe,
                 unproxiedNode: currentUnproxiedDependencyNode,
             });
         }
+        const currentDependencyKeys = new Set(
+            currentDependencies.map((dependency) => dependency.key)
+        );
         for (const previousDependency of previousDependencies ?? []) {
-            if (
-                !currentDependencies.some(
-                    (dependency) => dependency.key === previousDependency.key
-                )
-            ) {
+            if (!currentDependencyKeys.has(previousDependency.key)) {
                 previousDependency.unsubscribeListener?.();
                 const previousUnproxiedDependencyNode =
                     previousDependency.unproxiedNode;
@@ -1759,7 +2210,12 @@ export class Retree {
         const dependencies: IActiveReactiveDependency[] = [];
         const unproxiedDependentNode = getUnproxiedNode(proxiedDependentNode);
         for (const [getterName, selectGetter] of selectGetters.entries()) {
-            const selected = selectGetter.getDependencies(proxiedDependentNode);
+            const trackedAccesses =
+                selectGetter.collectTrackedDependencies?.(proxiedDependentNode);
+            const selected =
+                trackedAccesses !== undefined
+                    ? trackedAccesses.dependencies
+                    : selectGetter.getDependencies(proxiedDependentNode);
             const selectedValue = includeSelectValues
                 ? this.getReactiveSelectValue(
                       proxiedDependentNode,
@@ -1771,42 +2227,59 @@ export class Retree {
             if (selectedDependencies.length === 0) {
                 continue;
             }
+            // Each non-explicit dependency compares against the flattened
+            // comparison values of every dependency after it. Normalize each
+            // entry once and build one shared flattened array with per-entry
+            // start offsets, so building every suffix is O(total values)
+            // instead of O(N^2) slice-and-renormalize passes.
+            const normalizedEntries: NormalizedDependencySlot[] = [];
+            const flatComparisonValues: unknown[] = [];
+            const entryStartOffsets: number[] = [];
+            for (const selectedDependency of selectedDependencies) {
+                const normalizedEntry =
+                    normalizeDependencyEntry(selectedDependency);
+                normalizedEntries.push(normalizedEntry);
+                entryStartOffsets.push(flatComparisonValues.length);
+                for (const comparisonValue of normalizedEntry.comparisonValues) {
+                    flatComparisonValues.push(comparisonValue);
+                }
+            }
             for (
                 let dependencyIndex = 0;
                 dependencyIndex < selectedDependencies.length;
                 dependencyIndex++
             ) {
-                const selectedDependency =
-                    selectedDependencies[dependencyIndex];
+                const normalizedEntry = normalizedEntries[dependencyIndex];
                 const key = `select:${String(getterName)}:${dependencyIndex}`;
-                const normalizedDependency =
-                    this.normalizeReactiveNodeDependency(
-                        selectedDependency,
-                        key
-                    );
                 if (
-                    normalizedDependency.node !== undefined &&
-                    normalizedDependency.node !== null &&
-                    getUnproxiedNode(normalizedDependency.node) ===
+                    normalizedEntry.node !== undefined &&
+                    normalizedEntry.node !== null &&
+                    getUnproxiedNode(normalizedEntry.node) ===
                         unproxiedDependentNode
                 ) {
                     continue;
                 }
-                const laterComparisons = getDependencyComparisonValues(
-                    selectedDependencies.slice(dependencyIndex + 1)
-                );
+                const suffixOffset =
+                    dependencyIndex + 1 < entryStartOffsets.length
+                        ? entryStartOffsets[dependencyIndex + 1]
+                        : flatComparisonValues.length;
+                const useOwnComparisons =
+                    normalizedEntry.explicit ||
+                    suffixOffset === flatComparisonValues.length;
                 dependencies.push({
                     key,
-                    node: normalizedDependency.node,
-                    comparisons:
-                        normalizeDependencyEntry(selectedDependency).explicit ||
-                        laterComparisons.length === 0
-                            ? normalizedDependency.comparisons
-                            : laterComparisons,
+                    node: normalizedEntry.node,
+                    comparisons: useOwnComparisons
+                        ? normalizedEntry.comparisons
+                        : flatComparisonValues,
+                    comparisonsOffset: useOwnComparisons
+                        ? undefined
+                        : suffixOffset,
                     selectGetterName: getterName,
                     selectValue: selectedValue,
                     compareSelectValueBeforeNotify:
                         selectGetter.compareValueBeforeNotify,
+                    getAccessSummaries: trackedAccesses?.getAccessSummaries,
                     unsubscribeListener: undefined,
                     unproxiedNode: undefined,
                 });
@@ -1986,6 +2459,7 @@ export class Retree {
                     this.shouldNotifyReactiveDependent(
                         dependent,
                         _unproxy,
+                        changes,
                         getLatestDependenciesByKey
                     )
                 )
@@ -2015,35 +2489,44 @@ export class Retree {
     }
 
     private static groupReactiveDependents(
-        dependents: IPreviousReactiveDependent[]
+        dependentGroups: Map<TreeNode, IReactiveDependentGroup>
     ) {
-        const groups = new Map<
-            TreeNode,
-            {
-                reactiveNode: ReactiveNode;
-                dependents: IPreviousReactiveDependent[];
-            }
-        >();
-        for (const dependent of dependents) {
-            const group = groups.get(dependent.unproxiedReactiveNode);
-            if (group !== undefined) {
-                group.reactiveNode = dependent.reactiveNode;
-                group.dependents.push(dependent);
-                continue;
-            }
-            groups.set(dependent.unproxiedReactiveNode, {
-                reactiveNode: dependent.reactiveNode,
-                dependents: [dependent],
+        // Snapshot the live store: notifying a group can re-run
+        // handleReactiveNode, which mutates these maps while we iterate.
+        const groups: {
+            reactiveNode: ReactiveNode;
+            dependents: IPreviousReactiveDependent[];
+        }[] = [];
+        for (const group of dependentGroups.values()) {
+            groups.push({
+                reactiveNode: group.reactiveNode,
+                dependents: Array.from(group.dependentsByKey.values()),
             });
         }
-        return Array.from(groups.values());
+        return groups;
     }
 
     private static shouldNotifyReactiveDependent(
         dependent: IPreviousReactiveDependent,
         changedUnproxiedNode: TreeNode,
+        changes: INodeFieldChanges[],
         getLatestDependenciesByKey: () => Map<string, IActiveReactiveDependency>
     ) {
+        // Auto-trapped @select dependents carry per-node read summaries from
+        // their last collection pass. When every value the getter read from
+        // the changed node re-reads equal, skip without re-running the
+        // getter's dependency collection at all.
+        const getAccessSummaries = dependent.getAccessSummaries;
+        if (
+            getAccessSummaries !== undefined &&
+            canSkipTrackedDependencyChange(
+                changedUnproxiedNode,
+                getAccessSummaries().get(changedUnproxiedNode),
+                changes
+            )
+        ) {
+            return false;
+        }
         const dependencyChanged = this.hasReactiveDependencyChanged(
             dependent,
             changedUnproxiedNode,
@@ -2082,14 +2565,21 @@ export class Retree {
         if (latestComparisons === undefined) {
             return true;
         }
-        if (latestComparisons.length !== previousComparisons.length) {
+        // `comparisons` may be an array shared across every dependency of one
+        // collection pass; each side's offset marks where this dependency's
+        // comparison window starts.
+        const previousOffset = dependent.comparisonsOffset ?? 0;
+        const latestOffset = latest.comparisonsOffset ?? 0;
+        const previousLength = previousComparisons.length - previousOffset;
+        const latestLength = latestComparisons.length - latestOffset;
+        if (latestLength !== previousLength) {
             return true;
         }
-        for (let i = 0; i < latestComparisons.length; i++) {
+        for (let i = 0; i < latestLength; i++) {
             if (
                 !areDependencyValuesEqual(
-                    previousComparisons[i],
-                    latestComparisons[i]
+                    previousComparisons[previousOffset + i],
+                    latestComparisons[latestOffset + i]
                 )
             ) {
                 return true;

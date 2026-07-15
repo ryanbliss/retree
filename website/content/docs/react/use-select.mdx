@@ -244,13 +244,12 @@ updates the total; renaming one never reaches `ProjectProgress`.
 
 ## Observational semantics
 
-Dependency-list subscriptions in `useSelect` are *observational*: when a
-selected dependency changes, this component can re-render, but the node you
-passed to `useSelect` is **not** forced to receive a fresh reproxy. Other
-subscribers and memo comparisons of that node see no change. When the owner
-node itself should emit `nodeChanged` for a selection, put the logic in the
-node with the `@select` decorator on a `ReactiveNode` getter — see
-[ReactiveNode & decorators](/docs/view-models).
+`useSelect` subscriptions are *observational*: when a selected dependency
+changes, this component re-renders, but the node you passed in never emits or
+reproxies — other subscribers see no change. When the owner node itself
+should emit `nodeChanged` for a selection, that's the `@select` decorator's
+job. The full distinction, with a comparison table, lives in
+[Select semantics](/docs/select-semantics).
 
 <Warning title="Not a memo cache">
     `useSelect` is a subscription primitive, not a memo cache — the selector

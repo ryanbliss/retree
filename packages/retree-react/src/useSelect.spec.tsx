@@ -2,10 +2,10 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { ReactiveNode, Retree, link, select } from "@retreejs/core";
 import { getReproxyNode } from "@retreejs/core/internal";
-import { memo } from "react";
-import { useNode } from "./useNode";
-import { useRoot } from "./useRoot";
-import { useSelect } from "./useSelect";
+import { memo, StrictMode } from "react";
+import { useNode } from "./useNode.js";
+import { useRoot } from "./useRoot.js";
+import { useSelect } from "./useSelect.js";
 
 const rootsToCleanup: object[] = [];
 
@@ -722,13 +722,14 @@ describe("useSelect", () => {
         }
 
         const view = render(<Probe />);
+        expect(selected).toHaveBeenCalledTimes(1);
         view.unmount();
 
         act(() => {
             root.count = 2;
         });
 
-        expect(selected).toHaveBeenCalledTimes(2);
+        expect(selected).toHaveBeenCalledTimes(1);
     });
 
     it("moves a trapped subscription when a selector changes branches", () => {
@@ -766,5 +767,343 @@ describe("useSelect", () => {
         });
         expect(screen.getByTestId("branch-value").textContent).toBe("3");
         expect(renderCount).toBe(3);
+    });
+
+    it("rewires the node-form subscription when a silent write moves dependencies during an unrelated re-render", () => {
+        const root = trackRoot(
+            Retree.root({
+                current: "a" as "a" | "b",
+                a: { v: 1 },
+                b: { v: 2 },
+            })
+        );
+        // Hoisted (stable identity) selector: the branch move must be
+        // discovered by the render-phase refresh inside getSnapshot, which is
+        // exactly the path that used to strand the subscription on the old
+        // store's sources.
+        const selector = (node: typeof root) =>
+            node.current === "a"
+                ? ([node.a.v, node.a] as const)
+                : ([node.b.v, node.b] as const);
+
+        function Probe({ label }: { label: string }) {
+            const [value] = useSelect(root, selector);
+            return (
+                <div data-testid="value">
+                    {label}:{value}
+                </div>
+            );
+        }
+
+        const view = render(<Probe label="one" />);
+        expect(screen.getByTestId("value").textContent).toBe("one:1");
+
+        // Silent branch flip: versions advance but nothing notifies, so the
+        // move is only observable from a later render.
+        act(() => {
+            Retree.runSilent(() => {
+                root.current = "b";
+            }, false);
+        });
+
+        // Unrelated parent re-render discovers branch b during render.
+        view.rerender(<Probe label="two" />);
+        expect(screen.getByTestId("value").textContent).toBe("two:2");
+
+        // The write to the newly-depended node MUST re-render.
+        act(() => {
+            root.b.v = 3;
+        });
+        expect(screen.getByTestId("value").textContent).toBe("two:3");
+    });
+
+    it("rewires the tracked subscription when a silent write moves dependencies during an unrelated re-render", () => {
+        const root = trackRoot(
+            Retree.root({
+                current: "a" as "a" | "b",
+                a: { v: 1 },
+                b: { v: 2 },
+            })
+        );
+        // Hoisted (stable identity) selector: see the node-form twin above.
+        const selector = () => (root.current === "a" ? root.a.v : root.b.v);
+
+        function Probe({ label }: { label: string }) {
+            const value = useSelect(selector);
+            return (
+                <div data-testid="value">
+                    {label}:{value}
+                </div>
+            );
+        }
+
+        const view = render(<Probe label="one" />);
+        expect(screen.getByTestId("value").textContent).toBe("one:1");
+
+        act(() => {
+            Retree.runSilent(() => {
+                root.current = "b";
+            }, false);
+        });
+
+        view.rerender(<Probe label="two" />);
+        expect(screen.getByTestId("value").textContent).toBe("two:2");
+
+        act(() => {
+            root.b.v = 3;
+        });
+        expect(screen.getByTestId("value").textContent).toBe("two:3");
+    });
+
+    it("does not re-run the node-form selector on unrelated parent re-renders", () => {
+        const root = trackRoot(Retree.root({ count: 1 }));
+        const selected = vi.fn((node: typeof root) => node.count);
+
+        function Probe({ label }: { label: string }) {
+            const count = useSelect(root, selected);
+            return (
+                <div data-testid="value">
+                    {label}:{count}
+                </div>
+            );
+        }
+
+        const view = render(<Probe label="one" />);
+        expect(selected).toHaveBeenCalledTimes(1);
+
+        view.rerender(<Probe label="two" />);
+        expect(screen.getByTestId("value").textContent).toBe("two:1");
+        expect(selected).toHaveBeenCalledTimes(1);
+
+        act(() => {
+            root.count = 2;
+        });
+        expect(screen.getByTestId("value").textContent).toBe("two:2");
+        expect(selected).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not re-run the selector-only selector on unrelated parent re-renders", () => {
+        const root = trackRoot(Retree.root({ count: 1 }));
+        const selected = vi.fn(() => root.count);
+
+        function Probe({ label }: { label: string }) {
+            const count = useSelect(selected);
+            return (
+                <div data-testid="value">
+                    {label}:{count}
+                </div>
+            );
+        }
+
+        const view = render(<Probe label="one" />);
+        expect(selected).toHaveBeenCalledTimes(1);
+
+        view.rerender(<Probe label="two" />);
+        expect(screen.getByTestId("value").textContent).toBe("two:1");
+        expect(selected).toHaveBeenCalledTimes(1);
+
+        act(() => {
+            root.count = 2;
+        });
+        expect(screen.getByTestId("value").textContent).toBe("two:2");
+        expect(selected).toHaveBeenCalledTimes(2);
+    });
+
+    it("reflects new render-scoped captures in a node-form inline selector without a Retree write", () => {
+        const root = trackRoot(
+            Retree.root({
+                items: [{ title: "First" }, { title: "Second" }],
+            })
+        );
+
+        function Row({ index }: { index: number }) {
+            const title = useSelect(root.items, (items) => items[index].title);
+            return <div data-testid="title">{title}</div>;
+        }
+
+        const view = render(<Row index={0} />);
+        expect(screen.getByTestId("title").textContent).toBe("First");
+
+        // No Retree write happens here: the fresh inline selector identity
+        // alone must recompute the selection during the prop-driven render.
+        view.rerender(<Row index={1} />);
+        expect(screen.getByTestId("title").textContent).toBe("Second");
+    });
+
+    it("reflects new render-scoped captures in a tracked inline selector and moves its subscription", () => {
+        const root = trackRoot(
+            Retree.root({
+                items: [{ title: "First" }, { title: "Second" }],
+            })
+        );
+        let renderCount = 0;
+
+        function Row({ index }: { index: number }) {
+            renderCount += 1;
+            const title = useSelect(() => root.items[index].title);
+            return <div data-testid="title">{title}</div>;
+        }
+
+        const view = render(<Row index={0} />);
+        expect(screen.getByTestId("title").textContent).toBe("First");
+
+        // No Retree write happens here: the fresh inline selector identity
+        // alone must recompute the tracked selection during the render.
+        view.rerender(<Row index={1} />);
+        expect(screen.getByTestId("title").textContent).toBe("Second");
+        expect(renderCount).toBe(2);
+
+        // The subscription moved with the recompute: writes to the previously
+        // tracked item are ignored.
+        act(() => {
+            root.items[0].title = "First edited";
+        });
+        expect(renderCount).toBe(2);
+
+        act(() => {
+            root.items[1].title = "Second edited";
+        });
+        expect(screen.getByTestId("title").textContent).toBe("Second edited");
+        expect(renderCount).toBe(3);
+    });
+
+    it("runs an inline node-form selector exactly once per render and stabilizes equal selections", () => {
+        const root = trackRoot(Retree.root({ count: 1 }));
+        let selectorRuns = 0;
+        const selections: unknown[] = [];
+
+        function Probe({ label }: { label: string }) {
+            const selection = useSelect(root, (node) => {
+                selectorRuns += 1;
+                return [node.count] as const;
+            });
+            selections.push(selection);
+            return (
+                <div data-testid="value">
+                    {label}:{selection[0]}
+                </div>
+            );
+        }
+
+        const view = render(<Probe label="one" />);
+        expect(selectorRuns).toBe(1);
+
+        view.rerender(<Probe label="two" />);
+        expect(screen.getByTestId("value").textContent).toBe("two:1");
+        expect(selectorRuns).toBe(2);
+        // The recomputed selection was equal, so the previously handed-out
+        // reference is stabilized.
+        expect(selections[1]).toBe(selections[0]);
+    });
+
+    it("runs an inline tracked selector exactly once per render", () => {
+        const root = trackRoot(Retree.root({ count: 1 }));
+        let selectorRuns = 0;
+
+        function Probe({ label }: { label: string }) {
+            const count = useSelect(() => {
+                selectorRuns += 1;
+                return root.count;
+            });
+            return (
+                <div data-testid="value">
+                    {label}:{count}
+                </div>
+            );
+        }
+
+        const view = render(<Probe label="one" />);
+        expect(selectorRuns).toBe(1);
+
+        view.rerender(<Probe label="two" />);
+        expect(screen.getByTestId("value").textContent).toBe("two:1");
+        expect(selectorRuns).toBe(2);
+    });
+
+    it("re-runs the node-form selector once when the observed node changes", () => {
+        const root = trackRoot(
+            Retree.root({
+                first: { count: 1 },
+                second: { count: 10 },
+            })
+        );
+        const selected = vi.fn((node: { count: number }) => node.count);
+
+        function Probe({ node }: { node: { count: number } }) {
+            const count = useSelect(node, selected);
+            return <div data-testid="value">{count}</div>;
+        }
+
+        const view = render(<Probe node={root.first} />);
+        expect(selected).toHaveBeenCalledTimes(1);
+
+        view.rerender(<Probe node={root.second} />);
+        expect(screen.getByTestId("value").textContent).toBe("10");
+        expect(selected).toHaveBeenCalledTimes(2);
+
+        // The subscription moved: changes to the old node no longer re-run.
+        act(() => {
+            root.first.count = 5;
+        });
+        expect(selected).toHaveBeenCalledTimes(2);
+
+        act(() => {
+            root.second.count = 11;
+        });
+        expect(screen.getByTestId("value").textContent).toBe("11");
+        expect(selected).toHaveBeenCalledTimes(3);
+    });
+
+    it("stays subscribed and consistent under StrictMode", () => {
+        const root = trackRoot(Retree.root({ count: 1 }));
+
+        function Probe() {
+            const nodeCount = useSelect(root, (node) => node.count);
+            const trackedCount = useSelect(() => root.count * 10);
+            return (
+                <div data-testid="value">
+                    {nodeCount}:{trackedCount}
+                </div>
+            );
+        }
+
+        render(
+            <StrictMode>
+                <Probe />
+            </StrictMode>
+        );
+        expect(screen.getByTestId("value").textContent).toBe("1:10");
+
+        act(() => {
+            root.count = 2;
+        });
+        expect(screen.getByTestId("value").textContent).toBe("2:20");
+    });
+
+    it("throws a precise error when a call site switches between forms", () => {
+        const root = trackRoot(Retree.root({ count: 1 }));
+        const consoleError = vi
+            .spyOn(console, "error")
+            .mockImplementation(() => {});
+
+        function Probe({ useNodeForm }: { useNodeForm: boolean }) {
+            // Deliberately violates the stable-overload contract to assert
+            // the guard fires before React's hook-order error.
+            const value = useNodeForm
+                ? useSelect(root, (node) => node.count)
+                : useSelect(() => root.count);
+            return <div data-testid="value">{value}</div>;
+        }
+
+        const view = render(<Probe useNodeForm={true} />);
+        expect(screen.getByTestId("value").textContent).toBe("1");
+
+        expect(() => {
+            view.rerender(<Probe useNodeForm={false} />);
+        }).toThrow(
+            "useSelect switched between selector-only and node form between renders"
+        );
+
+        consoleError.mockRestore();
     });
 });

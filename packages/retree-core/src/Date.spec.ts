@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Retree } from "./Retree";
-import { Transactions } from "./internals/transactions";
+import { Retree } from "./Retree.js";
+import { Transactions } from "./internals/transactions.js";
 
 const rootsToCleanup: object[] = [];
 

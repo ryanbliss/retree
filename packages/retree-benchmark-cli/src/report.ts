@@ -8,7 +8,7 @@ import {
     BenchmarkScenarioResult,
     BenchmarkSetupOperation,
     SkippedBenchmarkCase,
-} from "./types";
+} from "./types.js";
 
 export interface WrittenBenchmarkArtifacts extends BenchmarkArtifactPaths {
     latestJsonPath: string;

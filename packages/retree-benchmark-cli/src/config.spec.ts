@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { parseCliArgs, resolveBenchmarkConfig } from "./config";
-import type { PromptAdapter } from "./config";
-import { ProfileName, TIER_NAMES } from "./types";
+import { parseCliArgs, resolveBenchmarkConfig } from "./config.js";
+import type { PromptAdapter } from "./config.js";
+import { ProfileName, TIER_NAMES } from "./types.js";
 
 describe("benchmark CLI config", () => {
     it("parses documented CLI options", () => {

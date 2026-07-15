@@ -4,9 +4,9 @@ import {
     getBenchmarkScenarioCallbackReadModes,
     runBenchmarks,
     runBenchmarksWithProgress,
-} from "./benchmarks";
-import { PROFILES } from "./config";
-import { BenchmarkConfig } from "./types";
+} from "./benchmarks.js";
+import { PROFILES } from "./config.js";
+import { BenchmarkConfig } from "./types.js";
 
 describe("benchmark scenarios", () => {
     it("uses focused render reads for React useNode", () => {

@@ -367,8 +367,8 @@ never affect the other.
 ### Observational subscription
 
 A subscription that can notify its listener without forcing the observed
-node to receive a fresh reproxy. Dependency-list subscriptions in
-`Retree.select` / `useSelect` are observational: a selected dependency change
-can fire the callback or re-render the component, but the node you passed in
-is not reproxied. Use `@select` on a `ReactiveNode` when the owner should
-emit `nodeChanged` instead.
+node to receive a fresh reproxy. `Retree.select` / `useSelect` subscriptions
+are observational: a selected dependency change can fire the callback or
+re-render the component, but the node you passed in is not reproxied. Use
+`@select` on a `ReactiveNode` when the owner should emit `nodeChanged`
+instead. See [Select semantics](/docs/select-semantics).

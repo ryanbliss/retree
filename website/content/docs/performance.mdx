@@ -49,6 +49,14 @@ that owns that value, or a [`ReactiveNode`](/docs/view-models) whose
 a tag list. Keep it low in the view hierarchy, and measure before putting it
 anywhere hot.
 
+The good news for everyone else: a `treeChanged` listener only taxes the
+writes it can actually observe. Writes outside a listener's subtree skip the
+ancestor propagation entirely (a cheap parent-chain precheck, no
+allocations). In the July 2026 audit pass this took an unrelated write from
+7.6 µs to 3.5 µs with a `treeChanged` listener elsewhere in the app, and
+0.6 µs with none — so one `useTree` on a sidebar no longer taxes every write
+everywhere.
+
 ## Keep `dependencies` deterministic
 
 `ReactiveNode.dependencies` is the narrow bridge between nodes: one node
@@ -102,14 +110,22 @@ change membership or order) never reaches the components rendering
 forms, and note that `@select` needs
 [decorator setup](/docs/setup-and-decorators).
 
+This pattern scales: dependency validation means writes that don't change
+the selection skip the getter's subscribers entirely, and collection costs
+grow linearly with what the getter reads. Measured in the July 2026 audit
+pass (a trapped `@select` getter scanning 2,000 items): an unrelated scalar
+write to one item cost 4,265 ms before the fix and 0.007 ms after; a
+selection-changing write went from 11,131 ms to 13.8 ms. A perf-probe
+regression test keeps it linear.
+
 <Warning>
-    Tracked selectors over large collections have a real cost: a selector or
-    trapped getter that reads every item of a big list pays for every one of
-    those reads, and it re-evaluates when its dependencies change. Retree
-    gives you four levers, in order of preference: subscribe narrower
-    (per-item `useNode`), select cheaper values (ids, counts — not whole
-    mapped arrays), cache the expensive part behind `@memo`, and move bulk
-    scans to [raw reads](#read-wide-with-raw) with `Retree.untracked`.
+    Tracked selectors over large collections still have a real cost when
+    they run: a selector or trapped getter that reads every item of a big
+    list pays for every one of those reads each re-evaluation. Retree gives
+    you four levers, in order of preference: subscribe narrower (per-item
+    `useNode`), select cheaper values (ids, counts — not whole mapped
+    arrays), cache the expensive part behind `@memo`, and move bulk scans to
+    [raw reads](#read-wide-with-raw) with `Retree.untracked`.
 </Warning>
 
 ## Read wide with raw
@@ -236,6 +252,13 @@ multi-field updates on hot nodes. For writes that shouldn't notify at all
 (telemetry counters, bookkeeping), see `Retree.runSilent` in
 [Transactions & silent writes](/docs/transactions).
 
+Array mutating methods batch on their own: `push`, `pop`, `shift`,
+`unshift`, `splice`, `sort`, `reverse`, `fill`, and `copyWithin` each emit
+**one** `nodeChanged` with one coherent record set, no transaction required.
+(Before the July 2026 audit pass, `splice(0, 1)` on a 1,000-item array
+emitted 1,001 events — one per shifted index; it now emits one.) Map and Set
+mutations have always worked this way.
+
 ## Profiling
 
 Two tools, in this order:
@@ -254,9 +277,11 @@ Two tools, in this order:
    bottleneck, a benchmark scenario is the most useful thing to attach to an
    issue.
 
-We deliberately don't print milliseconds here: absolute numbers depend on
-hardware, tree shape, and workload, and stale numbers mislead. The harness
-exists so you can measure your own shape.
+The few before/after numbers quoted on this page are from the repository's
+July 2026 audit ledger (`specs/audit-jul-14-2026.md`), each backed by a
+regression test. We quote them as ratios, not promises: absolute numbers
+depend on hardware, tree shape, and workload. The harness exists so you can
+measure your own shape.
 
 ## Where next
 

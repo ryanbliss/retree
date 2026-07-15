@@ -1,11 +1,12 @@
-import { IReactiveDependency, ReactiveNode } from "../ReactiveNode";
-import { TreeNode } from "../types";
+import { IReactiveDependency, ReactiveNode } from "../ReactiveNode.js";
+import { TreeNode } from "../types.js";
+import { isDevMode } from "./dev.js";
 import {
     getCustomProxyHandlerFromMetadata,
     ICustomProxyHandler,
     TCustomProxy,
     unproxiedBaseNodeKey,
-} from "./proxy-types";
+} from "./proxy-types.js";
 
 interface DependencyAccessFrame {
     /**
@@ -36,6 +37,14 @@ interface DependencyAccessFrame {
      * must not pay per-read index maintenance for them.
      */
     writtenKeys: Map<TreeNode, Set<string | symbol>> | null;
+    /**
+     * Validators for reads that a later write to the same owner+key retired
+     * from this frame. `Retree.effect` re-checks them after a run: a retired
+     * read whose value changed means the run wrote a property it had already
+     * read, so the effect must re-run — during the creation run no
+     * subscription exists yet to deliver that write's `nodeChanged`.
+     */
+    writeInvalidatedReads: ITrackedAccessValidator[] | null;
 }
 
 export interface DependencyComparisonAccessor {
@@ -63,6 +72,26 @@ type DependencyAccessEntry =
 
 const dependencyAccessStack: DependencyAccessFrame[] = [];
 let pauseDependencyTrackingDepth = 0;
+let trackedWriteWarningSuppressionDepth = 0;
+
+/**
+ * Run a tracked callback with the dev-only "write during tracked selector"
+ * warning suppressed.
+ *
+ * @remarks
+ * `Retree.effect` bodies are tracked for dependency collection but are
+ * explicitly allowed to write, so the selector-purity warning would be
+ * misleading there. Write bookkeeping still applies: reads of a written
+ * property are excluded from dependency comparisons exactly as in selectors.
+ */
+export function runWithTrackedWriteWarningSuppressed<T>(callback: () => T): T {
+    trackedWriteWarningSuppressionDepth++;
+    try {
+        return callback();
+    } finally {
+        trackedWriteWarningSuppressionDepth--;
+    }
+}
 
 export function runWithoutDependencyTracking<T>(callback: () => T): T {
     pauseDependencyTrackingDepth++;
@@ -101,6 +130,7 @@ function createDependencyAccessFrame(
         managedValueIndices: null,
         propertyValueIndices: null,
         writtenKeys: null,
+        writeInvalidatedReads: null,
     };
 }
 
@@ -161,6 +191,14 @@ export interface ITrackedSelectionAccesses<T> {
      * selector runs; selector-only runs skip the Map/Set allocations.
      */
     getAccessSummaries: () => Map<TreeNode, ITrackedNodeAccessSummary>;
+    /**
+     * Validators for reads the run made and then invalidated by writing the
+     * same owner+property later in the same run (see
+     * {@link DependencyAccessFrame.writtenKeys}). Empty for pure runs.
+     * `Retree.effect` re-checks these after a run so its creation run
+     * cascades on self-writes exactly like steady-state runs do.
+     */
+    writeInvalidatedReads: readonly ITrackedAccessValidator[];
 }
 
 function getOrCreateAccessSummary(
@@ -245,6 +283,7 @@ export function collectTrackedSelectionAccesses<T>(
             memoizedSummaries ??= buildAccessSummaries(liveEntries);
             return memoizedSummaries;
         },
+        writeInvalidatedReads: frame.writeInvalidatedReads ?? [],
     };
 }
 
@@ -513,6 +552,108 @@ export function trackDependencyPropertyAccess<T>(
     return value;
 }
 
+/**
+ * Record a key-presence read (`"key" in node`) on a tracked frame.
+ *
+ * @remarks
+ * The entry subscribes to the owner and re-checks `Reflect.has` during
+ * validation, and it carries the checked key as its property key so plain
+ * objects stay key-scopable: adding or deleting the checked key emits a
+ * change record for exactly that key, while unrelated writes are skipped.
+ */
+export function trackDependencyKeyPresenceAccess(
+    owner: unknown,
+    propertyKey: string | symbol,
+    isPresent: boolean
+): void {
+    if (pauseDependencyTrackingDepth > 0) {
+        return;
+    }
+    const currentFrame =
+        dependencyAccessStack[dependencyAccessStack.length - 1];
+    if (currentFrame === undefined) {
+        return;
+    }
+    if (isRetreeInternalProperty(propertyKey)) {
+        return;
+    }
+    const ownerHandler = getCustomProxyHandlerFromMetadata(owner);
+    if (ownerHandler === undefined) {
+        return;
+    }
+    // Handler presence proves `owner` is a Retree proxy.
+    const ownerProxy = owner as TCustomProxy<TreeNode>;
+    const ownerUnproxiedNode = ownerHandler[unproxiedBaseNodeKey];
+    removePendingManagedValueAccess(currentFrame, ownerUnproxiedNode);
+    if (currentFrame.mode === "comparisons") {
+        removePendingPropertyValueAccess(currentFrame, ownerUnproxiedNode);
+    }
+    currentFrame.entries.push({
+        kind: "dependency",
+        value: {
+            node: ownerProxy,
+            comparisons: [isPresent],
+        } satisfies IReactiveDependency,
+        comparisonAccessor: createComparisonAccessor(
+            () => [Reflect.has(ownerProxy, propertyKey)],
+            ownerProxy,
+            getComparisonAccessorSource(ownerUnproxiedNode, propertyKey)
+        ),
+        ownerUnproxiedNode,
+        propertyKey,
+    });
+}
+
+/**
+ * Record an iteration-shape read (`Object.keys`, `for...in`, spread,
+ * `Reflect.ownKeys`) on a tracked frame.
+ *
+ * @remarks
+ * The entry subscribes to the owner and re-reads the raw node's own keys
+ * during validation, so key additions/deletions/renames invalidate while
+ * value writes to existing keys validate away. It intentionally has no
+ * property key: a keys read cannot be scoped to individual changed keys, so
+ * it disables key scoping for the owner and relies on the validator.
+ */
+export function trackDependencyKeysAccess(owner: unknown): void {
+    if (pauseDependencyTrackingDepth > 0) {
+        return;
+    }
+    const currentFrame =
+        dependencyAccessStack[dependencyAccessStack.length - 1];
+    if (currentFrame === undefined) {
+        return;
+    }
+    const ownerHandler = getCustomProxyHandlerFromMetadata(owner);
+    if (ownerHandler === undefined) {
+        return;
+    }
+    // Handler presence proves `owner` is a Retree proxy.
+    const ownerProxy = owner as TCustomProxy<TreeNode>;
+    const ownerUnproxiedNode = ownerHandler[unproxiedBaseNodeKey];
+    removePendingManagedValueAccess(currentFrame, ownerUnproxiedNode);
+    if (currentFrame.mode === "comparisons") {
+        removePendingPropertyValueAccess(currentFrame, ownerUnproxiedNode);
+    }
+    // Read keys from the raw node: validation runs outside tracking frames,
+    // and the raw read avoids re-entering the ownKeys trap.
+    const getOwnKeys = () =>
+        Reflect.ownKeys(ownerHandler[unproxiedBaseNodeKey]);
+    currentFrame.entries.push({
+        kind: "dependency",
+        value: {
+            node: ownerProxy,
+            comparisons: getOwnKeys(),
+        } satisfies IReactiveDependency,
+        comparisonAccessor: createComparisonAccessor(
+            getOwnKeys,
+            ownerProxy,
+            getComparisonAccessorSource(ownerUnproxiedNode, "ownKeys")
+        ),
+        ownerUnproxiedNode,
+    });
+}
+
 export function replayDependencyComparisonAccesses(
     comparisons: unknown[],
     comparisonValues?: readonly (readonly unknown[])[]
@@ -571,6 +712,9 @@ export function trackDependencyPropertyWrite(
         return;
     }
     const ownerUnproxiedNode = handler[unproxiedBaseNodeKey];
+    if (isDevMode() && trackedWriteWarningSuppressionDepth === 0) {
+        warnTrackedWriteOnce(ownerUnproxiedNode, propertyKey);
+    }
     currentFrame.writtenKeys ??= new Map();
     const writtenOwnerKeys = currentFrame.writtenKeys.get(ownerUnproxiedNode);
     if (writtenOwnerKeys === undefined) {
@@ -582,6 +726,39 @@ export function trackDependencyPropertyWrite(
         writtenOwnerKeys.add(propertyKey);
     }
     removePendingPropertyAccess(currentFrame, ownerUnproxiedNode, propertyKey);
+}
+
+/**
+ * Dev-only: nodes (by raw identity) mapped to the property keys a tracked-run
+ * write warning has already been printed for, so a hot selector does not spam
+ * the console.
+ */
+const warnedTrackedWriteKeys = new WeakMap<TreeNode, Set<string | symbol>>();
+
+/**
+ * Dev-only warning for writes made while a tracked selector/memo runs.
+ * Reads of a written property are excluded from dependency comparisons
+ * (see {@link DependencyAccessFrame.writtenKeys}), which surprises users who
+ * expect the selector to re-run when that property later changes.
+ */
+function warnTrackedWriteOnce(
+    ownerUnproxiedNode: TreeNode,
+    propertyKey: string | symbol
+): void {
+    let warnedKeys = warnedTrackedWriteKeys.get(ownerUnproxiedNode);
+    if (warnedKeys === undefined) {
+        warnedKeys = new Set();
+        warnedTrackedWriteKeys.set(ownerUnproxiedNode, warnedKeys);
+    }
+    if (warnedKeys.has(propertyKey)) {
+        return;
+    }
+    warnedKeys.add(propertyKey);
+    console.warn(
+        `Retree: property '${String(
+            propertyKey
+        )}' was written while a tracked selector or memo was running (useSelect/Retree.select selector, @memo, @fnMemo, @select, or keyless memo). Reads of a written property are excluded from dependency comparisons, so later changes to it may not re-run this selector. Selectors should be pure reads. Fix: move the write outside the selector, or wrap intentional bookkeeping writes in Retree.untracked(...).`
+    );
 }
 
 function isRetreeInternalProperty(propertyKey: string | symbol): boolean {
@@ -646,6 +823,17 @@ function removePendingPropertyAccess(
         }
         if (entry.propertyKey !== propertyKey) {
             continue;
+        }
+        if (entry.comparisonAccessor !== undefined) {
+            // Keep the retired read re-checkable: after the run, effects
+            // compare its captured (pre-write) values against a fresh read to
+            // detect that the run wrote a property it had already read.
+            frame.writeInvalidatedReads ??= [];
+            frame.writeInvalidatedReads.push({
+                accessor: entry.comparisonAccessor,
+                capturedValues:
+                    (entry.value as IReactiveDependency).comparisons ?? [],
+            });
         }
         frame.entries[index] = undefined;
     }

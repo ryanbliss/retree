@@ -1,0 +1,124 @@
+---
+title: From MobX
+description: A concept-by-concept map from MobX 6 to Retree — observables, observer(), computed, actions, and reactions — with a before/after store and the gotchas.
+---
+
+MobX and Retree share the same core bet: mutate objects, re-render exactly
+what read them. If you're comfortable in MobX, the model transfers almost
+directly — what changes is the wiring. This page is the routing table, not a
+tutorial; the [Quickstart](/docs/quick-start) and
+[Thinking in Retree](/docs/thinking-in-retree) cover the destination
+properly, and [Retree vs MobX](/compare/mobx) has the verified side-by-side
+comparison.
+
+## Concept map
+
+| MobX 6                                    | Retree                                                                                              |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `makeAutoObservable(this)` / `observable` | Nothing — pass the instance or object to [`Retree.root`](/docs/quick-start), or nest it in the tree |
+| `observer(Component)`                     | A hook per node the component reads: [`useNode`](/docs/react/use-node), [`useTree`](/docs/react/use-tree), [`useSelect`](/docs/react/use-select) |
+| `action` / `runInAction`                  | Not needed — writes are plain assignment from anywhere                                              |
+| Batching writes                           | [`Retree.runTransaction`](/docs/transactions) (opt-in, not required)                                |
+| `computed`                                | [`@memo`](/docs/view-models#memoize-computed-values) getter for caching, [`@select`](/docs/select-semantics) getter for notification — MobX's one concept splits in two |
+| `autorun` / `reaction`                    | [`Retree.select`](/docs/events-and-subscriptions#narrow-with-retreeselect) (selector + callback) or `Retree.on` |
+| `toJS(observable)`                        | [`Retree.raw(node)`](/docs/thinking-in-retree#raw-value)                                            |
+| mobx-state-tree                           | Tree semantics are built in: [`Retree.parent`, `move`, `clone`, `link`](/docs/tree-operations)      |
+
+## Before and after
+
+A store class with derived state and an async method — the shape most MobX
+apps are made of:
+
+```ts title="MobX 6"
+import { makeAutoObservable, runInAction } from "mobx";
+import { observer } from "mobx-react-lite";
+
+class TaskStore {
+    tasks: { text: string; done: boolean }[] = [];
+
+    constructor() {
+        makeAutoObservable(this);
+    }
+
+    get doneCount() {
+        return this.tasks.filter((task) => task.done).length;
+    }
+
+    async load() {
+        const tasks = await fetchTasks();
+        runInAction(() => {
+            this.tasks = tasks;
+        });
+    }
+}
+
+const store = new TaskStore();
+
+// Every reading component must be wrapped:
+const DoneBadge = observer(function DoneBadge() {
+    return <span>{store.doneCount}</span>;
+});
+```
+
+```tsx title="Retree"
+import { Retree, ReactiveNode, memo, select } from "@retreejs/core";
+import { useNode } from "@retreejs/react";
+
+class TaskStore extends ReactiveNode {
+    tasks: { text: string; done: boolean }[] = [];
+
+    @select // the owner emits only when the count changes
+    get doneCount() {
+        return this.tasks.filter((task) => task.done).length;
+    }
+
+    async load() {
+        this.tasks = await fetchTasks(); // no runInAction
+    }
+
+    get dependencies() {
+        return [];
+    }
+}
+
+const store = Retree.root(new TaskStore());
+
+// No wrapper — the hook is the subscription:
+function DoneBadge() {
+    const state = useNode(store);
+    return <span>{state.doneCount}</span>;
+}
+```
+
+A plain class (no `ReactiveNode`) also works when you don't need derived-value
+notification — `useNode` plus methods that mutate `this` covers most stores.
+
+## Gotchas
+
+-   **Granularity moves from reads to hooks.** `observer()` tracks whatever
+    the render read; in Retree the *hook call* defines the subscription, and
+    `useNode(node)` covers that node's own fields only. Give each rendered
+    child node its own `useNode` — the rule is spelled out in
+    [Common pitfalls](/docs/common-pitfalls#writes-to-a-nested-node-dont-re-render).
+    The upside: there is no silently-non-reactive component, MobX's classic
+    missing-`observer` failure.
+-   **One structural parent per node.** MobX lets one observable sit in two
+    stores; Retree throws on aliasing. Say what you mean with
+    [`link`, `move`, or `clone`](/docs/tree-operations#which-operation-do-i-want).
+-   **Decorators are optional and standard.** Retree's `@memo` / `@select`
+    are 2023-11 standard decorators, not MobX's legacy flavor — if your
+    tsconfig still has `experimentalDecorators: true` for MobX, see
+    [Setup & decorators](/docs/setup-and-decorators). Every decorator has a
+    non-decorator equivalent.
+-   **No `enforceActions`.** Nothing stops a write from anywhere, and every
+    write emits immediately. Batch multi-write updates with
+    [`Retree.runTransaction`](/docs/transactions) where MobX's `action`
+    batched for you.
+
+## Where next
+
+-   [Retree vs MobX](/compare/mobx) — the verified feature-by-feature table.
+-   [ReactiveNode & decorators](/docs/view-models) — the full view-model
+    toolkit `computed` users will want.
+-   [Select semantics](/docs/select-semantics) — where MobX's one `computed`
+    splits into caching vs notification.

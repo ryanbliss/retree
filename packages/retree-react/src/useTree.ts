@@ -2,11 +2,16 @@
  * Copyright (c) Ryan Bliss. All rights reserved.
  * Licensed under the MIT License.
  */
+// "use no memo" is load-bearing when this source is compiled by the React
+// Compiler (source-inclusion setups only; consumers' compilers skip the
+// published bin/ output in node_modules). See useNodeInternalCore.ts and
+// react-compiler.spec.tsx for the failure mode and proof.
 "use no memo";
+"use client";
 
 import { Retree, TreeNode } from "@retreejs/core";
-import { useNodeInternal } from "./internals/useNodeInternal";
-import { NodeFactory } from "./types";
+import { useNodeInternal } from "./internals/useNodeInternal.js";
+import { NodeFactory } from "./types.js";
 
 const LISTENER_TYPE = "treeChanged";
 
@@ -100,5 +105,5 @@ export default App;
 export function useTree<T extends TreeNode = TreeNode>(
     node: T | NodeFactory<T>
 ): T {
-    return useNodeInternal(node, LISTENER_TYPE);
+    return useNodeInternal(node, LISTENER_TYPE, "useTree");
 }

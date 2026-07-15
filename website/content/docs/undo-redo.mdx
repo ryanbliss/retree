@@ -1,0 +1,141 @@
+---
+title: Undo & redo
+description: createUndoHistory records every change under a root into undoable steps, built on Retree's attributable change records and Retree.applyInverse / applyChanges.
+---
+
+Every Retree change already emits records describing exactly what happened —
+which node, which key, the previous and new raw values. Undo/redo is those
+records played backwards.
+[`createUndoHistory`](/api/core/functions/createUndoHistory) does the
+recording and bookkeeping for you:
+
+```ts
+import { Retree, createUndoHistory } from "@retreejs/core";
+
+const project = Retree.root({ tasks: [{ title: "Docs", done: false }] });
+const history = createUndoHistory(project);
+
+project.tasks[0].done = true;
+project.tasks.push({ title: "Tests", done: false });
+
+history.undo(); // ✅ push undone — tasks has one entry
+history.undo(); // ✅ done back to false
+history.redo(); // ✅ done true again
+history.dispose(); // remove the treeChanged subscription on teardown
+```
+
+`undo()` and `redo()` return `true` when a step was applied and `false` when
+there was nothing to do; `canUndo` / `canRedo` drive button state. Applying a
+step emits normally — listeners fire and React re-renders — without being
+recorded as a new step. New writes after an undo truncate the redo stack,
+exactly like a text editor. Steps beyond `limit` (default 100) drop
+oldest-first.
+
+## What counts as one step
+
+-   Everything flushed by one
+    [`Retree.runTransaction`](/docs/transactions) is **one step** — a
+    drag-and-drop that writes ten fields undoes in one go.
+-   Each discrete write outside a transaction is **its own step**. A discrete
+    `ReactiveNode` field write counts as discrete here, even though Retree
+    flushes it through an internal transaction.
+
+### Coalescing keystrokes
+
+Per-keystroke text edits make terrible undo steps. The `coalesce` option
+merges a new discrete step into the previous one when you say so — it
+receives the previous step's records and the incoming records:
+
+```ts
+const history = createUndoHistory(project, {
+    coalesce: (previous, next) =>
+        // Fold consecutive single-field edits to the same key on the same
+        // node (e.g. typing into one title) into one undoable step.
+        previous.length > 0 &&
+        next.length === 1 &&
+        previous[previous.length - 1].node === next[0].node &&
+        previous[previous.length - 1].key === next[0].key,
+});
+```
+
+`coalesce` is only consulted for discrete writes; transaction flushes always
+form their own step. This covers `ReactiveNode` keystroke setters too — each
+setter write arrives as a discrete step and coalesces with the previous one.
+
+## Don't mix undo with other writes in one transaction
+
+Calling `undo()` / `redo()` inside a `Retree.runTransaction` works — but the
+transaction's flush carries the applied records, and recording skips that
+whole flush so the undo doesn't re-enter the history as a fresh step.
+Unrelated writes in the same transaction flush together with the applied
+records and are **skipped with them** — they will not be undoable:
+
+```ts
+Retree.runTransaction(() => {
+    history.undo(); // ✅ fine on its own
+    project.tasks.push({ title: "Sneaky", done: false }); // ❌ never recorded
+});
+```
+
+Keep undo/redo calls in their own transaction (or outside transactions
+entirely).
+
+## The primitives: `applyInverse` and `applyChanges`
+
+`createUndoHistory` is a convenience over two static APIs you can use
+directly — for a custom history policy, collaborative transforms, or
+persistence replay:
+
+```ts
+import { Retree, INodeFieldChanges } from "@retreejs/core";
+
+let lastChanges: INodeFieldChanges[] = [];
+Retree.on(project, "treeChanged", (_node, changes) => {
+    lastChanges = changes;
+});
+
+project.tasks.push({ title: "Tests" });
+Retree.applyInverse(lastChanges); // ✅ undo — tasks is back to one entry
+Retree.applyChanges(lastChanges); // ✅ redo — "Tests" is back
+```
+
+[`Retree.applyInverse`](/api/core/classes/Retree#applyinverse) applies a
+batch in reverse order, restoring each record's `previous` at `record.key`
+on the managed node behind `record.node`.
+[`Retree.applyChanges`](/api/core/classes/Retree#applychanges) replays the
+batch forward. Both wrap the whole batch in one `Retree.runTransaction`, and
+both throw when a record's node is no longer Retree-managed — records must be
+applied to the live tree that emitted them.
+
+### Structural `op` records apply structurally
+
+Change records carry an optional `op` marker
+([`TNodeFieldChangeOp`](/api/core/type-aliases/TNodeFieldChangeOp)) when
+`previous`/`new` alone can't describe the mutation: array `insert` / `remove`
+/ `length`, object and Map key `add` / `delete`, and Map/Set `clear`. Inverse
+application honors them exactly — `insert` records splice elements back out,
+`add`-marked records delete the key they created, `delete`-marked records
+restore the deleted entry, and `clear` restores every discarded entry from
+its per-entry records. Array mutators (`push`, `splice`, `sort`, …) emit one
+coherent record set per call, so one `splice` is one exact inverse.
+
+### Known inexact inverses
+
+Two cases restore less than a perfect snapshot would, by design:
+
+-   A direct `array.length = n` assignment that shrank the array restores only
+    the length — the discarded elements emitted no records.
+-   A plain index write that implicitly extended an array
+    (`items[10] = value` on a 3-item array) restores the value but not the
+    shorter length.
+
+Prefer the array methods (`push`, `splice`) when undo fidelity matters; their
+records are exact.
+
+## Where next
+
+-   [Events & subscriptions](/docs/events-and-subscriptions) — the change
+    payload these records come from.
+-   [Transactions & silent writes](/docs/transactions) — what one flush means.
+-   [DevTools](/docs/devtools) — the same records feed the Redux DevTools
+    bridge and `createChangeLogTap`.

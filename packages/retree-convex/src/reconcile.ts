@@ -3,46 +3,11 @@
  * Licensed under the MIT License.
  */
 
-import { IStateReconciler } from "./types";
-import { reconcileArray } from "./internals/reconcile";
+import { IStateReconciler, reconcileArrayById } from "@retreejs/query";
 
-/**
- * Create a reconciler for arrays of objects with stable IDs.
- *
- * @remarks
- * Use this for non-Convex arrays whose items have stable IDs. Reconciliation
- * updates matching items in place so child object identity stays stable for
- * `useNode(item)` rows and Retree parent relationships.
- *
- * Do not use index-based reconciliation for lists that can reorder. Prefer a
- * stable ID from the server.
- *
- * @param idKey Object key containing the stable item ID.
- * @returns A reconciler that updates matching array items in place.
- *
- * @example
- * ```ts
- * this.tasks = this.query(api.tasks.listExternal, {
- *     args: { projectId },
- *     reconcile: reconcileArrayById("id"),
- * });
- * ```
- */
-export function reconcileArrayById<
-    TItem extends Record<TKey, PropertyKey>,
-    TKey extends keyof TItem & string
->(idKey: TKey): IStateReconciler<TItem[]> {
-    return {
-        reconcile(current, next) {
-            if (current === undefined) {
-                return next;
-            }
-
-            reconcileArray(current, next, (item) => item[idKey]);
-            return current;
-        },
-    };
-}
+// `reconcileArrayById` moved to @retreejs/query (spec §6.2 AsyncQueryNode
+// extraction); re-exported here so existing imports keep working.
+export { reconcileArrayById } from "@retreejs/query";
 
 /**
  * Create a reconciler for Convex document arrays using each document's `_id`.

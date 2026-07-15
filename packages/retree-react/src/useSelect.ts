@@ -2,7 +2,13 @@
  * Copyright (c) Ryan Bliss. All rights reserved.
  * Licensed under the MIT License.
  */
+// "use no memo" documents intent and is belt-and-braces here: the React
+// Compiler's own validation already bails on this file (committed-state refs
+// are read during render by design, and the useSelect overload trampoline
+// dispatches to different hooks per form). See useNodeInternalCore.ts and
+// react-compiler.spec.tsx for why the directive family is load-bearing.
 "use no memo";
+"use client";
 
 import { RetreeSelectOptions, TreeNode } from "@retreejs/core";
 import {
@@ -18,16 +24,18 @@ import {
     stabilizeSelectedRetreeReferences,
     TrackedSelection,
 } from "@retreejs/core/internal";
-import { useMemo } from "react";
-import { useSyncExternalStoreWithSelector } from "use-sync-external-store/shim/with-selector";
+import { useEffect, useMemo, useRef } from "react";
+import { useSyncExternalStore } from "use-sync-external-store/shim";
 import {
     areRetreeExternalStoreSourcesEqual,
+    createRetreeSwappableCompositeExternalStore,
     getRetreeExternalStoreSource,
     RetreeCompositeSnapshot,
     RetreeExternalStoreSource,
-    useRetreeCompositeExternalStore,
-} from "./internals/externalStore";
-import { NodeFactory } from "./types";
+    RetreeSwappableCompositeExternalStore,
+} from "./internals/externalStore.js";
+import { useNodeFactoryResetWarning } from "./internals/factoryWarning.js";
+import { NodeFactory } from "./types.js";
 
 export type UseSelectOptions<TSelected> = RetreeSelectOptions<TSelected>;
 
@@ -84,14 +92,33 @@ interface NodeSelection<TSelected> {
     >;
 }
 
-interface NodeSelectionSnapshot<TSelected> extends NodeSelection<TSelected> {
+interface NodeSelectionSnapshot<TSelected> {
+    selection: NodeSelection<TSelected>;
     snapshot: RetreeCompositeSnapshot;
 }
 
-interface TrackedSelectionSnapshot<TSelected> {
-    selection: TrackedSelection<TSelected>;
-    snapshot: RetreeCompositeSnapshot;
-    sources: readonly RetreeExternalStoreSource[];
+/**
+ * The value returned from the external-store snapshot getter. Its identity
+ * changes exactly when the component should re-render, so it doubles as the
+ * `Object.is` re-render key for `useSyncExternalStore`.
+ */
+interface SelectionContainer<TSelected> {
+    readonly selected: TSelected;
+}
+
+/**
+ * The per-render memoization instance for one `useSelect` hook call site.
+ *
+ * Created by `useMemo` keyed on the recompute inputs (observed node, listener
+ * type, and user selector identity). The `state` object is mutable cache
+ * shared with the `getSelection` closure; everything it caches is derived
+ * from global Retree versions plus the instance's fixed selector, so calls
+ * from discarded concurrent renders can only move the cache forward, never
+ * poison committed state with render-scoped data.
+ */
+interface SelectInstance<TState, TSelected> {
+    readonly state: TState;
+    readonly getSelection: () => SelectionContainer<TSelected>;
 }
 
 function getNodeSelection<TNode extends TreeNode, TSelected>(
@@ -175,8 +202,8 @@ function getChangedNodeDependencyIndices<TSelected>(
         foundVersionChange = true;
         const source = next.snapshot.sources[index];
         const dependencyIndices =
-            next.dependencyIndices.get(source) ??
-            previous.dependencyIndices.get(source);
+            next.selection.dependencyIndices.get(source) ??
+            previous.selection.dependencyIndices.get(source);
         if (dependencyIndices === undefined) {
             return undefined;
         }
@@ -190,74 +217,366 @@ function getChangedNodeDependencyIndices<TSelected>(
     return [...indices];
 }
 
-function areNodeSelectionsEqual<TSelected>(
+function isNodeSelectedEqual<TSelected>(
     previous: NodeSelectionSnapshot<TSelected>,
     next: NodeSelectionSnapshot<TSelected>,
     equals: UseSelectOptions<TSelected>["equals"]
 ): boolean {
-    let selectedEqual: boolean;
     if (equals !== undefined) {
-        selectedEqual = equals(previous.selected, next.selected);
-    } else {
-        const changedDependencyIndices = getChangedNodeDependencyIndices(
-            previous,
-            next
+        return equals(previous.selection.selected, next.selection.selected);
+    }
+    const changedDependencyIndices = getChangedNodeDependencyIndices(
+        previous,
+        next
+    );
+    if (changedDependencyIndices === undefined) {
+        return !defaultSelectShouldNotify(
+            previous.selection.selected,
+            next.selection.selected
         );
-        if (changedDependencyIndices === undefined) {
-            selectedEqual = !defaultSelectShouldNotify(
-                previous.selected,
-                next.selected
-            );
-        } else {
-            selectedEqual = !changedDependencyIndices.some((index) =>
-                defaultSelectShouldNotify(
-                    previous.selected,
-                    next.selected,
-                    index
-                )
-            );
-        }
     }
-
-    if (selectedEqual) {
-        next.selected = previous.selected;
-    }
-    return (
-        selectedEqual &&
-        areRetreeExternalStoreSourcesEqual(previous.sources, next.sources)
+    return !changedDependencyIndices.some((index) =>
+        defaultSelectShouldNotify(
+            previous.selection.selected,
+            next.selection.selected,
+            index
+        )
     );
 }
 
-function areTrackedSelectionsEqual<TSelected>(
-    previous: TrackedSelectionSnapshot<TSelected>,
-    next: TrackedSelectionSnapshot<TSelected>,
-    equals: UseSelectOptions<TSelected>["equals"]
-): boolean {
-    const stabilizedSelected = stabilizeSelectedRetreeReferences(
-        previous.selection.selected,
-        next.selection.selected
+/**
+ * Per-hook memoization state for the node form of `useSelect`.
+ *
+ * The user selector runs only when this state is (re)created — the observed
+ * node, listener type, or selector identity changed — or when
+ * {@link refreshNodeSelectState} observes a new composite-store snapshot (a
+ * subscribed source's version advanced). Unrelated parent re-renders with a
+ * stable selector reuse the cached selection.
+ */
+interface NodeSelectState<TNode extends TreeNode, TSelected> {
+    readonly baseProxy: TNode;
+    readonly listenerType: "nodeChanged" | "treeChanged";
+    selection: NodeSelection<TSelected>;
+    /**
+     * Swappable so a render-phase refresh that moves the dependency sources
+     * rewires the live `useSyncExternalStore` subscription in place instead
+     * of stranding it on the old sources (uSES captures `subscribe` before it
+     * calls `getSnapshot`, so a store replaced during that call would never
+     * be resubscribed to). The handle identity — and therefore the
+     * `subscribe` identity uSES sees — is stable for the life of this state.
+     */
+    readonly store: RetreeSwappableCompositeExternalStore;
+    snapshot: RetreeCompositeSnapshot;
+    container: SelectionContainer<TSelected>;
+}
+
+function createNodeSelectState<TNode extends TreeNode, TSelected>(
+    baseProxy: TNode,
+    listenerType: "nodeChanged" | "treeChanged",
+    selector: (node: TNode) => TSelected
+): NodeSelectState<TNode, TSelected> {
+    const selection = getNodeSelection(baseProxy, selector, listenerType);
+    const store = createRetreeSwappableCompositeExternalStore(
+        selection.sources
     );
-    next.selection.selected = stabilizedSelected;
+    return {
+        baseProxy,
+        listenerType,
+        selection,
+        store,
+        snapshot: store.getSnapshot(),
+        container: { selected: selection.selected },
+    };
+}
+
+function refreshNodeSelectState<TNode extends TreeNode, TSelected>(
+    state: NodeSelectState<TNode, TSelected>,
+    selector: (node: TNode) => TSelected,
+    equals: UseSelectOptions<TSelected>["equals"]
+): SelectionContainer<TSelected> {
+    const snapshot = state.store.getSnapshot();
+    if (snapshot === state.snapshot) {
+        return state.container;
+    }
+    const nextSelection = getNodeSelection(
+        state.baseProxy,
+        selector,
+        state.listenerType
+    );
+    const previous: NodeSelectionSnapshot<TSelected> = {
+        selection: state.selection,
+        snapshot: state.snapshot,
+    };
+    const next: NodeSelectionSnapshot<TSelected> = {
+        selection: nextSelection,
+        snapshot,
+    };
+    const selectedEqual = isNodeSelectedEqual(previous, next, equals);
+    const sourcesEqual = areRetreeExternalStoreSourcesEqual(
+        state.selection.sources,
+        nextSelection.sources
+    );
+    if (selectedEqual && sourcesEqual) {
+        state.snapshot = snapshot;
+        return state.container;
+    }
+    if (selectedEqual) {
+        // Reference stabilization: the selected value is unchanged, so keep
+        // handing out the previous reference even though the subscription
+        // sources moved.
+        nextSelection.selected = state.container.selected;
+    }
+    if (!sourcesEqual) {
+        // Render-phase dependency move: swap the sources inside the stable
+        // store handle so the live subscription rewires immediately. See
+        // createRetreeSwappableCompositeExternalStore for why replacing the
+        // store object here would strand the committed subscription.
+        state.store.swapSources(nextSelection.sources);
+    }
+    state.selection = nextSelection;
+    state.snapshot = state.store.getSnapshot();
+    state.container = { selected: nextSelection.selected };
+    return state.container;
+}
+
+/**
+ * Render-phase recompute for the node form when only the user selector's
+ * function identity changed (typically an inline selector capturing fresh
+ * render-scoped values such as props).
+ *
+ * Returns a brand-new state object instead of mutating `committed`: this runs
+ * during render, so a discarded concurrent render must leave the committed
+ * state untouched. Container and store identities are reused from the
+ * committed state when the selected value and sources are unchanged, which
+ * preserves reference stabilization and avoids resubscription churn for
+ * inline selectors.
+ */
+function recomputeNodeSelectStateForSelector<TNode extends TreeNode, TSelected>(
+    committed: NodeSelectState<TNode, TSelected>,
+    selector: (node: TNode) => TSelected,
+    equals: UseSelectOptions<TSelected>["equals"]
+): NodeSelectState<TNode, TSelected> {
+    const nextSelection = getNodeSelection(
+        committed.baseProxy,
+        selector,
+        committed.listenerType
+    );
+    let selectedEqual: boolean;
+    if (equals !== undefined) {
+        selectedEqual = equals(
+            committed.container.selected,
+            nextSelection.selected
+        );
+    } else {
+        // No source version changed here (only the selector identity did), so
+        // compare the whole selection — the same fallback the version-diffing
+        // comparison uses when it finds no changed dependency indices.
+        selectedEqual = !defaultSelectShouldNotify(
+            committed.selection.selected,
+            nextSelection.selected
+        );
+    }
+    let container = committed.container;
+    if (selectedEqual) {
+        // Reference stabilization: keep handing out the previous reference.
+        nextSelection.selected = committed.container.selected;
+    } else {
+        container = { selected: nextSelection.selected };
+    }
+    const sourcesEqual = areRetreeExternalStoreSourcesEqual(
+        committed.selection.sources,
+        nextSelection.sources
+    );
+    // Reuse the committed store handle when the sources are unchanged so the
+    // `subscribe` identity stays stable (no resubscription churn for inline
+    // selectors). When the sources moved, a NEW handle is created instead of
+    // swapping the committed one: this runs during render for a state object
+    // that has not committed yet, and the new handle's `subscribe` identity
+    // makes `useSyncExternalStore` resubscribe on commit.
+    let store = committed.store;
+    if (!sourcesEqual) {
+        store = createRetreeSwappableCompositeExternalStore(
+            nextSelection.sources
+        );
+    }
+    return {
+        baseProxy: committed.baseProxy,
+        listenerType: committed.listenerType,
+        selection: nextSelection,
+        store,
+        snapshot: store.getSnapshot(),
+        container,
+    };
+}
+
+/**
+ * Per-hook memoization state for the selector-only (tracked) form of
+ * `useSelect`. Mirrors {@link NodeSelectState}; tracked runs additionally pay
+ * dependency-tracking proxy overhead, so avoiding re-runs matters even more.
+ */
+interface TrackedSelectState<TSelected> {
+    comparisonValues: readonly unknown[];
+    sources: readonly RetreeExternalStoreSource[];
+    /**
+     * Swappable for the same reason as {@link NodeSelectState.store}: a
+     * render-phase refresh that moves the tracked sources rewires the live
+     * subscription in place while keeping the `subscribe` identity stable.
+     */
+    readonly store: RetreeSwappableCompositeExternalStore;
+    snapshot: RetreeCompositeSnapshot;
+    container: SelectionContainer<TSelected>;
+}
+
+function createTrackedSelectState<TSelected>(
+    selector: () => TSelected
+): TrackedSelectState<TSelected> {
+    const selection = runTrackedSelection(selector);
+    const sources = getTrackedSelectionSources(selection);
+    const store = createRetreeSwappableCompositeExternalStore(sources);
+    return {
+        comparisonValues: getTrackedDependencyComparisonValues(
+            selection.dependencies
+        ),
+        sources,
+        store,
+        snapshot: store.getSnapshot(),
+        container: { selected: selection.selected },
+    };
+}
+
+function refreshTrackedSelectState<TSelected>(
+    state: TrackedSelectState<TSelected>,
+    selector: () => TSelected,
+    equals: UseSelectOptions<TSelected>["equals"]
+): SelectionContainer<TSelected> {
+    const snapshot = state.store.getSnapshot();
+    if (snapshot === state.snapshot) {
+        return state.container;
+    }
+    const nextSelection = runTrackedSelection(selector);
+    const stabilizedSelected = stabilizeSelectedRetreeReferences(
+        state.container.selected,
+        nextSelection.selected
+    );
     const selectedEqual =
         equals !== undefined
-            ? equals(previous.selection.selected, stabilizedSelected)
+            ? equals(state.container.selected, stabilizedSelected)
             : !defaultTrackedSelectedChanged(
-                  previous.selection.selected,
+                  state.container.selected,
                   stabilizedSelected
               );
+    const nextComparisonValues = getTrackedDependencyComparisonValues(
+        nextSelection.dependencies
+    );
     const dependenciesEqual = areTrackedComparisonValuesEqual(
-        getTrackedDependencyComparisonValues(previous.selection.dependencies),
-        getTrackedDependencyComparisonValues(next.selection.dependencies)
+        state.comparisonValues,
+        nextComparisonValues
     );
-
-    if (selectedEqual) {
-        next.selection.selected = previous.selection.selected;
+    const nextSources = getTrackedSelectionSources(nextSelection);
+    const sourcesEqual = areRetreeExternalStoreSourcesEqual(
+        state.sources,
+        nextSources
+    );
+    if (selectedEqual && dependenciesEqual && sourcesEqual) {
+        state.snapshot = snapshot;
+        return state.container;
     }
-    return (
-        selectedEqual &&
-        dependenciesEqual &&
-        areRetreeExternalStoreSourcesEqual(previous.sources, next.sources)
+    let selected = stabilizedSelected;
+    if (selectedEqual) {
+        // Reference stabilization: dependencies or sources changed but the
+        // selected value did not, so keep handing out the previous reference.
+        selected = state.container.selected;
+    }
+    if (!sourcesEqual) {
+        // Render-phase dependency move: swap the sources inside the stable
+        // store handle so the live subscription rewires immediately. See
+        // createRetreeSwappableCompositeExternalStore for why replacing the
+        // store object here would strand the committed subscription.
+        state.store.swapSources(nextSources);
+    }
+    state.comparisonValues = nextComparisonValues;
+    state.sources = nextSources;
+    state.snapshot = state.store.getSnapshot();
+    state.container = { selected };
+    return state.container;
+}
+
+/**
+ * Render-phase recompute for the tracked form when only the user selector's
+ * function identity changed (typically an inline selector capturing fresh
+ * render-scoped values such as props).
+ *
+ * Runs the new selector under dependency tracking and returns a brand-new
+ * state object instead of mutating `committed`: this runs during render, so a
+ * discarded concurrent render must leave the committed state untouched.
+ * Container and store identities are reused from the committed state when the
+ * selected value and sources are unchanged; when the tracked sources moved,
+ * the new store's `subscribe` identity makes `useSyncExternalStore`
+ * resubscribe on commit.
+ */
+function recomputeTrackedSelectStateForSelector<TSelected>(
+    committed: TrackedSelectState<TSelected>,
+    selector: () => TSelected,
+    equals: UseSelectOptions<TSelected>["equals"]
+): TrackedSelectState<TSelected> {
+    const nextSelection = runTrackedSelection(selector);
+    const stabilizedSelected = stabilizeSelectedRetreeReferences(
+        committed.container.selected,
+        nextSelection.selected
     );
+    const selectedEqual =
+        equals !== undefined
+            ? equals(committed.container.selected, stabilizedSelected)
+            : !defaultTrackedSelectedChanged(
+                  committed.container.selected,
+                  stabilizedSelected
+              );
+    let container = committed.container;
+    if (!selectedEqual) {
+        container = { selected: stabilizedSelected };
+    }
+    let sources = getTrackedSelectionSources(nextSelection);
+    const sourcesEqual = areRetreeExternalStoreSourcesEqual(
+        committed.sources,
+        sources
+    );
+    // Reuse the committed store handle when the sources are unchanged so the
+    // `subscribe` identity stays stable (no resubscription churn for inline
+    // selectors). When the sources moved, a NEW handle is created instead of
+    // swapping the committed one: this runs during render for a state object
+    // that has not committed yet, and the new handle's `subscribe` identity
+    // makes `useSyncExternalStore` resubscribe on commit.
+    let store = committed.store;
+    if (sourcesEqual) {
+        // Keep the committed array identity so later comparisons stay cheap.
+        sources = committed.sources;
+    } else {
+        store = createRetreeSwappableCompositeExternalStore(sources);
+    }
+    return {
+        comparisonValues: getTrackedDependencyComparisonValues(
+            nextSelection.dependencies
+        ),
+        sources,
+        store,
+        snapshot: store.getSnapshot(),
+        container,
+    };
+}
+
+/**
+ * Dev-time guard: the two `useSelect` forms call different React hooks, so a
+ * call site flipping between them across renders would otherwise surface as
+ * React's cryptic hook-order error. Detect the flip first and throw a precise
+ * Retree error.
+ */
+function useSelectFormGuard(isNodeForm: boolean): void {
+    const formRef = useRef(isNodeForm);
+    if (formRef.current !== isNodeForm) {
+        throw new Error(
+            "useSelect switched between selector-only and node form between renders. A useSelect call site must use the same overload on every render because the two forms use different React hooks internally. Fix: keep the argument shape stable at this call site, or split the two forms into separate components."
+        );
+    }
 }
 
 /**
@@ -287,12 +606,26 @@ function areTrackedSelectionsEqual<TSelected>(
  * without reacting to unrelated task fields. Primitive reads are kept as
  * comparison values.
  *
+ * The selector is memoized per hook instance: it re-runs when a subscribed
+ * source changes, when the observed node changes, or when the selector's
+ * function identity changes between renders. An inline selector gets a fresh
+ * identity every render, so it re-runs once per render and may safely close
+ * over props and other render-scoped values. A hoisted or `useCallback`-stable
+ * selector skips unrelated parent re-renders entirely — so it must not close
+ * over values that change between renders (other than the node and
+ * Retree-managed reads); include such captures in the `useCallback` dependency
+ * list so the selector identity changes with them. Changing only the `equals`
+ * function identity never re-runs the selector: `equals` is consulted when a
+ * recompute happens, to stabilize outputs.
+ *
  * Do not use `useSelect` to cache expensive computation for reuse elsewhere.
  * Put that work behind `memo`, `@memo`, or `@fnMemo`, then select the cached
  * value.
  *
  * The node form's first argument is the Retree-managed node or node factory to
- * observe.
+ * observe. An inline factory like `useSelect(() => Retree.root({ ... }), ...)`
+ * re-runs every render and silently resets state: hoist the factory (and its
+ * `Retree.root` call) outside the component, or use `useRoot`.
  *
  * @param selector Function that reads a selected value or dependency list from
  * the latest reproxy.
@@ -359,7 +692,9 @@ export function useSelect<TNode extends TreeNode, TSelected>(
 // eslint-disable-next-line no-redeclare
 export function useSelect(...args: unknown[]): unknown {
     const [nodeOrSelector, selectorOrOptions, optionsValue] = args;
-    if (!isNodeSelector(selectorOrOptions)) {
+    const isNodeForm = isNodeSelector(selectorOrOptions);
+    useSelectFormGuard(isNodeForm);
+    if (!isNodeForm) {
         if (!isTrackedSelector(nodeOrSelector)) {
             throw new Error(
                 "useSelect: the selector-only form requires a selector function as its first argument."
@@ -386,22 +721,58 @@ function useNodeSelect<TNode extends TreeNode, TSelected>(
         return getNode(node);
     }, [node]);
     const baseProxy = getBaseProxy<TNode>(memoNode);
+    useNodeFactoryResetWarning("useSelect", node, baseProxy);
     const listenerType = options?.listenerType ?? "nodeChanged";
     const equals = options?.equals;
-    const renderSelection = getNodeSelection(baseProxy, selector, listenerType);
-    const store = useRetreeCompositeExternalStore(renderSelection.sources);
-    const selection = useSyncExternalStoreWithSelector(
-        store.subscribe,
-        store.getSnapshot,
-        store.getServerSnapshot,
-        (snapshot): NodeSelectionSnapshot<TSelected> => ({
-            ...getNodeSelection(baseProxy, selector, listenerType),
-            snapshot,
-        }),
-        (previous, next) => areNodeSelectionsEqual(previous, next, equals)
-    );
 
-    return selection.selected;
+    // `equals` only stabilizes outputs, so an `equals` identity change never
+    // forces a recompute. Both refs are written from the commit effect below
+    // (never during render), so a discarded concurrent render cannot leave
+    // its closures behind for the committed tree's store-change path. See
+    // useStableRetreeExternalStoreSources in ./internals/externalStore.ts for
+    // the same pattern.
+    const equalsRef = useRef(equals);
+    const committedStateRef = useRef<
+        NodeSelectState<TNode, TSelected> | undefined
+    >(undefined);
+
+    const instance = useMemo<
+        SelectInstance<NodeSelectState<TNode, TSelected>, TSelected>
+    >(() => {
+        const committed = committedStateRef.current;
+        let state: NodeSelectState<TNode, TSelected>;
+        if (
+            committed !== undefined &&
+            committed.baseProxy === baseProxy &&
+            committed.listenerType === listenerType
+        ) {
+            // Only the selector identity changed: recompute with the new
+            // selector so captured render-scoped values (like props) are
+            // reflected immediately, stabilizing against the committed state.
+            state = recomputeNodeSelectStateForSelector(
+                committed,
+                selector,
+                equalsRef.current
+            );
+        } else {
+            state = createNodeSelectState(baseProxy, listenerType, selector);
+        }
+        const getSelection = () =>
+            refreshNodeSelectState(state, selector, equalsRef.current);
+        return { state, getSelection };
+    }, [baseProxy, listenerType, selector]);
+
+    useEffect(() => {
+        equalsRef.current = equals;
+        committedStateRef.current = instance.state;
+    });
+
+    const container = useSyncExternalStore(
+        instance.state.store.subscribe,
+        instance.getSelection,
+        instance.getSelection
+    );
+    return container.selected;
 }
 
 function useTrackedSelect<TSelected>(
@@ -409,23 +780,45 @@ function useTrackedSelect<TSelected>(
     options?: UseSelectOptions<TSelected>
 ): TSelected {
     const equals = options?.equals;
-    const renderSelection = runTrackedSelection(selector);
-    const renderSources = getTrackedSelectionSources(renderSelection);
-    const store = useRetreeCompositeExternalStore(renderSources);
-    const selection = useSyncExternalStoreWithSelector(
-        store.subscribe,
-        store.getSnapshot,
-        store.getServerSnapshot,
-        (snapshot): TrackedSelectionSnapshot<TSelected> => {
-            const trackedSelection = runTrackedSelection(selector);
-            return {
-                selection: trackedSelection,
-                snapshot,
-                sources: getTrackedSelectionSources(trackedSelection),
-            };
-        },
-        (previous, next) => areTrackedSelectionsEqual(previous, next, equals)
+
+    // Written from the commit effect below (never during render) so discarded
+    // concurrent renders cannot poison committed state. See useNodeSelect.
+    const equalsRef = useRef(equals);
+    const committedStateRef = useRef<TrackedSelectState<TSelected> | undefined>(
+        undefined
     );
 
-    return selection.selection.selected;
+    const instance = useMemo<
+        SelectInstance<TrackedSelectState<TSelected>, TSelected>
+    >(() => {
+        const committed = committedStateRef.current;
+        let state: TrackedSelectState<TSelected>;
+        if (committed !== undefined) {
+            // Only the selector identity changed: recompute under tracking so
+            // captured render-scoped values (like props) are reflected
+            // immediately, resubscribing if the tracked sources moved.
+            state = recomputeTrackedSelectStateForSelector(
+                committed,
+                selector,
+                equalsRef.current
+            );
+        } else {
+            state = createTrackedSelectState(selector);
+        }
+        const getSelection = () =>
+            refreshTrackedSelectState(state, selector, equalsRef.current);
+        return { state, getSelection };
+    }, [selector]);
+
+    useEffect(() => {
+        equalsRef.current = equals;
+        committedStateRef.current = instance.state;
+    });
+
+    const container = useSyncExternalStore(
+        instance.state.store.subscribe,
+        instance.getSelection,
+        instance.getSelection
+    );
+    return container.selected;
 }
