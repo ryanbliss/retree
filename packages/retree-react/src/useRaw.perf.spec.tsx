@@ -34,13 +34,30 @@ function makeRows(rows: number, cells: number): WideRow[] {
     return result;
 }
 
-function time(label: string, fn: () => void): number {
-    const start = performance.now();
-    fn();
-    const ms = performance.now() - start;
+/**
+ * Best-of-N timing: mounts via `setup` several times and keeps the fastest
+ * run. Single-shot timings on shared CI runners are too noisy to gate on;
+ * the minimum is the closest observable to the true cost.
+ */
+function time(label: string, setup: () => () => void): number {
+    const RUNS = 5;
+    // Warmup run so first-render module/JIT costs don't bias whichever
+    // scenario is measured first.
+    setup()();
 
-    console.log(`${label}: ${ms.toFixed(1)} ms`);
-    return ms;
+    let best = Infinity;
+    for (let i = 0; i < RUNS; i++) {
+        const fn = setup();
+        const start = performance.now();
+        fn();
+        const ms = performance.now() - start;
+        if (ms < best) {
+            best = ms;
+        }
+    }
+
+    console.log(`${label}: ${best.toFixed(1)} ms (best of ${RUNS})`);
+    return best;
 }
 
 describe("useRaw perf probe", () => {
@@ -48,34 +65,38 @@ describe("useRaw perf probe", () => {
         const ROWS = 200;
         const CELLS = 40;
 
-        const nodeRoot = Retree.root({ rows: makeRows(ROWS, CELLS) });
-        function NodeTable() {
-            const rows = useNode(nodeRoot.rows);
-            let total = 0;
-            for (const row of rows) {
-                for (const cell of row.cells) {
-                    total += cell;
-                }
-            }
-            return <div>{total}</div>;
-        }
         const nodeMs = time("useNode wide table (200x40 reads)", () => {
-            render(<NodeTable />);
+            const nodeRoot = Retree.root({ rows: makeRows(ROWS, CELLS) });
+            function NodeTable() {
+                const rows = useNode(nodeRoot.rows);
+                let total = 0;
+                for (const row of rows) {
+                    for (const cell of row.cells) {
+                        total += cell;
+                    }
+                }
+                return <div>{total}</div>;
+            }
+            return () => {
+                render(<NodeTable />);
+            };
         });
 
-        const rawRoot = Retree.root({ rows: makeRows(ROWS, CELLS) });
-        function RawTable() {
-            const [rows] = useRaw(rawRoot.rows);
-            let total = 0;
-            for (const row of rows) {
-                for (const cell of row.cells) {
-                    total += cell;
-                }
-            }
-            return <div>{total}</div>;
-        }
         const rawMs = time("useRaw wide table (200x40 reads)", () => {
-            render(<RawTable />);
+            const rawRoot = Retree.root({ rows: makeRows(ROWS, CELLS) });
+            function RawTable() {
+                const [rows] = useRaw(rawRoot.rows);
+                let total = 0;
+                for (const row of rows) {
+                    for (const cell of row.cells) {
+                        total += cell;
+                    }
+                }
+                return <div>{total}</div>;
+            }
+            return () => {
+                render(<RawTable />);
+            };
         });
 
         // Loose gate: raw reads must not be slower than trapped reads.
@@ -85,37 +106,42 @@ describe("useRaw perf probe", () => {
     it("useRaw mount with toManaged per row vs useNode list", () => {
         const ROWS = 2000;
 
-        const nodeRoot = Retree.root({ rows: makeRows(ROWS, 1) });
-        function NodeList() {
-            const rows = useNode(nodeRoot.rows);
-            return <div>{rows.map((row) => row.id).join("")}</div>;
-        }
         const nodeMs = time("useNode list mount (2000 rows)", () => {
-            render(<NodeList />);
+            const nodeRoot = Retree.root({ rows: makeRows(ROWS, 1) });
+            function NodeList() {
+                const rows = useNode(nodeRoot.rows);
+                return <div>{rows.map((row) => row.id).join("")}</div>;
+            }
+            return () => {
+                render(<NodeList />);
+            };
         });
 
-        const rawRoot = Retree.root({ rows: makeRows(ROWS, 1) });
         let resolvedCount = 0;
-        function RawList() {
-            const [rows, toManaged] = useRaw(rawRoot.rows);
-            return (
-                <div>
-                    {rows
-                        .map((row) => {
-                            const source = toManaged(row);
-                            if (source !== undefined) {
-                                resolvedCount++;
-                            }
-                            return row.id;
-                        })
-                        .join("")}
-                </div>
-            );
-        }
         const rawMs = time(
             "useRaw list mount + toManaged all (2000 rows)",
             () => {
-                render(<RawList />);
+                const rawRoot = Retree.root({ rows: makeRows(ROWS, 1) });
+                function RawList() {
+                    const [rows, toManaged] = useRaw(rawRoot.rows);
+                    return (
+                        <div>
+                            {rows
+                                .map((row) => {
+                                    const source = toManaged(row);
+                                    if (source !== undefined) {
+                                        resolvedCount++;
+                                    }
+                                    return row.id;
+                                })
+                                .join("")}
+                        </div>
+                    );
+                }
+                resolvedCount = 0;
+                return () => {
+                    render(<RawList />);
+                };
             }
         );
 
