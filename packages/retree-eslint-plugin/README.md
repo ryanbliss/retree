@@ -31,4 +31,6 @@ The first implementation covers direct Retree hooks, local aliases and
 destructuring, array render callbacks, JSX, hook dependency arrays, and paired
 direct-child `useRaw` conversions. It deliberately skips uncertain values and
 does not yet summarize `ReactiveNode.dependencies`, decorators, getters, or
-methods.
+methods. Map/Set provenance, `Object.*`/`JSON.stringify`/`structuredClone`
+whole-value consumers, same-file custom-hook return summaries, and nested named
+components that close over an outer component's hook result are also deferred.

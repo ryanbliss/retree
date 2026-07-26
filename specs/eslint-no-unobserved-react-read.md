@@ -5,6 +5,10 @@ The initial package, typed-lint baseline, and proof-based local hook/path
 analysis now live in `packages/retree-eslint-plugin`; Phase -1/0 runtime work,
 factory-context tracing, and Phase B Retree semantic summaries remain deferred.
 
+Implementation status is explicit throughout this document: **Phase A** means
+the current package implements and tests the behavior; **deferred** describes
+the proposed model only and must not be read as shipped behavior.
+
 Proposed package: `@retreejs/eslint-plugin`
 
 Proposed rule: `@retreejs/no-unobserved-react-read`
@@ -101,20 +105,20 @@ The analysis uses three coverage kinds for a known node identity:
 
 Known APIs create coverage as follows:
 
-| Expression                                                      | Coverage                                               |
-| --------------------------------------------------------------- | ------------------------------------------------------ |
-| `Retree.root(value)` / `useRoot(factory)`                       | known managed root, `none`                             |
-| default `useRootContext<T>()`                                   | container only; members are `unknown` by default       |
-| factory-produced context `useRootContext()`                     | candidate container; traced managed members get `none` |
-| value typed as `ReactiveNode` with the opt-in heuristic enabled | heuristic candidate outside the proof coverage graph   |
-| `useNode(node)`                                                 | `own` for `node`                                       |
-| `useTree(node)`                                                 | `tree` for `node`                                      |
-| first tuple item from `useRaw(node)`                            | raw provenance with `own` invalidation                 |
-| first tuple item from tree-mode `useRaw(node)`                  | raw provenance with `tree` invalidation                |
-| `toManaged(directRawChild)` from that `useRaw` tuple            | guaranteed managed node, `none`                        |
-| `useSelect(() => expression)`                                   | tracked reads inside the selector are covered          |
-| `useSelect(node, selector)`                                     | `own` for `node`, plus returned dependency nodes       |
-| node-form `useSelect` with `treeChanged`                        | `tree` for `node`                                      |
+| Expression                                                      | Coverage                                               | Status           |
+| --------------------------------------------------------------- | ------------------------------------------------------ | ---------------- |
+| `Retree.root(value)` / `useRoot(factory)`                       | known managed root, `none`                             | Phase A          |
+| default `useRootContext<T>()`                                   | container only; members are `unknown` by default       | deferred         |
+| factory-produced context `useRootContext()`                     | candidate container; traced managed members get `none` | deferred         |
+| value typed as `ReactiveNode` with the opt-in heuristic enabled | heuristic candidate outside the proof coverage graph   | deferred Phase B |
+| `useNode(node)`                                                 | `own` for `node`                                       | Phase A          |
+| `useTree(node)`                                                 | `tree` for `node`                                      | Phase A          |
+| first tuple item from `useRaw(node)`                            | raw provenance with `own` invalidation                 | Phase A          |
+| first tuple item from tree-mode `useRaw(node)`                  | raw provenance with `tree` invalidation                | Phase A          |
+| `toManaged(directRawChild)` from that `useRaw` tuple            | guaranteed managed node, `none`                        | Phase A          |
+| `useSelect(() => expression)`                                   | tracked reads inside the selector are covered          | deferred Phase B |
+| `useSelect(node, selector)`                                     | `own` for `node`, plus returned dependency nodes       | deferred Phase B |
+| node-form `useSelect` with `treeChanged`                        | `tree` for `node`                                      | deferred Phase B |
 
 Import resolution is by symbol and module, not local spelling, so aliased and
 namespace imports work. A function merely named `useNode` is not treated as
@@ -134,10 +138,9 @@ runtime success and must not make the rule accept or recommend the conversion.
 A type assignable to the `ReactiveNode` export from `@retreejs/core` does
 **not** prove a managed origin. `new Foo()` may never have passed through
 `Retree.root`, and calling `useNode` on that unproxied instance throws. Such a
-value is therefore `unknown` by default. The `checkReactiveNodeValues` option
-enables an explicitly heuristic diagnostic for teams whose convention is that
-rendered `ReactiveNode` values are always rooted; it defaults to `false` and is
-outside the rule's proof-based core.
+value is therefore `unknown` by default. A possible
+`checkReactiveNodeValues` heuristic is deferred to Phase B and is not present
+in the Phase A option schema or implementation.
 
 Context hooks return a **container**, not a Retree node or an observation. The
 default `useRootContext<T>()` implementation returns a caller-asserted `T` and
@@ -268,17 +271,18 @@ return <button onClick={() => alert(label)}>Show</button>;
 
 ## 4. Provenance and local data flow
 
-The implementation performs a per-function, flow-sensitive provenance pass.
-It tracks:
+The implementation performs a bounded per-function provenance pass. Current
+and proposed coverage are separated below:
 
--   simple assignments and aliases;
--   object/array destructuring;
--   optional chains and statically known computed keys;
--   array indexing and iteration callback parameters;
--   `Map.get`, `values`, `entries`, and `forEach` result provenance;
--   `Set` iteration and callbacks;
--   returns from same-file custom-hook wrappers when their result can be
-    summarized without ambiguity.
+-   **Phase A:** simple assignments and aliases;
+-   **Phase A:** object/array destructuring supported by the local binder;
+-   **Phase A:** optional chains and statically known computed keys;
+-   **Phase A:** array indexing, `for...of`, and synchronous array callback
+    parameters;
+-   **deferred:** `Map.get`, `values`, `entries`, and `forEach` result
+    provenance;
+-   **deferred:** `Set` iteration and callbacks;
+-   **deferred:** returns from same-file custom-hook wrappers.
 
 Examples that must be equivalent:
 
@@ -358,7 +362,7 @@ observes the converted node must also retain a stable, unconditional hook call
 structure; the example uses a child boundary rather than conditionally calling
 `useNode` after the guard.
 
-### 5.2 Accessors and methods
+### 5.2 Accessors and methods (deferred — Phase B)
 
 A direct member is not necessarily direct state:
 
@@ -420,19 +424,21 @@ return project.tasks.map((task) => <TaskRow task={task} />);
 //             ^^^^^ report: tasks is not observed
 ```
 
-Equivalent rules apply to object/array spread, `for...of`, Map and Set
-iteration, and collection size.
+Phase A applies equivalent rules to object/array spread and array `for...of`.
+Map/Set iteration and collection-size modeling are deferred.
 
 ### 5.4 Known whole-value consumers
 
-The initial model includes operations that synchronously inspect a whole value:
+The model includes operations that synchronously inspect a whole value, with
+the shipped boundary shown explicitly:
 
--   object/array spread and rest;
--   `Object.keys`, `Object.values`, `Object.entries`;
--   `JSON.stringify`;
--   `structuredClone`;
--   standard array/Map/Set iteration APIs;
--   JSX spread attributes.
+-   **Phase A:** object/array spread expressions, array `for...of`, and JSX
+    spread attributes;
+-   **Phase A:** object destructuring of statically known properties;
+-   **deferred:** object/array rest destructuring;
+-   **deferred:** `Object.keys`, `Object.values`, `Object.entries`;
+-   **deferred:** `JSON.stringify` and `structuredClone`;
+-   **deferred:** Map/Set iteration APIs.
 
 Passing a node to an unknown function remains a transfer. Expanding the
 whole-value allowlist/denylist is a semver-minor rule improvement only when it
@@ -446,7 +452,13 @@ assignments, increments, and calls that return a render value include a read
 and are analyzed. React purity and Retree raw-write mistakes belong in separate
 rules.
 
-## 6. `dependencies`, `@select`, and selector semantics
+## 6. `dependencies`, `@select`, and selector semantics (deferred — Phase B)
+
+Until these summaries exist, Phase A degrades member provenance to `unknown`
+for a type assignable to the canonical `ReactiveNode` export from
+`@retreejs/core`, and for source members with decorators. It does not infer
+Retree semantics from a property named `dependencies`; ordinary application
+types with such a field remain analyzable.
 
 ### 6.1 `ReactiveNode.dependencies`
 
@@ -569,14 +581,15 @@ Message IDs:
 > deliberately, or forward the change through `ReactiveNode.dependencies` /
 > `@select`.
 
-### `unobservedReactiveNodeRead`
+### `unobservedReactiveNodeRead` (deferred — Phase B)
 
 > `{{readPath}}` reads a value typed as `ReactiveNode` during render without a
 > proven Retree React observation. This opt-in check cannot prove that the
 > instance is managed. If it is rooted, observe or select `{{ownerPath}}`; if it
 > is intentionally unrooted, do not add a Retree hook.
 
-This message exists only when `checkReactiveNodeValues: true`. It is used for
+This proposed message would exist only when the deferred
+`checkReactiveNodeValues: true` option is implemented. It would be used for
 statically identifiable `ReactiveNode` props/locals where no managed-origin
 flow or hook established coverage. It deliberately does not prescribe
 `useNode`, because that hook throws for an unrooted instance.
@@ -603,13 +616,13 @@ managed result.
 Neither raw message tells the user to pass a raw object directly to `useNode`,
 and the deeper-path message never recommends a non-null assertion.
 
-### `unobservedDerivedRead`
+### `unobservedDerivedRead` (deferred — Phase B)
 
 > `{{member}}` reads `{{dependencyPath}}`, which is not covered by this
 > component's observation of `{{ownerPath}}`. Add a narrow observation or make
 > the derived member reactive with `dependencies` / `@select`.
 
-### `unobservedNodeSelectorRead`
+### `unobservedNodeSelectorRead` (deferred — Phase B)
 
 > This node-form `useSelect` reads descendant `{{ownerPath}}`, but the selector
 > does not return that node as a dependency and does not use `treeChanged`.
@@ -647,7 +660,7 @@ The rule does not invent a Retree-specific suppression pragma.
 
 ## 8. Configuration and package surface
 
-Initial option schema:
+Phase A option schema:
 
 ```ts
 interface HookBehavior {
@@ -662,7 +675,6 @@ interface Options {
     additionalHooks?: AdditionalHook[];
     baseDirectory?: string;
     checkJsxKeys?: boolean;
-    checkReactiveNodeValues?: boolean;
 }
 ```
 
@@ -754,17 +766,16 @@ const configDirectory = path.dirname(fileURLToPath(import.meta.url));
                     result: "value"
                 }
             ],
-            checkJsxKeys: false,
-            checkReactiveNodeValues: false
+            checkJsxKeys: false
         }]
     }
 }
 ```
 
 `checkJsxKeys` defaults to `false` for the low-false-positive V1 policy in
-section 3.3. `checkReactiveNodeValues` also defaults to `false`, because a
-`ReactiveNode` type cannot prove rootedness. `createRetreeContext(...).useRootContext`
-and its destructured aliases are built in and do not use `additionalHooks`.
+section 3.3. `checkReactiveNodeValues` and built-in
+`createRetreeContext(...).useRootContext` tracing are deferred; neither is part
+of the Phase A schema.
 
 The package exports:
 
@@ -800,6 +811,11 @@ TypeScript `Program`; it must not construct a second program. Symbol resolution,
 class summaries, and decorator summaries are cached by `ts.Symbol` in weak
 maps for the life of that program.
 
+Phase A also memoizes `resolveValue` by expression within each fixed-point
+iteration and resets that cache whenever the value environment may change.
+This avoids repeating recursive member/alias resolution without carrying stale
+unknown results into a later iteration.
+
 The current repository ESLint config parses TypeScript but does not enable
 typed linting, and `npm run doctor` invokes ESLint only for paths under `src/`.
 Before the rule can run here, add a dedicated typed-lint command using
@@ -808,6 +824,11 @@ React samples, `website/app/**`, and `website/components/**`. The prototype
 command remains separate from `doctor` until its cost and signal are accepted;
 otherwise enabling the experiment would silently change the performance and
 file scope of the repository's required formatter/linter command.
+
+The isolated baseline and dogfood scripts pass `--no-inline-config` because
+they intentionally do not load unrelated Next/React lint plugins merely to
+resolve source-level suppressions for rules that are not enabled. Published
+consumer configurations do not impose that CLI flag.
 
 No general call graph, project-wide scan, module execution, or independent
 filesystem read is allowed from the rule. Same-file helpers are summarized
@@ -855,56 +876,45 @@ If class/decorator analysis cannot meet these gates, ship the useful local
 hook/path analysis first and leave class forwarding as an explicitly deferred
 feature. Do not replace it with name-based guessing.
 
-## 10. Required test matrix
+## 10. Test matrix
 
-Use `@typescript-eslint/rule-tester` with `parserOptions.projectService`. At a
-minimum, tests cover:
+Use `@typescript-eslint/rule-tester` with `parserOptions.projectService`.
 
-1. direct scalar reads from `useNode`;
-2. `ReactiveNode`-typed props/locals remain unknown by default, report only
-   with `checkReactiveNodeValues`, use the cautious diagnostic, and never
-   suggest that `useNode(new Foo())` is safe; ordinary plain-object props remain
-   unknown in both modes;
-3. nested object reads, aliases, destructuring, optional chains, and computed
-   keys;
-4. `useNode` chains with missing intermediate observation;
-5. default `useRootContext<T>()` members degrade to unknown, while
-   factory-produced contexts exercise bounded traceable and untraceable
-   members, including mixed reactive/non-reactive containers and budget exits;
-6. `useTree` subtree coverage;
-7. `useRaw` tuple destructuring, own/tree modes, and paired `toManaged`
-   transfers; direct-child conversion is guaranteed, an unmaterialized deeper
-   conversion remains nullable, a non-null assertion does not prove success, a
-   runtime guard can prove a returned value is managed, intermediate ownership
-   gaps still report, and direct/deep reads receive their respective raw
-   diagnostics;
-8. tracked and node-form `useSelect`, including returned dependency tuples and
-   dynamic unknown returns;
-9. arrays, Maps, Sets, iterators, spreads, `Object.*`, and `JSON.stringify`;
-10. child-node JSX prop transfers versus child-field JSX reads, with JSX keys
-    exempt by default and checked when configured;
-11. deferred event/effect/callback bodies versus render-time hook dependency
-    arrays and `useMemo` initializers;
-12. source-visible `dependencies`, comparison cells, branches, reordering,
-    cycles, inheritance, external declarations, and nullish/value-conditional
-    node slots degrading to unknown;
-13. bare/configured `@select`, `@memo`, `@ignore`, and `@link`, including
-    aliased imports;
-14. getters/methods with own-only, descendant, helper, recursive, and unknown
-    bodies;
-15. aliased/namespace Retree imports and unrelated same-named functions;
-16. app wrapper hooks configured by file/export or package/export identity,
-    including call-site-driven matching, different aliases/specifiers, barrels,
-    symlinked workspace packages, monorepo base directories, an unloaded
-    configured target causing no filesystem read, separate pinpointed runtime
-    errors for relative-path option failures, and a visible
-    `invalidAdditionalHook` result for a broken encountered target;
-17. `any`, unresolved symbols, unsupported mutations, and analysis-limit cases
-    produce no false-positive diagnostic;
-18. duplicate suppression: one actionable report per maximal chain;
-19. error text includes the exact read path, missing owner path, and observing
-    hook;
-20. ESLint 9 flat-config integration and ESM-only package loading.
+### 10.1 Phase A implemented matrix
+
+1. direct scalar and nested reads from `useNode`;
+2. aliases, object destructuring, optional chains, and statically known keys;
+3. `useNode` chains with missing intermediate observation and `useTree`
+   subtree coverage;
+4. `useRaw` own/tree modes, tuple aliases, direct-child paired `toManaged`,
+   deep non-null assertions, and direct/deep raw diagnostics;
+5. arrays, synchronous array callbacks, `for...of`, object/array spread, and
+   JSX spread;
+6. child-node JSX transfers versus child-field reads, with JSX keys exempt by
+   default and checked when configured;
+7. deferred callback bodies versus render-time hook dependency arrays and
+   `useMemo` initializers;
+8. aliased/namespace Retree imports and unrelated same-named functions;
+9. configured wrappers, call-site-driven file/package identity, broken-export
+   diagnostics, and separate runtime errors for relative-path option failures;
+10. real `ReactiveNode` subtypes degrade to unknown while ordinary application
+    types with a field named `dependencies` remain analyzable;
+11. duplicate suppression, actionable path text, typed flat-config loading,
+    and ESM package loading.
+
+### 10.2 Deferred matrix
+
+-   guarded deep `toManaged` results;
+-   Map/Set provenance and iteration, object/array rest, `Object.*`,
+    `JSON.stringify`, and `structuredClone` whole-value consumers;
+-   same-file custom-hook return summaries and nested named components that
+    close over an outer hook result;
+-   default/factory context tracing and the optional type-only `ReactiveNode`
+    heuristic;
+-   tracked and node-form `useSelect`;
+-   `dependencies`, decorator, accessor, and method summaries;
+-   extended analysis-limit, cycle, inheritance, and external-declaration
+    fixtures for those deferred summaries.
 
 The dedicated typed-lint integration command must explicitly run the rule
 against every current Retree React sample and `website/app/**` /
@@ -975,9 +985,10 @@ Treat it as complementary evidence, not a substitute.
 ### Phase A: feasibility prototype (not publishable)
 
 -   Implement direct `useNode`/`useTree`/`useRaw` provenance,
-    direct-child-safe paired `toManaged` conversion, factory-context containers,
-    aliases, arrays, JSX, and render/deferred phase separation. The default
-    context hook and type-only `ReactiveNode` heuristic are not Phase A origins.
+    direct-child-safe paired `toManaged` conversion, aliases, arrays, JSX, and
+    render/deferred phase separation. Context tracing, Map/Set provenance,
+    known-call whole-value consumers, and the type-only `ReactiveNode`
+    heuristic are not Phase A features.
 -   Run it over this repository and at least one real downstream Retree app.
 -   Record precision, missed known bugs, lint overhead, and the top unknown
     patterns.
@@ -988,6 +999,8 @@ Treat it as complementary evidence, not a substitute.
 
 -   Add node-form `useSelect`, `dependencies`, decorator, accessor, and method
     summaries.
+-   Add context tracing, same-file custom-hook summaries, Map/Set provenance,
+    and the deferred whole-value consumers if they meet the performance gates.
 -   Evaluate `checkReactiveNodeValues` as an opt-in heuristic. Keep it default
     off unless Retree gains a nominal type or other static fact that proves a
     value passed through `Retree.root`.
@@ -1013,8 +1026,9 @@ package-lint, rule tests, and the dedicated performance fixture.
 
 -   A `ReactiveNode` subtype proves class semantics, not that an instance was
     passed through `Retree.root`. The proof-based default therefore skips
-    type-only values. `checkReactiveNodeValues` is an opt-in heuristic and its
-    diagnostic cannot promise that adding a hook is valid.
+    type-only values. The proposed `checkReactiveNodeValues` opt-in heuristic
+    is deferred and its eventual diagnostic cannot promise that adding a hook
+    is valid.
 -   The rule cannot identify every managed plain-object prop because Retree
     deliberately preserves application types instead of returning a nominally
     branded node type.

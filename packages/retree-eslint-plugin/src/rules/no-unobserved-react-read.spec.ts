@@ -93,6 +93,17 @@ ruleTester.run("no-unobserved-react-read", noUnobservedReactRead, {
             `,
         },
         {
+            name: "recognizes an imported ReactiveNode subtype through its canonical base export",
+            code: `
+                import { useNode } from "@retreejs/react";
+                import { WrappedProjectNode } from "./wrapper.js";
+                function ProjectOwner({ project }: { project: WrappedProjectNode }) {
+                    const state = useNode(project);
+                    return <span>{state.owner.name}</span>;
+                }
+            `,
+        },
+        {
             name: "resolves aliased and namespace Retree imports",
             code: `
                 import { useNode as observe } from "@retreejs/react";
@@ -222,6 +233,22 @@ ruleTester.run("no-unobserved-react-read", noUnobservedReactRead, {
         },
     ],
     invalid: [
+        {
+            name: "does not confuse an application dependencies field with ReactiveNode semantics",
+            code: `
+                import { Retree } from "@retreejs/core";
+                import { useNode } from "@retreejs/react";
+                ${types}
+                interface ProjectManifest extends Project {
+                    dependencies: string[];
+                }
+                function ProjectOwner({ project }: { project: ProjectManifest }) {
+                    const state = useNode(project);
+                    return <span>{state.owner.name}</span>;
+                }
+            `,
+            errors: [{ messageId: "unobservedNodeRead" }],
+        },
         {
             name: "reports an unresolved export for an encountered configured target",
             code: `

@@ -1,7 +1,4 @@
 import parser from "@typescript-eslint/parser";
-import tsPlugin from "@typescript-eslint/eslint-plugin";
-import nextPlugin from "@next/eslint-plugin-next";
-import reactHooks from "eslint-plugin-react-hooks";
 
 export const typedFiles = [
     "packages/*/src/**/*.{ts,tsx}",
@@ -16,8 +13,8 @@ export const typedFiles = [
 export default [
     {
         ignores: [
-            "**/bin/**",
-            "**/node_modules/**",
+            "**/*.{js,jsx,cjs,mjs,ts,tsx,mts,cts}",
+            ...typedFiles.map((file) => `!${file}`),
             "**/*.benchmark.{ts,tsx}",
             "**/*Benchmark.{ts,tsx}",
             "**/*.spec.{ts,tsx}",
@@ -35,11 +32,6 @@ export default [
                 projectService: true,
                 tsconfigRootDir: import.meta.dirname,
             },
-        },
-        plugins: {
-            "@next/next": nextPlugin,
-            "@typescript-eslint": tsPlugin,
-            "react-hooks": reactHooks,
         },
     },
 ];

@@ -29,10 +29,11 @@ cannot prove; none is an unexplained report. No disable comments are added yet
 because the configuration remains a separate `warn`-level experiment rather
 than required CI policy.
 
-Source-visible values with a `ReactiveNode.dependencies` member or decorated
-members currently degrade to unknown. That conservative boundary prevents the
-Phase A rule from guessing about `dependencies`, `@select`, `@memo`, or
-`@ignore` before Phase B summaries exist.
+Source-visible values assignable to the canonical `ReactiveNode` export, or
+members with decorators, currently degrade to unknown. Ordinary application
+types are not classified by the name of a `dependencies` field. That
+conservative boundary prevents the Phase A rule from guessing about
+`dependencies`, `@select`, `@memo`, or `@ignore` before Phase B summaries exist.
 
 ## Preliminary performance
 
@@ -41,6 +42,11 @@ An ESLint `TIMING=1` run over 175 selected TypeScript/TSX files attributed
 for the typed baseline and 4.88 s with the rule enabled (about 4.1% wall-clock
 overhead). This is an encouraging feasibility signal, not the required stable
 benchmark.
+
+A review follow-up added per-iteration `resolveValue` memoization. One local
+`TIMING=1` run attributed 169.4 ms to the rule with the same nine diagnostics.
+That is encouraging but is not a stable benchmark result, so it does not close
+the RSS or synthetic-scaling gates.
 
 Peak RSS was not yet stable enough to claim the memory gate: that same pair
 measured 1,202,274,304 bytes for the baseline and 1,279,213,568 bytes enabled,

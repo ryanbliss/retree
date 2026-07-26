@@ -227,11 +227,13 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
         const invalidAdditionalHookReports = new Set<string>();
         const objectLikeCache = new WeakMap<TSESTree.Node, boolean>();
         const symbolCache = new WeakMap<TSESTree.Node, ts.Symbol | null>();
-        const typeDependenciesCache = new WeakMap<ts.Type, boolean>();
+        const reactiveNodeTypeCache = new WeakMap<ts.Type, boolean>();
+        const inspectedReactiveNodeSourceFiles = new WeakSet<ts.SourceFile>();
         const unmodeledSemanticsCache = new WeakMap<
             TSESTree.MemberExpression,
             boolean
         >();
+        let reactiveNodeType: ts.Type | undefined;
 
         function getSymbol(node: TSESTree.Node): ts.Symbol | undefined {
             const cached = symbolCache.get(node);
@@ -254,6 +256,11 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                 const resolvedFileName = getResolvedModuleFileName(
                     statement.source
                 );
+                if (moduleName === RETREE_CORE_MODULE) {
+                    resolveReactiveNodeTypeFromModuleSymbol(
+                        getSymbol(statement.source)
+                    );
+                }
                 validateEncounteredAdditionalHookTarget(
                     program,
                     statement,
@@ -365,24 +372,33 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
             }
         }
 
-        function canResolveAlias(symbol: ts.Symbol): boolean {
+        function resolveAlias(symbol: ts.Symbol): ts.Symbol | undefined {
             const visited = new Set<ts.Symbol>();
             let current = symbol;
-            for (let edge = 0; edge <= 4; edge += 1) {
+            let edgesFollowed = 0;
+            while ((current.flags & ts.SymbolFlags.Alias) !== 0) {
                 if (visited.has(current)) {
-                    return false;
+                    return undefined;
                 }
                 visited.add(current);
-                if ((current.flags & ts.SymbolFlags.Alias) === 0) {
-                    return current.declarations !== undefined;
+                if (edgesFollowed >= 4) {
+                    return undefined;
                 }
                 const next = checker.getAliasedSymbol(current);
                 if (next === current || next.flags === ts.SymbolFlags.None) {
-                    return false;
+                    return undefined;
                 }
                 current = next;
+                edgesFollowed += 1;
             }
-            return false;
+            if (current.declarations === undefined) {
+                return undefined;
+            }
+            return current;
+        }
+
+        function canResolveAlias(symbol: ts.Symbol): boolean {
+            return resolveAlias(symbol) !== undefined;
         }
 
         function analyzeFunction(root: FunctionNode): void {
@@ -398,6 +414,10 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
             const freshOrigins = new WeakMap<TSESTree.Node, object>();
             const originIds = new WeakMap<object, number>();
             let nextOriginId = 1;
+            let resolvedValueCache = new WeakMap<
+                TSESTree.Expression,
+                ValueInfo | null
+            >();
 
             const topLevelNodes = collectTopLevelRenderNodes(root);
             seedCallableAliases(topLevelNodes, callableAliases);
@@ -417,6 +437,7 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
             const mutatedSymbols = collectMutatedSymbols(renderNodes);
 
             for (let iteration = 0; iteration < 8; iteration += 1) {
+                resolvedValueCache = new WeakMap();
                 let changed = false;
                 for (const node of renderNodes) {
                     if (node.type === AST_NODE_TYPES.VariableDeclarator) {
@@ -437,6 +458,7 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                     break;
                 }
             }
+            resolvedValueCache = new WeakMap();
 
             const reportedRanges = new Set<string>();
             for (const node of renderNodes) {
@@ -549,6 +571,18 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                 expression: TSESTree.Expression
             ): ValueInfo | undefined {
                 const unwrapped = unwrapExpression(expression);
+                const cached = resolvedValueCache.get(unwrapped);
+                if (cached !== undefined) {
+                    return cached ?? undefined;
+                }
+                const result = resolveValueUncached(unwrapped);
+                resolvedValueCache.set(unwrapped, result ?? null);
+                return result;
+            }
+
+            function resolveValueUncached(
+                unwrapped: TSESTree.Expression
+            ): ValueInfo | undefined {
                 if (unwrapped.type === AST_NODE_TYPES.Identifier) {
                     const symbol = getSymbol(unwrapped);
                     if (symbol === undefined || mutatedSymbols.has(symbol)) {
@@ -1392,7 +1426,7 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                 member.object
             );
             const objectType = checker.getTypeAtLocation(objectNode);
-            if (typeHasDependenciesMember(objectType)) {
+            if (typeIsReactiveNode(objectType)) {
                 unmodeledSemanticsCache.set(member, true);
                 return true;
             }
@@ -1413,24 +1447,124 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
             return result;
         }
 
-        function typeHasDependenciesMember(type: ts.Type): boolean {
-            const cached = typeDependenciesCache.get(type);
+        function typeIsReactiveNode(type: ts.Type): boolean {
+            const cached = reactiveNodeTypeCache.get(type);
             if (cached !== undefined) {
                 return cached;
             }
             let result: boolean;
-            if (type.isUnionOrIntersection()) {
-                result = type.types.some(typeHasDependenciesMember);
+            if (type.isUnion()) {
+                result = type.types.some(typeIsReactiveNode);
             } else if ((type.flags & ts.TypeFlags.TypeParameter) !== 0) {
                 const constraint = checker.getBaseConstraintOfType(type);
                 result =
-                    constraint !== undefined &&
-                    typeHasDependenciesMember(constraint);
+                    constraint !== undefined && typeIsReactiveNode(constraint);
             } else {
-                result = type.getProperty("dependencies") !== undefined;
+                discoverReactiveNodeType(type, 0, new Set());
+                result =
+                    reactiveNodeType !== undefined &&
+                    checker.isTypeAssignableTo(type, reactiveNodeType);
             }
-            typeDependenciesCache.set(type, result);
+            if (reactiveNodeType !== undefined) {
+                reactiveNodeTypeCache.set(type, result);
+            }
             return result;
+        }
+
+        function discoverReactiveNodeType(
+            type: ts.Type,
+            depth: number,
+            visited: Set<ts.Type>
+        ): void {
+            if (
+                reactiveNodeType !== undefined ||
+                depth > 4 ||
+                visited.has(type)
+            ) {
+                return;
+            }
+            visited.add(type);
+
+            const symbol = type.aliasSymbol ?? type.getSymbol();
+            for (const declaration of symbol?.declarations ?? []) {
+                resolveReactiveNodeTypeFromSourceFile(
+                    declaration.getSourceFile()
+                );
+                if (reactiveNodeType !== undefined) {
+                    return;
+                }
+            }
+
+            if ((type.flags & ts.TypeFlags.Object) === 0) {
+                return;
+            }
+            const objectType = type as ts.ObjectType;
+            if (
+                (objectType.objectFlags & ts.ObjectFlags.ClassOrInterface) ===
+                0
+            ) {
+                return;
+            }
+            for (const baseType of (type as ts.InterfaceType).getBaseTypes() ??
+                []) {
+                discoverReactiveNodeType(baseType, depth + 1, visited);
+                if (reactiveNodeType !== undefined) {
+                    return;
+                }
+            }
+        }
+
+        function resolveReactiveNodeTypeFromSourceFile(
+            sourceFile: ts.SourceFile
+        ): void {
+            if (
+                reactiveNodeType !== undefined ||
+                inspectedReactiveNodeSourceFiles.has(sourceFile)
+            ) {
+                return;
+            }
+            inspectedReactiveNodeSourceFiles.add(sourceFile);
+            for (const statement of sourceFile.statements) {
+                if (
+                    !ts.isImportDeclaration(statement) &&
+                    !ts.isExportDeclaration(statement)
+                ) {
+                    continue;
+                }
+                const moduleSpecifier = statement.moduleSpecifier;
+                if (
+                    moduleSpecifier === undefined ||
+                    !ts.isStringLiteral(moduleSpecifier) ||
+                    moduleSpecifier.text !== RETREE_CORE_MODULE
+                ) {
+                    continue;
+                }
+                resolveReactiveNodeTypeFromModuleSymbol(
+                    checker.getSymbolAtLocation(moduleSpecifier)
+                );
+                if (reactiveNodeType !== undefined) {
+                    return;
+                }
+            }
+        }
+
+        function resolveReactiveNodeTypeFromModuleSymbol(
+            moduleSymbol: ts.Symbol | undefined
+        ): void {
+            if (moduleSymbol === undefined || reactiveNodeType !== undefined) {
+                return;
+            }
+            const exportedSymbol = checker
+                .getExportsOfModule(moduleSymbol)
+                .find((candidate) => candidate.getName() === "ReactiveNode");
+            if (exportedSymbol === undefined) {
+                return;
+            }
+            const canonicalSymbol = resolveAlias(exportedSymbol);
+            if (canonicalSymbol === undefined) {
+                return;
+            }
+            reactiveNodeType = checker.getDeclaredTypeOfSymbol(canonicalSymbol);
         }
 
         function resolveCallableIdentity(
