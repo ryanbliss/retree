@@ -1,4 +1,4 @@
-import retree from "./packages/retree-eslint-plugin/bin/index.js";
+import retree from "./packages/retree-react-eslint-plugin/bin/index.js";
 import typedBaseline, { typedFiles } from "./eslint.typed.base.config.mjs";
 
 export default [

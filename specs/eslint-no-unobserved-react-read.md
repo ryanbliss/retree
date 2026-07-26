@@ -2,14 +2,14 @@
 
 Status: **draft — Phase A feasibility implementation in progress** (2026-07-25).
 The initial package, typed-lint baseline, and proof-based local hook/path
-analysis now live in `packages/retree-eslint-plugin`; Phase -1/0 runtime work,
+analysis now live in `packages/retree-react-eslint-plugin`; Phase -1/0 runtime work,
 factory-context tracing, and Phase B Retree semantic summaries remain deferred.
 
 Implementation status is explicit throughout this document: **Phase A** means
 the current package implements and tests the behavior; **deferred** describes
 the proposed model only and must not be read as shipped behavior.
 
-Proposed package: `@retreejs/eslint-plugin`
+Proposed package: `@retreejs/react-eslint-plugin`
 
 Proposed rule: `@retreejs/no-unobserved-react-read`
 

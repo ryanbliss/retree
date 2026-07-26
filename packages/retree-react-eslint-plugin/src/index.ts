@@ -4,18 +4,18 @@ export const rules = {
     "no-unobserved-react-read": noUnobservedReactRead,
 };
 
-interface RetreeEslintPlugin {
+interface RetreeReactEslintPlugin {
     configs: Record<string, unknown>;
     rules: typeof rules;
 }
 
-const plugin: RetreeEslintPlugin = {
+const plugin: RetreeReactEslintPlugin = {
     configs: {},
     rules,
 };
 
 plugin.configs["flat/recommended-type-checked"] = {
-    name: "@retreejs/eslint-plugin/flat/recommended-type-checked",
+    name: "@retreejs/react-eslint-plugin/flat/recommended-type-checked",
     plugins: {
         "@retreejs": plugin,
     },

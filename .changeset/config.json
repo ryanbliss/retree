@@ -24,6 +24,6 @@
         "03.react-recursion",
         "04.convex-react-nextjs",
         "@retreejs/benchmark-cli",
-        "@retreejs/eslint-plugin"
+        "@retreejs/react-eslint-plugin"
     ]
 }

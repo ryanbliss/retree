@@ -1,4 +1,4 @@
-# `@retreejs/eslint-plugin`
+# `@retreejs/react-eslint-plugin`
 
 Type-aware ESLint rules for Retree React applications. This package is an
 early feasibility implementation and is not published yet.
