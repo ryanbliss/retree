@@ -30,6 +30,10 @@ const importChecks = [
     { specifier: "@retreejs/react/testing", namedExport: "createTestRoot" },
     { specifier: "@retreejs/devtools", namedExport: "connectReduxDevTools" },
     { specifier: "@retreejs/react-eslint-plugin", namedExport: "rules" },
+    {
+        specifier: "@retreejs/react-eslint-plugin/typescript",
+        namedExport: "default",
+    },
     { specifier: "@retreejs/convex", namedExport: "ConvexNode" },
     {
         specifier: "@retreejs/react-convex",

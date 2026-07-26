@@ -22,10 +22,27 @@ const owner = useNode(state.owner);
 return <span>{owner.name}</span>;
 ```
 
-The rule requires typed linting. Configure
-`languageOptions.parserOptions.projectService` and use the exported
-`flat/recommended-type-checked` flat configuration. The recommended
-configuration enables the rule as a warning while the analysis is dogfooded.
+## Setup
+
+The TypeScript preset is a complete flat-config array: it selects TypeScript
+and TSX files, configures typed parsing, registers the plugin, and enables the
+rule as an error.
+
+```js
+import { defineConfig } from "eslint/config";
+import retree from "@retreejs/react-eslint-plugin/typescript";
+
+export default defineConfig([
+    // ...other configs
+    ...retree,
+]);
+```
+
+Spec and test files are excluded from this preset. Import the default export
+from `@retreejs/react-eslint-plugin` when you need to register the plugin in a
+custom typed configuration instead. The rule requires TypeScript parser
+services even when configured manually; `.js` and `.jsx` source files are not
+supported by the convenience preset yet.
 
 The first implementation covers direct Retree hooks, local aliases and
 destructuring, array render callbacks, JSX, hook dependency arrays, and paired

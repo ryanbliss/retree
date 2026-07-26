@@ -14,17 +14,16 @@
         "prepack": "node ../../scripts/sync-package-docs.mjs ."
     },
     "dependencies": {
+        "@typescript-eslint/parser": "^8.60.0",
         "@typescript-eslint/utils": "^8.60.0"
     },
     "devDependencies": {
         "@types/node": "^22.10.0",
-        "@typescript-eslint/parser": "8.60.0",
         "@typescript-eslint/rule-tester": "8.60.0",
         "eslint": "^9.0.0",
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
-        "@typescript-eslint/parser": "^8.0.0",
         "eslint": "^9.0.0",
         "typescript": ">=5.4.0 <7.0.0"
     },
@@ -41,6 +40,10 @@
         ".": {
             "types": "./bin/index.d.ts",
             "default": "./bin/index.js"
+        },
+        "./typescript": {
+            "types": "./bin/typescript.d.ts",
+            "default": "./bin/typescript.js"
         }
     },
     "files": [

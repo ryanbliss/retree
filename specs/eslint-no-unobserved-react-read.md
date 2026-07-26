@@ -782,15 +782,19 @@ of the Phase A schema.
 The package exports:
 
 -   `rules["no-unobserved-react-read"]`;
--   `configs["flat/recommended-type-checked"]`, initially enabling the rule as
-    `warn` while it is dogfooded;
--   one ESM entry point and flat configuration only in V1, matching Retree's
-    existing ESM-only package policy.
+-   a complete flat-config array from
+    `@retreejs/react-eslint-plugin/typescript`, selecting TypeScript and TSX
+    files, configuring typed parsing, registering the plugin, and enabling the
+    rule as `error`;
+-   `configs.typescript`, referencing the same array for advanced consumers;
+-   ESM entry points and flat configuration only in V1, matching Retree's
+    existing ESM-only package policy. A JavaScript/JSX convenience preset is
+    deferred until its typed-project behavior has dedicated fixtures.
 
-The package depends on `@typescript-eslint/utils` and peers on compatible
-`eslint`, `@typescript-eslint/parser`, and `typescript` versions. It has no
-runtime dependency on React or Retree; imports are recognized symbolically from
-the consumer's TypeScript program.
+The package depends on `@typescript-eslint/parser` and
+`@typescript-eslint/utils`, and peers on compatible `eslint` and `typescript`
+versions. It has no runtime dependency on React or Retree; imports are
+recognized symbolically from the consumer's TypeScript program.
 
 Retree's current root `eslint.config.js` is CommonJS. Dogfooding this ESM-only
 plugin requires converting that config to ESM (or an equivalent ESM config
@@ -932,7 +936,8 @@ against every current Retree React sample and `website/app/**` /
 `website/components/**`; it must not rely on `doctor`'s current `**/src/**`
 glob. Every report must be classified as a real bug, an intentional exception
 with a reason, or a rule defect before the config can move from `warn` to
-`error`.
+`error`. This gate applies to Retree's repository-wide dogfood configuration;
+the sample-facing `typescript` preset enforces the rule as an error.
 
 ## 11. Acceptance and rollout
 
@@ -1024,10 +1029,12 @@ Treat it as complementary evidence, not a substitute.
 ### Phase C: public experimental package
 
 -   Add package docs with the soundness boundary and examples from this spec.
--   Publish the rule only in `flat/recommended-type-checked` at `warn`.
+-   Publish the rule through the `typescript` flat-config preset at `error`.
+-   Keep the root plugin export available for advanced typed configurations and
+    lower-severity adoption.
 -   Dogfood for one minor release across Retree and downstream apps.
--   Promote to `error` only after zero unexplained false positives and the
-    performance gates hold on CI.
+-   Promote the repository-wide dogfood configuration to `error` only after
+    zero unexplained false positives and the performance gates hold on CI.
 
 Before any implementation is considered complete, the repository's required
 `npm test` and `npm run doctor` checks pass, along with typecheck, package build,
