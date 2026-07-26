@@ -29,6 +29,7 @@ const importChecks = [
     { specifier: "@retreejs/react", namedExport: "useNode" },
     { specifier: "@retreejs/react/testing", namedExport: "createTestRoot" },
     { specifier: "@retreejs/devtools", namedExport: "connectReduxDevTools" },
+    { specifier: "@retreejs/eslint-plugin", namedExport: "rules" },
     { specifier: "@retreejs/convex", namedExport: "ConvexNode" },
     {
         specifier: "@retreejs/react-convex",

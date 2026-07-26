@@ -130,6 +130,7 @@ const vitestConfig = defineVitestConfig({
                         "packages/retree-convex/**/*.spec.ts",
                         "packages/retree-create/**/*.spec.ts",
                         "packages/retree-devtools/**/*.spec.ts",
+                        "packages/retree-eslint-plugin/**/*.spec.ts",
                         "packages/retree-query/**/*.spec.ts",
                         "packages/retree-react-convex/**/*.spec.ts",
                     ],

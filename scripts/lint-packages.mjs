@@ -28,6 +28,7 @@ const publishablePackageDirectories = [
     "packages/retree-query",
     "packages/retree-react",
     "packages/retree-devtools",
+    "packages/retree-eslint-plugin",
     "packages/retree-convex",
     "packages/retree-react-convex",
     "packages/retree-create",
