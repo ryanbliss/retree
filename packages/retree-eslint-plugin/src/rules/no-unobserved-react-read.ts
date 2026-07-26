@@ -228,12 +228,15 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
         const objectLikeCache = new WeakMap<TSESTree.Node, boolean>();
         const symbolCache = new WeakMap<TSESTree.Node, ts.Symbol | null>();
         const reactiveNodeTypeCache = new WeakMap<ts.Type, boolean>();
-        const inspectedReactiveNodeSourceFiles = new WeakSet<ts.SourceFile>();
+        const inspectedReactiveNodeCandidates = new WeakMap<
+            ts.SourceFile,
+            Set<ts.Symbol>
+        >();
         const unmodeledSemanticsCache = new WeakMap<
             TSESTree.MemberExpression,
             boolean
         >();
-        let reactiveNodeType: ts.Type | undefined;
+        let reactiveNodeSymbol: ts.Symbol | undefined;
 
         function getSymbol(node: TSESTree.Node): ts.Symbol | undefined {
             const cached = symbolCache.get(node);
@@ -253,13 +256,14 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                 }
 
                 const moduleName = String(statement.source.value);
+                const moduleSymbol = getSymbol(statement.source);
                 const resolvedFileName = getResolvedModuleFileName(
                     statement.source
                 );
                 if (moduleName === RETREE_CORE_MODULE) {
-                    resolveReactiveNodeTypeFromModuleSymbol(
-                        getSymbol(statement.source)
-                    );
+                    resolveReactiveNodeTypeFromModuleSymbol(moduleSymbol);
+                } else {
+                    resolveReactiveNodeTypeFromImportedModule(moduleSymbol);
                 }
                 validateEncounteredAdditionalHookTarget(
                     program,
@@ -1453,7 +1457,7 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                 return cached;
             }
             let result: boolean;
-            if (type.isUnion()) {
+            if (type.isUnionOrIntersection()) {
                 result = type.types.some(typeIsReactiveNode);
             } else if ((type.flags & ts.TypeFlags.TypeParameter) !== 0) {
                 const constraint = checker.getBaseConstraintOfType(type);
@@ -1461,14 +1465,44 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                     constraint !== undefined && typeIsReactiveNode(constraint);
             } else {
                 discoverReactiveNodeType(type, 0, new Set());
-                result =
-                    reactiveNodeType !== undefined &&
-                    checker.isTypeAssignableTo(type, reactiveNodeType);
+                result = typeDerivesFromReactiveNode(type, new Set());
             }
-            if (reactiveNodeType !== undefined) {
+            if (reactiveNodeSymbol !== undefined) {
                 reactiveNodeTypeCache.set(type, result);
             }
             return result;
+        }
+
+        function typeDerivesFromReactiveNode(
+            type: ts.Type,
+            visited: Set<ts.Type>
+        ): boolean {
+            if (reactiveNodeSymbol === undefined || visited.has(type)) {
+                return false;
+            }
+            visited.add(type);
+            // Deliberately compare canonical class/base symbols instead of
+            // checker.isTypeAssignableTo. ReactiveNode's protected onChanged
+            // currently makes structural assignability nominal, but making
+            // that member public in a future core refactor must not widen this
+            // bailout to application objects with a similar public shape.
+            const symbol = type.aliasSymbol ?? type.getSymbol();
+            if (symbol === reactiveNodeSymbol) {
+                return true;
+            }
+            if ((type.flags & ts.TypeFlags.Object) === 0) {
+                return false;
+            }
+            const objectType = type as ts.ObjectType;
+            if (
+                (objectType.objectFlags & ts.ObjectFlags.ClassOrInterface) ===
+                0
+            ) {
+                return false;
+            }
+            return ((type as ts.InterfaceType).getBaseTypes() ?? []).some(
+                (baseType) => typeDerivesFromReactiveNode(baseType, visited)
+            );
         }
 
         function discoverReactiveNodeType(
@@ -1477,7 +1511,7 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
             visited: Set<ts.Type>
         ): void {
             if (
-                reactiveNodeType !== undefined ||
+                reactiveNodeSymbol !== undefined ||
                 depth > 4 ||
                 visited.has(type)
             ) {
@@ -1486,44 +1520,65 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
             visited.add(type);
 
             const symbol = type.aliasSymbol ?? type.getSymbol();
+            const baseTypes = getClassOrInterfaceBaseTypes(type);
+            const candidateSymbols = [
+                symbol,
+                ...baseTypes.map(
+                    (baseType) => baseType.aliasSymbol ?? baseType.getSymbol()
+                ),
+            ].filter((candidate) => candidate !== undefined);
             for (const declaration of symbol?.declarations ?? []) {
-                resolveReactiveNodeTypeFromSourceFile(
-                    declaration.getSourceFile()
-                );
-                if (reactiveNodeType !== undefined) {
-                    return;
+                for (const candidateSymbol of candidateSymbols) {
+                    resolveReactiveNodeTypeFromSourceFile(
+                        declaration.getSourceFile(),
+                        candidateSymbol
+                    );
+                    if (reactiveNodeSymbol !== undefined) {
+                        return;
+                    }
                 }
             }
 
+            for (const baseType of baseTypes) {
+                discoverReactiveNodeType(baseType, depth + 1, visited);
+                if (reactiveNodeSymbol !== undefined) {
+                    return;
+                }
+            }
+        }
+
+        function getClassOrInterfaceBaseTypes(
+            type: ts.Type
+        ): readonly ts.BaseType[] {
             if ((type.flags & ts.TypeFlags.Object) === 0) {
-                return;
+                return [];
             }
             const objectType = type as ts.ObjectType;
             if (
                 (objectType.objectFlags & ts.ObjectFlags.ClassOrInterface) ===
                 0
             ) {
-                return;
+                return [];
             }
-            for (const baseType of (type as ts.InterfaceType).getBaseTypes() ??
-                []) {
-                discoverReactiveNodeType(baseType, depth + 1, visited);
-                if (reactiveNodeType !== undefined) {
-                    return;
-                }
-            }
+            return (type as ts.InterfaceType).getBaseTypes() ?? [];
         }
 
         function resolveReactiveNodeTypeFromSourceFile(
-            sourceFile: ts.SourceFile
+            sourceFile: ts.SourceFile,
+            candidateSymbol: ts.Symbol
         ): void {
-            if (
-                reactiveNodeType !== undefined ||
-                inspectedReactiveNodeSourceFiles.has(sourceFile)
-            ) {
+            if (reactiveNodeSymbol !== undefined) {
                 return;
             }
-            inspectedReactiveNodeSourceFiles.add(sourceFile);
+            const inspectedSymbols =
+                inspectedReactiveNodeCandidates.get(sourceFile) ?? new Set();
+            if (inspectedSymbols.has(candidateSymbol)) {
+                return;
+            }
+            inspectedSymbols.add(candidateSymbol);
+            inspectedReactiveNodeCandidates.set(sourceFile, inspectedSymbols);
+
+            const visitedModules = new Set<ts.Symbol>();
             for (const statement of sourceFile.statements) {
                 if (
                     !ts.isImportDeclaration(statement) &&
@@ -1534,24 +1589,155 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                 const moduleSpecifier = statement.moduleSpecifier;
                 if (
                     moduleSpecifier === undefined ||
-                    !ts.isStringLiteral(moduleSpecifier) ||
-                    moduleSpecifier.text !== RETREE_CORE_MODULE
+                    !ts.isStringLiteral(moduleSpecifier)
                 ) {
                     continue;
                 }
-                resolveReactiveNodeTypeFromModuleSymbol(
-                    checker.getSymbolAtLocation(moduleSpecifier)
-                );
-                if (reactiveNodeType !== undefined) {
+                const moduleSymbol =
+                    checker.getSymbolAtLocation(moduleSpecifier);
+                if (
+                    moduleSymbol === undefined ||
+                    !moduleExportsSymbol(moduleSymbol, candidateSymbol)
+                ) {
+                    continue;
+                }
+                if (
+                    moduleSpecifier.text === RETREE_CORE_MODULE ||
+                    moduleReexportsCoreSymbol(
+                        moduleSymbol,
+                        candidateSymbol,
+                        1,
+                        visitedModules
+                    )
+                ) {
+                    reactiveNodeSymbol = candidateSymbol;
                     return;
                 }
             }
         }
 
+        function moduleReexportsCoreSymbol(
+            moduleSymbol: ts.Symbol,
+            candidateSymbol: ts.Symbol,
+            depth: number,
+            visited: Set<ts.Symbol>
+        ): boolean {
+            if (depth >= 4 || visited.has(moduleSymbol)) {
+                return false;
+            }
+            visited.add(moduleSymbol);
+            for (const declaration of moduleSymbol.declarations ?? []) {
+                for (const statement of declaration.getSourceFile()
+                    .statements) {
+                    if (
+                        !ts.isImportDeclaration(statement) &&
+                        !ts.isExportDeclaration(statement)
+                    ) {
+                        continue;
+                    }
+                    const moduleSpecifier = statement.moduleSpecifier;
+                    if (
+                        moduleSpecifier === undefined ||
+                        !ts.isStringLiteral(moduleSpecifier)
+                    ) {
+                        continue;
+                    }
+                    const nextModuleSymbol =
+                        checker.getSymbolAtLocation(moduleSpecifier);
+                    if (
+                        nextModuleSymbol === undefined ||
+                        !moduleExportsSymbol(nextModuleSymbol, candidateSymbol)
+                    ) {
+                        continue;
+                    }
+                    if (
+                        moduleSpecifier.text === RETREE_CORE_MODULE &&
+                        moduleExportsNamedSymbol(
+                            nextModuleSymbol,
+                            "ReactiveNode",
+                            candidateSymbol
+                        )
+                    ) {
+                        return true;
+                    }
+                    if (
+                        moduleReexportsCoreSymbol(
+                            nextModuleSymbol,
+                            candidateSymbol,
+                            depth + 1,
+                            visited
+                        )
+                    ) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function resolveReactiveNodeTypeFromImportedModule(
+            moduleSymbol: ts.Symbol | undefined
+        ): void {
+            if (
+                moduleSymbol === undefined ||
+                reactiveNodeSymbol !== undefined
+            ) {
+                return;
+            }
+            for (const exportedSymbol of checker.getExportsOfModule(
+                moduleSymbol
+            )) {
+                const candidateSymbol = resolveAlias(exportedSymbol);
+                if (candidateSymbol === undefined) {
+                    continue;
+                }
+                if (
+                    moduleReexportsCoreSymbol(
+                        moduleSymbol,
+                        candidateSymbol,
+                        0,
+                        new Set()
+                    )
+                ) {
+                    reactiveNodeSymbol = candidateSymbol;
+                    return;
+                }
+            }
+        }
+
+        function moduleExportsSymbol(
+            moduleSymbol: ts.Symbol,
+            candidateSymbol: ts.Symbol
+        ): boolean {
+            return checker
+                .getExportsOfModule(moduleSymbol)
+                .some(
+                    (exportedSymbol) =>
+                        resolveAlias(exportedSymbol) === candidateSymbol
+                );
+        }
+
+        function moduleExportsNamedSymbol(
+            moduleSymbol: ts.Symbol,
+            exportName: string,
+            candidateSymbol: ts.Symbol
+        ): boolean {
+            const exportedSymbol = checker
+                .getExportsOfModule(moduleSymbol)
+                .find((candidate) => candidate.name === exportName);
+            if (exportedSymbol === undefined) {
+                return false;
+            }
+            return resolveAlias(exportedSymbol) === candidateSymbol;
+        }
+
         function resolveReactiveNodeTypeFromModuleSymbol(
             moduleSymbol: ts.Symbol | undefined
         ): void {
-            if (moduleSymbol === undefined || reactiveNodeType !== undefined) {
+            if (
+                moduleSymbol === undefined ||
+                reactiveNodeSymbol !== undefined
+            ) {
                 return;
             }
             const exportedSymbol = checker
@@ -1564,7 +1750,7 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
             if (canonicalSymbol === undefined) {
                 return;
             }
-            reactiveNodeType = checker.getDeclaredTypeOfSymbol(canonicalSymbol);
+            reactiveNodeSymbol = canonicalSymbol;
         }
 
         function resolveCallableIdentity(

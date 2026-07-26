@@ -104,6 +104,32 @@ ruleTester.run("no-unobserved-react-read", noUnobservedReactRead, {
             `,
         },
         {
+            name: "recognizes ReactiveNode through a re-export barrel",
+            code: `
+                import { ReactiveNode } from "./core-barrel.js";
+                import { useNode } from "@retreejs/react";
+                class ProjectNode extends ReactiveNode {
+                    owner = { name: "Ada" };
+                    get dependencies() { return [this.owner]; }
+                }
+                function ProjectOwner({ project }: { project: ProjectNode }) {
+                    const state = useNode(project);
+                    return <span>{state.owner.name}</span>;
+                }
+            `,
+        },
+        {
+            name: "recognizes a direct ReactiveNode type through a re-export barrel",
+            code: `
+                import { ReactiveNode } from "./core-barrel.js";
+                import { useNode } from "@retreejs/react";
+                function DependencyCount({ node }: { node: ReactiveNode }) {
+                    const state = useNode(node);
+                    return <span>{state.dependencies.length}</span>;
+                }
+            `,
+        },
+        {
             name: "resolves aliased and namespace Retree imports",
             code: `
                 import { useNode as observe } from "@retreejs/react";
@@ -243,6 +269,24 @@ ruleTester.run("no-unobserved-react-read", noUnobservedReactRead, {
                     dependencies: string[];
                 }
                 function ProjectOwner({ project }: { project: ProjectManifest }) {
+                    const state = useNode(project);
+                    return <span>{state.owner.name}</span>;
+                }
+            `,
+            errors: [{ messageId: "unobservedNodeRead" }],
+        },
+        {
+            name: "does not structurally classify a ReactiveNode-shaped application type",
+            code: `
+                import { Retree } from "@retreejs/core";
+                import { useNode } from "@retreejs/react";
+                ${types}
+                interface ApplicationNode extends Project {
+                    dependencies: unknown[];
+                    dependency(value: unknown): unknown;
+                    onChanged(): void;
+                }
+                function ProjectOwner({ project }: { project: ApplicationNode }) {
                     const state = useNode(project);
                     return <span>{state.owner.name}</span>;
                 }

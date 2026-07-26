@@ -458,7 +458,9 @@ Until these summaries exist, Phase A degrades member provenance to `unknown`
 for a type assignable to the canonical `ReactiveNode` export from
 `@retreejs/core`, and for source members with decorators. It does not infer
 Retree semantics from a property named `dependencies`; ordinary application
-types with such a field remain analyzable.
+types with such a field remain analyzable. The canonical class symbol is
+followed through already-loaded re-export barrels and compared against the
+tested type's base-class symbols; structural assignability is not used.
 
 ### 6.1 `ReactiveNode.dependencies`
 
@@ -898,7 +900,9 @@ Use `@typescript-eslint/rule-tester` with `parserOptions.projectService`.
 9. configured wrappers, call-site-driven file/package identity, broken-export
    diagnostics, and separate runtime errors for relative-path option failures;
 10. real `ReactiveNode` subtypes degrade to unknown while ordinary application
-    types with a field named `dependencies` remain analyzable;
+    types with a field named `dependencies` or a similar public method shape
+    remain analyzable, including a `ReactiveNode` import through a re-export
+    barrel;
 11. duplicate suppression, actionable path text, typed flat-config loading,
     and ESM package loading.
 

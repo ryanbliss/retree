@@ -29,6 +29,12 @@ cannot prove; none is an unexplained report. No disable comments are added yet
 because the configuration remains a separate `warn`-level experiment rather
 than required CI policy.
 
+The typed baseline and dogfood commands currently pass `--no-inline-config`
+to keep this measurement independent of unrelated repository lint plugins.
+Remove that flag before the rule becomes CI policy so the documented
+`eslint-disable-next-line @retreejs/no-unobserved-react-read -- reason`
+exception path remains effective.
+
 Source-visible values assignable to the canonical `ReactiveNode` export, or
 members with decorators, currently degrade to unknown. Ordinary application
 types are not classified by the name of a `dependencies` field. That
