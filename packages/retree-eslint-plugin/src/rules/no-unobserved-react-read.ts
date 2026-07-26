@@ -1652,7 +1652,12 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                     continue;
                 }
                 if (
-                    moduleSpecifier.text === RETREE_CORE_MODULE ||
+                    (moduleSpecifier.text === RETREE_CORE_MODULE &&
+                        moduleExportsNamedSymbol(
+                            moduleSymbol,
+                            "ReactiveNode",
+                            candidateSymbol
+                        )) ||
                     moduleReexportsCoreSymbol(moduleSymbol, candidateSymbol)
                 ) {
                     reactiveNodeProgramState.symbol = candidateSymbol;
