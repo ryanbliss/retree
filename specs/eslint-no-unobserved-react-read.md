@@ -813,6 +813,13 @@ TypeScript `Program`; it must not construct a second program. Symbol resolution,
 class summaries, and decorator summaries are cached by `ts.Symbol` in weak
 maps for the life of that program.
 
+Canonical `ReactiveNode` discovery is demand-driven. The rule first follows
+the tested type's own declarations and only inspects the current file's
+imported candidates if that fails. Its canonical symbol, inspected
+source/candidate pairs, module-export checks, and positive or negative
+re-export results are held in a module-scoped `WeakMap<ts.Program, ...>` so
+files sharing a TypeScript program do not repeat program-lifetime work.
+
 Phase A also memoizes `resolveValue` by expression within each fixed-point
 iteration and resets that cache whenever the value environment may change.
 This avoids repeating recursive member/alias resolution without carrying stale

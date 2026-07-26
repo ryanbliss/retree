@@ -92,6 +92,19 @@ interface MemberSegment {
     node: TSESTree.MemberExpression;
 }
 
+interface ReactiveNodeImportCandidate {
+    localSymbol: ts.Symbol;
+    moduleSymbol: ts.Symbol;
+    namespace: boolean;
+}
+
+interface ReactiveNodeProgramState {
+    inspectedCandidates: WeakMap<ts.SourceFile, Set<ts.Symbol>>;
+    moduleExportResults: WeakMap<ts.Symbol, WeakMap<ts.Symbol, boolean>>;
+    moduleReexportResults: WeakMap<ts.Symbol, WeakMap<ts.Symbol, boolean>>;
+    symbol?: ts.Symbol;
+}
+
 type FunctionNode =
     | TSESTree.ArrowFunctionExpression
     | TSESTree.FunctionDeclaration
@@ -103,6 +116,12 @@ const createRule = ESLintUtils.RuleCreator(
 
 const RETREE_CORE_MODULE = "@retreejs/core";
 const RETREE_REACT_MODULE = "@retreejs/react";
+// TypeScript symbols belong to their Program. Keep canonical discovery and
+// negative module results across ESLint's per-file rule instances.
+const reactiveNodeProgramStates = new WeakMap<
+    ts.Program,
+    ReactiveNodeProgramState
+>();
 
 const synchronousArrayMethods = new Set([
     "every",
@@ -223,20 +242,32 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
         const arrayLikeCache = new WeakMap<TSESTree.Node, boolean>();
         const importedIdentities = new Map<ts.Symbol, ImportedIdentity>();
         const importedNamespaces = new Map<ts.Symbol, NamespaceIdentity>();
+        const reactiveNodeImportCandidates: ReactiveNodeImportCandidate[] = [];
         const functionNodes: FunctionNode[] = [];
         const invalidAdditionalHookReports = new Set<string>();
         const objectLikeCache = new WeakMap<TSESTree.Node, boolean>();
         const symbolCache = new WeakMap<TSESTree.Node, ts.Symbol | null>();
         const reactiveNodeTypeCache = new WeakMap<ts.Type, boolean>();
-        const inspectedReactiveNodeCandidates = new WeakMap<
-            ts.SourceFile,
-            Set<ts.Symbol>
-        >();
         const unmodeledSemanticsCache = new WeakMap<
             TSESTree.MemberExpression,
             boolean
         >();
-        let reactiveNodeSymbol: ts.Symbol | undefined;
+        let reactiveNodeImportsInspected = false;
+        const cachedReactiveNodeProgramState = reactiveNodeProgramStates.get(
+            services.program
+        );
+        const reactiveNodeProgramState: ReactiveNodeProgramState =
+            cachedReactiveNodeProgramState ?? {
+                inspectedCandidates: new WeakMap(),
+                moduleExportResults: new WeakMap(),
+                moduleReexportResults: new WeakMap(),
+            };
+        if (cachedReactiveNodeProgramState === undefined) {
+            reactiveNodeProgramStates.set(
+                services.program,
+                reactiveNodeProgramState
+            );
+        }
 
         function getSymbol(node: TSESTree.Node): ts.Symbol | undefined {
             const cached = symbolCache.get(node);
@@ -262,8 +293,6 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                 );
                 if (moduleName === RETREE_CORE_MODULE) {
                     resolveReactiveNodeTypeFromModuleSymbol(moduleSymbol);
-                } else {
-                    resolveReactiveNodeTypeFromImportedModule(moduleSymbol);
                 }
                 validateEncounteredAdditionalHookTarget(
                     program,
@@ -276,6 +305,18 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                     const localSymbol = getSymbol(specifier.local);
                     if (localSymbol === undefined) {
                         continue;
+                    }
+                    if (
+                        moduleName !== RETREE_CORE_MODULE &&
+                        moduleSymbol !== undefined
+                    ) {
+                        reactiveNodeImportCandidates.push({
+                            localSymbol,
+                            moduleSymbol,
+                            namespace:
+                                specifier.type ===
+                                AST_NODE_TYPES.ImportNamespaceSpecifier,
+                        });
                     }
                     if (
                         specifier.type ===
@@ -1465,9 +1506,12 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                     constraint !== undefined && typeIsReactiveNode(constraint);
             } else {
                 discoverReactiveNodeType(type, 0, new Set());
+                if (reactiveNodeProgramState.symbol === undefined) {
+                    discoverReactiveNodeTypeFromImports();
+                }
                 result = typeDerivesFromReactiveNode(type, new Set());
             }
-            if (reactiveNodeSymbol !== undefined) {
+            if (reactiveNodeProgramState.symbol !== undefined) {
                 reactiveNodeTypeCache.set(type, result);
             }
             return result;
@@ -1477,7 +1521,10 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
             type: ts.Type,
             visited: Set<ts.Type>
         ): boolean {
-            if (reactiveNodeSymbol === undefined || visited.has(type)) {
+            if (
+                reactiveNodeProgramState.symbol === undefined ||
+                visited.has(type)
+            ) {
                 return false;
             }
             visited.add(type);
@@ -1487,7 +1534,7 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
             // that member public in a future core refactor must not widen this
             // bailout to application objects with a similar public shape.
             const symbol = type.aliasSymbol ?? type.getSymbol();
-            if (symbol === reactiveNodeSymbol) {
+            if (symbol === reactiveNodeProgramState.symbol) {
                 return true;
             }
             if ((type.flags & ts.TypeFlags.Object) === 0) {
@@ -1511,7 +1558,7 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
             visited: Set<ts.Type>
         ): void {
             if (
-                reactiveNodeSymbol !== undefined ||
+                reactiveNodeProgramState.symbol !== undefined ||
                 depth > 4 ||
                 visited.has(type)
             ) {
@@ -1533,7 +1580,7 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                         declaration.getSourceFile(),
                         candidateSymbol
                     );
-                    if (reactiveNodeSymbol !== undefined) {
+                    if (reactiveNodeProgramState.symbol !== undefined) {
                         return;
                     }
                 }
@@ -1541,7 +1588,7 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
 
             for (const baseType of baseTypes) {
                 discoverReactiveNodeType(baseType, depth + 1, visited);
-                if (reactiveNodeSymbol !== undefined) {
+                if (reactiveNodeProgramState.symbol !== undefined) {
                     return;
                 }
             }
@@ -1567,18 +1614,21 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
             sourceFile: ts.SourceFile,
             candidateSymbol: ts.Symbol
         ): void {
-            if (reactiveNodeSymbol !== undefined) {
+            if (reactiveNodeProgramState.symbol !== undefined) {
                 return;
             }
             const inspectedSymbols =
-                inspectedReactiveNodeCandidates.get(sourceFile) ?? new Set();
+                reactiveNodeProgramState.inspectedCandidates.get(sourceFile) ??
+                new Set();
             if (inspectedSymbols.has(candidateSymbol)) {
                 return;
             }
             inspectedSymbols.add(candidateSymbol);
-            inspectedReactiveNodeCandidates.set(sourceFile, inspectedSymbols);
+            reactiveNodeProgramState.inspectedCandidates.set(
+                sourceFile,
+                inspectedSymbols
+            );
 
-            const visitedModules = new Set<ts.Symbol>();
             for (const statement of sourceFile.statements) {
                 if (
                     !ts.isImportDeclaration(statement) &&
@@ -1603,20 +1653,46 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                 }
                 if (
                     moduleSpecifier.text === RETREE_CORE_MODULE ||
-                    moduleReexportsCoreSymbol(
-                        moduleSymbol,
-                        candidateSymbol,
-                        1,
-                        visitedModules
-                    )
+                    moduleReexportsCoreSymbol(moduleSymbol, candidateSymbol)
                 ) {
-                    reactiveNodeSymbol = candidateSymbol;
+                    reactiveNodeProgramState.symbol = candidateSymbol;
                     return;
                 }
             }
         }
 
         function moduleReexportsCoreSymbol(
+            moduleSymbol: ts.Symbol,
+            candidateSymbol: ts.Symbol
+        ): boolean {
+            const cached = reactiveNodeProgramState.moduleReexportResults
+                .get(moduleSymbol)
+                ?.get(candidateSymbol);
+            if (cached !== undefined) {
+                return cached;
+            }
+            const result = walkModuleReexportsCoreSymbol(
+                moduleSymbol,
+                candidateSymbol,
+                1,
+                new Set()
+            );
+            let moduleResults =
+                reactiveNodeProgramState.moduleReexportResults.get(
+                    moduleSymbol
+                );
+            if (moduleResults === undefined) {
+                moduleResults = new WeakMap();
+                reactiveNodeProgramState.moduleReexportResults.set(
+                    moduleSymbol,
+                    moduleResults
+                );
+            }
+            moduleResults.set(candidateSymbol, result);
+            return result;
+        }
+
+        function walkModuleReexportsCoreSymbol(
             moduleSymbol: ts.Symbol,
             candidateSymbol: ts.Symbol,
             depth: number,
@@ -1661,7 +1737,7 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
                         return true;
                     }
                     if (
-                        moduleReexportsCoreSymbol(
+                        walkModuleReexportsCoreSymbol(
                             nextModuleSymbol,
                             candidateSymbol,
                             depth + 1,
@@ -1675,31 +1751,41 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
             return false;
         }
 
-        function resolveReactiveNodeTypeFromImportedModule(
-            moduleSymbol: ts.Symbol | undefined
-        ): void {
+        function discoverReactiveNodeTypeFromImports(): void {
             if (
-                moduleSymbol === undefined ||
-                reactiveNodeSymbol !== undefined
+                reactiveNodeImportsInspected ||
+                reactiveNodeProgramState.symbol !== undefined
             ) {
                 return;
             }
-            for (const exportedSymbol of checker.getExportsOfModule(
-                moduleSymbol
-            )) {
-                const candidateSymbol = resolveAlias(exportedSymbol);
+            reactiveNodeImportsInspected = true;
+            for (const candidate of reactiveNodeImportCandidates) {
+                let candidateSymbol: ts.Symbol | undefined;
+                if (candidate.namespace) {
+                    const exportedSymbol = checker
+                        .getExportsOfModule(candidate.moduleSymbol)
+                        .find(
+                            (exported) => exported.getName() === "ReactiveNode"
+                        );
+                    if (exportedSymbol !== undefined) {
+                        candidateSymbol = resolveAlias(exportedSymbol);
+                    }
+                } else {
+                    candidateSymbol = resolveAlias(candidate.localSymbol);
+                }
                 if (candidateSymbol === undefined) {
+                    continue;
+                }
+                if (candidateSymbol.getName() !== "ReactiveNode") {
                     continue;
                 }
                 if (
                     moduleReexportsCoreSymbol(
-                        moduleSymbol,
-                        candidateSymbol,
-                        0,
-                        new Set()
+                        candidate.moduleSymbol,
+                        candidateSymbol
                     )
                 ) {
-                    reactiveNodeSymbol = candidateSymbol;
+                    reactiveNodeProgramState.symbol = candidateSymbol;
                     return;
                 }
             }
@@ -1709,12 +1795,29 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
             moduleSymbol: ts.Symbol,
             candidateSymbol: ts.Symbol
         ): boolean {
-            return checker
+            const cached = reactiveNodeProgramState.moduleExportResults
+                .get(moduleSymbol)
+                ?.get(candidateSymbol);
+            if (cached !== undefined) {
+                return cached;
+            }
+            const result = checker
                 .getExportsOfModule(moduleSymbol)
                 .some(
                     (exportedSymbol) =>
                         resolveAlias(exportedSymbol) === candidateSymbol
                 );
+            let moduleResults =
+                reactiveNodeProgramState.moduleExportResults.get(moduleSymbol);
+            if (moduleResults === undefined) {
+                moduleResults = new WeakMap();
+                reactiveNodeProgramState.moduleExportResults.set(
+                    moduleSymbol,
+                    moduleResults
+                );
+            }
+            moduleResults.set(candidateSymbol, result);
+            return result;
         }
 
         function moduleExportsNamedSymbol(
@@ -1736,7 +1839,7 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
         ): void {
             if (
                 moduleSymbol === undefined ||
-                reactiveNodeSymbol !== undefined
+                reactiveNodeProgramState.symbol !== undefined
             ) {
                 return;
             }
@@ -1750,7 +1853,7 @@ export const noUnobservedReactRead = createRule<Options, MessageIds>({
             if (canonicalSymbol === undefined) {
                 return;
             }
-            reactiveNodeSymbol = canonicalSymbol;
+            reactiveNodeProgramState.symbol = canonicalSymbol;
         }
 
         function resolveCallableIdentity(
