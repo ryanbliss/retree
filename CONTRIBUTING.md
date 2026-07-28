@@ -48,6 +48,18 @@ live in [`benchmarks/`](benchmarks/) as dated findings files.
 
 ## Releases
 
-Package versions move in lockstep with exact intra-family peer pins —
-`scripts/publish-packages.mjs` publishes the family together. Don't bump
-versions in a feature PR; releases are done separately.
+The runtime package family moves in lockstep with exact intra-family peer pins.
+`npm run publish:packages` publishes that family together. An independently
+versioned package can be selected explicitly:
+
+```bash
+npm run publish:packages -- --package @retreejs/react-eslint-plugin
+```
+
+Append `--dry-run` to exercise the complete preflight and npm package lifecycle
+without publishing anything.
+
+The command loads the root `.env`, accepts either `NODE_AUTH_TOKEN` or
+`NPM_TOKEN`, validates every publishable package before registry writes, and
+automatically adds `--access public` for a package that is not on npm yet.
+Don't bump versions in a feature PR; releases are done separately.

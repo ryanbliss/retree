@@ -10,8 +10,7 @@
     "types": "./bin/index.d.ts",
     "scripts": {
         "build": "tsc -p tsconfig.json",
-        "typecheck": "tsc -p tsconfig.json --noEmit",
-        "prepack": "node ../../scripts/sync-package-docs.mjs ."
+        "typecheck": "tsc -p tsconfig.json --noEmit"
     },
     "dependencies": {
         "@typescript-eslint/parser": "^8.60.0",

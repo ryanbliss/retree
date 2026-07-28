@@ -5,66 +5,51 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+    buildNpmPublishArguments,
+    parsePublishArguments,
+    publishPackageCatalog,
+    selectPackagesToPublish,
+} from "./publish-package-selection.mjs";
+
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const envPath = resolve(rootDir, ".env");
-const packagesToPublish = [
-    {
-        label: "@retreejs/core",
-        directory: "packages/retree-core",
-    },
-    {
-        label: "@retreejs/query",
-        directory: "packages/retree-query",
-    },
-    {
-        label: "@retreejs/react",
-        directory: "packages/retree-react",
-    },
-    {
-        label: "@retreejs/devtools",
-        directory: "packages/retree-devtools",
-    },
-    {
-        label: "@retreejs/convex",
-        directory: "packages/retree-convex",
-    },
-    {
-        label: "@retreejs/react-convex",
-        directory: "packages/retree-react-convex",
-    },
-    {
-        label: "@retreejs/create",
-        directory: "packages/retree-create",
-    },
-];
+const options = parsePublishArguments(process.argv.slice(2));
+const packagesToPublish = selectPackagesToPublish(options.packageName);
 const familyPackageNames = new Set(
-    packagesToPublish.map((entry) => entry.label)
+    publishPackageCatalog
+        .filter((entry) => entry.publishByDefault)
+        .map((entry) => entry.label)
 );
 
-if (process.argv.includes("--help")) {
+if (options.showHelp) {
     console.log(
         [
-            "Usage: npm run publish:packages [-- --provenance]",
+            "Usage: npm run publish:packages [-- --package <name>] [--dry-run] [--provenance]",
             "",
-            "Publishes the Retree package family in lockstep, in two phases:",
+            "Publishes the Retree package family, or exactly one selected package, in two phases:",
             "",
             "Preflight (no registry writes):",
             "  1. Build every package.",
-            "  2. Assert every package has the same version.",
+            "  2. Assert the existing Retree family has one lockstep version.",
             "  3. Assert every intra-family dependency and peerDependency pin",
             "     matches that version exactly.",
             "  4. Run the publish-shape gates: publint --strict, attw --pack",
             "     --profile esm-only, and the plain-Node import smoke test.",
             "  5. Check the registry: versions already published are skipped",
             "     later (idempotent retry after a partial publish).",
-            "  6. npm publish --dry-run for every package.",
+            "  6. npm publish --dry-run for every selected package.",
             "",
             "Publish:",
-            "  7. npm publish each package. If one fails, the script reports",
+            "  7. npm publish each selected package. If one fails, the script reports",
             "     exactly which packages published and how to retry — rerunning",
             "     this script skips already-published versions.",
             "",
             "Flags:",
+            "  --package <name>  Publish exactly this configured npm package.",
+            "                    Without it, publish the lockstep Retree family.",
+            "  --dry-run     Run the complete preflight and npm publish dry runs",
+            "                without publishing any package.",
             "  --provenance  Pass --provenance to npm publish (CI with OIDC).",
             "",
             "New scoped packages are published with --access public.",
@@ -73,7 +58,7 @@ if (process.argv.includes("--help")) {
     process.exit(0);
 }
 
-const useProvenance = process.argv.includes("--provenance");
+const useProvenance = options.useProvenance;
 const publishEnv = {
     ...process.env,
     ...readEnvFile(envPath),
@@ -98,53 +83,77 @@ if (existsSync(envPath)) {
 
 console.log("\n=== Preflight ===");
 
-const manifests = packagesToPublish.map((entry) => {
+const catalogManifests = publishPackageCatalog.map((entry) => {
     const packageDir = resolve(rootDir, entry.directory);
     const manifestPath = resolve(packageDir, "package.json");
     if (!existsSync(manifestPath)) {
         throw new Error(`Preflight: ${manifestPath} does not exist.`);
     }
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    if (manifest.name !== entry.label) {
+        throw new Error(
+            `Preflight: ${manifestPath} declares package name ${String(
+                manifest.name
+            )}, expected ${entry.label}.`
+        );
+    }
+    if (typeof manifest.version !== "string") {
+        throw new Error(
+            `Preflight: ${manifestPath} must declare a string version before publishing.`
+        );
+    }
     return { ...entry, packageDir, manifest };
 });
-
-const releaseVersion = manifests[0].manifest.version;
-for (const entry of manifests) {
-    if (entry.manifest.version !== releaseVersion) {
+const manifestsByName = new Map(
+    catalogManifests.map((entry) => [entry.label, entry])
+);
+const manifests = packagesToPublish.map((entry) => {
+    const manifest = manifestsByName.get(entry.label);
+    if (manifest === undefined) {
         throw new Error(
-            `Preflight: ${entry.label} is at version ${entry.manifest.version}, expected lockstep version ${releaseVersion} (from ${manifests[0].label}).`
+            `Preflight: selected package ${entry.label} has no loaded manifest.`
+        );
+    }
+    return manifest;
+});
+
+const lockstepManifests = catalogManifests.filter(
+    (entry) => entry.publishByDefault
+);
+const lockstepVersion = lockstepManifests[0].manifest.version;
+for (const entry of lockstepManifests) {
+    if (entry.manifest.version !== lockstepVersion) {
+        throw new Error(
+            `Preflight: ${entry.label} is at version ${entry.manifest.version}, expected lockstep version ${lockstepVersion} (from ${lockstepManifests[0].label}).`
         );
     }
 }
-console.log(`Lockstep version: ${releaseVersion}`);
+console.log(`Lockstep version: ${lockstepVersion}`);
+console.log(
+    `Selected for publishing: ${manifests
+        .map((entry) => `${entry.label}@${entry.manifest.version}`)
+        .join(", ")}`
+);
 
 for (const entry of manifests) {
-    assertFamilyPinsMatch(entry, "dependencies", releaseVersion);
-    assertFamilyPinsMatch(entry, "peerDependencies", releaseVersion);
+    assertFamilyPinsMatch(entry, "dependencies", lockstepVersion);
+    assertFamilyPinsMatch(entry, "peerDependencies", lockstepVersion);
 }
-console.log("All intra-family pins match the release version.");
-
-for (const entry of manifests) {
-    console.log(`\nBuilding ${entry.label}`);
-    run("npm", ["run", "build"], entry.packageDir, publishEnv);
-}
+console.log("Selected package intra-family pins match the lockstep version.");
 
 // Publish-shape gates: publint --strict, attw --pack --profile esm-only
 // (ESM-only by policy — audit R1), and the plain-Node import smoke test.
 // Runs after every package is built and before any registry read/write.
-console.log("\nPackage publish-shape gates (publint + attw + import smoke)");
-run("node", ["scripts/lint-packages.mjs"], rootDir, publishEnv);
+console.log("\nBuild and package publish-shape gates");
+run("npm", ["run", "lint:packages"], rootDir, publishEnv);
 
 const publishPlan = [];
 for (const entry of manifests) {
-    const registryState = npmVersionState(
-        entry.label,
-        releaseVersion,
-        publishEnv
-    );
+    const version = entry.manifest.version;
+    const registryState = npmVersionState(entry.label, version, publishEnv);
     if (registryState.versionPublished) {
         console.log(
-            `${entry.label}@${releaseVersion} is already on the registry; it will be skipped (idempotent retry).`
+            `${entry.label}@${version} is already on the registry; it will be skipped (idempotent retry).`
         );
         continue;
     }
@@ -152,20 +161,34 @@ for (const entry of manifests) {
 }
 
 if (publishPlan.length === 0) {
+    const selectedVersions = manifests
+        .map((entry) => `${entry.label}@${entry.manifest.version}`)
+        .join(", ");
     console.log(
-        `\nEvery package is already published at ${releaseVersion}. Nothing to do.`
+        `\nEvery selected package is already published (${selectedVersions}). Nothing to do.`
     );
     process.exit(0);
 }
 
 for (const entry of publishPlan) {
-    console.log(`\nDry run: ${entry.label}`);
+    console.log(`\nDry run: ${entry.label}@${entry.manifest.version}`);
     run(
         "npm",
-        [...buildPublishArgs(entry), "--dry-run"],
+        [
+            ...buildNpmPublishArguments({
+                isNewPackage: entry.isNewPackage,
+                useProvenance,
+            }),
+            "--dry-run",
+        ],
         entry.packageDir,
         publishEnv
     );
+}
+
+if (options.dryRunOnly) {
+    console.log("\nDry run complete. No packages were published.");
+    process.exit(0);
 }
 
 // -------------------------------------------------------------------------
@@ -176,9 +199,18 @@ console.log("\n=== Publish ===");
 
 const published = [];
 for (const entry of publishPlan) {
-    console.log(`\nPublishing ${entry.label}@${releaseVersion}`);
+    const packageVersion = `${entry.label}@${entry.manifest.version}`;
+    console.log(`\nPublishing ${packageVersion}`);
     try {
-        run("npm", buildPublishArgs(entry), entry.packageDir, publishEnv);
+        run(
+            "npm",
+            buildNpmPublishArguments({
+                isNewPackage: entry.isNewPackage,
+                useProvenance,
+            }),
+            entry.packageDir,
+            publishEnv
+        );
     } catch (error) {
         const remaining = publishPlan
             .filter((candidate) => !published.includes(candidate.label))
@@ -186,7 +218,7 @@ for (const entry of publishPlan) {
         console.error(
             [
                 "",
-                `PARTIAL PUBLISH: ${entry.label}@${releaseVersion} failed.`,
+                `PARTIAL PUBLISH: ${packageVersion} failed.`,
                 `Published successfully: ${
                     published.length > 0 ? published.join(", ") : "(none)"
                 }`,
@@ -194,7 +226,7 @@ for (const entry of publishPlan) {
                 "",
                 "Recovery: fix the failure and rerun `npm run publish:packages` —",
                 "already-published versions are detected and skipped, so the",
-                "family converges on the same version.",
+                "selected package set converges on the requested versions.",
             ].join("\n")
         );
         throw error;
@@ -202,18 +234,11 @@ for (const entry of publishPlan) {
     published.push(entry.label);
 }
 
-console.log(`\nAll packages published at ${releaseVersion}.`);
-
-function buildPublishArgs(entry) {
-    const args = ["publish"];
-    if (entry.isNewPackage) {
-        args.push("--access", "public");
-    }
-    if (useProvenance) {
-        args.push("--provenance");
-    }
-    return args;
-}
+console.log(
+    `\nAll selected packages published: ${publishPlan
+        .map((entry) => `${entry.label}@${entry.manifest.version}`)
+        .join(", ")}.`
+);
 
 function assertFamilyPinsMatch(entry, field, version) {
     const dependencies = entry.manifest[field];
