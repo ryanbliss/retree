@@ -189,6 +189,8 @@ describe("parseTargetProject", () => {
         expect(target.name).toBe("my-app");
         expect(target.hasReact).toBe(true);
         expect(target.hasConvex).toBe(false);
+        expect(target.hasEslint).toBe(false);
+        expect(target.hasTypeScript).toBe(false);
     });
 
     it("detects react in devDependencies", () => {
@@ -227,6 +229,20 @@ describe("parseTargetProject", () => {
         );
         expect(target.hasReact).toBe(false);
         expect(target.hasConvex).toBe(false);
+        expect(target.hasEslint).toBe(false);
+        expect(target.hasTypeScript).toBe(false);
+    });
+
+    it("detects ESLint and TypeScript across dependency fields", () => {
+        const target = parseTargetProject(
+            JSON.stringify({
+                dependencies: { typescript: "^6.0.0" },
+                devDependencies: { eslint: "^9.0.0" },
+            }),
+            "/tmp/package.json"
+        );
+        expect(target.hasEslint).toBe(true);
+        expect(target.hasTypeScript).toBe(true);
     });
 
     it("omits the name when it is not a string", () => {
@@ -294,6 +310,8 @@ describe("readTargetProject", () => {
             name: "my-app",
             hasReact: true,
             hasConvex: false,
+            hasEslint: false,
+            hasTypeScript: false,
         });
     });
 
@@ -312,7 +330,9 @@ describe("readTargetProject", () => {
             name: "workspace-member",
             hasReact: true,
             hasConvex: false,
+            hasEslint: false,
+            hasTypeScript: false,
         });
-        expect(resolved).toEqual(["react", "convex"]);
+        expect(resolved).toEqual(["react", "convex", "eslint", "typescript"]);
     });
 });

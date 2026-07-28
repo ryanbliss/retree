@@ -6,12 +6,20 @@ const bareTarget: TargetProject = {
     name: "my-app",
     hasReact: false,
     hasConvex: false,
+    hasEslint: false,
+    hasTypeScript: false,
 };
 
 function selections(
     overrides: Partial<InstallSelections> = {}
 ): InstallSelections {
-    return { react: false, convex: false, skill: false, ...overrides };
+    return {
+        react: false,
+        convex: false,
+        eslint: false,
+        skill: false,
+        ...overrides,
+    };
 }
 
 describe("resolveInstallPlan", () => {
@@ -22,6 +30,7 @@ describe("resolveInstallPlan", () => {
         expect(plan.addsConvexPeer).toBe(false);
         expect(plan.warnMissingReact).toBe(false);
         expect(plan.skillCommand).toBeUndefined();
+        expect(plan.eslintInstallCommand).toBeUndefined();
     });
 
     it("adds @retreejs/react when react is selected", () => {
@@ -120,6 +129,42 @@ describe("resolveInstallPlan", () => {
             args: ["add", "@retreejs/core@latest"],
         });
     });
+
+    it("installs the ESLint plugin as an npm dev dependency", () => {
+        const plan = resolveInstallPlan(
+            selections({ eslint: true }),
+            bareTarget,
+            "npm"
+        );
+        expect(plan.eslintInstallCommand).toEqual({
+            command: "npm",
+            args: [
+                "install",
+                "--save-dev",
+                "@retreejs/react-eslint-plugin@latest",
+            ],
+        });
+    });
+
+    it.each([
+        ["pnpm", "--save-dev"],
+        ["yarn", "--dev"],
+        ["bun", "--dev"],
+    ] as const)(
+        "uses the %s development dependency flag for the ESLint plugin",
+        (packageManager, devFlag) => {
+            const plan = resolveInstallPlan(
+                selections({ eslint: true }),
+                bareTarget,
+                packageManager
+            );
+            expect(plan.eslintInstallCommand?.args).toEqual([
+                "add",
+                devFlag,
+                "@retreejs/react-eslint-plugin@latest",
+            ]);
+        }
+    );
 
     it("includes the skill command when the skill is selected", () => {
         const plan = resolveInstallPlan(

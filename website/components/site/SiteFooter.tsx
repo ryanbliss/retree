@@ -29,6 +29,10 @@ const COLUMNS: {
             { href: "/api/devtools", label: "@retreejs/devtools" },
             { href: "/api/convex", label: "@retreejs/convex" },
             { href: "/api/react-convex", label: "@retreejs/react-convex" },
+            {
+                href: "/api/react-eslint-plugin",
+                label: "@retreejs/react-eslint-plugin",
+            },
         ],
     },
     {

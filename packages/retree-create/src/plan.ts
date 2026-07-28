@@ -3,6 +3,7 @@ import { PackageManager, TargetProject } from "./detect.js";
 export interface InstallSelections {
     react: boolean;
     convex: boolean;
+    eslint: boolean;
     skill: boolean;
 }
 
@@ -17,6 +18,7 @@ export interface InstallPlan {
     addsConvexPeer: boolean;
     warnMissingReact: boolean;
     installCommand: PlannedCommand;
+    eslintInstallCommand: PlannedCommand | undefined;
     skillCommand: PlannedCommand | undefined;
 }
 
@@ -25,6 +27,13 @@ const INSTALL_SUBCOMMANDS: Record<PackageManager, string> = {
     pnpm: "add",
     yarn: "add",
     bun: "add",
+};
+
+const DEV_DEPENDENCY_ARGS: Record<PackageManager, string[]> = {
+    npm: ["--save-dev"],
+    pnpm: ["--save-dev"],
+    yarn: ["--dev"],
+    bun: ["--dev"],
 };
 
 const SKILL_RUNNERS: Record<
@@ -89,6 +98,16 @@ export function resolveInstallPlan(
             command: packageManager,
             args: [INSTALL_SUBCOMMANDS[packageManager], ...packageSpecs],
         },
+        eslintInstallCommand: selections.eslint
+            ? {
+                  command: packageManager,
+                  args: [
+                      INSTALL_SUBCOMMANDS[packageManager],
+                      ...DEV_DEPENDENCY_ARGS[packageManager],
+                      "@retreejs/react-eslint-plugin@latest",
+                  ],
+              }
+            : undefined,
         skillCommand: selections.skill
             ? buildSkillInstallCommand(packageManager)
             : undefined,

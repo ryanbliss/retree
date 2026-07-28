@@ -6,11 +6,14 @@ import { CopyButton } from "@/components/code/CopyButton";
 const MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
 type Manager = (typeof MANAGERS)[number];
 
-const COMMANDS: Record<Manager, { install: string; run: string }> = {
-    npm: { install: "npm i", run: "npm run" },
-    pnpm: { install: "pnpm add", run: "pnpm" },
-    yarn: { install: "yarn add", run: "yarn" },
-    bun: { install: "bun add", run: "bun run" },
+const COMMANDS: Record<
+    Manager,
+    { install: string; installDev: string; run: string }
+> = {
+    npm: { install: "npm i", installDev: "npm i -D", run: "npm run" },
+    pnpm: { install: "pnpm add", installDev: "pnpm add -D", run: "pnpm" },
+    yarn: { install: "yarn add", installDev: "yarn add -D", run: "yarn" },
+    bun: { install: "bun add", installDev: "bun add -d", run: "bun run" },
 };
 
 /**
@@ -61,9 +64,11 @@ function subscribe(callback: () => void): () => void {
 export function PMTabs({
     packages,
     create,
+    dev,
 }: {
     packages?: string;
     create?: boolean;
+    dev?: boolean;
 }) {
     const manager = useSyncExternalStore<Manager>(
         subscribe,
@@ -88,11 +93,20 @@ export function PMTabs({
     if (create !== true && packages === undefined) {
         throw new Error("PMTabs requires either `create` or `packages`.");
     }
+    if (create === true && dev === true) {
+        throw new Error("PMTabs does not support `dev` with `create`.");
+    }
 
-    const command =
-        create === true
-            ? CREATE_COMMAND[manager]
-            : `${COMMANDS[manager].install} ${packages}`;
+    let command: string;
+    if (create === true) {
+        command = CREATE_COMMAND[manager];
+    } else {
+        const installCommand =
+            dev === true
+                ? COMMANDS[manager].installDev
+                : COMMANDS[manager].install;
+        command = `${installCommand} ${packages}`;
+    }
 
     return (
         <figure className="group relative my-5 overflow-hidden rounded-lg border border-border-token bg-code-bg">

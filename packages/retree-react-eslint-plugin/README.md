@@ -1,7 +1,17 @@
 # `@retreejs/react-eslint-plugin`
 
 Type-aware ESLint rules for Retree React applications. This package is an
-early feasibility implementation and is not published yet.
+early feasibility implementation published on npm.
+
+## Install
+
+```bash
+npm install --save-dev @retreejs/react-eslint-plugin
+```
+
+Running `npm create @retreejs@latest` in an existing React + ESLint +
+TypeScript project also offers this package by default and can update a
+recognizable `eslint.config.mjs` automatically.
 
 ## `no-unobserved-react-read`
 

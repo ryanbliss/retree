@@ -41,6 +41,7 @@ describe("main", () => {
         projectDir = mkdtempSync(join(tmpdir(), "retree-create-cli-"));
         ranCommands = [];
         vi.spyOn(console, "log").mockImplementation(() => undefined);
+        vi.spyOn(console, "warn").mockImplementation(() => undefined);
     });
 
     afterEach(() => {
@@ -183,8 +184,18 @@ describe("main", () => {
         );
         const promptAdapter: PromptAdapter = {
             async chooseFeatures(defaults) {
-                expect(defaults).toEqual({ react: false, convex: false });
-                return { react: false, convex: false, skill: false };
+                expect(defaults).toEqual({
+                    react: false,
+                    convex: false,
+                    eslint: false,
+                    eslintAvailable: false,
+                });
+                return {
+                    react: false,
+                    convex: false,
+                    eslint: false,
+                    skill: false,
+                };
             },
             async confirmPlan() {
                 return true;
@@ -237,7 +248,12 @@ describe("main", () => {
         writePackageJson({ name: "my-app" });
         const promptAdapter: PromptAdapter = {
             async chooseFeatures() {
-                return { react: false, convex: false, skill: false };
+                return {
+                    react: false,
+                    convex: false,
+                    eslint: false,
+                    skill: false,
+                };
             },
             async confirmPlan() {
                 return false;
@@ -255,5 +271,148 @@ describe("main", () => {
             runCommand: createRecordingRunner(ranCommands),
         });
         expect(ranCommands).toEqual([]);
+    });
+
+    it("selects and configures the ESLint rule by default when all prerequisites are detected", async () => {
+        writePackageJson({
+            name: "typed-react-app",
+            dependencies: { react: "^19.0.0" },
+            devDependencies: { eslint: "^9.0.0", typescript: "^6.0.0" },
+        });
+        const configPath = join(projectDir, "eslint.config.mjs");
+        writeFileSync(
+            configPath,
+            [
+                'import { defineConfig } from "eslint/config";',
+                "export default defineConfig([",
+                "    baseConfig,",
+                "]);",
+                "",
+            ].join("\n")
+        );
+
+        await main(["--yes", "--no-skill", "--pm", "npm"], {
+            cwd: projectDir,
+            isTTY: false,
+            promptAdapter: createUnusablePromptAdapter(),
+            runCommand: createRecordingRunner(ranCommands),
+        });
+
+        expect(ranCommands).toHaveLength(2);
+        expect(ranCommands[1].plannedCommand).toEqual({
+            command: "npm",
+            args: [
+                "install",
+                "--save-dev",
+                "@retreejs/react-eslint-plugin@latest",
+            ],
+        });
+        const config = readFileSync(configPath, "utf8");
+        expect(config).toContain(
+            'import retree from "@retreejs/react-eslint-plugin/typescript";'
+        );
+        expect(config).toContain("    ...retree,\n]);");
+    });
+
+    it("lets --no-eslint disable the detected default", async () => {
+        writePackageJson({
+            name: "typed-react-app",
+            dependencies: { react: "^19.0.0" },
+            devDependencies: { eslint: "^9.0.0", typescript: "^6.0.0" },
+        });
+        const configPath = join(projectDir, "eslint.config.mjs");
+        writeFileSync(configPath, "export default [\n];\n");
+
+        await main(["--yes", "--no-eslint", "--no-skill", "--pm", "npm"], {
+            cwd: projectDir,
+            isTTY: false,
+            promptAdapter: createUnusablePromptAdapter(),
+            runCommand: createRecordingRunner(ranCommands),
+        });
+
+        expect(ranCommands).toHaveLength(1);
+        expect(readFileSync(configPath, "utf8")).toBe("export default [\n];\n");
+    });
+
+    it("lets the interactive checklist disable its detected ESLint default", async () => {
+        writePackageJson({
+            name: "typed-react-app",
+            dependencies: { react: "^19.0.0" },
+            devDependencies: { eslint: "^9.0.0", typescript: "^6.0.0" },
+        });
+        const promptAdapter: PromptAdapter = {
+            async chooseFeatures(defaults) {
+                expect(defaults).toEqual({
+                    react: true,
+                    convex: false,
+                    eslint: true,
+                    eslintAvailable: true,
+                });
+                return {
+                    react: true,
+                    convex: false,
+                    eslint: false,
+                    skill: false,
+                };
+            },
+            async confirmPlan() {
+                return true;
+            },
+            async confirmTsconfigDecoratorFix() {
+                return false;
+            },
+        };
+
+        await main(["--pm", "npm"], {
+            cwd: projectDir,
+            isTTY: true,
+            promptAdapter,
+            runCommand: createRecordingRunner(ranCommands),
+        });
+
+        expect(ranCommands).toHaveLength(1);
+        expect(ranCommands[0].plannedCommand.args).not.toContain(
+            "@retreejs/react-eslint-plugin@latest"
+        );
+    });
+
+    it("warns and skips an explicitly selected ESLint rule when prerequisites are missing", async () => {
+        writePackageJson({ name: "plain-app" });
+
+        await main(["--eslint", "--no-skill", "--pm", "npm"], {
+            cwd: projectDir,
+            isTTY: false,
+            promptAdapter: createUnusablePromptAdapter(),
+            runCommand: createRecordingRunner(ranCommands),
+        });
+
+        expect(ranCommands).toHaveLength(1);
+        expect(vi.mocked(console.warn)).toHaveBeenCalledWith(
+            expect.stringContaining("missing React, ESLint, TypeScript")
+        );
+    });
+
+    it("warns without throwing when eslint.config.mjs cannot be edited safely", async () => {
+        writePackageJson({
+            name: "typed-react-app",
+            dependencies: { react: "^19.0.0" },
+            devDependencies: { eslint: "^9.0.0", typescript: "^6.0.0" },
+        });
+        const configPath = join(projectDir, "eslint.config.mjs");
+        writeFileSync(configPath, "export default makeConfig();\n");
+
+        await main(["--yes", "--no-skill", "--pm", "npm"], {
+            cwd: projectDir,
+            isTTY: false,
+            promptAdapter: createUnusablePromptAdapter(),
+            runCommand: createRecordingRunner(ranCommands),
+        });
+
+        expect(readFileSync(configPath, "utf8")).toBe(
+            "export default makeConfig();\n"
+        );
+        expect(vi.mocked(console.warn)).toHaveBeenCalledWith(
+            expect.stringContaining("left")
+        );
     });
 });

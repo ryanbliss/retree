@@ -36,6 +36,7 @@ export const DOCS_NAV: DocNavSection[] = [
             { slug: "react/use-tree", title: "useTree" },
             { slug: "react/use-select", title: "useSelect" },
             { slug: "react/use-raw", title: "useRaw" },
+            { slug: "react/eslint", title: "ESLint rule" },
         ],
     },
     {

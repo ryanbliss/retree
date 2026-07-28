@@ -16,6 +16,7 @@ import {
     detectPackageManagerInDirectory,
     readTargetProject,
 } from "./detect.js";
+import { tryConfigureRetreeEslint } from "./eslint.js";
 import { CommandRunner, runCommand } from "./install.js";
 import {
     formatPlannedCommand,
@@ -83,6 +84,8 @@ export async function main(
 
     const packageManager =
         flags.packageManager ?? detectPackageManagerInDirectory(cwd);
+    const eslintAvailable =
+        target.hasReact && target.hasEslint && target.hasTypeScript;
     const projectLabel = target.name ?? cwd;
     console.log(
         `${colorize("Retree installer", "bold", "cyan")} ${colorize(
@@ -94,6 +97,7 @@ export async function main(
     const flagSelections = resolveSelectionsFromFlags(flags, {
         react: target.hasReact,
         convex: target.hasConvex,
+        eslint: eslintAvailable,
     });
     let selections: InstallSelections;
     if (flagSelections !== undefined) {
@@ -102,10 +106,23 @@ export async function main(
         const prompted = await promptAdapter.chooseFeatures({
             react: target.hasReact,
             convex: target.hasConvex,
+            eslint: eslintAvailable,
+            eslintAvailable,
         });
         selections = { ...prompted, skill: flags.skill ?? prompted.skill };
     } else {
         throw new Error(renderNonInteractiveError());
+    }
+
+    if (selections.eslint && !eslintAvailable) {
+        const missing = describeMissingEslintPrerequisites(target);
+        console.warn(
+            colorize(
+                `Skipping @retreejs/react-eslint-plugin because this project is missing ${missing}. The typed rule requires React, ESLint, and TypeScript.`,
+                "yellow"
+            )
+        );
+        selections = { ...selections, eslint: false };
     }
 
     const plan = resolveInstallPlan(selections, target, packageManager);
@@ -139,6 +156,14 @@ export async function main(
     console.log(
         `  ${colorize(formatPlannedCommand(plan.installCommand), "bold")}`
     );
+    if (plan.eslintInstallCommand !== undefined) {
+        console.log(
+            `  ${colorize(
+                formatPlannedCommand(plan.eslintInstallCommand),
+                "bold"
+            )}`
+        );
+    }
     if (plan.skillCommand !== undefined) {
         console.log(
             `  ${colorize(formatPlannedCommand(plan.skillCommand), "bold")}`
@@ -155,6 +180,12 @@ export async function main(
 
     console.log(`\n> ${formatPlannedCommand(plan.installCommand)}`);
     await run(plan.installCommand, cwd);
+
+    if (plan.eslintInstallCommand !== undefined) {
+        console.log(`\n> ${formatPlannedCommand(plan.eslintInstallCommand)}`);
+        await run(plan.eslintInstallCommand, cwd);
+        reportEslintConfigUpdate(cwd);
+    }
 
     if (plan.skillCommand !== undefined) {
         console.log(`\n> ${formatPlannedCommand(plan.skillCommand)}`);
@@ -178,6 +209,47 @@ export async function main(
             "Docs: https://github.com/ryanbliss/retree",
         ].join("\n")
     );
+}
+
+function reportEslintConfigUpdate(cwd: string): void {
+    const result = tryConfigureRetreeEslint(cwd);
+    if (result.status === "warning") {
+        console.warn(colorize(result.message, "yellow"));
+        return;
+    }
+    if (result.status === "already-configured") {
+        console.log(
+            colorize(
+                `${result.configPath} already includes the Retree TypeScript preset.`,
+                "dim"
+            )
+        );
+        return;
+    }
+    console.log(
+        colorize(
+            `Updated ${result.configPath} with the Retree TypeScript ESLint preset.`,
+            "dim"
+        )
+    );
+}
+
+function describeMissingEslintPrerequisites(target: {
+    hasReact: boolean;
+    hasEslint: boolean;
+    hasTypeScript: boolean;
+}): string {
+    const missing: string[] = [];
+    if (!target.hasReact) {
+        missing.push("React");
+    }
+    if (!target.hasEslint) {
+        missing.push("ESLint");
+    }
+    if (!target.hasTypeScript) {
+        missing.push("TypeScript");
+    }
+    return missing.join(", ");
 }
 
 /**
@@ -241,10 +313,10 @@ function renderHelp() {
         "Usage: npm create @retreejs@latest [-- options]",
         "",
         "Adds the latest Retree packages to the project in the current",
-        "directory. Interactive by default: detects react and convex to",
-        "preselect the matching integrations, and can install the Retree AI",
-        "skill for coding agents. Pass flags to run unattended (e.g. from",
-        "scripts or coding agents).",
+        "directory. Interactive by default: detects React, Convex, ESLint,",
+        "and TypeScript to preselect matching integrations, and can install",
+        "the Retree AI skill for coding agents. Pass flags to run unattended",
+        "(e.g. from scripts or coding agents).",
         "",
         "Options:",
         ...FLAG_HELP_LINES,

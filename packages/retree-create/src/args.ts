@@ -5,6 +5,7 @@ export interface CliFlags {
     help: boolean;
     react: boolean | undefined;
     convex: boolean | undefined;
+    eslint: boolean | undefined;
     coreOnly: boolean;
     skill: boolean | undefined;
     yes: boolean;
@@ -13,9 +14,11 @@ export interface CliFlags {
 
 export const FLAG_HELP_LINES = [
     "  --yes, -y        Accept detected defaults without prompting (React/Convex",
-    "                   from the project's dependencies, AI skill on).",
+    "                   integrations, compatible ESLint rule, AI skill on).",
     "  --react          Install @retreejs/react.",
     "  --convex         Install @retreejs/convex (adds the convex peer if missing).",
+    "  --eslint         Install and configure the React ESLint rule when compatible.",
+    "  --no-eslint      Skip the React ESLint rule.",
     "  --core-only      Install only @retreejs/core.",
     "  --skill          Install the Retree AI skill for coding agents.",
     "  --no-skill       Skip the Retree AI skill.",
@@ -47,6 +50,7 @@ export function parseCliFlags(argv: string[]): CliFlags {
     let help = false;
     let react: boolean | undefined;
     let convex: boolean | undefined;
+    let eslint: boolean | undefined;
     let coreOnly = false;
     let skill: boolean | undefined;
     let yes = false;
@@ -64,6 +68,24 @@ export function parseCliFlags(argv: string[]): CliFlags {
         }
         if (argument === "--convex") {
             convex = true;
+            continue;
+        }
+        if (argument === "--eslint") {
+            if (eslint === false) {
+                throw new Error(
+                    "--eslint and --no-eslint were both passed. Pass only one of them."
+                );
+            }
+            eslint = true;
+            continue;
+        }
+        if (argument === "--no-eslint") {
+            if (eslint === true) {
+                throw new Error(
+                    "--eslint and --no-eslint were both passed. Pass only one of them."
+                );
+            }
+            eslint = false;
             continue;
         }
         if (argument === "--core-only") {
@@ -110,7 +132,7 @@ export function parseCliFlags(argv: string[]): CliFlags {
             continue;
         }
         throw new Error(
-            `Unknown option "${argument}". Supported options: --react, --convex, --core-only, --skill, --no-skill, --yes, --pm <npm|pnpm|yarn|bun>, --help.`
+            `Unknown option "${argument}". Supported options: --react, --convex, --eslint, --no-eslint, --core-only, --skill, --no-skill, --yes, --pm <npm|pnpm|yarn|bun>, --help.`
         );
     }
 
@@ -124,8 +146,22 @@ export function parseCliFlags(argv: string[]): CliFlags {
             "--core-only and --convex were both passed. --core-only installs only @retreejs/core; drop one of the flags."
         );
     }
+    if (coreOnly && eslint === true) {
+        throw new Error(
+            "--core-only and --eslint were both passed. --core-only installs only @retreejs/core; drop one of the flags."
+        );
+    }
 
-    return { help, react, convex, coreOnly, skill, yes, packageManager };
+    return {
+        help,
+        react,
+        convex,
+        eslint,
+        coreOnly,
+        skill,
+        yes,
+        packageManager,
+    };
 }
 
 /**
@@ -137,23 +173,29 @@ export function parseCliFlags(argv: string[]): CliFlags {
  */
 export function resolveSelectionsFromFlags(
     flags: CliFlags,
-    detected: { react: boolean; convex: boolean }
+    detected: { react: boolean; convex: boolean; eslint: boolean }
 ): InstallSelections | undefined {
     const skill = flags.skill ?? flags.yes;
     if (flags.coreOnly) {
-        return { react: false, convex: false, skill };
+        return { react: false, convex: false, eslint: false, skill };
     }
     if (flags.yes) {
         return {
             react: flags.react ?? detected.react,
             convex: flags.convex ?? detected.convex,
+            eslint: flags.eslint ?? detected.eslint,
             skill,
         };
     }
-    if (flags.react !== undefined || flags.convex !== undefined) {
+    if (
+        flags.react !== undefined ||
+        flags.convex !== undefined ||
+        flags.eslint !== undefined
+    ) {
         return {
             react: flags.react ?? false,
             convex: flags.convex ?? false,
+            eslint: flags.eslint ?? false,
             skill,
         };
     }

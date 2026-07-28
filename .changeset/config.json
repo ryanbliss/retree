@@ -23,7 +23,6 @@
         "02.react-example",
         "03.react-recursion",
         "04.convex-react-nextjs",
-        "@retreejs/benchmark-cli",
-        "@retreejs/react-eslint-plugin"
+        "@retreejs/benchmark-cli"
     ]
 }

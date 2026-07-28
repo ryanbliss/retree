@@ -7,6 +7,7 @@ describe("parseCliFlags", () => {
             help: false,
             react: undefined,
             convex: undefined,
+            eslint: undefined,
             coreOnly: false,
             skill: undefined,
             yes: false,
@@ -20,9 +21,10 @@ describe("parseCliFlags", () => {
     });
 
     it("parses feature flags", () => {
-        const flags = parseCliFlags(["--react", "--convex"]);
+        const flags = parseCliFlags(["--react", "--convex", "--eslint"]);
         expect(flags.react).toBe(true);
         expect(flags.convex).toBe(true);
+        expect(flags.eslint).toBe(true);
     });
 
     it("parses --core-only", () => {
@@ -32,6 +34,11 @@ describe("parseCliFlags", () => {
     it("parses --skill and --no-skill", () => {
         expect(parseCliFlags(["--skill"]).skill).toBe(true);
         expect(parseCliFlags(["--no-skill"]).skill).toBe(false);
+    });
+
+    it("parses --eslint and --no-eslint", () => {
+        expect(parseCliFlags(["--eslint"]).eslint).toBe(true);
+        expect(parseCliFlags(["--no-eslint"]).eslint).toBe(false);
     });
 
     it("parses --yes and -y", () => {
@@ -74,6 +81,15 @@ describe("parseCliFlags", () => {
         );
     });
 
+    it("throws when --eslint and --no-eslint are combined", () => {
+        expect(() => parseCliFlags(["--eslint", "--no-eslint"])).toThrow(
+            "--eslint and --no-eslint were both passed. Pass only one of them."
+        );
+        expect(() => parseCliFlags(["--no-eslint", "--eslint"])).toThrow(
+            "--eslint and --no-eslint were both passed. Pass only one of them."
+        );
+    });
+
     it("throws when --core-only is combined with --react", () => {
         expect(() => parseCliFlags(["--core-only", "--react"])).toThrow(
             /--core-only and --react were both passed/
@@ -85,21 +101,27 @@ describe("parseCliFlags", () => {
             /--core-only and --convex were both passed/
         );
     });
+
+    it("throws when --core-only is combined with --eslint", () => {
+        expect(() => parseCliFlags(["--core-only", "--eslint"])).toThrow(
+            /--core-only and --eslint were both passed/
+        );
+    });
 });
 
 describe("resolveSelectionsFromFlags", () => {
-    const detectedNone = { react: false, convex: false };
-    const detectedBoth = { react: true, convex: true };
+    const detectedNone = { react: false, convex: false, eslint: false };
+    const detectedAll = { react: true, convex: true, eslint: true };
 
     it("returns undefined when no deciding flags are passed", () => {
         expect(
-            resolveSelectionsFromFlags(parseCliFlags([]), detectedBoth)
+            resolveSelectionsFromFlags(parseCliFlags([]), detectedAll)
         ).toBeUndefined();
     });
 
     it("returns undefined when only --skill is passed", () => {
         expect(
-            resolveSelectionsFromFlags(parseCliFlags(["--skill"]), detectedBoth)
+            resolveSelectionsFromFlags(parseCliFlags(["--skill"]), detectedAll)
         ).toBeUndefined();
     });
 
@@ -107,18 +129,18 @@ describe("resolveSelectionsFromFlags", () => {
         expect(
             resolveSelectionsFromFlags(
                 parseCliFlags(["--core-only"]),
-                detectedBoth
+                detectedAll
             )
-        ).toEqual({ react: false, convex: false, skill: false });
+        ).toEqual({ react: false, convex: false, eslint: false, skill: false });
     });
 
     it("uses detection defaults for --yes, with the skill on", () => {
         expect(
-            resolveSelectionsFromFlags(parseCliFlags(["--yes"]), detectedBoth)
-        ).toEqual({ react: true, convex: true, skill: true });
+            resolveSelectionsFromFlags(parseCliFlags(["--yes"]), detectedAll)
+        ).toEqual({ react: true, convex: true, eslint: true, skill: true });
         expect(
             resolveSelectionsFromFlags(parseCliFlags(["--yes"]), detectedNone)
-        ).toEqual({ react: false, convex: false, skill: true });
+        ).toEqual({ react: false, convex: false, eslint: false, skill: true });
     });
 
     it("lets --no-skill override the --yes skill default", () => {
@@ -127,13 +149,13 @@ describe("resolveSelectionsFromFlags", () => {
                 parseCliFlags(["--yes", "--no-skill"]),
                 detectedNone
             )
-        ).toEqual({ react: false, convex: false, skill: false });
+        ).toEqual({ react: false, convex: false, eslint: false, skill: false });
     });
 
     it("treats explicit feature flags as the full selection, skill off", () => {
         expect(
-            resolveSelectionsFromFlags(parseCliFlags(["--react"]), detectedBoth)
-        ).toEqual({ react: true, convex: false, skill: false });
+            resolveSelectionsFromFlags(parseCliFlags(["--react"]), detectedAll)
+        ).toEqual({ react: true, convex: false, eslint: false, skill: false });
     });
 
     it("adds the skill to explicit feature flags with --skill", () => {
@@ -142,7 +164,7 @@ describe("resolveSelectionsFromFlags", () => {
                 parseCliFlags(["--convex", "--skill"]),
                 detectedNone
             )
-        ).toEqual({ react: false, convex: true, skill: true });
+        ).toEqual({ react: false, convex: true, eslint: false, skill: true });
     });
 
     it("fills unset features from detection when --yes accompanies a feature flag", () => {
@@ -150,7 +172,17 @@ describe("resolveSelectionsFromFlags", () => {
             resolveSelectionsFromFlags(parseCliFlags(["--react", "--yes"]), {
                 react: false,
                 convex: true,
+                eslint: true,
             })
-        ).toEqual({ react: true, convex: true, skill: true });
+        ).toEqual({ react: true, convex: true, eslint: true, skill: true });
+    });
+
+    it("lets --no-eslint override the detected --yes default", () => {
+        expect(
+            resolveSelectionsFromFlags(
+                parseCliFlags(["--yes", "--no-eslint"]),
+                detectedAll
+            )
+        ).toEqual({ react: true, convex: true, eslint: false, skill: true });
     });
 });
