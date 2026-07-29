@@ -16,6 +16,7 @@
         "@retreejs/react": "file:../../packages/retree-react"
     },
     "devDependencies": {
+        "@retreejs/react-eslint-plugin": "file:../../packages/retree-react-eslint-plugin",
         "@types/react": "^19.2.3",
         "@types/react-dom": "^19.2.3",
         "@typescript-eslint/eslint-plugin": "^8.58.0",

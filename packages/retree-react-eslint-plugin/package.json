@@ -1,0 +1,55 @@
+{
+    "name": "@retreejs/react-eslint-plugin",
+    "version": "0.1.0",
+    "description": "Type-aware ESLint rules for Retree React applications.",
+    "author": "Ryan Bliss",
+    "private": false,
+    "type": "module",
+    "license": "MIT",
+    "main": "./bin/index.js",
+    "types": "./bin/index.d.ts",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "prepack": "node ../../scripts/sync-package-docs.mjs ."
+    },
+    "dependencies": {
+        "@typescript-eslint/parser": "^8.60.0",
+        "@typescript-eslint/utils": "^8.60.0"
+    },
+    "devDependencies": {
+        "@types/node": "^22.10.0",
+        "@typescript-eslint/rule-tester": "8.60.0",
+        "eslint": "^9.0.0",
+        "typescript": "^6.0.2"
+    },
+    "peerDependencies": {
+        "eslint": "^9.0.0",
+        "typescript": ">=5.4.0 <7.0.0"
+    },
+    "repository": {
+        "directory": "packages/retree-react-eslint-plugin",
+        "type": "git",
+        "url": "git+https://github.com/ryanbliss/retree.git"
+    },
+    "homepage": "https://www.retree.dev",
+    "bugs": {
+        "url": "https://github.com/ryanbliss/retree/issues"
+    },
+    "exports": {
+        ".": {
+            "types": "./bin/index.d.ts",
+            "default": "./bin/index.js"
+        },
+        "./typescript": {
+            "types": "./bin/typescript.d.ts",
+            "default": "./bin/typescript.js"
+        }
+    },
+    "files": [
+        "bin",
+        "README.md",
+        "llms.txt"
+    ],
+    "sideEffects": false
+}

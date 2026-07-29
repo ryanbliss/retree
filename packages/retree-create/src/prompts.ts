@@ -4,6 +4,8 @@ import { InstallSelections } from "./plan.js";
 export interface FeatureDefaults {
     react: boolean;
     convex: boolean;
+    eslint: boolean;
+    eslintAvailable: boolean;
 }
 
 export interface PromptAdapter {
@@ -12,7 +14,7 @@ export interface PromptAdapter {
     confirmTsconfigDecoratorFix(): Promise<boolean>;
 }
 
-type FeatureValue = "react" | "convex" | "skill";
+type FeatureValue = "react" | "convex" | "eslint" | "skill";
 
 export function createInquirerPromptAdapter(): PromptAdapter {
     return {
@@ -35,6 +37,16 @@ export function createInquirerPromptAdapter(): PromptAdapter {
                             "Live query nodes, mutations, reconciliation",
                     },
                     {
+                        name: "React observation lint rule (@retreejs/react-eslint-plugin)",
+                        value: "eslint",
+                        checked: defaults.eslint,
+                        disabled: defaults.eslintAvailable
+                            ? false
+                            : "Requires React, ESLint, and TypeScript",
+                        description:
+                            "Catch Retree reads beyond a component's subscription",
+                    },
+                    {
                         name: "Retree AI skill",
                         value: "skill",
                         checked: true,
@@ -46,6 +58,7 @@ export function createInquirerPromptAdapter(): PromptAdapter {
             return {
                 react: values.includes("react"),
                 convex: values.includes("convex"),
+                eslint: values.includes("eslint"),
                 skill: values.includes("skill"),
             };
         },

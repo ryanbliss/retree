@@ -21,17 +21,13 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { publishPackageCatalog } from "./publish-package-selection.mjs";
+
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const publishablePackageDirectories = [
-    "packages/retree-core",
-    "packages/retree-query",
-    "packages/retree-react",
-    "packages/retree-devtools",
-    "packages/retree-convex",
-    "packages/retree-react-convex",
-    "packages/retree-create",
-];
+const publishablePackageDirectories = publishPackageCatalog.map(
+    (entry) => entry.directory
+);
 
 for (const directory of publishablePackageDirectories) {
     const packageDir = resolve(rootDir, directory);

@@ -8,6 +8,8 @@ export interface TargetProject {
     name: string | undefined;
     hasReact: boolean;
     hasConvex: boolean;
+    hasEslint: boolean;
+    hasTypeScript: boolean;
 }
 
 export function parseTargetProject(
@@ -35,6 +37,8 @@ export function parseTargetProject(
         name: readOptionalString(parsed, "name"),
         hasReact: hasDependency(parsed, "react"),
         hasConvex: hasDependency(parsed, "convex"),
+        hasEslint: hasDependency(parsed, "eslint"),
+        hasTypeScript: hasDependency(parsed, "typescript"),
     };
 }
 
@@ -77,6 +81,9 @@ export function readTargetProject(
         name: target.name,
         hasReact: target.hasReact || resolveDependency("react", cwd),
         hasConvex: target.hasConvex || resolveDependency("convex", cwd),
+        hasEslint: target.hasEslint || resolveDependency("eslint", cwd),
+        hasTypeScript:
+            target.hasTypeScript || resolveDependency("typescript", cwd),
     };
 }
 

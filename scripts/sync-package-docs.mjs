@@ -21,6 +21,7 @@ const packageDirectories = [
     "packages/retree-react-convex",
     "packages/retree-benchmark-cli",
     "packages/retree-create",
+    "packages/retree-react-eslint-plugin",
 ];
 
 const rawArgs = process.argv.slice(2);

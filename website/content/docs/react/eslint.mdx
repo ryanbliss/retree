@@ -1,0 +1,90 @@
+---
+title: ESLint rule
+description: Catch React components that read beyond the Retree node they observe with the type-aware @retreejs/react-eslint-plugin preset.
+---
+
+`@retreejs/react-eslint-plugin` catches render-time reads that cross a Retree
+subscription boundary. It is designed for the easy-to-miss case where a
+component observes one node with `useNode`, then renders a field owned by an
+unobserved child:
+
+```tsx
+const state = useNode(project);
+return <span>{state.owner.name}</span>;
+//                         ^ owner is not observed
+```
+
+The rule points at the unsafe read. Observe the child, select the value, or
+deliberately subscribe to the subtree:
+
+```tsx
+const state = useNode(project);
+const owner = useNode(state.owner);
+return <span>{owner.name}</span>;
+```
+
+## Install and configure
+
+<PMTabs packages="@retreejs/react-eslint-plugin" dev />
+
+The TypeScript entry point is a complete ESLint flat-config array. It selects
+TypeScript and TSX files, enables typed parsing with the TypeScript project
+service, registers the plugin, and turns on its current rule:
+
+```js
+import { defineConfig } from "eslint/config";
+import retree from "@retreejs/react-eslint-plugin/typescript";
+
+export default defineConfig([
+    // ...your other configs,
+    ...retree,
+]);
+```
+
+Put `...retree` after general-purpose presets so its typed parser settings are
+active for the rule. Spec and test files are excluded by the preset.
+
+## Let the installer add it
+
+Run the Retree installer from an existing project:
+
+<PMTabs create />
+
+When React, ESLint, and TypeScript are all detected, the checklist selects the
+lint rule by default. You can uncheck it, or pass `--yes --no-eslint` in an
+unattended run.
+
+If you keep a conventional flat config in `eslint.config.mjs`, the installer
+adds the import and `...retree` entry. ESLint config is executable JavaScript,
+so the installer deliberately recognizes only safe array-export shapes. When
+the file is missing, custom, or ambiguous, it leaves the config untouched and
+prints the two manual lines to add. A config-edit failure never rolls back or
+fails the package installation.
+
+## What the rule understands
+
+The first release follows hook imports by TypeScript symbol identity and
+models direct `useNode`, `useTree`, `useSelect`, and `useRaw` results, including
+local aliases, destructuring, array render callbacks, JSX, hook dependency
+arrays, and paired direct-child `useRaw` conversions. It reports only when it
+can prove that a render read belongs to a node the component does not observe;
+uncertain values are skipped to avoid noisy guesses.
+
+Current deferred cases include Map and Set provenance, whole-value consumers
+such as `Object.values` and `JSON.stringify`, same-file custom-hook return
+summaries, `ReactiveNode.dependencies` and decorator summaries, and nested
+named components that close over an outer hook result. These limitations make
+the rule intentionally conservative: a clean lint run is useful evidence, not
+a complete proof that every Retree read is observed.
+
+For an intentional exception, use a normal ESLint disable comment with a
+reason:
+
+```tsx
+// eslint-disable-next-line @retreejs/no-unobserved-react-read -- parent rerenders this boundary
+return <span>{state.owner.name}</span>;
+```
+
+Use the package's root export when you need to register the plugin and rule in
+a fully custom typed configuration. The convenience preset does not analyze
+`.js` or `.jsx` files.

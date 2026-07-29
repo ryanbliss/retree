@@ -60,6 +60,12 @@ const PACKAGES = [
         npmName: "@retreejs/react-convex",
         title: "@retreejs/react-convex",
     },
+    {
+        slug: "react-eslint-plugin",
+        dir: "retree-react-eslint-plugin",
+        npmName: "@retreejs/react-eslint-plugin",
+        title: "@retreejs/react-eslint-plugin",
+    },
 ];
 
 /**
@@ -156,6 +162,7 @@ async function writeLlmsTxt() {
         "react/use-tree",
         "react/use-select",
         "react/use-raw",
+        "react/eslint",
         "events-and-subscriptions",
         "effects-and-reactions",
         "tree-operations",
