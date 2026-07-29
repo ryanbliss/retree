@@ -49,8 +49,31 @@ live in [`benchmarks/`](benchmarks/) as dated findings files.
 ## Releases
 
 The runtime package family moves in lockstep with exact intra-family peer pins.
-`npm run publish:packages` publishes that family together. An independently
-versioned package can be selected explicitly:
+Feature PRs add a changeset but do not edit package versions. After the feature
+PR merges, create a release branch from `main` and run:
+
+```bash
+npm ci
+npm run version:packages
+```
+
+That consumes the pending changesets, updates manifests and the lockfile, and
+keeps fixed packages and exact internal pins synchronized. Validate and merge
+those generated version changes through a separate release PR. Then run the
+`Release` workflow on `main` from GitHub Actions, or with:
+
+```bash
+gh workflow run release.yml --ref main
+```
+
+The workflow is deliberately manual (`workflow_dispatch`); merging either the
+feature PR or release PR does not publish by itself. It checks npm first and is
+an idempotent no-op when every manifest version is already published. Pending
+lockstep packages and the independently versioned React ESLint plugin are
+published through their npm Trusted Publisher connections with provenance.
+
+For local publishing, `npm run publish:packages` publishes the lockstep family
+together. An independently versioned package can be selected explicitly:
 
 ```bash
 npm run publish:packages -- --package @retreejs/react-eslint-plugin

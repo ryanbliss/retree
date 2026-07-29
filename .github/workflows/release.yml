@@ -24,26 +24,47 @@ jobs:
             - name: Install latest npm for trusted publishing
               run: npm install -g npm@latest
 
-            # Skip everything when the lockstep version is already fully
-            # published — a run without a version bump should be a no-op,
-            # not a publish attempt.
-            - name: Check whether the lockstep version needs publishing
+            # Skip validation and publishing when every manifest version is
+            # already on npm. The runtime family moves in lockstep; the ESLint
+            # plugin is checked independently.
+            - name: Check whether any package version needs publishing
               id: version
               run: |
-                  VERSION=$(node -p "require('./packages/retree-core/package.json').version")
-                  echo "Lockstep version: ${VERSION}"
-                  PUBLISH=false
+                  LOCKSTEP_VERSION=$(node -p "require('./packages/retree-core/package.json').version")
+                  echo "Lockstep version: ${LOCKSTEP_VERSION}"
+                  LOCKSTEP_PUBLISH=false
                   for pkg in @retreejs/core @retreejs/query @retreejs/react @retreejs/devtools @retreejs/convex @retreejs/react-convex @retreejs/create; do
-                      if npm view "${pkg}@${VERSION}" version > /dev/null 2>&1; then
-                          echo "${pkg}@${VERSION} is already on npm."
+                      if npm view "${pkg}@${LOCKSTEP_VERSION}" version > /dev/null 2>&1; then
+                          echo "${pkg}@${LOCKSTEP_VERSION} is already on npm."
                       else
-                          echo "${pkg}@${VERSION} is not on npm yet."
-                          PUBLISH=true
+                          echo "${pkg}@${LOCKSTEP_VERSION} is not on npm yet."
+                          LOCKSTEP_PUBLISH=true
                       fi
                   done
+
+                  ESLINT_PACKAGE=@retreejs/react-eslint-plugin
+                  ESLINT_VERSION=$(node -p "require('./packages/retree-react-eslint-plugin/package.json').version")
+                  echo "ESLint plugin version: ${ESLINT_VERSION}"
+                  ESLINT_PUBLISH=false
+                  if npm view "${ESLINT_PACKAGE}@${ESLINT_VERSION}" version > /dev/null 2>&1; then
+                      echo "${ESLINT_PACKAGE}@${ESLINT_VERSION} is already on npm."
+                  else
+                      echo "${ESLINT_PACKAGE}@${ESLINT_VERSION} is not on npm yet."
+                      ESLINT_PUBLISH=true
+                  fi
+
+                  PUBLISH=false
+                  if [ "$LOCKSTEP_PUBLISH" = "true" ]; then
+                      PUBLISH=true
+                  fi
+                  if [ "$ESLINT_PUBLISH" = "true" ]; then
+                      PUBLISH=true
+                  fi
                   echo "publish=${PUBLISH}" >> "$GITHUB_OUTPUT"
+                  echo "lockstep_publish=${LOCKSTEP_PUBLISH}" >> "$GITHUB_OUTPUT"
+                  echo "eslint_publish=${ESLINT_PUBLISH}" >> "$GITHUB_OUTPUT"
                   if [ "$PUBLISH" = "false" ]; then
-                      echo "Every package is already published at ${VERSION}; nothing to do."
+                      echo "Every manifest version is already published; nothing to do."
                   fi
 
             - name: Install dependencies
@@ -63,5 +84,9 @@ jobs:
               run: npm run test
 
             - name: Publish packages (lockstep, with provenance)
-              if: steps.version.outputs.publish == 'true'
+              if: steps.version.outputs.lockstep_publish == 'true'
               run: node scripts/publish-packages.mjs --provenance
+
+            - name: Publish React ESLint plugin (with provenance)
+              if: steps.version.outputs.eslint_publish == 'true'
+              run: node scripts/publish-packages.mjs --package @retreejs/react-eslint-plugin --provenance
