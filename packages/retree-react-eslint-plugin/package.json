@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/react-eslint-plugin",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Type-aware ESLint rules for Retree React applications.",
     "author": "Ryan Bliss",
     "private": false,
