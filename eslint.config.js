@@ -23,6 +23,7 @@ module.exports = [
             "**/_generated/**",
             "**/manifest/**",
             "**/.next/**",
+            "**/.worktrees/**",
             "**/node_modules/**",
             "**/package-lock.json",
             "**/.eslintrc.cjs",
