@@ -22,8 +22,8 @@
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
-        "@retreejs/core": ">=0.7.2 <1.0.0",
-        "@retreejs/query": ">=0.7.2 <1.0.0",
+        "@retreejs/core": ">=0.7.2 <0.8.0",
+        "@retreejs/query": ">=0.7.2 <0.8.0",
         "convex": "^1.39.1"
     },
     "repository": {

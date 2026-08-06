@@ -262,38 +262,35 @@ function assertFamilyPinsMatch(entry, field, version) {
 }
 
 /**
- * Intra-family peerDependencies declare one shared range whose lower bound is
- * the version being published: `>=0.8.0 <1.0.0` for a 0.8.0 release.
+ * Intra-family peerDependencies declare one shared range covering exactly the
+ * released minor line: `>=0.8.0 <0.9.0` for a 0.8.0 release. A family package
+ * therefore resolves only against the same minor line of its family peers,
+ * which is what lockstep releases mean — and it matters pre-1.0, where a minor
+ * can carry behavior changes that an older peer was not written against.
  *
- * They are not exact pins because changesets escalates a package to a *major*
- * bump when a peerDependency receives a minor bump and the new version does
- * not satisfy the range as written before the release. Exact pins therefore
- * made every minor release of the family a major one (0.7.2 released as 1.0.0
- * rather than 0.8.0), so no minor release was reachable at all.
+ * They are ranges rather than exact pins only because changesets computes bump
+ * types from the peer range as written when the release plan runs, and a tight
+ * range never satisfies the next minor, which escalated the whole fixed family
+ * to a major (0.8.0 released as 1.0.0). `npm run version:packages` widens the
+ * ranges to the major line for the duration of that computation and tightens
+ * them again immediately afterwards, so the widened form is never committed or
+ * published (see scripts/sync-family-peer-ranges.mjs).
  *
- * They are not loose either: because `npm run version:packages` advances the
- * lower bound to each released version (scripts/sync-family-peer-ranges.mjs),
- * the range is as tight as a pin in the direction that matters —
- * `@retreejs/react@0.9.0` requiring `>=0.9.0` cannot be paired with
- * `@retreejs/core@0.8.0`. The only pairing it permits that an exact pin would
- * not is a family package newer than the one a peer shipped against, which is
- * ordinary peer-dependency forward compatibility.
- *
- * The check is correspondingly strict, and is what keeps a release from
- * publishing a family whose ranges disagree with its versions: every
- * intra-family peer range must be the same string across the family, must be
- * a `>=lower <nextMajor.0.0` range, its lower bound must equal the lockstep
- * version, and its upper bound must exclude the next major.
+ * This check is what keeps a release from publishing a family whose ranges
+ * disagree with its versions: every intra-family peer range must be the tight
+ * range for the version being published, which fails a release that skipped
+ * either sync step or was hand-edited.
  */
 function assertFamilyPeerRangesAreLockstep(entries, version) {
-    const familyPeerRangePattern = /^>=(\d+\.\d+\.\d+) <(\d+)\.0\.0$/;
-    const lockstepParts = version.split(".").map(Number);
-    if (lockstepParts.length !== 3 || lockstepParts.some(Number.isNaN)) {
+    const versionParts = version.split(".").map(Number);
+    if (versionParts.length !== 3 || versionParts.some(Number.isNaN)) {
         throw new Error(
             `Preflight: lockstep version "${version}" is not a plain major.minor.patch version. Intra-family peer range validation only understands plain versions. Fix: publish a plain version, or extend assertFamilyPeerRangesAreLockstep to handle this versioning scheme.`
         );
     }
-    const expectedRange = `>=${version} <${lockstepParts[0] + 1}.0.0`;
+    const [major, minor] = versionParts;
+    const expectedRange = `>=${version} <${major}.${minor + 1}.0`;
+    const widenedRange = `>=${version} <${major + 1}.0.0`;
     for (const entry of entries) {
         const peerDependencies = entry.manifest.peerDependencies;
         if (peerDependencies === undefined) {
@@ -303,16 +300,17 @@ function assertFamilyPeerRangesAreLockstep(entries, version) {
             if (!familyPackageNames.has(name)) {
                 continue;
             }
-            if (familyPeerRangePattern.exec(range) === null) {
+            if (range === expectedRange) {
+                continue;
+            }
+            if (range === widenedRange) {
                 throw new Error(
-                    `Preflight: ${entry.label} peerDependencies declares ${name} as "${range}", which is not an intra-family major-line range. Fix: set it to "${expectedRange}", or rerun \`npm run version:packages\` to sync every intra-family peer range.`
+                    `Preflight: ${entry.label} peerDependencies declares ${name} as "${range}", which is the widened range \`npm run version:packages\` uses only while computing bump types. The tightening step did not run. Fix: rerun \`npm run version:packages\`, or set the range to "${expectedRange}".`
                 );
             }
-            if (range !== expectedRange) {
-                throw new Error(
-                    `Preflight: ${entry.label} peerDependencies declares ${name} as "${range}", but the lockstep version being published is "${version}", which requires "${expectedRange}". Fix: rerun \`npm run version:packages\` so scripts/sync-family-peer-ranges.mjs advances every intra-family peer range to the released version.`
-                );
-            }
+            throw new Error(
+                `Preflight: ${entry.label} peerDependencies declares ${name} as "${range}", but the lockstep version being published is "${version}", which requires "${expectedRange}". Fix: rerun \`npm run version:packages\` so scripts/sync-family-peer-ranges.mjs syncs every intra-family peer range to the released minor line.`
+            );
         }
     }
     console.log(`Intra-family peer range: ${expectedRange}`);

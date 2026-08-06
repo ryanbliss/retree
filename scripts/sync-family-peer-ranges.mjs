@@ -1,31 +1,43 @@
 #!/usr/bin/env node
 
 /**
- * Advance intra-family `peerDependencies` ranges to the version the family was
- * just versioned to. Runs as part of `npm run version:packages`, immediately
- * after `changeset version`.
+ * Keep intra-family `peerDependencies` ranges in step with the family version.
+ * Both modes run as part of `npm run version:packages`, around
+ * `changeset version`:
  *
- * Why the ranges are not exact pins, and why they still have to move:
+ *     sync-family-peer-ranges --widen   # before: >=0.8.0 <1.0.0
+ *     changeset version                 # 0.8.0 -> 0.9.0
+ *     sync-family-peer-ranges           # after:  >=0.9.0 <0.10.0
  *
- * Changesets escalates a package to a *major* bump when one of its
- * `peerDependencies` receives a minor or major bump and the new version does
- * not satisfy the range as written before the release
- * (`shouldBumpMajor` in @changesets/assemble-release-plan). An exact peer pin
- * never satisfies a new version, so with exact pins every minor changeset
- * escalated the whole fixed family to a major: 0.7.2 released as 1.0.0 rather
- * than 0.8.0, and no minor release of the family was reachable at all.
+ * The committed and published shape is the tight one — a family package
+ * resolves only against the same minor line of its family peers, which is
+ * what "the family moves in lockstep" means and what pre-1.0 minors require,
+ * since a minor here can carry behavior changes.
  *
- * A range whose lower bound is the currently released version satisfies the
- * next minor, so the escalation does not fire, and rewriting that lower bound
- * after each release keeps the range as tight as a pin in the direction that
- * matters: `@retreejs/react@0.9.0` requiring `>=0.9.0 <1.0.0` cannot be paired
- * with `@retreejs/core@0.8.0`. The one pairing a range still permits, and an
- * exact pin would not, is a core *newer* than the version a package shipped
- * against — ordinary peer-dependency forward compatibility.
+ * The widen step exists because of how changesets decides bump types.
+ * `shouldBumpMajor` in @changesets/assemble-release-plan escalates a package
+ * to a *major* bump when one of its `peerDependencies` takes a minor bump and
+ * the new version does not satisfy that peer range **as written when the
+ * release plan is computed**:
  *
- * The publish preflight asserts exactly this shape, so a release that skips
- * this step fails before any registry write rather than publishing a family
- * whose ranges disagree with its versions.
+ *     depType === "peerDependencies" && nextRelease.type !== "patch" && (
+ *       !onlyUpdatePeerDependentsWhenOutOfRange ||
+ *       !semverSatisfies(incrementVersion(nextRelease, preInfo), versionRange))
+ *
+ * A tight range never satisfies the next minor (0.9.0 does not satisfy
+ * `<0.9.0`), so leaving the tight range in place while the plan is computed
+ * escalates the whole fixed family: a minor changeset released 0.8.0 as 1.0.0.
+ * Widening to the major line for the duration of the computation avoids the
+ * escalation; tightening straight afterwards means the widened range is never
+ * committed, published, or seen by an installer.
+ *
+ * Since the escalation is only skipped when the pending version is inside the
+ * widened range, a genuine major changeset still escalates as it should
+ * (2.0.0 does not satisfy `>=1.4.0 <2.0.0`).
+ *
+ * The publish preflight asserts the tight shape, so a release that skips or
+ * half-applies these steps fails before any registry write rather than
+ * publishing a family whose ranges disagree with its versions.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -35,6 +47,16 @@ import { fileURLToPath } from "node:url";
 import { publishPackageCatalog } from "./publish-package-selection.mjs";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const args = process.argv.slice(2);
+const unknownArgs = args.filter((arg) => arg !== "--widen");
+if (unknownArgs.length > 0) {
+    throw new Error(
+        `sync-family-peer-ranges: unrecognized argument(s) ${unknownArgs.join(
+            ", "
+        )}. Usage: sync-family-peer-ranges [--widen]. Pass --widen before \`changeset version\` and no arguments after it.`
+    );
+}
+const shouldWiden = args.includes("--widen");
 
 const familyEntries = publishPackageCatalog.filter(
     (entry) => entry.publishByDefault
@@ -51,7 +73,7 @@ const lockstepVersion = manifests[0].manifest.version;
 for (const entry of manifests) {
     if (entry.manifest.version !== lockstepVersion) {
         throw new Error(
-            `sync-family-peer-ranges: ${entry.label} is at version ${entry.manifest.version}, expected the lockstep version ${lockstepVersion} (from ${manifests[0].label}). Fix: run this immediately after \`changeset version\`, which versions the fixed family together.`
+            `sync-family-peer-ranges: ${entry.label} is at version ${entry.manifest.version}, expected the lockstep version ${lockstepVersion} (from ${manifests[0].label}). Fix: run this immediately before or after \`changeset version\`, which versions the fixed family together.`
         );
     }
 }
@@ -62,7 +84,10 @@ if (versionParts.length !== 3 || versionParts.some(Number.isNaN)) {
         `sync-family-peer-ranges: lockstep version "${lockstepVersion}" is not a plain major.minor.patch version. Fix: release a plain version, or extend this script to handle the versioning scheme in use.`
     );
 }
-const familyPeerRange = `>=${lockstepVersion} <${versionParts[0] + 1}.0.0`;
+const [major, minor] = versionParts;
+const familyPeerRange = shouldWiden
+    ? `>=${lockstepVersion} <${major + 1}.0.0`
+    : `>=${lockstepVersion} <${major}.${minor + 1}.0`;
 
 const updates = [];
 for (const entry of manifests) {
@@ -96,12 +121,13 @@ for (const entry of manifests) {
     }
 }
 
+const label = shouldWiden
+    ? "Widened intra-family peer ranges for version computation"
+    : `Intra-family peer range for ${lockstepVersion}`;
 if (updates.length === 0) {
-    console.log(
-        `Intra-family peer ranges already match the lockstep version: ${familyPeerRange}`
-    );
+    console.log(`${label}: already ${familyPeerRange}`);
 } else {
-    console.log(`Intra-family peer range for ${lockstepVersion}:`);
+    console.log(`${label}:`);
     for (const update of updates) {
         console.log(`  ${update}`);
     }
