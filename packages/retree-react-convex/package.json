@@ -22,7 +22,7 @@
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
-        "@retreejs/convex": "0.7.2",
+        "@retreejs/convex": ">=0.7.2 <1.0.0",
         "convex": "^1.39.1"
     },
     "repository": {

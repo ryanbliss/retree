@@ -32,8 +32,9 @@ if (options.showHelp) {
             "Preflight (no registry writes):",
             "  1. Build every package.",
             "  2. Assert the existing Retree family has one lockstep version.",
-            "  3. Assert every intra-family dependency and peerDependency pin",
-            "     matches that version exactly.",
+            "  3. Assert every intra-family dependency pin matches that version",
+            "     exactly, and every intra-family peerDependency declares the",
+            "     one shared major-line range that version satisfies.",
             "  4. Run the publish-shape gates: publint --strict, attw --pack",
             "     --profile esm-only, and the plain-Node import smoke test.",
             "  5. Check the registry: versions already published are skipped",
@@ -76,9 +77,12 @@ if (existsSync(envPath)) {
 
 // -------------------------------------------------------------------------
 // Preflight phase: build + validate everything before any registry write.
-// Exact intra-family pins are deliberate (lockstep releases); the failure
-// mode they punish is a half-published family, so nothing publishes until
-// every package builds, agrees on version, and passes a dry run.
+// Lockstep releases are deliberate; the failure mode they punish is a
+// half-published family, so nothing publishes until every package builds,
+// agrees on version, and passes a dry run. Intra-family dependency pins are
+// exact; peerDependencies use one shared major-line range (see
+// assertFamilyPeerRangesAreLockstep for why an exact peer pin cannot be
+// released as a minor).
 // -------------------------------------------------------------------------
 
 console.log("\n=== Preflight ===");
@@ -137,8 +141,8 @@ console.log(
 
 for (const entry of manifests) {
     assertFamilyPinsMatch(entry, "dependencies", lockstepVersion);
-    assertFamilyPinsMatch(entry, "peerDependencies", lockstepVersion);
 }
+assertFamilyPeerRangesAreLockstep(manifests, lockstepVersion);
 console.log("Selected package intra-family pins match the lockstep version.");
 
 // Publish-shape gates: publint --strict, attw --pack --profile esm-only
@@ -255,6 +259,96 @@ function assertFamilyPinsMatch(entry, field, version) {
             );
         }
     }
+}
+
+/**
+ * Intra-family peerDependencies use a major-line range rather than an exact
+ * pin. An exact peer pin makes every release a breaking change for its peer
+ * dependents from changesets' perspective, so a `minor` changeset escalates
+ * the whole fixed family to a major bump (0.7.2 would become 1.0.0 rather
+ * than 0.8.0). The range keeps ordinary minor releases reachable while still
+ * refusing to pair a family package with a different major line.
+ *
+ * The check stays strict: every intra-family peer range must be the same
+ * string across the family, that string must be a `>=lower <nextMajor.0.0`
+ * range, and the lockstep version being published must satisfy it. That is
+ * what prevents a skewed family publish, which is the failure the exact pins
+ * were guarding against.
+ */
+function assertFamilyPeerRangesAreLockstep(entries, version) {
+    const familyPeerRangePattern = /^>=(\d+)\.(\d+)\.(\d+) <(\d+)\.0\.0$/;
+    const lockstepParts = version.split(".").map(Number);
+    if (lockstepParts.length !== 3 || lockstepParts.some(Number.isNaN)) {
+        throw new Error(
+            `Preflight: lockstep version "${version}" is not a plain major.minor.patch version. Intra-family peer range validation only understands plain versions. Fix: publish a plain version, or extend assertFamilyPeerRangesAreLockstep to handle this versioning scheme.`
+        );
+    }
+    let canonicalRange;
+    let canonicalSource;
+    for (const entry of entries) {
+        const peerDependencies = entry.manifest.peerDependencies;
+        if (peerDependencies === undefined) {
+            continue;
+        }
+        for (const [name, range] of Object.entries(peerDependencies)) {
+            if (!familyPackageNames.has(name)) {
+                continue;
+            }
+            const match = familyPeerRangePattern.exec(range);
+            if (match === null) {
+                throw new Error(
+                    `Preflight: ${
+                        entry.label
+                    } peerDependencies declares ${name} as "${range}", which is not an intra-family major-line range. Fix: use a range of the form ">=<lowest supported version> <${
+                        lockstepParts[0] + 1
+                    }.0.0".`
+                );
+            }
+            if (Number(match[4]) !== lockstepParts[0] + 1) {
+                throw new Error(
+                    `Preflight: ${
+                        entry.label
+                    } peerDependencies declares ${name} as "${range}", whose upper bound does not exclude the next major after the lockstep version "${version}". Fix: set the upper bound to "<${
+                        lockstepParts[0] + 1
+                    }.0.0".`
+                );
+            }
+            const lowerParts = [
+                Number(match[1]),
+                Number(match[2]),
+                Number(match[3]),
+            ];
+            if (compareVersionParts(lowerParts, lockstepParts) > 0) {
+                throw new Error(
+                    `Preflight: ${entry.label} peerDependencies declares ${name} as "${range}", whose lower bound is above the lockstep version "${version}". Fix: lower the bound to at most "${version}".`
+                );
+            }
+            if (canonicalRange === undefined) {
+                canonicalRange = range;
+                canonicalSource = `${entry.label} peerDependencies.${name}`;
+                continue;
+            }
+            if (range !== canonicalRange) {
+                throw new Error(
+                    `Preflight: ${entry.label} peerDependencies declares ${name} as "${range}", but ${canonicalSource} declares "${canonicalRange}". Every intra-family peer range must be identical so the family cannot be paired across ranges. Fix: make both ranges the same string.`
+                );
+            }
+        }
+    }
+    if (canonicalRange === undefined) {
+        console.log("No intra-family peer ranges to validate.");
+        return;
+    }
+    console.log(`Intra-family peer range: ${canonicalRange}`);
+}
+
+function compareVersionParts(left, right) {
+    for (let index = 0; index < 3; index++) {
+        if (left[index] !== right[index]) {
+            return left[index] - right[index];
+        }
+    }
+    return 0;
 }
 
 function readEnvFile(path) {

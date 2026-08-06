@@ -48,7 +48,15 @@ live in [`benchmarks/`](benchmarks/) as dated findings files.
 
 ## Releases
 
-The runtime package family moves in lockstep with exact intra-family peer pins.
+The runtime package family moves in lockstep: every package in the family
+publishes at the same version, and intra-family `peerDependencies` all declare
+the same major-line range (`>=0.7.2 <1.0.0` today). The range rather than an
+exact pin is deliberate — changesets treats a minor bump of a package as a
+breaking change for anything that peer-depends on it by exact version, which
+would escalate every minor release of the family to a major one. The publish
+preflight enforces the lockstep guarantee directly instead: one shared range
+across the family, and the version being published must satisfy it.
+
 Feature PRs add a changeset but do not edit package versions. After the feature
 PR merges, create a release branch from `main` and run:
 

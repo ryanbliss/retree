@@ -21,7 +21,7 @@
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
-        "@retreejs/core": "0.7.2"
+        "@retreejs/core": ">=0.7.2 <1.0.0"
     },
     "repository": {
         "directory": "packages/retree-query",

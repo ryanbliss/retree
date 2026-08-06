@@ -24,5 +24,8 @@
         "03.react-recursion",
         "04.convex-react-nextjs",
         "@retreejs/benchmark-cli"
-    ]
+    ],
+    "___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH": {
+        "onlyUpdatePeerDependentsWhenOutOfRange": true
+    }
 }
