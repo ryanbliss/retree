@@ -48,31 +48,38 @@ live in [`benchmarks/`](benchmarks/) as dated findings files.
 
 ## Releases
 
-The runtime package family moves in lockstep: every package publishes at the
-same version, intra-family `dependencies` are pinned exactly, and intra-family
-`peerDependencies` cover exactly the released minor line (`>=0.7.2 <0.8.0`
-today, `>=0.8.0 <0.9.0` after a 0.8.0 release). A family package therefore
-resolves only against the same minor line of its family peers, which matters
-pre-1.0 where a minor can carry behavior changes an older peer was not written
-against. `npm run version:packages` keeps the ranges in step, and the publish
-preflight refuses to publish a family whose ranges disagree with its versions.
+The runtime package family moves in lockstep with exact intra-family peer pins:
+every package publishes at the same version, and its intra-family
+`dependencies`, `devDependencies`, and `peerDependencies` all pin that exact
+version. `@retreejs/react@0.9.0` peer-depends on `@retreejs/core@0.9.0` and
+nothing else, and the publish preflight refuses to publish a family whose pins
+disagree with its versions.
 
-The peer entries are ranges rather than exact pins for one mechanical reason:
-changesets escalates a package to a major bump when a `peerDependency` takes a
-minor bump and the new version does not satisfy that peer range **as written
-when the release plan is computed**. Exact pins — and, equally, the tight range
-above — never satisfy the next minor, so every minor release of the family was
-escalated to a major and no minor release was reachable at all. So
-`version:packages` widens the ranges to the major line, runs
-`changeset version`, then tightens them back to the new minor line. The widened
-form exists only for the duration of that computation; it is never committed or
-published, and the preflight rejects it if the tightening step did not run.
+Keeping those pins exact takes one step inside `npm run version:packages`,
+which is worth knowing before editing that script. Changesets escalates a
+package to a _major_ bump when a `peerDependency` takes a minor bump and the new
+version does not satisfy that peer range **as written when the release plan is
+computed** — and an exact pin never satisfies a new version. Left alone, every
+minor changeset escalated the whole fixed family to a major (a minor released
+0.7.2 as 1.0.0), so no minor release of the family was reachable at all. So
+`version:packages` widens the intra-family peer pins to a range, runs
+`changeset version`, then re-pins them to the version just released:
+
+```bash
+node scripts/sync-family-peer-pins.mjs --widen   # transient ">=0.8.0 <1.0.0"
+changeset version                                # 0.8.0 -> 0.9.0
+node scripts/sync-family-peer-pins.mjs           # back to "0.9.0"
+npm install --package-lock-only
+```
+
+The widened range exists only while bump types are computed. It is never
+committed, published, or seen by an installer, and the preflight rejects it by
+name if the re-pin step did not run.
 
 One consequence: running `npx changeset status` directly reports a **major**
-bump, because it reads the committed tight ranges. That is the tool describing
-what would happen without the widen step, not the release this repo will
-produce. Use `npm run version:packages` on a release branch to see the real
-result.
+bump, because it reads the committed exact pins. That is the tool describing
+what would happen without the widen step, not the release this repo produces.
+Use `npm run version:packages` on a release branch to see the real result.
 
 Feature PRs add a changeset but do not edit package versions. After the feature
 PR merges, create a release branch from `main` and run:

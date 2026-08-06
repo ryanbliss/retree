@@ -32,9 +32,8 @@ if (options.showHelp) {
             "Preflight (no registry writes):",
             "  1. Build every package.",
             "  2. Assert the existing Retree family has one lockstep version.",
-            "  3. Assert every intra-family dependency pin matches that version",
-            "     exactly, and every intra-family peerDependency declares the",
-            "     one shared major-line range that version satisfies.",
+            "  3. Assert every intra-family dependency and peerDependency pin",
+            "     matches that version exactly.",
             "  4. Run the publish-shape gates: publint --strict, attw --pack",
             "     --profile esm-only, and the plain-Node import smoke test.",
             "  5. Check the registry: versions already published are skipped",
@@ -77,12 +76,9 @@ if (existsSync(envPath)) {
 
 // -------------------------------------------------------------------------
 // Preflight phase: build + validate everything before any registry write.
-// Lockstep releases are deliberate; the failure mode they punish is a
-// half-published family, so nothing publishes until every package builds,
-// agrees on version, and passes a dry run. Intra-family dependency pins are
-// exact; peerDependencies use one shared major-line range (see
-// assertFamilyPeerRangesAreLockstep for why an exact peer pin cannot be
-// released as a minor).
+// Exact intra-family pins are deliberate (lockstep releases); the failure
+// mode they punish is a half-published family, so nothing publishes until
+// every package builds, agrees on version, and passes a dry run.
 // -------------------------------------------------------------------------
 
 console.log("\n=== Preflight ===");
@@ -141,8 +137,8 @@ console.log(
 
 for (const entry of manifests) {
     assertFamilyPinsMatch(entry, "dependencies", lockstepVersion);
+    assertFamilyPinsMatch(entry, "peerDependencies", lockstepVersion);
 }
-assertFamilyPeerRangesAreLockstep(manifests, lockstepVersion);
 console.log("Selected package intra-family pins match the lockstep version.");
 
 // Publish-shape gates: publint --strict, attw --pack --profile esm-only
@@ -254,66 +250,21 @@ function assertFamilyPinsMatch(entry, field, version) {
             continue;
         }
         if (range !== version) {
+            if (field === "peerDependencies" && range.startsWith(">=")) {
+                // `npm run version:packages` widens intra-family peer pins to a
+                // range only while changesets computes bump types, then
+                // re-pins them (see scripts/sync-family-peer-pins.mjs). A
+                // widened range surviving to here means the re-pin step did
+                // not run.
+                throw new Error(
+                    `Preflight: ${entry.label} ${field} declares ${name} as "${range}", the widened range \`npm run version:packages\` uses only while computing bump types. The re-pin step did not run. Fix: rerun \`npm run version:packages\`, or set the pin to the exact lockstep version "${version}".`
+                );
+            }
             throw new Error(
                 `Preflight: ${entry.label} ${field} pins ${name} to "${range}", expected the exact lockstep version "${version}".`
             );
         }
     }
-}
-
-/**
- * Intra-family peerDependencies declare one shared range covering exactly the
- * released minor line: `>=0.8.0 <0.9.0` for a 0.8.0 release. A family package
- * therefore resolves only against the same minor line of its family peers,
- * which is what lockstep releases mean — and it matters pre-1.0, where a minor
- * can carry behavior changes that an older peer was not written against.
- *
- * They are ranges rather than exact pins only because changesets computes bump
- * types from the peer range as written when the release plan runs, and a tight
- * range never satisfies the next minor, which escalated the whole fixed family
- * to a major (0.8.0 released as 1.0.0). `npm run version:packages` widens the
- * ranges to the major line for the duration of that computation and tightens
- * them again immediately afterwards, so the widened form is never committed or
- * published (see scripts/sync-family-peer-ranges.mjs).
- *
- * This check is what keeps a release from publishing a family whose ranges
- * disagree with its versions: every intra-family peer range must be the tight
- * range for the version being published, which fails a release that skipped
- * either sync step or was hand-edited.
- */
-function assertFamilyPeerRangesAreLockstep(entries, version) {
-    const versionParts = version.split(".").map(Number);
-    if (versionParts.length !== 3 || versionParts.some(Number.isNaN)) {
-        throw new Error(
-            `Preflight: lockstep version "${version}" is not a plain major.minor.patch version. Intra-family peer range validation only understands plain versions. Fix: publish a plain version, or extend assertFamilyPeerRangesAreLockstep to handle this versioning scheme.`
-        );
-    }
-    const [major, minor] = versionParts;
-    const expectedRange = `>=${version} <${major}.${minor + 1}.0`;
-    const widenedRange = `>=${version} <${major + 1}.0.0`;
-    for (const entry of entries) {
-        const peerDependencies = entry.manifest.peerDependencies;
-        if (peerDependencies === undefined) {
-            continue;
-        }
-        for (const [name, range] of Object.entries(peerDependencies)) {
-            if (!familyPackageNames.has(name)) {
-                continue;
-            }
-            if (range === expectedRange) {
-                continue;
-            }
-            if (range === widenedRange) {
-                throw new Error(
-                    `Preflight: ${entry.label} peerDependencies declares ${name} as "${range}", which is the widened range \`npm run version:packages\` uses only while computing bump types. The tightening step did not run. Fix: rerun \`npm run version:packages\`, or set the range to "${expectedRange}".`
-                );
-            }
-            throw new Error(
-                `Preflight: ${entry.label} peerDependencies declares ${name} as "${range}", but the lockstep version being published is "${version}", which requires "${expectedRange}". Fix: rerun \`npm run version:packages\` so scripts/sync-family-peer-ranges.mjs syncs every intra-family peer range to the released minor line.`
-            );
-        }
-    }
-    console.log(`Intra-family peer range: ${expectedRange}`);
 }
 
 function readEnvFile(path) {

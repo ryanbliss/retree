@@ -27,7 +27,7 @@
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
-        "@retreejs/core": ">=0.7.2 <0.8.0",
+        "@retreejs/core": "0.7.2",
         "react": "^16.8.0 || ^17 || ^18 || ^19",
         "react-dom": "^16.8.0 || ^17 || ^18 || ^19"
     },
