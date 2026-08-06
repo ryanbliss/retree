@@ -48,14 +48,23 @@ live in [`benchmarks/`](benchmarks/) as dated findings files.
 
 ## Releases
 
-The runtime package family moves in lockstep: every package in the family
-publishes at the same version, and intra-family `peerDependencies` all declare
-the same major-line range (`>=0.7.2 <1.0.0` today). The range rather than an
-exact pin is deliberate — changesets treats a minor bump of a package as a
-breaking change for anything that peer-depends on it by exact version, which
-would escalate every minor release of the family to a major one. The publish
-preflight enforces the lockstep guarantee directly instead: one shared range
-across the family, and the version being published must satisfy it.
+The runtime package family moves in lockstep: every package publishes at the
+same version, intra-family `dependencies` are pinned exactly, and intra-family
+`peerDependencies` declare one shared range whose lower bound is the released
+version (`>=0.7.2 <1.0.0` today, `>=0.8.0 <1.0.0` after a 0.8.0 release).
+`npm run version:packages` advances those lower bounds as part of versioning,
+and the publish preflight refuses to publish a family whose ranges disagree
+with its versions.
+
+The peer ranges are not exact pins because changesets escalates a package to a
+major bump when a `peerDependency` takes a minor bump and the new version does
+not satisfy the range as previously written. Exact peer pins therefore turned
+every minor release of the family into a major one, so no minor release was
+reachable. Advancing the lower bound each release keeps the range as tight as a
+pin in the direction that matters: `@retreejs/react@0.9.0` requires
+`@retreejs/core@>=0.9.0`, so it cannot be paired with an older core. The only
+pairing a range allows that a pin would not is a family package newer than the
+one a peer shipped against — ordinary peer-dependency forward compatibility.
 
 Feature PRs add a changeset but do not edit package versions. After the feature
 PR merges, create a release branch from `main` and run:
