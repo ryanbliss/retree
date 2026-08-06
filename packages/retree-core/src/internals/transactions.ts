@@ -13,6 +13,28 @@ import { INodeFieldChanges, TreeNode } from "../types.js";
 let listenerFlushWrapper: ((flush: () => void) => void) | undefined;
 
 /**
+ * Hook that runs deferred ReactiveNode lifecycle work (dependency collection
+ * and `@select` value capture) for nodes written during a transaction. It is
+ * invoked before each pending emission and once after the last one, so
+ * lifecycle passes always observe settled state — never the torn state
+ * between two writes of one transaction.
+ */
+let transactionLifecycleDrain: (() => void) | undefined;
+
+/**
+ * Register (or clear, with `undefined`) the deferred-lifecycle drain invoked
+ * around pending-transaction emissions. The drain MUST be synchronous and
+ * idempotent when nothing is pending.
+ *
+ * @internal
+ */
+export function setTransactionLifecycleDrain(
+    drain: (() => void) | undefined
+): void {
+    transactionLifecycleDrain = drain;
+}
+
+/**
  * Register (or clear, with `undefined`) a wrapper that runs around every
  * synchronous listener flush: the whole transaction flush loop runs inside
  * one wrapper call, and non-transaction immediate emissions each run inside
@@ -90,6 +112,31 @@ export class Transactions {
 
     /**
      * @internal
+     * Nodes whose scheduled emission has already run in the current flush.
+     * Distinguishes "emission still pending" from "emission processed" for
+     * {@link Transactions.hasPendingEmissionFor}: after a node's emission has
+     * validated its dependents, their baselines must refresh normally again.
+     */
+    private static processedEmissionNodes: Set<TreeNode> = new Set();
+
+    /**
+     * @internal
+     * True when `node` has an emission scheduled in the current flush that
+     * has not run yet. The deferred-lifecycle drain uses this to keep a
+     * dependent's stored "previous" comparison/select baselines intact for
+     * dependencies whose change has not been validated yet — overwriting
+     * them with post-write values would absorb the pending change instead of
+     * notifying it.
+     */
+    static hasPendingEmissionFor(node: TreeNode): boolean {
+        if (!this.pendingTransactions.has(node)) {
+            return false;
+        }
+        return !this.processedEmissionNodes.has(node);
+    }
+
+    /**
+     * @internal
      * Create/upsert a pending transaciton.
      *
      * @param node node that changed
@@ -137,7 +184,19 @@ export class Transactions {
         this.flushSequence++;
         try {
             this.runListenerFlush(() => {
-                this.pendingTransactions.forEach((transaction) => {
+                // Map iterators visit entries inserted during iteration, so
+                // emissions scheduled by listeners mid-flush are processed in
+                // this same loop — matching the previous forEach semantics.
+                // The lifecycle drain runs before each emission (and once
+                // after the last) so deferred dependency/@select passes always
+                // observe settled state, including writes made by listeners
+                // earlier in the same flush.
+                for (const [
+                    node,
+                    transaction,
+                ] of this.pendingTransactions.entries()) {
+                    transactionLifecycleDrain?.();
+                    this.processedEmissionNodes.add(node);
                     transaction.emitNodeChanged?.(
                         transaction.nodeChanges ?? []
                     );
@@ -145,11 +204,23 @@ export class Transactions {
                         transaction.treeChanges ?? []
                     );
                     transaction.emitNodeRemoved?.();
-                });
+                }
+                transactionLifecycleDrain?.();
             });
         } finally {
-            // A listener failure should surface to the caller, but stale queued callbacks must not replay on later updates.
-            this.pendingTransactions.clear();
+            try {
+                // The drain must also run when a listener threw mid-flush
+                // (queued lifecycle passes would otherwise leave stale
+                // subscriptions indefinitely) and after the listener-flush
+                // wrapper returns — React's batched-updates wrapper can
+                // commit renders, and thereby subscribe new observers, after
+                // `flush()` but before this point.
+                transactionLifecycleDrain?.();
+            } finally {
+                // A listener failure should surface to the caller, but stale queued callbacks must not replay on later updates.
+                this.pendingTransactions.clear();
+                this.processedEmissionNodes.clear();
+            }
         }
     }
 
