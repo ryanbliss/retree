@@ -38,6 +38,7 @@ import {
     TCustomProxy,
 } from "./proxy-types.js";
 import { advanceSnapshotVersions } from "./snapshot-version.js";
+import { bumpGlobalWriteVersion } from "./write-version.js";
 
 const reproxyMap: WeakMap<TreeNode, TCustomProxy<TreeNode>> = new WeakMap();
 /**
@@ -87,6 +88,12 @@ export function updateReproxyNode<T extends TreeNode = TreeNode>(
     const unproxiedNode = handler[unproxiedBaseNodeKey];
     const reproxy = buildReproxy<T>(node, handler);
     reproxyMap.set(unproxiedNode, reproxy);
+    // Every published mutation (and every dependent-notification reproxy)
+    // funnels through here, so this is the chokepoint that invalidates
+    // version-stamped dependency-collection caches. Reproxy identity itself
+    // feeds memo comparison cells, so plain updateReproxyNode calls must bump
+    // too, not just updateReproxyNodeForChange.
+    bumpGlobalWriteVersion();
     return reproxy;
 }
 

@@ -66,7 +66,14 @@ import {
     normalizeDependencyEntry,
     NormalizedDependencySlot,
 } from "./internals/dependencies.js";
-import { Transactions } from "./internals/transactions.js";
+import {
+    setTransactionLifecycleDrain,
+    Transactions,
+} from "./internals/transactions.js";
+import {
+    bumpGlobalWriteVersion,
+    getGlobalWriteVersion,
+} from "./internals/write-version.js";
 import {
     LINKED_KEYS_SYMBOL,
     IReactiveSelectGetter,
@@ -119,6 +126,47 @@ type TInternalNodeChangedListener = (
     reproxiedNode: TreeNode,
     changes: INodeFieldChanges[]
 ) => void;
+
+/**
+ * The value one `@select` getter contributes to its collection pass. Trapped
+ * getters resolve eagerly — the tracked collection already ran the getter, so
+ * its return value is free. Explicit-selector getters resolve lazily so an
+ * unchanged-dependency validation never runs the output getter at all; the
+ * first consumer (notification comparison or lifecycle capture) computes it
+ * once per collection.
+ */
+interface IReactiveSelectValueCell {
+    resolved: boolean;
+    value: unknown;
+    compute: (() => unknown) | undefined;
+}
+
+/**
+ * One full dependency-collection pass for a ReactiveNode, stamped with the
+ * global write version it observed. `dependencies` records are shared across
+ * callers within one version and must be treated as immutable. `selectValues`
+ * holds a value cell per `@select` getter whose value gates notification.
+ */
+interface IReactiveDependencyCollection {
+    version: number;
+    dependencies: IActiveReactiveDependency[];
+    selectValues: Map<string | symbol, IReactiveSelectValueCell> | undefined;
+}
+
+function resolveReactiveSelectValueCell(cell: IReactiveSelectValueCell) {
+    if (!cell.resolved) {
+        if (cell.compute === undefined) {
+            // @retree-throws
+            throw new Error(
+                "Retree internal invariant failed: an unresolved @select value cell had no compute function. This is unexpected and likely a Retree bug. Please file an issue with the @select getter that triggered this."
+            );
+        }
+        cell.value = cell.compute();
+        cell.resolved = true;
+        cell.compute = undefined;
+    }
+    return cell.value;
+}
 
 /**
  * Reactive pointer to a Retree-managed node owned somewhere else.
@@ -181,6 +229,9 @@ export class Retree {
         setReactiveNodePeekIntoImplementation((node, fn) =>
             Retree.peekInto(node, fn)
         );
+        setTransactionLifecycleDrain(() =>
+            Retree.drainPendingReactiveLifecycles()
+        );
     }
 
     private static nodeChangeListener: TInternalNodeChangedListener | null =
@@ -190,6 +241,29 @@ export class Retree {
     private static pendingReactiveSelectValueMap = new WeakMap<
         ReactiveNode,
         Map<string | symbol, unknown>
+    >();
+
+    /**
+     * ReactiveNodes whose lifecycle pass (dependency collection + `@select`
+     * value capture) was deferred because a transaction's mutation phase was
+     * still running. Keyed by raw node so repeat writes coalesce into one
+     * pass; drained by {@link Retree.drainPendingReactiveLifecycles} before
+     * each pending-transaction emission, when state is settled.
+     */
+    private static pendingReactiveLifecycleNodes = new Map<
+        TreeNode,
+        ReactiveNode
+    >();
+
+    /**
+     * Per-node dependency collections stamped with the global write version.
+     * Within one flush (no interleaved writes) every validation pass and the
+     * lifecycle pass share a single collection instead of re-running the
+     * `dependencies` getter and every `@select` getter per changed dependency.
+     */
+    private static reactiveDependencyCollectionCache = new WeakMap<
+        TreeNode,
+        IReactiveDependencyCollection
     >();
 
     // Listener registries are WeakMaps keyed by raw nodes so a forgotten
@@ -496,7 +570,7 @@ export class Retree {
             if (!wasObserved) {
                 ReactiveNode[RUN_OBSERVED_EFFECT_SYMBOL](node);
             }
-            this.handleReactiveNode(node, unproxiedNode);
+            this.scheduleReactiveNodeLifecycle(node, unproxiedNode);
         }
         return this.buildUnsubscribeCallback(
             unproxiedNode,
@@ -1144,6 +1218,10 @@ export class Retree {
             // Silent mode uses global flags, so always restore them even when the caller's work fails.
             Transactions.skipEmit = previousSkipEmit;
             Transactions.skipReproxy = previousSkipReproxy;
+            // Writes made while reproxying was skipped never reached the
+            // reproxy chokepoint, so conservatively invalidate
+            // version-stamped dependency caches once per silent block.
+            bumpGlobalWriteVersion();
         }
     }
 
@@ -1666,7 +1744,7 @@ export class Retree {
             const runReactiveNodeLifecycle =
                 proxyNode instanceof ReactiveNode && !Transactions.skipEmit;
             if (runReactiveNodeLifecycle) {
-                this.handleReactiveNode(proxyNode, unproxiedNode);
+                this.scheduleReactiveNodeLifecycle(proxyNode, unproxiedNode);
             }
 
             const emitNodeChangedListeners = (
@@ -2042,12 +2120,81 @@ export class Retree {
         }
     }
 
+    /**
+     * Run the ReactiveNode lifecycle pass now, or defer it to the transaction
+     * flush when a transaction is running.
+     *
+     * @remarks
+     * Deferral is the fix for eager `@select` value capture: evaluating
+     * select getters (and any memos they read) between two writes of one
+     * transaction observes torn state — e.g. a memo keyed on a revision
+     * counter that was bumped before its backing state was written caches the
+     * pre-write state under the new revision permanently. Deferred passes run
+     * once per flush per node against settled state, which also collapses N
+     * writes' worth of dependency collection into one pass.
+     */
+    private static scheduleReactiveNodeLifecycle(
+        proxiedDependentNode: ReactiveNode,
+        unproxiedDependentNode: TreeNode
+    ) {
+        if (Transactions.runningTransaction) {
+            this.pendingReactiveLifecycleNodes.set(
+                unproxiedDependentNode,
+                proxiedDependentNode
+            );
+            return;
+        }
+        this.handleReactiveNode(proxiedDependentNode, unproxiedDependentNode);
+    }
+
+    /**
+     * Run every deferred lifecycle pass. Invoked by the transaction flush
+     * before each pending emission and once after the last one, so passes
+     * observe settled state even when listeners write mid-flush.
+     */
+    private static drainPendingReactiveLifecycles() {
+        if (this.pendingReactiveLifecycleNodes.size === 0) {
+            return;
+        }
+        // The synchronous lifecycle path ran inside handleNodeChanged's
+        // isolation; the drain must match it. Without isolation, a flush
+        // triggered by a write inside a tracked selector or memo would leak
+        // every collection-pass read into the caller's tracking frame and
+        // poison its comparisons.
+        runWithIsolatedDependencyTracking(() => {
+            // Delete each entry before processing it: a lifecycle pass that
+            // throws (e.g. a throwing `dependencies` getter) must not drop
+            // every other queued node's pass — the remainder stays queued for
+            // the next drain — and must not retry itself forever.
+            while (this.pendingReactiveLifecycleNodes.size > 0) {
+                const next = this.pendingReactiveLifecycleNodes
+                    .entries()
+                    .next().value;
+                if (next === undefined) {
+                    break;
+                }
+                const [unproxiedNode, proxiedNode] = next;
+                this.pendingReactiveLifecycleNodes.delete(unproxiedNode);
+                this.handleReactiveNode(proxiedNode, unproxiedNode);
+            }
+        });
+    }
+
     private static handleReactiveNode(
         proxiedDependentNode: ReactiveNode,
         unproxiedDependentNode: TreeNode
     ) {
-        const currentDependencies =
-            this.getReactiveNodeDependencies(proxiedDependentNode);
+        const collection =
+            this.getReactiveNodeDependencyCollection(proxiedDependentNode);
+        const currentDependencies = collection.dependencies;
+        // Resolved once per getter here instead of stamping every shared
+        // record: a getter with N dependency records would otherwise cost N
+        // record clones per lifecycle pass. Resolution runs without emitting,
+        // matching where the getter ran before lazy cells existed — a getter
+        // that writes must not emit, reproxy, and re-trigger itself forever.
+        const resolvedSelectValues = this.runWithoutEmitting(() =>
+            this.resolveReactiveSelectValues(proxiedDependentNode, collection)
+        );
         const previousDependencies = getReactiveDependencies(
             unproxiedDependentNode
         );
@@ -2067,6 +2214,10 @@ export class Retree {
                 dependency,
             ]) ?? []
         );
+        const selectValueFor = (dependency: IActiveReactiveDependency) =>
+            dependency.selectGetterName === undefined
+                ? undefined
+                : resolvedSelectValues?.get(dependency.selectGetterName);
         const newActiveDependencies: IActiveReactiveDependency[] = [];
         for (
             let depIndex = 0;
@@ -2111,6 +2262,34 @@ export class Retree {
                 currentUnproxiedDependencyNode = unproxiedDependencyNode;
             }
 
+            // A dependency written this flush whose emission has not been
+            // validated yet must keep the baseline listeners last observed:
+            // overwriting it with post-write values here (the drain runs
+            // before emissions) would make the validation judge "unchanged"
+            // and silently absorb the pending change. New records (no
+            // previous baseline) store undefined, which validation treats as
+            // "assume changed" — a conservative notify instead of a lost one.
+            const preserveBaseline =
+                currentUnproxiedDependencyNode !== undefined &&
+                Transactions.hasPendingEmissionFor(
+                    currentUnproxiedDependencyNode
+                );
+            const baselineComparisons = preserveBaseline
+                ? previousDependency?.comparisons
+                : currentDependency.comparisons;
+            const baselineComparisonsOffset = preserveBaseline
+                ? previousDependency?.comparisonsOffset
+                : currentDependency.comparisonsOffset;
+            const baselineSelectValue = preserveBaseline
+                ? previousDependency?.selectValue
+                : selectValueFor(currentDependency);
+            // Access summaries are a validation gate over the same baseline:
+            // summaries captured post-write would re-read equal and absorb
+            // the pending change exactly like overwritten comparisons.
+            const baselineAccessSummaries = preserveBaseline
+                ? previousDependency?.getAccessSummaries
+                : currentDependency.getAccessSummaries;
+
             if (
                 previousUnproxiedDependencyNode !== undefined &&
                 previousUnproxiedDependencyNode ===
@@ -2119,14 +2298,14 @@ export class Retree {
                 setReactiveDependents(previousUnproxiedDependencyNode, {
                     reactiveNode: proxiedDependentNode,
                     unproxiedReactiveNode: unproxiedDependentNode,
-                    comparisons: currentDependency.comparisons,
-                    comparisonsOffset: currentDependency.comparisonsOffset,
+                    comparisons: baselineComparisons,
+                    comparisonsOffset: baselineComparisonsOffset,
                     key: currentDependency.key,
                     selectGetterName: currentDependency.selectGetterName,
-                    selectValue: currentDependency.selectValue,
+                    selectValue: baselineSelectValue,
                     compareSelectValueBeforeNotify:
                         currentDependency.compareSelectValueBeforeNotify,
-                    getAccessSummaries: currentDependency.getAccessSummaries,
+                    getAccessSummaries: baselineAccessSummaries,
                 });
                 unsubscribe = previousDependency?.unsubscribeListener;
             } else {
@@ -2142,15 +2321,14 @@ export class Retree {
                     setReactiveDependents(currentUnproxiedDependencyNode, {
                         reactiveNode: proxiedDependentNode,
                         unproxiedReactiveNode: unproxiedDependentNode,
-                        comparisons: currentDependency.comparisons,
-                        comparisonsOffset: currentDependency.comparisonsOffset,
+                        comparisons: baselineComparisons,
+                        comparisonsOffset: baselineComparisonsOffset,
                         key: currentDependency.key,
                         selectGetterName: currentDependency.selectGetterName,
-                        selectValue: currentDependency.selectValue,
+                        selectValue: baselineSelectValue,
                         compareSelectValueBeforeNotify:
                             currentDependency.compareSelectValueBeforeNotify,
-                        getAccessSummaries:
-                            currentDependency.getAccessSummaries,
+                        getAccessSummaries: baselineAccessSummaries,
                     });
                     if (newDependencyNode) {
                         unsubscribe = retainReactiveDependencySubscription(
@@ -2170,13 +2348,13 @@ export class Retree {
             newActiveDependencies.push({
                 key: currentDependency.key,
                 node: currentDependency.node,
-                comparisons: currentDependency.comparisons,
-                comparisonsOffset: currentDependency.comparisonsOffset,
+                comparisons: baselineComparisons,
+                comparisonsOffset: baselineComparisonsOffset,
                 selectGetterName: currentDependency.selectGetterName,
-                selectValue: currentDependency.selectValue,
+                selectValue: baselineSelectValue,
                 compareSelectValueBeforeNotify:
                     currentDependency.compareSelectValueBeforeNotify,
-                getAccessSummaries: currentDependency.getAccessSummaries,
+                getAccessSummaries: baselineAccessSummaries,
                 unsubscribeListener: unsubscribe,
                 unproxiedNode: currentUnproxiedDependencyNode,
             });
@@ -2204,7 +2382,10 @@ export class Retree {
 
     private static getReactiveSelectDependencies(
         proxiedDependentNode: ReactiveNode,
-        includeSelectValues: boolean
+        captureSelectValue: (
+            getterName: string | symbol,
+            cell: IReactiveSelectValueCell
+        ) => void
     ): IActiveReactiveDependency[] {
         const selectGetters = proxiedDependentNode[SELECT_GETTERS_SYMBOL];
         const dependencies: IActiveReactiveDependency[] = [];
@@ -2216,16 +2397,31 @@ export class Retree {
                 trackedAccesses !== undefined
                     ? trackedAccesses.dependencies
                     : selectGetter.getDependencies(proxiedDependentNode);
-            const selectedValue = includeSelectValues
-                ? this.getReactiveSelectValue(
-                      proxiedDependentNode,
-                      getterName,
-                      selectGetter
-                  )
-                : undefined;
             const selectedDependencies = normalizeSelectDependencies(selected);
             if (selectedDependencies.length === 0) {
                 continue;
+            }
+            if (selectGetter.compareValueBeforeNotify) {
+                // Trapped getters already ran during collection, so their
+                // value is captured for free instead of running the getter a
+                // second time. Explicit-selector getters stay lazy so an
+                // unchanged-dependency validation never runs the output
+                // getter at all.
+                captureSelectValue(
+                    getterName,
+                    trackedAccesses !== undefined
+                        ? {
+                              resolved: true,
+                              value: trackedAccesses.value,
+                              compute: undefined,
+                          }
+                        : {
+                              resolved: false,
+                              value: undefined,
+                              compute: () =>
+                                  selectGetter.getValue(proxiedDependentNode),
+                          }
+                );
             }
             // Each non-explicit dependency compares against the flattened
             // comparison values of every dependency after it. Normalize each
@@ -2276,7 +2472,11 @@ export class Retree {
                         ? undefined
                         : suffixOffset,
                     selectGetterName: getterName,
-                    selectValue: selectedValue,
+                    // Select values are resolved per lifecycle pass from the
+                    // collection's captured values (see
+                    // getReactiveNodeDependencies); shared cached records
+                    // never carry one.
+                    selectValue: undefined,
                     compareSelectValueBeforeNotify:
                         selectGetter.compareValueBeforeNotify,
                     getAccessSummaries: trackedAccesses?.getAccessSummaries,
@@ -2288,10 +2488,16 @@ export class Retree {
         return dependencies;
     }
 
-    private static getReactiveSelectValue(
+    /**
+     * Resolve the select value a lifecycle pass should store as "previous"
+     * for one getter: a value pending from the notification comparison takes
+     * priority (it is the exact instance listeners were compared against);
+     * otherwise the value captured by the current collection pass is used.
+     */
+    private static consumeReactiveSelectValue(
         proxiedDependentNode: ReactiveNode,
         getterName: string | symbol,
-        selectGetter: IReactiveSelectGetter
+        cell: IReactiveSelectValueCell
     ) {
         const pendingValues =
             this.pendingReactiveSelectValueMap.get(proxiedDependentNode);
@@ -2303,7 +2509,9 @@ export class Retree {
             }
             return value;
         }
-        return selectGetter.getValue(proxiedDependentNode);
+        // Resolve only on a pending miss: for explicit-selector getters the
+        // cell is lazy, and a pending value must not cost an extra getter run.
+        return resolveReactiveSelectValueCell(cell);
     }
 
     private static setPendingReactiveSelectValue(
@@ -2323,22 +2531,83 @@ export class Retree {
         );
     }
 
-    private static getReactiveNodeDependencies(
+    /**
+     * Resolve the select value each `@select` getter should store as its
+     * "previous" for this lifecycle pass, keyed by getter name. Pending
+     * notification-compared values take priority over collection-captured
+     * ones (see {@link Retree.consumeReactiveSelectValue}).
+     */
+    private static resolveReactiveSelectValues(
         proxiedDependentNode: ReactiveNode,
-        includeSelectValues = true
-    ) {
-        return this.runWithoutEmitting(() => [
-            ...proxiedDependentNode.dependencies.map((dependency, index) =>
-                this.normalizeReactiveNodeDependency(
-                    dependency,
-                    `dependencies:${index}`
+        collection: IReactiveDependencyCollection
+    ): Map<string | symbol, unknown> | undefined {
+        const selectValues = collection.selectValues;
+        if (selectValues === undefined) {
+            return undefined;
+        }
+        const resolvedValues = new Map<string | symbol, unknown>();
+        for (const [getterName, cell] of selectValues.entries()) {
+            resolvedValues.set(
+                getterName,
+                this.consumeReactiveSelectValue(
+                    proxiedDependentNode,
+                    getterName,
+                    cell
                 )
-            ),
-            ...this.getReactiveSelectDependencies(
-                proxiedDependentNode,
-                includeSelectValues
-            ),
-        ]);
+            );
+        }
+        return resolvedValues;
+    }
+
+    /**
+     * Version-stamped memo cell over one full dependency-collection pass
+     * (`dependencies` getter + every `@select` getter). Validation passes for
+     * N changed dependencies in one flush and the lifecycle pass that follows
+     * all share a single collection instead of re-running every getter.
+     */
+    private static getReactiveNodeDependencyCollection(
+        proxiedDependentNode: ReactiveNode
+    ): IReactiveDependencyCollection {
+        const unproxiedNode = getUnproxiedNode(proxiedDependentNode);
+        const version = getGlobalWriteVersion();
+        if (unproxiedNode !== undefined) {
+            const cached =
+                this.reactiveDependencyCollectionCache.get(unproxiedNode);
+            if (cached !== undefined && cached.version === version) {
+                return cached;
+            }
+        }
+        const collection = this.runWithoutEmitting(
+            (): IReactiveDependencyCollection => {
+                let selectValues:
+                    | Map<string | symbol, IReactiveSelectValueCell>
+                    | undefined;
+                const dependencies = [
+                    ...proxiedDependentNode.dependencies.map(
+                        (dependency, index) =>
+                            this.normalizeReactiveNodeDependency(
+                                dependency,
+                                `dependencies:${index}`
+                            )
+                    ),
+                    ...this.getReactiveSelectDependencies(
+                        proxiedDependentNode,
+                        (getterName, cell) => {
+                            selectValues ??= new Map();
+                            selectValues.set(getterName, cell);
+                        }
+                    ),
+                ];
+                return { version, dependencies, selectValues };
+            }
+        );
+        if (unproxiedNode !== undefined) {
+            this.reactiveDependencyCollectionCache.set(
+                unproxiedNode,
+                collection
+            );
+        }
+        return collection;
     }
 
     private static runWithoutEmitting<T>(callback: () => T): T {
@@ -2389,6 +2658,10 @@ export class Retree {
         proxiedNode: ReactiveNode,
         unproxiedNode: TreeNode
     ) {
+        // A deferred lifecycle pass must not resurrect subscriptions for a
+        // node that was stopped before the flush drained it; a later write
+        // re-schedules it exactly like the eager sequence would have.
+        this.pendingReactiveLifecycleNodes.delete(unproxiedNode);
         const previous = getReactiveDependencies(unproxiedNode);
         if (!previous) {
             deleteReactiveDependencies(unproxiedNode);
@@ -2444,10 +2717,10 @@ export class Retree {
             const getLatestDependenciesByKey = () => {
                 if (latestDependenciesByKey === undefined) {
                     latestDependenciesByKey = new Map();
-                    const latestDependencies = this.getReactiveNodeDependencies(
-                        group.reactiveNode,
-                        false
-                    );
+                    const latestDependencies =
+                        this.getReactiveNodeDependencyCollection(
+                            group.reactiveNode
+                        ).dependencies;
                     for (const dependency of latestDependencies) {
                         latestDependenciesByKey.set(dependency.key, dependency);
                     }
@@ -2603,7 +2876,18 @@ export class Retree {
         if (selectGetter === undefined) {
             return true;
         }
-        const latestValue = selectGetter.getValue(dependent.reactiveNode);
+        // Read the latest value from the shared collection pass so a flush
+        // with N changed dependencies runs the getter once, not N times. The
+        // getter-call fallback covers getters the collection pass skipped
+        // (e.g. a selector that returned no dependencies this pass).
+        const collection = this.getReactiveNodeDependencyCollection(
+            dependent.reactiveNode
+        );
+        const latestValueCell = collection.selectValues?.get(selectGetterName);
+        const latestValue =
+            latestValueCell !== undefined
+                ? resolveReactiveSelectValueCell(latestValueCell)
+                : selectGetter.getValue(dependent.reactiveNode);
         const changed =
             selectGetter.equals !== undefined
                 ? !selectGetter.equals(

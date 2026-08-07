@@ -49,6 +49,7 @@ import {
     trackDependencyPropertyWrite,
 } from "./dependency-tracking.js";
 import { Transactions } from "./transactions.js";
+import { bumpGlobalWriteVersion } from "./write-version.js";
 
 export const FUNCTION_NAMES_BIND_TO_RAW: ReadonlySet<string | symbol> = new Set(
     ["valueOf", "toISOString", "toJSON"]
@@ -618,6 +619,10 @@ class BaseProxyHandler<T extends TreeNode>
                 propString === COLLECTED_KEYS_SYMBOL ||
                 reactiveObject[COLLECTED_KEYS_SYMBOL].has(propString)
             ) {
+                // Ignored-key writes never reproxy, so they must invalidate
+                // version-stamped dependency caches here: `dependencies` and
+                // @select getters may read @ignore fields.
+                bumpGlobalWriteVersion();
                 return Reflect.set(target, prop, newValue, target);
             }
         }
@@ -745,6 +750,9 @@ class BaseProxyHandler<T extends TreeNode>
                 propString === COLLECTED_KEYS_SYMBOL ||
                 reactiveObject[COLLECTED_KEYS_SYMBOL].has(propString)
             ) {
+                // See the set trap: ignored-key mutations must invalidate
+                // version-stamped dependency caches.
+                bumpGlobalWriteVersion();
                 return Reflect.defineProperty(target, prop, descriptor);
             }
         }
@@ -884,6 +892,9 @@ class BaseProxyHandler<T extends TreeNode>
                 propString === COLLECTED_KEYS_SYMBOL ||
                 reactiveObject[COLLECTED_KEYS_SYMBOL].has(propString)
             ) {
+                // See the set trap: ignored-key mutations must invalidate
+                // version-stamped dependency caches.
+                bumpGlobalWriteVersion();
                 return Reflect.deleteProperty(target, prop);
             }
         }

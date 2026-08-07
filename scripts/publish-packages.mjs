@@ -250,6 +250,16 @@ function assertFamilyPinsMatch(entry, field, version) {
             continue;
         }
         if (range !== version) {
+            if (field === "peerDependencies" && range.startsWith(">=")) {
+                // `npm run version:packages` widens intra-family peer pins to a
+                // range only while changesets computes bump types, then
+                // re-pins them (see scripts/sync-family-peer-pins.mjs). A
+                // widened range surviving to here means the re-pin step did
+                // not run.
+                throw new Error(
+                    `Preflight: ${entry.label} ${field} declares ${name} as "${range}", the widened range \`npm run version:packages\` uses only while computing bump types. The re-pin step did not run. Fix: rerun \`npm run version:packages\`, or set the pin to the exact lockstep version "${version}".`
+                );
+            }
             throw new Error(
                 `Preflight: ${entry.label} ${field} pins ${name} to "${range}", expected the exact lockstep version "${version}".`
             );
