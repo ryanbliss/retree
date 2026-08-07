@@ -4,7 +4,9 @@ on:
     workflow_dispatch:
 
 permissions:
-    contents: read
+    # contents: write so the release step can push the version tag and create
+    # the GitHub release; id-token: write for npm trusted publishing.
+    contents: write
     id-token: write
 
 jobs:
@@ -90,3 +92,19 @@ jobs:
             - name: Publish React ESLint plugin (with provenance)
               if: steps.version.outputs.eslint_publish == 'true'
               run: node scripts/publish-packages.mjs --package @retreejs/react-eslint-plugin --provenance
+
+            # Tag and release only after npm publish succeeds, so a tag never
+            # points at a version that failed to publish. Both steps are
+            # idempotent: an existing release for the tag is left alone, so a
+            # rerun after a partial failure converges.
+            - name: Tag and create GitHub release (lockstep family)
+              if: steps.version.outputs.lockstep_publish == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: node scripts/create-github-release.mjs
+
+            - name: Tag and create GitHub release (React ESLint plugin)
+              if: steps.version.outputs.eslint_publish == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: node scripts/create-github-release.mjs --package @retreejs/react-eslint-plugin

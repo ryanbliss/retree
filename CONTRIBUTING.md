@@ -104,6 +104,18 @@ an idempotent no-op when every manifest version is already published. Pending
 lockstep packages and the independently versioned React ESLint plugin are
 published through their npm Trusted Publisher connections with provenance.
 
+After a successful publish the workflow tags the commit and creates the
+matching GitHub release, with the package's changelog entry as the release
+notes. The lockstep family shares one tag (`v0.8.0`); the React ESLint plugin
+gets a name-scoped one (`react-eslint-plugin-v0.1.1`). Tagging runs after
+publishing so a tag never points at a version that failed to publish, and an
+existing release for a tag is left alone, so rerunning the workflow after a
+partial failure converges. Preview the notes for the current manifests with:
+
+```bash
+node scripts/create-github-release.mjs --dry-run
+```
+
 For local publishing, `npm run publish:packages` publishes the lockstep family
 together. An independently versioned package can be selected explicitly:
 
