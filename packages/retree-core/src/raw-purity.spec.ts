@@ -80,6 +80,46 @@ function expectPure(node: TreeNode) {
 }
 
 describe("raw purity invariant", () => {
+    it("normalizes nested constructor references without changing existing ownership", () => {
+        const owner = Retree.root({ child: { value: 1 } });
+        const child = owner.child;
+        const root = Retree.root({ nested: { child } });
+        expect(structuredClone(Retree.raw(root))).toEqual({
+            nested: { child: { value: 1 } },
+        });
+        expect(Retree.raw(root.nested.child)).toBe(Retree.raw(child));
+        expect(Retree.parent(root.nested.child)).toBe(owner);
+        expect(Retree.root(Retree.raw(child))).toBe(child);
+    });
+
+    it("normalizes new nested input across assignment, collections, and descriptors", () => {
+        const child = Retree.root({ value: 1 });
+        const root = Retree.root({
+            nested: {} as object,
+            list: [] as object[],
+            map: new Map<string, object>(),
+            set: new Set<object>(),
+        });
+        root.nested = { child };
+        root.list.push({ child });
+        root.map.set("entry", { child });
+        root.set.add({ child });
+        Object.defineProperty(root, "locked", {
+            value: { child },
+            enumerable: true,
+        });
+        expectPure(root);
+        expect(() => structuredClone(Retree.raw(root))).not.toThrow();
+    });
+
+    it("normalizes deep input iteratively while leaving plain children lazy", () => {
+        let input: { child?: object } = {};
+        for (let depth = 0; depth < 5000; depth++) input = { child: input };
+        const root = Retree.root(input);
+        expect(Retree.managed(input.child!)).toBeUndefined();
+        expect(Retree.raw(root)).toBe(input);
+    });
+
     it("plain writes and pushes stay pure", () => {
         const root = Retree.root({ list: [] as { v: number }[], child: {} });
         root.list.push({ v: 1 });

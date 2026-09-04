@@ -395,3 +395,9 @@ purity is a prerequisite for that design too, so no work here is wasted.
    members (§4.2).
 4. Convex reconcilers read raw and write proxied, with a backward-compatible
    `rawCurrent` parameter for dev-provided reconcilers (§4.5).
+
+### Nested input and constructor references
+
+New structural input is normalized once when it enters Retree. This inspects the input graph to replace embedded managed references with raw storage. Proxy allocation remains lazy for plain children. Accessors, ignored fields, and linked fields retain their existing contracts.
+
+Constructor references can alias an existing node. They reuse its managed identity and do not create a second structural parent. For shared raw objects that have never been managed, the first materialized occurrence establishes the structural parent. Tree events follow that parent. Use `Retree.link` or `@link` when the relationship should be explicit; use `Retree.clone` for independent state. Assigning an already-owned node after construction still requires the existing move/link/clone rules.

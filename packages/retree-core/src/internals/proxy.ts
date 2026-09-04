@@ -50,6 +50,7 @@ import {
 } from "./dependency-tracking.js";
 import { Transactions } from "./transactions.js";
 import { bumpGlobalWriteVersion } from "./write-version.js";
+import { inputNeedsMaterialization, normalizeRawInput } from "./raw-input.js";
 
 export const FUNCTION_NAMES_BIND_TO_RAW: ReadonlySet<string | symbol> = new Set(
     ["valueOf", "toISOString", "toJSON"]
@@ -626,6 +627,8 @@ class BaseProxyHandler<T extends TreeNode>
                 return Reflect.set(target, prop, newValue, target);
             }
         }
+        if (rawNewValue !== null && typeof rawNewValue === "object")
+            normalizeRawInput(rawNewValue);
         const prev = (target as any)[prop];
         // Exact-inversion metadata: a write that creates the key is marked
         // "add" so undo can delete the key rather than leave it present with
@@ -775,6 +778,12 @@ class BaseProxyHandler<T extends TreeNode>
                 ? getUnproxiedNode(descriptor.value) ?? descriptor.value
                 : descriptor.value
             : descriptor;
+        if (
+            descriptorHasValue(descriptor) &&
+            rawNextValue !== null &&
+            typeof rawNextValue === "object"
+        )
+            normalizeRawInput(rawNextValue);
         const nextValue = rawNextValue;
         let nodeRemoved: object | undefined;
 
@@ -973,6 +982,11 @@ export function buildProxy<T extends TreeNode = TreeNode>(
 ): T {
     if (object === null) return object;
     if (isCustomProxy(object)) return getBaseProxy(object);
+    const existing = getManagedProxyForUnproxiedNode(object);
+    if (existing !== undefined) {
+        return getBaseProxy(existing) as T;
+    }
+    normalizeRawInput(object);
     const proxyHandler = new BaseProxyHandler<T>(
         object,
         emitter,
@@ -985,12 +999,20 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     registerBaseProxy(object, proxy);
     if (object instanceof Map) {
         for (const [key, value] of object.entries()) {
-            if (isCustomProxy(value)) {
+            if (
+                value !== null &&
+                typeof value === "object" &&
+                inputNeedsMaterialization(value)
+            ) {
                 const parentToSet: IProxyParent<any> = {
                     proxyNode: proxy,
                     propName: mapKeyAsPropName(key),
                 };
-                const childProxy = reparentProxy(value, parentToSet);
+                const childProxy = createStructuralProxyForValue(
+                    value,
+                    parentToSet,
+                    emitter
+                );
                 cacheCollectionChildProxy(proxyHandler, key, childProxy);
                 // Raw purity: the raw map stores the raw node.
                 Map.prototype.set.call(
@@ -1003,12 +1025,20 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     } else if (object instanceof Set) {
         const replacements: { previous: unknown; next: unknown }[] = [];
         for (const value of object.values()) {
-            if (isCustomProxy(value)) {
+            if (
+                value !== null &&
+                typeof value === "object" &&
+                inputNeedsMaterialization(value)
+            ) {
                 const parentToSet: IProxyParent<any> = {
                     proxyNode: proxy,
                     propName: null,
                 };
-                const childProxy = reparentProxy(value, parentToSet);
+                const childProxy = createStructuralProxyForValue(
+                    value,
+                    parentToSet,
+                    emitter
+                );
                 const rawChild = getUnproxiedNode(childProxy);
                 cacheCollectionChildProxy(proxyHandler, rawChild, childProxy);
                 // Raw purity: the raw set stores the raw node.
@@ -1040,7 +1070,10 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             ) {
                 setProxiedChild(proxyHandler, prop, value);
             } else if (typeof value === "object") {
-                if (shouldCreatePlainObjectProxyLazily(value)) {
+                if (
+                    shouldCreatePlainObjectProxyLazily(value) &&
+                    !inputNeedsMaterialization(value)
+                ) {
                     continue;
                 }
                 const descriptor = Reflect.getOwnPropertyDescriptor(
@@ -1283,6 +1316,7 @@ function preparePropertyValue(
         return value;
     }
     if (!baseProxy) return value;
+    normalizeRawInput(getUnproxiedNode(value) ?? value);
 
     const parentToSet: IProxyParent<any> = {
         proxyNode: baseProxy,
@@ -1491,6 +1525,8 @@ function wrapMapMutation(
             // `undefined` as its value.
             const hadKey = Map.prototype.has.call(target, key);
             const rawValue = unwrapCollectionValue(value);
+            if (rawValue !== null && typeof rawValue === "object")
+                normalizeRawInput(rawValue);
             const removedNodes: object[] = [];
             // If we are replacing an existing object child of this map, detach it.
             if (
@@ -1516,11 +1552,15 @@ function wrapMapMutation(
                     proxyNode: baseProxy,
                     propName: mapKeyAsPropName(key),
                 };
-                if (isCustomProxy(value)) {
+                if (isCustomProxy(value) || inputNeedsMaterialization(value)) {
                     cacheCollectionChildProxy(
                         handler,
                         key,
-                        reparentProxy(value, parentToSet)
+                        createStructuralProxyForValue(
+                            value,
+                            parentToSet,
+                            emitter
+                        )
                     );
                 } else {
                     // Plain or managed-raw values resolve lazily on read.
@@ -1762,6 +1802,8 @@ function wrapSetMutation(
     if (prop === "add") {
         return function addWrapper(value: any) {
             const rawValue = unwrapCollectionValue(value);
+            if (rawValue !== null && typeof rawValue === "object")
+                normalizeRawInput(rawValue);
             if (findSetStoredValue(target, rawValue) !== undefined) {
                 return baseProxy;
             }
@@ -1770,11 +1812,15 @@ function wrapSetMutation(
                     proxyNode: baseProxy,
                     propName: null,
                 };
-                if (isCustomProxy(value)) {
+                if (isCustomProxy(value) || inputNeedsMaterialization(value)) {
                     cacheCollectionChildProxy(
                         handler,
                         rawValue,
-                        reparentProxy(value, parentToSet)
+                        createStructuralProxyForValue(
+                            value,
+                            parentToSet,
+                            emitter
+                        )
                     );
                 }
             }
@@ -1991,6 +2037,7 @@ function prepareInsertedArrayValue(
         deleteProxiedChild(handler, propName);
         return value;
     }
+    normalizeRawInput(getUnproxiedNode(value) ?? value);
     const parentToSet: IProxyParent<any> = {
         proxyNode: baseProxy,
         propName,
@@ -2647,6 +2694,8 @@ function wrapArrayMutation(
             const fillStart = normalizeArrayOffset(start, length, 0);
             const fillEnd = normalizeArrayOffset(end, length, length);
             const rawValue = unwrapCollectionValue(value);
+            if (rawValue !== null && typeof rawValue === "object")
+                normalizeRawInput(rawValue);
             const changedIndices: number[] = [];
             for (let i = fillStart; i < fillEnd; i++) {
                 if (!Object.is(target[i], rawValue)) {
