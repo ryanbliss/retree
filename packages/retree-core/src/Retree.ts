@@ -35,6 +35,7 @@ import {
     getReproxyNode,
     getReproxyNodeForUnproxiedNode,
     updateReproxyNode,
+    invalidateReproxyNode,
     updateReproxyNodeForChange,
 } from "./internals/reproxy.js";
 import {
@@ -1569,13 +1570,10 @@ export class Retree {
         }
         for (let index = 0; index <= lastObservedIndex; index++) {
             const entry = path[index];
-            const reproxy =
-                index === 0
-                    ? getReproxyNode(entry.proxy)
-                    : updateReproxyNode(getBaseProxy(entry.proxy));
-            if (Transactions.skipEmit || entry.listeners === undefined) {
+            if (index > 0) invalidateReproxyNode(entry.proxy);
+            if (Transactions.skipEmit || entry.listeners === undefined)
                 continue;
-            }
+            const reproxy = getReproxyNode(entry.proxy);
             const listeners = entry.listeners;
             const emitTreeChanged = (records: INodeFieldChanges[]) => {
                 this.notifyChangedListeners(listeners, reproxy, records);

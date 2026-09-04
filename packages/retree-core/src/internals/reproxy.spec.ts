@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "../ReactiveNode.js";
 import { Retree } from "../Retree.js";
 import { getBaseProxy } from "./proxy.js";
@@ -18,6 +18,70 @@ class MethodNode extends ReactiveNode {
 }
 
 describe("reproxy internals", () => {
+    it("allocates views only for observed ancestors and preserves intervening reads", () => {
+        type Node = { value: number; child?: Node };
+        let input: Node = { value: 0 };
+        for (let depth = 0; depth < 100; depth++)
+            input = { value: 0, child: input };
+        const root = Retree.root(input);
+        const middle = root.child!;
+        let leaf = middle;
+        while (leaf.child) leaf = leaf.child;
+        const rootViews: object[] = [];
+        const off = Retree.on(root, "treeChanged", (view) =>
+            rootViews.push(view)
+        );
+        let allocations = 0;
+        const NativeProxy = Proxy;
+        vi.stubGlobal(
+            "Proxy",
+            new NativeProxy(NativeProxy, {
+                construct(target, args) {
+                    allocations++;
+                    return Reflect.construct(target, args);
+                },
+            })
+        );
+        try {
+            for (let count = 0; count < 10; count++) leaf.value++;
+            expect(allocations).toBe(20);
+            expect(new Set(rootViews).size).toBe(10);
+            const beforeRead = allocations;
+            const first = getReproxyNode(middle);
+            expect(allocations - beforeRead).toBe(1);
+            expect(getReproxyNode(middle)).toBe(first);
+            Retree.runTransaction(() => {
+                leaf.value++;
+                const during = getReproxyNode(middle);
+                expect(during).not.toBe(first);
+                leaf.value++;
+                expect(getReproxyNode(middle)).not.toBe(during);
+            });
+            expect(getBaseProxy(getReproxyNode(middle))).toBe(middle);
+        } finally {
+            vi.unstubAllGlobals();
+            off();
+        }
+    });
+
+    it("keeps base and retained views on the same live parent edge", () => {
+        const child = Retree.root({ value: 0 });
+        child.value++;
+        const view = getReproxyNode(child);
+        const root = Retree.root({ list: [] as { value: number }[] });
+        root.list.push(view);
+        expect(Retree.parent(child)).toBe(root.list);
+        expect(Retree.parent(view)).toBe(root.list);
+        const changed = vi.fn();
+        const stop = Retree.on(root, "treeChanged", changed);
+        view.value++;
+        expect(changed).toHaveBeenCalledTimes(1);
+        root.list.pop();
+        expect(Retree.parent(child)).toBeNull();
+        expect(Retree.parent(view)).toBeNull();
+        stop();
+    });
+
     it("creates a fresh snapshot and preserves access to the base proxy", () => {
         const root = Retree.root({ child: { value: 1 } });
         const original = getReproxyNode(root.child);

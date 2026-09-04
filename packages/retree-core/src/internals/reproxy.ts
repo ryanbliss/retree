@@ -40,11 +40,24 @@ import {
 import { advanceSnapshotVersions } from "./snapshot-version.js";
 import { bumpGlobalWriteVersion } from "./write-version.js";
 
-const reproxyMap: WeakMap<TreeNode, TCustomProxy<TreeNode>> = new WeakMap();
-/**
- * Registry mapping raw nodes to their base proxies.
- */
-const baseProxyMap: WeakMap<TreeNode, TCustomProxy<TreeNode>> = new WeakMap();
+interface ManagedNodeRecord {
+    base: TCustomProxy<TreeNode>;
+    handler: ICustomProxyHandler;
+    view: TCustomProxy<TreeNode> | undefined;
+    dirty: boolean;
+}
+
+const managedNodes = new WeakMap<TreeNode, ManagedNodeRecord>();
+
+function currentView(
+    record: ManagedNodeRecord
+): TCustomProxy<TreeNode> | undefined {
+    if (record.dirty) {
+        record.view = buildReproxy(record.base, record.handler);
+        record.dirty = false;
+    }
+    return record.view;
+}
 
 function trackAccessIfNeeded<T>(value: T): T {
     if (!isDependencyTrackingActive()) {
@@ -68,11 +81,15 @@ export function registerBaseProxy<T extends TreeNode = TreeNode>(
     unproxiedNode: T,
     baseProxy: TCustomProxy<T>
 ): void {
-    // Note: a symbol property on the raw node was measured as 4-5x faster
-    // than WeakMap.set, but non-enumerable definitions cost the same as the
-    // WeakMap and enumerable ones leak into deep-equality assertions on raw
-    // nodes (vitest/jest toEqual compares symbol props). WeakMap stays.
-    baseProxyMap.set(unproxiedNode, baseProxy);
+    const handler = getCustomProxyHandler(baseProxy);
+    if (handler === undefined)
+        throw new Error("registerBaseProxy: missing Retree proxy metadata.");
+    managedNodes.set(unproxiedNode, {
+        base: baseProxy,
+        handler,
+        view: undefined,
+        dirty: false,
+    });
 }
 
 export function updateReproxyNode<T extends TreeNode = TreeNode>(
@@ -86,15 +103,27 @@ export function updateReproxyNode<T extends TreeNode = TreeNode>(
         );
     }
     const unproxiedNode = handler[unproxiedBaseNodeKey];
-    const reproxy = buildReproxy<T>(node, handler);
-    reproxyMap.set(unproxiedNode, reproxy);
-    // Every published mutation (and every dependent-notification reproxy)
-    // funnels through here, so this is the chokepoint that invalidates
-    // version-stamped dependency-collection caches. Reproxy identity itself
-    // feeds memo comparison cells, so plain updateReproxyNode calls must bump
-    // too, not just updateReproxyNodeForChange.
+    const record = managedNodes.get(unproxiedNode);
+    if (record === undefined)
+        throw new Error("updateReproxyNode: missing managed node record.");
+    record.view = buildReproxy(record.base, record.handler);
+    record.dirty = false;
     bumpGlobalWriteVersion(unproxiedNode);
+    const reproxy = record.view as TCustomProxy<T>;
     return reproxy;
+}
+
+/** Invalidate an ancestor identity without allocating a view until it is read. */
+export function invalidateReproxyNode(node: TreeNode): void {
+    const handler = getCustomProxyHandler(node);
+    if (handler === undefined)
+        throw new Error("invalidateReproxyNode: expected a managed node.");
+    const raw = handler[unproxiedBaseNodeKey];
+    const record = managedNodes.get(raw);
+    if (record === undefined)
+        throw new Error("invalidateReproxyNode: missing managed node record.");
+    record.dirty = true;
+    bumpGlobalWriteVersion(raw);
 }
 
 /**
@@ -127,22 +156,18 @@ export function getReproxyNode<T extends TreeNode = TreeNode>(node: T): T {
 export function getReproxyNodeForUnproxiedNode<T extends TreeNode = TreeNode>(
     unproxiedNode: T
 ): TCustomProxy<T> | undefined {
-    return reproxyMap.get(unproxiedNode) as TCustomProxy<T> | undefined;
+    const record = managedNodes.get(unproxiedNode);
+    return (record === undefined ? undefined : currentView(record)) as
+        | TCustomProxy<T>
+        | undefined;
 }
 
 export function getManagedProxyForUnproxiedNode<T extends TreeNode = TreeNode>(
     unproxiedNode: T
 ): TCustomProxy<T> | undefined {
-    return (
-        getReproxyNodeForUnproxiedNode(unproxiedNode) ??
-        getBaseProxyForUnproxiedNode(unproxiedNode)
-    );
-}
-
-function getBaseProxyForUnproxiedNode<T extends TreeNode = TreeNode>(
-    unproxiedNode: T
-): TCustomProxy<T> | undefined {
-    return baseProxyMap.get(unproxiedNode) as TCustomProxy<T> | undefined;
+    const record = managedNodes.get(unproxiedNode);
+    if (record === undefined) return undefined;
+    return (currentView(record) ?? record.base) as TCustomProxy<T>;
 }
 
 /**
@@ -158,7 +183,6 @@ class ReproxyHandler<T extends TreeNode>
     implements ProxyHandler<TCustomProxy<T>>, ICustomProxyHandler<T>
 {
     public [unproxiedBaseNodeKey]: T;
-    public [proxiedParentKey]: IProxyParent | null;
     public [proxyTargetKey]?: T;
     /** The base proxy this reproxy wraps. */
     private readonly baseProxyObject: TCustomProxy<T>;
@@ -173,9 +197,15 @@ class ReproxyHandler<T extends TreeNode>
         baseHandler: ICustomProxyHandler<T>
     ) {
         this[unproxiedBaseNodeKey] = baseHandler[unproxiedBaseNodeKey];
-        this[proxiedParentKey] = baseHandler[proxiedParentKey];
         this.baseProxyObject = baseProxyObject;
         this.baseHandler = baseHandler;
+    }
+
+    public get [proxiedParentKey](): IProxyParent | null {
+        return this.baseHandler[proxiedParentKey];
+    }
+    public set [proxiedParentKey](parent: IProxyParent | null) {
+        this.baseHandler[proxiedParentKey] = parent;
     }
 
     /**
