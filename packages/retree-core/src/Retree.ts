@@ -17,7 +17,7 @@ import {
     TCustomProxy,
     unproxiedBaseNodeKey,
 } from "./internals/proxy-types.js";
-import { setSnapshotVersionAdvancementActive } from "./internals/snapshot-version.js";
+import { getStructureVersion } from "./internals/snapshot-version.js";
 import {
     deleteReactiveDependencies,
     deleteReactiveDependent,
@@ -1372,10 +1372,8 @@ export class Retree {
     }
 
     /**
-     * Adjust the live-listener counter backing `relevantListenerMap` and keep
-     * the snapshot-version gate in sync: versions only advance while at least
-     * one listener exists anywhere (the React external-store integration
-     * always subscribes through {@link Retree.on}).
+     * Adjust registry counts and invalidate cached tree-listener paths when
+     * their subscriptions change. Snapshot versions do not depend on listeners.
      */
     private static handleListenerCountChanged(
         relevantListenerMap: WeakMap<TreeNode, TRetreeListeners[]>,
@@ -1385,10 +1383,10 @@ export class Retree {
             this.nodeChangedListenerCount += delta;
         } else if (relevantListenerMap === this.treeChangedListeners) {
             this.treeChangedListenerCount += delta;
+            this.treeListenerVersion++;
         } else {
             this.nodeRemovedListenerCount += delta;
         }
-        setSnapshotVersionAdvancementActive(this.liveListenerCount() > 0);
     }
 
     /**
@@ -1504,33 +1502,42 @@ export class Retree {
         }
     }
 
-    /**
-     * Allocation-free precheck for the treeChanged ancestor walk: true when
-     * the changed node or any structural ancestor has a direct treeChanged
-     * listener. This is pure pointer-chasing over live parent metadata (the
-     * same `proxiedParentKey` chain {@link Retree.move} and node removal
-     * mutate in place), so it needs no bookkeeping to stay correct across
-     * moves, removals, and clearListeners — while writes with no treeChanged
-     * listener on their path skip {@link Retree.handleNotifyTreeChanged}'s
-     * per-write Map/array/record allocations entirely.
-     */
+    private static treeListenerVersion = 0;
+    private static treeListenerPaths = new WeakMap<
+        TreeNode,
+        { structure: number; listeners: number; observed: boolean }
+    >();
+
     private static hasTreeChangedListenerOnAncestorPath(
         proxyNode: TCustomProxy<TreeNode>
     ): boolean {
+        const structure = getStructureVersion();
+        const listeners = this.treeListenerVersion;
         let handler = getCustomProxyHandler(proxyNode);
+        const path: TreeNode[] = [];
+        let observed = false;
         while (handler !== undefined) {
-            if (this.treeChangedListeners.has(handler[unproxiedBaseNodeKey])) {
-                return true;
+            const raw = handler[unproxiedBaseNodeKey];
+            const cached = this.treeListenerPaths.get(raw);
+            if (
+                cached?.structure === structure &&
+                cached.listeners === listeners
+            ) {
+                observed = cached.observed;
+                break;
             }
-            const parentProxyNode = handler[proxiedParentKey]?.proxyNode;
-            if (!parentProxyNode) {
-                return false;
+            path.push(raw);
+            if (this.treeChangedListeners.has(raw)) {
+                observed = true;
+                break;
             }
-            handler = getCustomProxyHandler(parentProxyNode);
+            const parent = handler[proxiedParentKey]?.proxyNode;
+            if (!parent) break;
+            handler = getCustomProxyHandler(parent);
         }
-        // Metadata missing at or above the changed node: run the full walk so
-        // it can report its precise internal invariant error.
-        return true;
+        const entry = { structure, listeners, observed };
+        for (const raw of path) this.treeListenerPaths.set(raw, entry);
+        return observed;
     }
 
     private static handleNotifyTreeChanged(

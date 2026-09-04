@@ -9,9 +9,79 @@ import {
     getNodeSnapshotVersion,
     getTreeSnapshotVersion,
 } from "./snapshot-version.js";
+import { getCustomProxyHandler } from "./proxy.js";
+import { proxiedParentKey } from "./proxy-types.js";
 import { getReproxyNode } from "./reproxy.js";
 
 describe("snapshot versions", () => {
+    it("does no warm ancestor work for writes under unrelated node and tree listeners", () => {
+        const root = Retree.root({ child: { count: 0 } });
+        const unrelated = Retree.root({ count: 0 });
+        const offNode = Retree.on(unrelated, "nodeChanged", () => {});
+        const offTree = Retree.on(unrelated, "treeChanged", () => {});
+        const child = root.child;
+        child.count++;
+        getTreeSnapshotVersion(root);
+        const handler = getCustomProxyHandler(root)!;
+        const parent = handler[proxiedParentKey];
+        const readParent = vi.fn(() => parent);
+        Object.defineProperty(handler, proxiedParentKey, {
+            configurable: true,
+            get: readParent,
+        });
+        for (let index = 0; index < 1000; index++) child.count++;
+        getNodeSnapshotVersion(child);
+        getTreeSnapshotVersion(unrelated);
+        expect(readParent).not.toHaveBeenCalled();
+        getTreeSnapshotVersion(root);
+        expect(readParent).toHaveBeenCalledTimes(1);
+        Object.defineProperty(handler, proxiedParentKey, {
+            configurable: true,
+            writable: true,
+            value: parent,
+        });
+        offNode();
+        offTree();
+    });
+
+    it("settles pending old ancestry before moving and detaching a subtree", () => {
+        const left = Retree.root({ list: [{ child: { count: 0 } }] });
+        const right = Retree.root({
+            list: [] as { child: { count: number } }[],
+        });
+        const moved = left.list[0];
+        const child = moved.child;
+        const before = getTreeSnapshotVersion(left);
+        child.count++;
+        Retree.move(moved, right.list);
+        expect(getTreeSnapshotVersion(left)).toBeGreaterThan(before);
+        const leftAfterMove = getTreeSnapshotVersion(left);
+        const rightAfterMove = getTreeSnapshotVersion(right);
+        child.count++;
+        expect(getTreeSnapshotVersion(right)).toBeGreaterThan(rightAfterMove);
+        expect(getTreeSnapshotVersion(left)).toBe(leftAfterMove);
+        right.list.pop();
+        const rightAfterDetach = getTreeSnapshotVersion(right);
+        child.count++;
+        expect(getTreeSnapshotVersion(right)).toBe(rightAfterDetach);
+        expect(getTreeSnapshotVersion(moved)).toBeGreaterThan(rightAfterDetach);
+    });
+
+    it("refreshes cached ancestor observation after listener changes", () => {
+        const root = Retree.root({ child: { count: 0 } });
+        const other = Retree.root({ count: 0 });
+        const stopOther = Retree.on(other, "treeChanged", () => {});
+        root.child.count++;
+        const callback = vi.fn();
+        const stop = Retree.on(root, "treeChanged", callback);
+        root.child.count++;
+        expect(callback).toHaveBeenCalledTimes(1);
+        stop();
+        root.child.count++;
+        expect(callback).toHaveBeenCalledTimes(1);
+        stopOther();
+    });
+
     it("advances node and ancestor tree versions while a listener exists", () => {
         const root = Retree.root({ child: { count: 0 }, sibling: 0 });
         // Any live listener opens the advancement gate; React's external
@@ -35,7 +105,7 @@ describe("snapshot versions", () => {
         unsubscribe();
     });
 
-    it("defers gated writes into one flush that the next gated read settles", () => {
+    it("settles ancestor versions on tree reads without changing direct node snapshots", () => {
         const root = Retree.root({ child: { count: 0 } });
         const initialChildNode = getNodeSnapshotVersion(root.child);
         const initialRootTree = getTreeSnapshotVersion(root);
