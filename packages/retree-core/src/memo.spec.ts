@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode.js";
 import { Retree } from "./Retree.js";
 import { fnMemo, ignore, link, memo, select } from "./decorators.js";
+import { runTrappedMemo } from "./internals/memo.js";
+import * as reproxyInternals from "./internals/reproxy.js";
 import { getMemoGetterFramePushCount } from "./internals/memo.js";
 import { getReproxyNode } from "./internals/reproxy.js";
 import { Transactions } from "./internals/transactions.js";
@@ -492,11 +494,11 @@ describe("@memo decorator", () => {
 
         expect(root.doubled).toBe(4);
         expect(root.computeCount).toBe(2);
-        expect(valueReadCount).toBe(6);
+        expect(valueReadCount).toBe(5);
 
         expect(root.doubled).toBe(4);
         expect(root.doubled).toBe(4);
-        expect(valueReadCount).toBe(6);
+        expect(valueReadCount).toBe(5);
     });
 
     it("still emits and reproxies when a @memo getter writes a non-ignored field", () => {
@@ -1156,7 +1158,7 @@ describe("@fnMemo decorator", () => {
 
         expect(root.format(2)).toBe("2:b");
         expect(root.computeCount).toBe(3);
-        expect(suffixReadCount).toBe(8);
+        expect(suffixReadCount).toBe(7);
     });
 
     it("still emits and reproxies when a @fnMemo method writes a non-ignored field", () => {
@@ -1644,5 +1646,136 @@ describe("keyless memo getter fast path", () => {
         expect(getMemoGetterFramePushCount()).toBeGreaterThan(framesBefore);
         // And the memo cache still holds (no recompute).
         expect(root.computeCount).toBe(1);
+    });
+});
+
+describe("incremental trapped memo validation", () => {
+    class MemoOwner extends ReactiveNode {
+        get dependencies() {
+            return [];
+        }
+    }
+    it("skips comparison traversal on unchanged reads and unrelated owners", () => {
+        const rows = Retree.root(
+            Array.from({ length: 1000 }, (_, score) => ({ score, label: "" }))
+        );
+        const owner = Retree.root(new MemoOwner());
+        const unrelated = Retree.root({ count: 0 });
+        const compute = vi.fn(() =>
+            rows.reduce((sum, row) => sum + row.score, 0)
+        );
+        const read = () => runTrappedMemo(owner, "total", compute);
+        const expected = read();
+        const lookups = vi.spyOn(
+            reproxyInternals,
+            "getManagedProxyForUnproxiedNode"
+        );
+        lookups.mockClear();
+        expect(read()).toBe(expected);
+        expect(lookups.mock.calls.length).toBeLessThan(10);
+        unrelated.count++;
+        lookups.mockClear();
+        expect(read()).toBe(expected);
+        expect(lookups.mock.calls.length).toBeLessThan(10);
+        rows[500].label = "new label";
+        lookups.mockClear();
+        expect(read()).toBe(expected);
+        expect(lookups.mock.calls.length).toBeLessThan(20);
+        expect(compute).toHaveBeenCalledTimes(1);
+        rows[500].score++;
+        expect(read()).toBe(expected + 1);
+        expect(compute).toHaveBeenCalledTimes(2);
+        lookups.mockRestore();
+    });
+
+    it.each(["getter", "method"] as const)(
+        "refreshes terminal child identities in a trapped %s memo",
+        (form) => {
+            const compute = vi.fn((child: { value: number }) => [child]);
+            class Owner extends ReactiveNode {
+                child = { value: 1 };
+                unrelated = 0;
+                @memo get selected() {
+                    return compute(this.child);
+                }
+                @fnMemo selectedMethod() {
+                    return compute(this.child);
+                }
+            }
+            const owner = Retree.root(new Owner());
+            const read = () =>
+                form === "getter" ? owner.selected : owner.selectedMethod();
+            const before = read();
+            owner.unrelated++;
+            expect(read()).toBe(before);
+            expect(compute).toHaveBeenCalledTimes(1);
+
+            owner.child.value = 2;
+            const after = read();
+            expect(after).not.toBe(before);
+            expect(compute).toHaveBeenCalledTimes(2);
+
+            const previousChild = owner.child;
+            owner.child = { value: 3 };
+            const replacement = read();
+            expect(replacement).not.toBe(after);
+            expect(compute).toHaveBeenCalledTimes(3);
+            previousChild.value = 4;
+            expect(read()).toBe(replacement);
+            expect(compute).toHaveBeenCalledTimes(3);
+            owner.child.value = 5;
+            expect(read()).not.toBe(replacement);
+            expect(compute).toHaveBeenCalledTimes(4);
+        }
+    );
+
+    it("keeps ordinary writes and memo validation working without WeakRef", () => {
+        vi.stubGlobal("WeakRef", undefined);
+        try {
+            const row = Retree.root({ score: 1 });
+            const owner = Retree.root(new MemoOwner());
+            const read = () => runTrappedMemo(owner, "score", () => row.score);
+            expect(read()).toBe(1);
+            row.score = 2;
+            expect(read()).toBe(2);
+            Retree.runSilent(() => {
+                row.score = 3;
+            });
+            expect(read()).toBe(3);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it("validates ignored data and reads inside a silent block", () => {
+        class Owner extends ReactiveNode {
+            @ignore offset = 0;
+            value = 1;
+            @memo get total() {
+                return this.value + this.offset;
+            }
+        }
+        const owner = Retree.root(new Owner());
+        expect(owner.total).toBe(1);
+        owner.offset = 2;
+        expect(owner.total).toBe(3);
+        Retree.runSilent(() => {
+            owner.value = 10;
+            expect(owner.total).toBe(12);
+            owner.value = 20;
+            expect(owner.total).toBe(22);
+        });
+        expect(owner.total).toBe(22);
+    });
+
+    it("falls back to full validation when recent write history overflows", () => {
+        const row = Retree.root({ score: 1 });
+        const owner = Retree.root(new MemoOwner());
+        const unrelated = Retree.root({ count: 0 });
+        const read = () => runTrappedMemo(owner, "score", () => row.score);
+        expect(read()).toBe(1);
+        row.score = 2;
+        for (let index = 0; index < 300; index++) unrelated.count++;
+        expect(read()).toBe(2);
     });
 });

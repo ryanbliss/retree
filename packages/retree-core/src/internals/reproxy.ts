@@ -93,7 +93,7 @@ export function updateReproxyNode<T extends TreeNode = TreeNode>(
     // version-stamped dependency-collection caches. Reproxy identity itself
     // feeds memo comparison cells, so plain updateReproxyNode calls must bump
     // too, not just updateReproxyNodeForChange.
-    bumpGlobalWriteVersion();
+    bumpGlobalWriteVersion(unproxiedNode);
     return reproxy;
 }
 

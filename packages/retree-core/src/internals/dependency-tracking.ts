@@ -51,6 +51,8 @@ export interface DependencyComparisonAccessor {
     readonly kind: "retree-dependency-comparison-accessor";
     readonly dependencyNode?: TreeNode;
     readonly sourceUnproxiedNode?: TreeNode;
+    /** Managed property values also compare their current view; array slots compare raw identities. */
+    readonly valueUnproxiedNode?: TreeNode;
     getValues(): unknown[];
 }
 
@@ -524,7 +526,8 @@ export function trackDependencyPropertyAccess<T>(
                     : Reflect.get(ownerProxy, propertyKey),
             ],
             ownerProxy,
-            getComparisonAccessorSource(ownerUnproxiedNode, propertyKey)
+            getComparisonAccessorSource(ownerUnproxiedNode, propertyKey),
+            arrayElementRead ? undefined : valueUnproxiedNode
         ),
         ownerUnproxiedNode,
         propertyKey,
@@ -771,12 +774,14 @@ function isRetreeInternalProperty(propertyKey: string | symbol): boolean {
 function createComparisonAccessor(
     getValues: () => unknown[],
     dependencyNode?: TreeNode,
-    sourceUnproxiedNode?: TreeNode
+    sourceUnproxiedNode?: TreeNode,
+    valueUnproxiedNode?: TreeNode
 ): DependencyComparisonAccessor {
     return {
         kind: "retree-dependency-comparison-accessor",
         dependencyNode,
         sourceUnproxiedNode,
+        valueUnproxiedNode,
         getValues,
     };
 }
@@ -798,7 +803,12 @@ function getComparisonAccessorSource(
     propertyKey: string | symbol
 ): TreeNode | undefined {
     if (ownerUnproxiedNode instanceof ReactiveNode) {
-        return undefined;
+        const descriptor = Reflect.getOwnPropertyDescriptor(
+            ownerUnproxiedNode,
+            propertyKey
+        );
+        if (descriptor === undefined || !("value" in descriptor))
+            return undefined;
     }
     return ownerUnproxiedNode;
 }
