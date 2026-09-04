@@ -60,6 +60,12 @@ export interface ITransaction {
     treeChanges?: INodeFieldChanges[];
 }
 
+interface IPendingTransaction
+    extends Omit<ITransaction, "nodeChanges" | "treeChanges"> {
+    nodeChanges?: INodeFieldChanges[][];
+    treeChanges?: INodeFieldChanges[][];
+}
+
 /**
  * @internal
  * NOTE: It's important to use these only in synchronous operations.
@@ -108,7 +114,8 @@ export class Transactions {
      * Each unique node can have one type of event listener.
      * Others will get replaced if another change happens during the transaction.
      */
-    private static pendingTransactions: Map<TreeNode, ITransaction> = new Map();
+    private static pendingTransactions: Map<TreeNode, IPendingTransaction> =
+        new Map();
 
     /**
      * @internal
@@ -161,16 +168,14 @@ export class Transactions {
             transaction.emitNodeRemoved = upsertTransaction.emitNodeRemoved;
         }
         if (upsertTransaction.nodeChanges !== undefined) {
-            transaction.nodeChanges = [
-                ...(transaction.nodeChanges ?? []),
+            (transaction.nodeChanges ??= []).push([
                 ...upsertTransaction.nodeChanges,
-            ];
+            ]);
         }
         if (upsertTransaction.treeChanges !== undefined) {
-            transaction.treeChanges = [
-                ...(transaction.treeChanges ?? []),
+            (transaction.treeChanges ??= []).push([
                 ...upsertTransaction.treeChanges,
-            ];
+            ]);
         }
     }
 
@@ -198,10 +203,10 @@ export class Transactions {
                     transactionLifecycleDrain?.();
                     this.processedEmissionNodes.add(node);
                     transaction.emitNodeChanged?.(
-                        transaction.nodeChanges ?? []
+                        transaction.nodeChanges?.flat() ?? []
                     );
                     transaction.emitTreeChanged?.(
-                        transaction.treeChanges ?? []
+                        transaction.treeChanges?.flat() ?? []
                     );
                     transaction.emitNodeRemoved?.();
                 }

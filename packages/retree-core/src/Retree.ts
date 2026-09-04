@@ -1538,129 +1538,52 @@ export class Retree {
     private static handleNotifyTreeChanged(
         node: TreeNode,
         proxyNode: TCustomProxy<TreeNode>,
-        proxyNodeThatChanged: TCustomProxy<TreeNode>,
-        changes: INodeFieldChanges[],
-        topProxyNodeListenedTo: TreeNode | null = null,
-        confirmedCallbacksToNotify: Map<
-            TreeNode,
-            TNodeChangedListener[]
-        > = new Map(),
-        checkedParentProxyNodes: TCustomProxy<TreeNode>[] = []
-    ) {
-        const treeChangedListenersToNotify =
-            this.treeChangedListeners.get(node);
-        // It's important we only reproxy parents if we know we need to.
-        // Otherwise it can come with side effects for apps only using "nodeChanged" listeners.
-        let confirmedCallbacks: TRetreeListeners[] = [];
-        treeChangedListenersToNotify?.forEach((callback) => {
-            confirmedCallbacks.push(callback);
-        });
-        // If we need to notify any parents, set our callbacks so we can call them later.
-        // This will allow us to know with confidence we should reproxy parents.
-        if (confirmedCallbacks.length > 0) {
-            confirmedCallbacksToNotify.set(proxyNode, confirmedCallbacks);
-            topProxyNodeListenedTo = proxyNode;
-        }
-        const parent = this.getParentInternal(proxyNode);
-        if (!parent) {
-            if (confirmedCallbacksToNotify.size === 0) return;
-            // Skip emitting for proxyNodeThatChanged if in skipEmit transaction
-            if (!Transactions.skipEmit) {
-                // Handle callbacks for the node that originally changed
-                const handleEmitTreeChanged = (
-                    changesToNotify: INodeFieldChanges[]
-                ) => {
-                    const listeners =
-                        confirmedCallbacksToNotify.get(proxyNodeThatChanged) ??
-                        [];
-                    this.notifyChangedListeners(
-                        listeners,
-                        getReproxyNode(proxyNodeThatChanged),
-                        changesToNotify
-                    );
-                };
-                // If running a transaction, schedule this to emit later.
-                // That way if this same node gets changed later, we can only emit once for that node.
-                if (Transactions.runningTransaction) {
-                    const unproxiedNode =
-                        getUnproxiedNode(proxyNodeThatChanged);
-                    if (!unproxiedNode) {
-                        // @retree-throws
-                        throw new Error(
-                            "Retree internal invariant failed in handleNotifyTreeChanged: could not find the raw node for proxyNodeThatChanged while scheduling a treeChanged event. This is unexpected and likely a Retree bug. Please file an issue with the mutation that triggered this and whether it happened inside Retree.runTransaction(...)."
-                        );
-                    }
-                    Transactions.upsertPendingTransaction(unproxiedNode, {
-                        emitTreeChanged: handleEmitTreeChanged,
-                        treeChanges: changes,
-                    });
-                } else {
-                    // Emit immediately
-                    Transactions.runListenerFlush(() =>
-                        handleEmitTreeChanged(changes)
-                    );
-                }
+        changes: INodeFieldChanges[]
+    ): void {
+        const path: {
+            raw: TreeNode;
+            proxy: TreeNode;
+            listeners?: TNodeChangedListener[];
+        }[] = [];
+        let current: { raw: TreeNode; proxy: TreeNode } | undefined = {
+            raw: node,
+            proxy: proxyNode,
+        };
+        let lastObservedIndex = -1;
+        while (current !== undefined) {
+            const listeners = this.treeChangedListeners.get(current.raw);
+            path.push({ ...current, listeners: listeners?.slice() });
+            if (listeners !== undefined && listeners.length > 0) {
+                lastObservedIndex = path.length - 1;
             }
-            // If our "treeChanged" listener was for the node that changed, skip parents
-            if (topProxyNodeListenedTo === proxyNodeThatChanged) return;
-            // Reproxy each parent
-            for (
-                let pIndex = 0;
-                pIndex < checkedParentProxyNodes.length;
-                pIndex++
-            ) {
-                const pNode = checkedParentProxyNodes[pIndex];
-                const pReproxyNode = updateReproxyNode(getBaseProxy(pNode));
-                // Skip emitting if in skipEmit transaction
-                if (!Transactions.skipEmit) {
-                    const handlePNodeEmitTreeChanged = (
-                        changesToNotify: INodeFieldChanges[]
-                    ) => {
-                        const listeners =
-                            confirmedCallbacksToNotify.get(pNode) ?? [];
-                        this.notifyChangedListeners(
-                            listeners,
-                            pReproxyNode,
-                            changesToNotify
-                        );
-                    };
-                    // If running a transaction, schedule this to emit later.
-                    // That way if this same node gets changed later, we can only emit once for that node.
-                    if (Transactions.runningTransaction) {
-                        const unproxiedPNode = getUnproxiedNode(pNode);
-                        if (!unproxiedPNode) {
-                            // @retree-throws
-                            throw new Error(
-                                "Retree internal invariant failed in handleNotifyTreeChanged: could not find the raw node for a parent proxy while scheduling a treeChanged event. This is unexpected and likely a Retree bug. Please file an issue with the mutation that triggered this and whether it happened inside Retree.runTransaction(...)."
-                            );
-                        }
-                        Transactions.upsertPendingTransaction(unproxiedPNode, {
-                            emitTreeChanged: handlePNodeEmitTreeChanged,
-                            treeChanges: changes,
-                        });
-                    } else {
-                        // Emit immediately
-                        Transactions.runListenerFlush(() =>
-                            handlePNodeEmitTreeChanged(changes)
-                        );
-                    }
-                }
-                // If this checked pNode was the top-most node the app is listening to, skip reproxying rest of parents
-                if (pNode === topProxyNodeListenedTo) return;
-            }
-            return;
+            const parent = this.getParentInternal(current.proxy);
+            current =
+                parent === null
+                    ? undefined
+                    : { raw: parent.rawNode, proxy: parent.proxyNode };
         }
-        checkedParentProxyNodes.push(parent.proxyNode);
-
-        this.handleNotifyTreeChanged(
-            parent.rawNode,
-            parent.proxyNode,
-            proxyNodeThatChanged,
-            changes,
-            topProxyNodeListenedTo,
-            confirmedCallbacksToNotify,
-            checkedParentProxyNodes
-        );
+        for (let index = 0; index <= lastObservedIndex; index++) {
+            const entry = path[index];
+            const reproxy =
+                index === 0
+                    ? getReproxyNode(entry.proxy)
+                    : updateReproxyNode(getBaseProxy(entry.proxy));
+            if (Transactions.skipEmit || entry.listeners === undefined) {
+                continue;
+            }
+            const listeners = entry.listeners;
+            const emitTreeChanged = (records: INodeFieldChanges[]) => {
+                this.notifyChangedListeners(listeners, reproxy, records);
+            };
+            if (Transactions.runningTransaction) {
+                Transactions.upsertPendingTransaction(entry.raw, {
+                    emitTreeChanged,
+                    treeChanges: changes,
+                });
+            } else {
+                Transactions.runListenerFlush(() => emitTreeChanged(changes));
+            }
+        }
     }
 
     private static startListening() {
@@ -1789,12 +1712,7 @@ export class Retree {
                 this.treeChangedListenerCount > 0 &&
                 this.hasTreeChangedListenerOnAncestorPath(proxyNode)
             ) {
-                this.handleNotifyTreeChanged(
-                    unproxiedNode,
-                    proxyNode,
-                    proxyNode,
-                    changes
-                );
+                this.handleNotifyTreeChanged(unproxiedNode, proxyNode, changes);
             }
 
             if (runReactiveNodeLifecycle) {
