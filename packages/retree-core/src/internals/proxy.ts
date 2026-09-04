@@ -978,11 +978,14 @@ class BaseProxyHandler<T extends TreeNode>
 export function buildProxy<T extends TreeNode = TreeNode>(
     object: T,
     emitter: TreeChangeEmitter,
-    parent?: IProxyParent<any>
+    parent?: IProxyParent<any>,
+    knownUnmanaged = false
 ): T {
     if (object === null) return object;
     if (isCustomProxy(object)) return getBaseProxy(object);
-    const existing = getManagedProxyForUnproxiedNode(object);
+    const existing = knownUnmanaged
+        ? undefined
+        : getManagedProxyForUnproxiedNode(object);
     if (existing !== undefined) {
         return getBaseProxy(existing) as T;
     }
@@ -1261,7 +1264,7 @@ function getOrCreateProxiedChild(
     const existingManagedProxy = getManagedProxyForUnproxiedNode(value);
     if (existingManagedProxy === undefined) {
         // buildProxy returns the base proxy for a fresh raw object.
-        const builtChildProxy = buildProxy(value, emitter, parentToSet);
+        const builtChildProxy = buildProxy(value, emitter, parentToSet, true);
         setProxiedChild(proxyHandler, prop, builtChildProxy);
         return builtChildProxy;
     }
@@ -1331,44 +1334,58 @@ function preparePropertyValue(
     return getUnproxiedNode(valueToSet as TreeNode) ?? valueToSet;
 }
 
-/**
- * @internal
- * Force-materialize the direct children of a managed node by reading each
- * object-valued child through the proxy once. Used by `useRaw`'s `toManaged`
- * to guarantee raw direct children (including Map values and Set members)
- * resolve to managed nodes. Idempotent: already-materialized children are
- * cache hits.
- */
-export function materializeDirectChildren(node: TreeNode): void {
-    const baseProxy = getBaseProxy(node);
-    const rawNode = getUnproxiedNode(baseProxy);
-    if (rawNode === undefined) {
-        return;
+/** Prepare a resolver once, then materialize only the requested direct slot. */
+export function createDirectChildResolver(
+    node: TreeNode
+): (key: unknown) => object | undefined {
+    const base = getBaseProxy(node);
+    const handler = getCustomProxyHandler(base);
+    if (!(handler instanceof BaseProxyHandler)) {
+        throw new Error(
+            "createDirectChildResolver: expected a managed base proxy."
+        );
     }
-    if (rawNode instanceof Map) {
-        const mapProxy = baseProxy as unknown as Map<unknown, unknown>;
-        for (const key of Map.prototype.keys.call(rawNode)) {
-            void mapProxy.get(key);
+    const raw = handler[unproxiedBaseNodeKey];
+    return (key) => {
+        if (raw instanceof Map)
+            return getOrCreateMapValueProxy(
+                handler,
+                key,
+                raw.get(key),
+                base,
+                handler.emitter
+            );
+        if (raw instanceof Set)
+            return raw.has(key)
+                ? getOrCreateSetValueProxy(handler, key, base, handler.emitter)
+                : undefined;
+        if (
+            typeof key !== "string" &&
+            typeof key !== "symbol" &&
+            typeof key !== "number"
+        )
+            return undefined;
+        const prop = typeof key === "number" ? String(key) : key;
+        const value = Reflect.get(raw, prop);
+        if (
+            handler.reactiveObject === undefined &&
+            shouldLazilyProxyProperty(raw, prop, value) &&
+            !shouldKeepRawPropertyValue(
+                Reflect.getOwnPropertyDescriptor(raw, prop),
+                value
+            )
+        ) {
+            return getOrCreateProxiedChild(
+                handler,
+                prop,
+                value,
+                base,
+                handler.emitter
+            );
         }
-        return;
-    }
-    if (rawNode instanceof Set) {
-        const setProxy = baseProxy as unknown as Set<unknown>;
-        for (const value of setProxy.values()) {
-            void value;
-        }
-        return;
-    }
-    if (rawNode instanceof Date) {
-        return;
-    }
-    const record = baseProxy as unknown as Record<string, unknown>;
-    for (const key of Object.keys(rawNode)) {
-        const rawValue = (rawNode as Record<string, unknown>)[key];
-        if (rawValue !== null && typeof rawValue === "object") {
-            void record[key];
-        }
-    }
+        const result: unknown = Reflect.get(base, prop);
+        return isCustomProxy(result) ? result : undefined;
+    };
 }
 
 function unwrapCollectionValue(value: any): any {
