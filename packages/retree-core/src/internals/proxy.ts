@@ -3080,7 +3080,7 @@ export function getUnproxiedNode<TNode extends TreeNode = TreeNode>(
  * @internal
  * Gets the base proxied object, aka meaning the non reproxied object.
  * @remarks
- * Recursively goes through each proxy until there are no more proxy references.
+ * Resolves the base proxy through Retree proxy metadata.
  *
  * @param node node to check
  * @returns the base proxied object

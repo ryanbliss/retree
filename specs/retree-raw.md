@@ -404,7 +404,7 @@ Constructor references can alias an existing node. They reuse its managed identi
 
 ### Selective managed resolution
 
-`toManaged(rawChild)` indexes direct raw slots once per node version and materializes only that child. It no longer materializes the entire collection. Set members resolve directly by membership.
+`toManaged(rawChild)` indexes direct raw slots, refreshes after writes to that node, and materializes only the selected child. It no longer materializes the entire collection. Set members resolve directly by membership.
 
 When a slot is already known, `toManaged(rawChild, { key: indexOrKey })` skips the lookup index. Use array indices, object properties, or Map keys. A mismatched slot returns `undefined`. Existing managed values still resolve regardless of location.
 
@@ -420,3 +420,5 @@ if (index >= 0) tasks[index].done = true;
 An object returned by `peekInto` can still be raw when it has never been materialized. Use it as a read-only result until its managed identity is resolved.
 
 The cold value-only lookup trades an O(collection size) slot index for avoiding unrelated proxy allocation. For a full-list mount this extra pass can cost more than managed indexing. Pass the known index or key in list mappings; the performance gate compares that direct form with `useNode`, while the benchmark reports the compatibility lookup separately.
+
+Value lookup also observes silent writes. Unrelated writes reuse the slot index when bounded write history proves that its node is unchanged; unknown or expired history rebuilds it conservatively.

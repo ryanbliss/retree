@@ -17,3 +17,8 @@ export {
     getRetreeRootName,
 } from "./debug-tap.js";
 export type { TRetreeDebugTap, TRetreeDebugTapEmission } from "./debug-tap.js";
+
+export {
+    getGlobalWriteVersion,
+    getWrittenOwnersSince,
+} from "./write-version.js";

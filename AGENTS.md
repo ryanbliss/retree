@@ -62,7 +62,7 @@ Try to honor the dev's intent in both a minimal and realistic fashion.
 
 ### 4. Anti-bloat
 
-Do not pollute runtime app code with infra that only unit tests use. Doing so adds debt & bloat that can degrade the UX and code quality. Run `npm run lint:architecture` to enforce this invariant. Put legitimate test support under a `test-fixtures`, `__fixtures__`, or `__mocks__` directory instead of runtime source. The only non-fixture exceptions are exact, reason-bearing entries in `DORMANT_OPERATIONAL_INFRASTRUCTURE_EXEMPTIONS`. Reserve for repeatable operational infrastructure that is intentionally dormant until a migration or repair pulls it in as needed.
+Keep test fixtures and test frameworks out of SDK runtime import paths. Store test helpers under `test-fixtures`, `__fixtures__`, `__mocks__`, or the existing isolated mock/testing directories. Run `npm run lint:architecture` to check these static import boundaries. This check does not detect unused exports; review new runtime exports for a clear production purpose.
 
 ### 5. Performant algorithms
 

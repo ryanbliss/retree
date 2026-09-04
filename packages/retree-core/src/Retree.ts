@@ -2609,8 +2609,6 @@ export class Retree {
         reproxy: TreeNode,
         changes: INodeFieldChanges[]
     ) {
-        // I could get unproxied node from scope...tradeoff between memory and runtime hit
-        // It's cheap to get unproxied node, so doing that for now
         const _unproxy = getUnproxiedNode(reproxy);
         if (!_unproxy) {
             // @retree-throws

@@ -71,6 +71,21 @@ describe("useRaw", () => {
         expect(resolve!(child, { key: "missing" })).toBe(current);
     });
 
+    it("resolves new cold children after silent writes without relying on render versions", () => {
+        const root = Retree.root({ rows: [{ id: 0 }] });
+        let resolve: ToManaged | undefined;
+        function List() {
+            [, resolve] = useRaw(root.rows);
+            return null;
+        }
+        render(<List />);
+        expect(resolve!({ id: -1 })).toBeUndefined();
+        Retree.runSilent(() => root.rows.push({ id: 1 }));
+        const child = Retree.raw(root.rows)[1];
+        expect(resolve!(child)).toBeDefined();
+        expect(Retree.raw(resolve!(child)!)).toBe(child);
+    });
+
     it("returns the raw node and re-renders on own changes only", () => {
         const root = Retree.root({ tasks: makeTasks() });
         const listRenders = vi.fn();
