@@ -15,6 +15,7 @@ Merge these PRs in order. Each branch targets the preceding branch.
 | [62](https://github.com/ryanbliss/retree/pull/62) | Lazy ancestor views and shared live ownership metadata                |
 | [63](https://github.com/ryanbliss/retree/pull/63) | Retained dependency records                                           |
 | [64](https://github.com/ryanbliss/retree/pull/64) | Serialized polling and cooperative cancellation                       |
+| [65](https://github.com/ryanbliss/retree/pull/65) | Silent raw lookup correctness, scaling checks, and diagnostics        |
 
 The original audit used `main` at `2dd618e`, Node 22.13.1 on macOS arm64, production source bundles, and medians of seven warm rounds. Repeating that probe after the runtime changes produced these representative results. Timings describe synthetic workloads, not a live Neo Compose profile.
 
