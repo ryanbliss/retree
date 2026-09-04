@@ -9,6 +9,44 @@ import { useSelect } from "./useSelect.js";
 
 const rootsToCleanup: object[] = [];
 
+it("skips a wide tracked selector for unrelated fields and follows equal replacements", () => {
+    const root = trackRoot(
+        Retree.root({
+            rows: Array.from({ length: 1000 }, (_, id) => ({
+                value: id,
+                label: "",
+            })),
+        })
+    );
+    const selector = vi.fn(() =>
+        root.rows.reduce((total, row) => total + row.value, 0)
+    );
+    function View() {
+        return <span data-testid="sum">{useSelect(selector)}</span>;
+    }
+    const view = render(<View />);
+    expect(selector).toHaveBeenCalledTimes(1);
+    act(() => {
+        root.rows[500].label = "unrelated";
+    });
+    expect(selector).toHaveBeenCalledTimes(1);
+    const oldRow = root.rows[500];
+    act(() => {
+        root.rows[500] = { value: oldRow.value, label: "replacement" };
+    });
+    expect(selector).toHaveBeenCalledTimes(2);
+    act(() => {
+        oldRow.value = -1;
+    });
+    expect(selector).toHaveBeenCalledTimes(2);
+    act(() => {
+        root.rows[500].value++;
+    });
+    expect(selector).toHaveBeenCalledTimes(3);
+    expect(screen.getByTestId("sum").textContent).toBe("499501");
+    view.unmount();
+});
+
 function trackRoot<T extends object>(root: T): T {
     rootsToCleanup.push(root);
     return root;

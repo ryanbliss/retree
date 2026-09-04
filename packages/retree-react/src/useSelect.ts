@@ -13,6 +13,8 @@
 import { RetreeSelectOptions, TreeNode } from "@retreejs/core";
 import {
     areTrackedComparisonValuesEqual,
+    canSkipTrackedDependencyChange,
+    getUnproxiedNode,
     defaultSelectShouldNotify,
     defaultTrackedSelectedChanged,
     getBaseProxy,
@@ -415,6 +417,7 @@ function recomputeNodeSelectStateForSelector<TNode extends TreeNode, TSelected>(
  * dependency-tracking proxy overhead, so avoiding re-runs matters even more.
  */
 interface TrackedSelectState<TSelected> {
+    getAccessSummaries: TrackedSelection<TSelected>["getAccessSummaries"];
     comparisonValues: readonly unknown[];
     sources: readonly RetreeExternalStoreSource[];
     /**
@@ -434,6 +437,7 @@ function createTrackedSelectState<TSelected>(
     const sources = getTrackedSelectionSources(selection);
     const store = createRetreeSwappableCompositeExternalStore(sources);
     return {
+        getAccessSummaries: selection.getAccessSummaries,
         comparisonValues: getTrackedDependencyComparisonValues(
             selection.dependencies
         ),
@@ -453,7 +457,22 @@ function refreshTrackedSelectState<TSelected>(
     if (snapshot === state.snapshot) {
         return state.container;
     }
+    const summaries = state.getAccessSummaries();
+    const relevantChange = snapshot.sources.some((source, index) => {
+        if (snapshot.versions[index] === state.snapshot.versions[index])
+            return false;
+        const raw = getUnproxiedNode(source.baseProxy);
+        return (
+            raw === undefined ||
+            !canSkipTrackedDependencyChange(raw, summaries.get(raw), undefined)
+        );
+    });
+    if (!relevantChange) {
+        state.snapshot = snapshot;
+        return state.container;
+    }
     const nextSelection = runTrackedSelection(selector);
+    state.getAccessSummaries = nextSelection.getAccessSummaries;
     const stabilizedSelected = stabilizeSelectedRetreeReferences(
         state.container.selected,
         nextSelection.selected
@@ -554,6 +573,7 @@ function recomputeTrackedSelectStateForSelector<TSelected>(
         store = createRetreeSwappableCompositeExternalStore(sources);
     }
     return {
+        getAccessSummaries: nextSelection.getAccessSummaries,
         comparisonValues: getTrackedDependencyComparisonValues(
             nextSelection.dependencies
         ),
