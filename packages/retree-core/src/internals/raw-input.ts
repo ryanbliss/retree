@@ -7,36 +7,25 @@ import {
     getCustomProxyHandlerFromMetadata,
     unproxiedBaseNodeKey,
 } from "./proxy-types.js";
-import { getManagedProxyForUnproxiedNode } from "./reproxy.js";
 
 const normalizedInputs = new WeakSet<object>();
-const inputsWithManagedChildren = new WeakSet<object>();
-
-export function inputNeedsMaterialization(value: object): boolean {
-    return (
-        inputsWithManagedChildren.has(value) ||
-        getManagedProxyForUnproxiedNode(value) !== undefined
-    );
-}
 
 /** Normalize each new input once; proxy creation can still remain lazy. */
 export function normalizeRawInput<T extends object>(input: T): T {
     if (normalizedInputs.has(input)) return input;
     const active = new Set<object>();
     const completed: object[] = [];
-    const pending: { node: object; parent?: object; exit: boolean }[] = [
+    const pending: { node: object; exit: boolean }[] = [
         { node: input, exit: false },
     ];
     try {
         while (pending.length > 0) {
             const entry = pending.pop()!;
-            const { node, parent } = entry;
+            const { node } = entry;
             if (entry.exit) {
                 active.delete(node);
                 normalizedInputs.add(node);
                 completed.push(node);
-                if (parent !== undefined && inputsWithManagedChildren.has(node))
-                    inputsWithManagedChildren.add(parent);
                 continue;
             }
             if (active.has(node))
@@ -44,8 +33,6 @@ export function normalizeRawInput<T extends object>(input: T): T {
                     "Retree cannot own a structural cycle. Use Retree.link or @link for a back-reference."
                 );
             if (normalizedInputs.has(node)) {
-                if (parent !== undefined && inputNeedsMaterialization(node))
-                    inputsWithManagedChildren.add(parent);
                 continue;
             }
             active.add(node);
@@ -54,13 +41,7 @@ export function normalizeRawInput<T extends object>(input: T): T {
                 if (value === null || typeof value !== "object") return value;
                 const handler = getCustomProxyHandlerFromMetadata(value);
                 const raw = handler?.[unproxiedBaseNodeKey] ?? value;
-                const managed =
-                    handler ??
-                    getCustomProxyHandlerFromMetadata(
-                        getManagedProxyForUnproxiedNode(raw)
-                    );
-                if (managed !== undefined) inputsWithManagedChildren.add(node);
-                pending.push({ node: raw, parent: node, exit: false });
+                pending.push({ node: raw, exit: false });
                 return raw;
             };
             if (node instanceof Map) {

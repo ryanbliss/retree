@@ -164,24 +164,7 @@ export function useRaw<TNode extends TreeNode>(
             const raw = rawNode;
             const slot = location ?? findChildKey(baseProxy, raw, rawValue);
             if (slot === undefined) return undefined;
-            if (location !== undefined) {
-                let child: unknown;
-                if (raw instanceof Map) child = raw.get(slot.key);
-                else if (raw instanceof Set)
-                    child = raw.has(slot.key) ? slot.key : undefined;
-                else if (
-                    typeof slot.key === "string" ||
-                    typeof slot.key === "symbol" ||
-                    typeof slot.key === "number"
-                )
-                    child = Reflect.get(raw, slot.key);
-                if (child !== rawValue) return undefined;
-            }
-            const resolved = resolveChild(slot.key);
-            if (resolved === undefined) return undefined;
-            return getUnproxiedNode(resolved) === rawValue
-                ? (resolved as T)
-                : undefined;
+            return resolveChild(slot.key, rawValue) as T | undefined;
         },
         [baseProxy, rawNode, resolveChild]
     );

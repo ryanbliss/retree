@@ -120,6 +120,19 @@ describe("raw purity invariant", () => {
         expect(Retree.raw(root)).toBe(input);
     });
 
+    it("keeps deep input lazy when its leaf is already managed", () => {
+        const leaf = Retree.root({ value: 1 });
+        let input: object = leaf;
+        for (let depth = 0; depth < 3000; depth++) input = { child: input };
+        const root = Retree.root(input);
+        expect(Retree.managed(Reflect.get(input, "child"))).toBeUndefined();
+        let current: object = root;
+        for (let depth = 0; depth < 3000; depth++)
+            current = Reflect.get(current, "child");
+        expect(current).toBe(leaf);
+        expect(Retree.parent(leaf)).toBeNull();
+    });
+
     it("plain writes and pushes stay pure", () => {
         const root = Retree.root({ list: [] as { v: number }[], child: {} });
         root.list.push({ v: 1 });

@@ -50,7 +50,7 @@ import {
 } from "./dependency-tracking.js";
 import { Transactions } from "./transactions.js";
 import { bumpGlobalWriteVersion } from "./write-version.js";
-import { inputNeedsMaterialization, normalizeRawInput } from "./raw-input.js";
+import { normalizeRawInput } from "./raw-input.js";
 
 export const FUNCTION_NAMES_BIND_TO_RAW: ReadonlySet<string | symbol> = new Set(
     ["valueOf", "toISOString", "toJSON"]
@@ -982,7 +982,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     knownUnmanaged = false
 ): T {
     if (object === null) return object;
-    if (isCustomProxy(object)) return getBaseProxy(object);
+    if (!knownUnmanaged && isCustomProxy(object)) return getBaseProxy(object);
     const existing = knownUnmanaged
         ? undefined
         : getManagedProxyForUnproxiedNode(object);
@@ -1005,7 +1005,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             if (
                 value !== null &&
                 typeof value === "object" &&
-                inputNeedsMaterialization(value)
+                getManagedProxyForUnproxiedNode(value) !== undefined
             ) {
                 const parentToSet: IProxyParent<any> = {
                     proxyNode: proxy,
@@ -1031,7 +1031,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             if (
                 value !== null &&
                 typeof value === "object" &&
-                inputNeedsMaterialization(value)
+                getManagedProxyForUnproxiedNode(value) !== undefined
             ) {
                 const parentToSet: IProxyParent<any> = {
                     proxyNode: proxy,
@@ -1075,7 +1075,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             } else if (typeof value === "object") {
                 if (
                     shouldCreatePlainObjectProxyLazily(value) &&
-                    !inputNeedsMaterialization(value)
+                    getManagedProxyForUnproxiedNode(value) === undefined
                 ) {
                     continue;
                 }
@@ -1337,7 +1337,7 @@ function preparePropertyValue(
 /** Prepare a resolver once, then materialize only the requested direct slot. */
 export function createDirectChildResolver(
     node: TreeNode
-): (key: unknown) => object | undefined {
+): (key: unknown, expectedRawValue?: object) => object | undefined {
     const base = getBaseProxy(node);
     const handler = getCustomProxyHandler(base);
     if (!(handler instanceof BaseProxyHandler)) {
@@ -1346,19 +1346,26 @@ export function createDirectChildResolver(
         );
     }
     const raw = handler[unproxiedBaseNodeKey];
-    return (key) => {
-        if (raw instanceof Map)
+    const resolve = (key: unknown, expectedRawValue?: object) => {
+        if (raw instanceof Map) {
+            const value = raw.get(key);
+            if (expectedRawValue !== undefined && value !== expectedRawValue)
+                return undefined;
             return getOrCreateMapValueProxy(
                 handler,
                 key,
-                raw.get(key),
+                value,
                 base,
                 handler.emitter
             );
-        if (raw instanceof Set)
+        }
+        if (raw instanceof Set) {
+            if (expectedRawValue !== undefined && key !== expectedRawValue)
+                return undefined;
             return raw.has(key)
                 ? getOrCreateSetValueProxy(handler, key, base, handler.emitter)
                 : undefined;
+        }
         if (
             typeof key !== "string" &&
             typeof key !== "symbol" &&
@@ -1367,6 +1374,8 @@ export function createDirectChildResolver(
             return undefined;
         const prop = typeof key === "number" ? String(key) : key;
         const value = Reflect.get(raw, prop);
+        if (expectedRawValue !== undefined && value !== expectedRawValue)
+            return undefined;
         if (
             handler.reactiveObject === undefined &&
             shouldLazilyProxyProperty(raw, prop, value) &&
@@ -1385,6 +1394,14 @@ export function createDirectChildResolver(
         }
         const result: unknown = Reflect.get(base, prop);
         return isCustomProxy(result) ? result : undefined;
+    };
+    return (key, expectedRawValue) => {
+        const result = resolve(key, expectedRawValue);
+        if (expectedRawValue === undefined) return result;
+        const resultHandler = getCustomProxyHandlerFromMetadata(result);
+        return resultHandler?.[unproxiedBaseNodeKey] === expectedRawValue
+            ? result
+            : undefined;
     };
 }
 
@@ -1569,7 +1586,10 @@ function wrapMapMutation(
                     proxyNode: baseProxy,
                     propName: mapKeyAsPropName(key),
                 };
-                if (isCustomProxy(value) || inputNeedsMaterialization(value)) {
+                if (
+                    isCustomProxy(value) ||
+                    getManagedProxyForUnproxiedNode(value) !== undefined
+                ) {
                     cacheCollectionChildProxy(
                         handler,
                         key,
@@ -1829,7 +1849,10 @@ function wrapSetMutation(
                     proxyNode: baseProxy,
                     propName: null,
                 };
-                if (isCustomProxy(value) || inputNeedsMaterialization(value)) {
+                if (
+                    isCustomProxy(value) ||
+                    getManagedProxyForUnproxiedNode(value) !== undefined
+                ) {
                     cacheCollectionChildProxy(
                         handler,
                         rawValue,

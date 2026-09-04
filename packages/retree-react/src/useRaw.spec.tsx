@@ -45,6 +45,32 @@ describe("useRaw", () => {
         ).toHaveLength(2);
     });
 
+    it("reads a keyed slot once and preserves existing managed identities", () => {
+        const child = { value: 1 };
+        let reads = 0;
+        const root = Retree.root({
+            get child() {
+                reads++;
+                return child;
+            },
+        });
+        let resolve: ToManaged | undefined;
+        function View() {
+            [, resolve] = useRaw(root);
+            return null;
+        }
+        render(<View />);
+        reads = 0;
+        const managed = resolve!(child, { key: "child" });
+        expect(managed).toBeDefined();
+        expect(reads).toBe(1);
+        act(() => {
+            managed!.value++;
+        });
+        const current = Retree.managed(child);
+        expect(resolve!(child, { key: "missing" })).toBe(current);
+    });
+
     it("returns the raw node and re-renders on own changes only", () => {
         const root = Retree.root({ tasks: makeTasks() });
         const listRenders = vi.fn();
