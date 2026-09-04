@@ -1,3 +1,23 @@
+<!-- BEGIN:intro -->
+
+# Retree
+
+Retree is a simple state framework for precise, lightning-fast reactive rendering. It is primarily designed for use with React.
+
+## Note from Ryan
+
+Hi, I'm Ryan, the creator of Retree. Hi, I'm Ryan. I'm an engineer, game developer, product manager, and UX designer.
+
+I like bold ideas, simple systems, and software that feels obvious. Do not preserve complexity just because it already exists. Machinery should be as minimal as possible and serve clear purpose. Understand real constraints, then fight for the smallest model that makes the correct behavior unsurprising. Value precise, measured performance.
+
+Channel both "measure twice, cut once" and "yagni". Fight scope creep. Try to honor the dev's intent in both a minimal and realistic fashion.
+
+I am hoping to bring MVVM back to React. Specifically, I want to have focused view models that can be more tightly coupled to the React component tree. Most state frameworks have top-level global state, or perhaps many different React Context providers. I've used a variety of state frameworks at scale and none have felt like they strike the right balance. Getting React to have precise rendering in a complex, deep view tree is incredibly challenging. Retree is my attempt to make that better.
+
+Performance is critical in Retree. My app Neo Compose is using Retree in a large React app using Convex. Retree is the most common cause of performance issues, usually due to deep proxy traps. We have numerous APIs to help solve those problems, but it is our job to make performance as automatic as possible. Where things can't be automatic, aim to provide intuitive APIs that set our developers up for success.
+
+<!-- END:intro -->
+
 <!-- BEGIN:taste -->
 
 ## Code taste
