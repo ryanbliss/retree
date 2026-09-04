@@ -70,7 +70,7 @@ export function reconcileArray<TItem extends object>(
                 break;
             }
 
-            reconcileObject(current[index]!, nextItem, rawItem);
+            reconcileObject(() => current[index]!, nextItem, rawItem);
         }
 
         if (allItemsStayedInPlace) {
@@ -104,7 +104,7 @@ export function reconcileArray<TItem extends object>(
         // the insert path above instead of aliasing one managed object into
         // two array slots.
         currentById.delete(nextId);
-        reconcileObject(currentItem, nextItem);
+        reconcileObject(() => currentItem, nextItem, unwrapRaw(currentItem));
         // rawCurrent is a live view of `current`, so this reads the latest
         // slot state even after earlier assignments in this loop. Compare by
         // identity, not id: duplicate-id emissions can put two distinct
@@ -164,87 +164,129 @@ function reconcileDocumentArrayById(
     reconcileArray(current, next, (item) => item._id);
 }
 
+type ReconcileTarget = {
+    raw: object;
+    managed?: object;
+} & (
+    | { parent: ReconcileTarget; key: string | number }
+    | { getRoot: () => object }
+);
+
+type FieldWork = {
+    target: ReconcileTarget;
+    key: string | number;
+} & ({ kind: "compare"; value: unknown } | { kind: "delete" });
+
+function getManagedTarget(target: ReconcileTarget): object {
+    const path: ReconcileTarget[] = [];
+    let current = target;
+    while (current.managed === undefined) {
+        if (!("parent" in current)) {
+            current.managed = current.getRoot();
+            break;
+        }
+        path.push(current);
+        current = current.parent;
+    }
+    let managed = current.managed;
+    while (path.length > 0) {
+        const child = path.pop()!;
+        if (!("key" in child)) {
+            throw new Error(
+                "Reconciliation child path is missing its property key."
+            );
+        }
+        const value: unknown = Reflect.get(managed, child.key);
+        if (value === null) {
+            throw new Error(
+                `Reconciliation target at '${String(child.key)}' became null.`
+            );
+        }
+        if (typeof value !== "object") {
+            throw new Error(
+                `Reconciliation target at '${String(
+                    child.key
+                )}' is no longer an object.`
+            );
+        }
+        child.managed = value;
+        managed = value;
+    }
+    return managed;
+}
+
 function reconcileObject<T extends object>(
-    target: T,
+    getRoot: () => T,
     source: T,
-    rawTarget?: T
+    raw: T
 ): void {
-    const raw = rawTarget ?? unwrapRaw(target);
-    for (const key of Object.keys(raw)) {
-        if (!Object.prototype.hasOwnProperty.call(source, key)) {
-            Reflect.deleteProperty(target, key);
+    const pending: FieldWork[] = [];
+    queueFields(pending, { raw, getRoot }, source);
+    while (pending.length > 0) {
+        const work = pending.pop()!;
+        const { target, key } = work;
+        if (work.kind === "delete") {
+            Reflect.deleteProperty(getManagedTarget(target), key);
+            continue;
         }
-    }
-
-    for (const [key, value] of Object.entries(source)) {
-        reconcileField(target, raw, key, value);
+        const rawValue: unknown = Reflect.get(target.raw, key);
+        const value = work.value;
+        if (Object.is(rawValue, value) && Object.hasOwn(target.raw, key)) {
+            continue;
+        }
+        const bothRecords = isPlainRecord(rawValue) && isPlainRecord(value);
+        const bothArrays = Array.isArray(rawValue) && Array.isArray(value);
+        if (bothRecords || bothArrays) {
+            queueFields(pending, { raw: rawValue, parent: target, key }, value);
+            continue;
+        }
+        if (deepEquals(rawValue, value) && Object.hasOwn(target.raw, key)) {
+            continue;
+        }
+        Reflect.set(getManagedTarget(target), key, value);
     }
 }
 
-/**
- * Reconcile one field of a managed object or array slot.
- *
- * @remarks
- * Server emissions produce a fresh reference for every nested object and
- * array, so a reference compare alone would rewrite (and re-emit for) every
- * nested field on every emission. Reads run against `rawTarget` at native
- * speed; writes dispatch through `target` only when the value actually
- * changed. Same-shape nested objects and arrays are reconciled in place so
- * unchanged nested nodes keep identity and emit nothing.
- */
-function reconcileField(
-    target: object,
-    rawTarget: object,
-    key: string | number,
-    value: unknown
+function queueFields(
+    pending: FieldWork[],
+    target: ReconcileTarget,
+    source: object
 ): void {
-    const rawValue = (rawTarget as Record<string | number, unknown>)[key];
-    if (rawValue === value) {
+    if (Array.isArray(target.raw) && Array.isArray(source)) {
+        if (target.raw.length > source.length) {
+            pending.push({
+                kind: "compare",
+                target,
+                key: "length",
+                value: source.length,
+            });
+        }
+        for (let index = source.length - 1; index >= 0; index--) {
+            pending.push({
+                kind: "compare",
+                target,
+                key: index,
+                value: source[index],
+            });
+        }
         return;
     }
-
-    // Deep-equal nested values need no write at all. Checking before
-    // recursing also avoids materializing a managed child proxy for
-    // unchanged nested fields — the dominant case for live query emissions.
-    if (deepEquals(rawValue, value)) {
-        return;
+    const keys = Object.keys(source);
+    for (let index = keys.length - 1; index >= 0; index--) {
+        const key = keys[index];
+        pending.push({
+            kind: "compare",
+            target,
+            key,
+            value: Reflect.get(source, key),
+        });
     }
-
-    if (isPlainRecord(rawValue) && isPlainRecord(value)) {
-        const managedChild = Reflect.get(target, key);
-        if (isPlainRecord(managedChild)) {
-            reconcileObject(managedChild, value, rawValue);
-            return;
+    const previousKeys = Object.keys(target.raw);
+    for (let index = previousKeys.length - 1; index >= 0; index--) {
+        const key = previousKeys[index];
+        if (!Object.hasOwn(source, key)) {
+            pending.push({ kind: "delete", target, key });
         }
-    }
-
-    if (Array.isArray(rawValue) && Array.isArray(value)) {
-        const managedChild = Reflect.get(target, key);
-        if (Array.isArray(managedChild)) {
-            reconcileNestedArray(managedChild, value, rawValue);
-            return;
-        }
-    }
-
-    Reflect.set(target, key, value);
-}
-
-function reconcileNestedArray(
-    target: unknown[],
-    source: unknown[],
-    rawTarget: unknown[]
-): void {
-    const sharedLength = Math.min(rawTarget.length, source.length);
-    for (let index = 0; index < sharedLength; index++) {
-        reconcileField(target, rawTarget, index, source[index]);
-    }
-
-    for (let index = rawTarget.length; index < source.length; index++) {
-        Reflect.set(target, index, source[index]);
-    }
-
-    if (rawTarget.length > source.length) {
-        target.length = source.length;
     }
 }
 
