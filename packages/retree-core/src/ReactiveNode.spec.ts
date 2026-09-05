@@ -967,3 +967,32 @@ describe("ReactiveNode raw/untracked/peekInto", () => {
         unsubscribe();
     });
 });
+
+it("retains active dependency records while refreshing values and removing stale sources", () => {
+    class Owner extends ReactiveNode {
+        tick = 0;
+        enabled = true;
+        items = [{ value: 1 }, { value: 2 }];
+        get dependencies() {
+            return this.enabled
+                ? this.items.map((item) => this.dependency(item, [item.value]))
+                : [];
+        }
+    }
+    const owner = trackRoot(Retree.root(new Owner()));
+    const changed = vi.fn();
+    const off = Retree.on(owner, "nodeChanged", changed);
+    const before = getReactiveDependencies(Retree.raw(owner))!.slice();
+    owner.tick++;
+    const after = getReactiveDependencies(Retree.raw(owner))!;
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    changed.mockClear();
+    owner.items[0].value++;
+    expect(changed).toHaveBeenCalledTimes(1);
+    owner.enabled = false;
+    changed.mockClear();
+    owner.items[0].value++;
+    expect(changed).not.toHaveBeenCalled();
+    off();
+});

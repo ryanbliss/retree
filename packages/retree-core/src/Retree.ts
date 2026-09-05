@@ -2129,12 +2129,12 @@ export class Retree {
             }
             return;
         }
-        const previousDependenciesByKey = new Map(
-            previousDependencies?.map((dependency) => [
-                dependency.key,
-                dependency,
-            ]) ?? []
-        );
+        const previousDependenciesByKey = new Map<
+            string,
+            IActiveReactiveDependency
+        >();
+        for (const dependency of previousDependencies ?? [])
+            previousDependenciesByKey.set(dependency.key, dependency);
         const selectValueFor = (dependency: IActiveReactiveDependency) =>
             dependency.selectGetterName === undefined
                 ? undefined
@@ -2149,6 +2149,7 @@ export class Retree {
             const previousDependency = previousDependenciesByKey.get(
                 currentDependency.key
             );
+            previousDependenciesByKey.delete(currentDependency.key);
             const newDependencyNode = currentDependency.node;
             let unsubscribe: (() => void) | undefined;
             const previousUnproxiedDependencyNode =
@@ -2266,35 +2267,30 @@ export class Retree {
                 }
             }
 
-            newActiveDependencies.push({
-                key: currentDependency.key,
-                node: currentDependency.node,
-                comparisons: baselineComparisons,
-                comparisonsOffset: baselineComparisonsOffset,
-                selectGetterName: currentDependency.selectGetterName,
-                selectValue: baselineSelectValue,
-                compareSelectValueBeforeNotify:
-                    currentDependency.compareSelectValueBeforeNotify,
-                getAccessSummaries: baselineAccessSummaries,
-                unsubscribeListener: unsubscribe,
-                unproxiedNode: currentUnproxiedDependencyNode,
-            });
+            const active = previousDependency ?? { ...currentDependency };
+            active.key = currentDependency.key;
+            active.node = currentDependency.node;
+            active.comparisons = baselineComparisons;
+            active.comparisonsOffset = baselineComparisonsOffset;
+            active.selectGetterName = currentDependency.selectGetterName;
+            active.selectValue = baselineSelectValue;
+            active.compareSelectValueBeforeNotify =
+                currentDependency.compareSelectValueBeforeNotify;
+            active.getAccessSummaries = baselineAccessSummaries;
+            active.unsubscribeListener = unsubscribe;
+            active.unproxiedNode = currentUnproxiedDependencyNode;
+            newActiveDependencies.push(active);
         }
-        const currentDependencyKeys = new Set(
-            currentDependencies.map((dependency) => dependency.key)
-        );
-        for (const previousDependency of previousDependencies ?? []) {
-            if (!currentDependencyKeys.has(previousDependency.key)) {
-                previousDependency.unsubscribeListener?.();
-                const previousUnproxiedDependencyNode =
-                    previousDependency.unproxiedNode;
-                if (previousUnproxiedDependencyNode !== undefined) {
-                    deleteReactiveDependent(
-                        previousUnproxiedDependencyNode,
-                        unproxiedDependentNode,
-                        previousDependency.key
-                    );
-                }
+        for (const previousDependency of previousDependenciesByKey.values()) {
+            previousDependency.unsubscribeListener?.();
+            const previousUnproxiedDependencyNode =
+                previousDependency.unproxiedNode;
+            if (previousUnproxiedDependencyNode !== undefined) {
+                deleteReactiveDependent(
+                    previousUnproxiedDependencyNode,
+                    unproxiedDependentNode,
+                    previousDependency.key
+                );
             }
         }
         // Set reactive dependencies
