@@ -169,13 +169,12 @@ export function createRetreeCompositeExternalStore(
     const getSnapshot = () => {
         // Compare in a plain loop first so the unchanged path (the common
         // case: getSnapshot runs on every render) allocates nothing and
-        // returns the previous snapshot by reference.
-        let changed = false;
-        for (let index = 0; index < sources.length; index++) {
-            if (!Object.is(sources[index].getVersion(), versions[index])) {
-                changed = true;
-                break;
-            }
+        // returns the previous snapshot by reference. A flush emits one
+        // notification per changed node under one version move, so changes
+        // delivered since the snapshot also make it stale.
+        let changed = pendingChanges.length > 0;
+        for (let index = 0; !changed && index < sources.length; index++) {
+            changed = !Object.is(sources[index].getVersion(), versions[index]);
         }
         if (changed) {
             versions = sources.map((source) => source.getVersion());

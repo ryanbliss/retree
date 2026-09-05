@@ -93,8 +93,12 @@ the subscription. The composite store records the `(rawNode, changes)` pairs
 its live subscription receives and attaches them to the next snapshot, so a
 snapshot change validates only the records of the nodes that changed; a node
 without a record (a descendant the selector never read) is skipped. A
-version that moved without a live subscription yields no change list, and
-the hook falls back to validating every record under the moved source.
+transaction flush emits one notification per changed node under a single
+subtree version move, so the store treats undelivered changes as a stale
+snapshot too; otherwise every notification after the first in a flush would
+be lost. A version that moved without a live subscription yields no change
+list, and the hook falls back to validating every record under the moved
+source.
 
 Why this matters: a `@select` getter returns a fresh value on every call, so
 validating a record that captured such a getter always reports a change.

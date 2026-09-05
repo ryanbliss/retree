@@ -151,7 +151,11 @@ cover with covered children uses a new internal subtree listener
 ancestors. Validation re-reads plain, array, Map, Set and Date owners raw
 and `ReactiveNode` owners through the base proxy. Tracked `useSelect` gets
 the changed nodes from the composite store's snapshot and validates only
-their records.
+their records. Neo's unit lane caught the store keying snapshot staleness on
+the subtree version alone: a transaction that wrote a sibling and then the
+tracked node moved that version once, so the second notification returned
+the first snapshot and the tracked write was lost. Undelivered changes now
+make the snapshot stale as well.
 
 50k-row document, base = item 3 (`4837c9b`), `ONLY=B`, three alternating
 serial rounds:
