@@ -372,31 +372,21 @@ Rules that keep raw reads safe:
 
 ## Node identity and versions
 
-A node's identity is its version. Reading a node returns the same object
-until that node changes, then a fresh one, whichever path you read it
-through: a parent, `Retree.parent`, `Retree.managed`, a listener argument,
-or a chaining mutator like `sort` or `Map.set`. Two reads are `===` exactly
-while nothing on that node was written between them, which is what
-`useSelect` and `React.memo` rely on.
+Every node has a stable base proxy and, once it has changed, a view (a
+reproxy) whose identity is fresh per version. Which one a read returns
+follows the receiver: reads through a base proxy return base proxies, and
+reads through a view return the latest views. `useNode`, `useTree`, listener
+arguments, and `Retree.managed` hand you views, so in React a changed node
+is a new reference and an unchanged one is the same reference, which is what
+`useSelect` and `React.memo` rely on. The object `Retree.root(...)` returned
+and `this` inside a method are whatever receiver the caller used.
+
+Compare `Retree.raw(a) === Retree.raw(b)` when you need an identity that
+survives writes, or store a version number instead of a node:
 
 ```ts
 const project = Retree.root({ tasks: [{ done: false }], name: "a" });
 
-const tasks = project.tasks;
-project.name = "b"; // unrelated write
-project.tasks === tasks; // true
-project.tasks[0].done = true; // writes a task, not the array
-project.tasks === tasks; // true
-project.tasks.push({ done: false }); // writes the array
-project.tasks === tasks; // false: fresh identity
-```
-
-Two handles stay put on purpose: the object `Retree.root(...)` returned and
-`this` inside a method, which is whatever receiver the caller used. Compare
-`Retree.raw(a) === Retree.raw(b)` when you need an identity that survives
-writes, or store a version number instead of a node:
-
-```ts
 let cachedVersion = Retree.version(project.tasks);
 let cachedCount = project.tasks.filter((task) => task.done).length;
 
@@ -408,10 +398,14 @@ function doneCount(): number {
     }
     return cachedCount;
 }
+
+project.name = "b"; // unrelated write: version unchanged
+project.tasks[0].done = true; // writes a task, not the array: unchanged
+project.tasks.push({ done: false }); // writes the array: version advances
 ```
 
 -   `Retree.version(node)` advances when the node's own fields change, the
-    same moments its identity changes.
+    same moments its view identity changes.
 -   `Retree.treeVersion(node)` advances when the node or any structural
     descendant changes, like `treeChanged`, with no listener required.
 -   Both accept a managed node or the raw object behind one, and both stay
@@ -836,7 +830,7 @@ For Redux DevTools Extension integration (action stream, state inspection, time 
 
 ## Performance model
 
-Retree is built on JavaScript proxies: every node has one identity per version, refreshed when the node changes. That model is ergonomic, but the cost is not uniform. The main rule of thumb is to subscribe and read as narrowly as your UI or workflow allows.
+Retree is built on JavaScript proxies plus stable "base" proxies and fresh reproxy identities after changes. That model is ergonomic, but the cost is not uniform. The main rule of thumb is to subscribe and read as narrowly as your UI or workflow allows.
 
 ### Prefer narrow `nodeChanged` subscriptions
 

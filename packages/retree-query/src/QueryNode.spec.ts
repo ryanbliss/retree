@@ -330,10 +330,7 @@ describe("QueryNode", () => {
         expect(seen[0].rawCurrent).toBeUndefined();
         expect(seen[1].current).toBeDefined();
         expect(seen[1].rawCurrent).toBe(Retree.raw(seen[1].current as ITask[]));
-        if (task === undefined) {
-            throw new Error("Expected the first task to exist.");
-        }
-        expect(Retree.raw(node.state![0])).toBe(Retree.raw(task));
+        expect(node.state?.[0]).toBe(task);
         expect(node.state?.[0]?.text).toBe("Buy oat milk");
     });
 

@@ -280,7 +280,7 @@ describe("keys dependencies (in / Object.keys / iteration shape)", () => {
             // handler.
             root.record.a = 2;
             const reproxiedRecord = getReproxyNode(getBaseProxy(root.record));
-            expect(reproxiedRecord).not.toBe(getBaseProxy(root.record));
+            expect(reproxiedRecord).not.toBe(root.record);
 
             const callback = vi.fn();
             trackUnsubscribe(

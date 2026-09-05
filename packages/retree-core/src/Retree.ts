@@ -1088,11 +1088,7 @@ export class Retree {
      */
     static parent(node: TreeNode): TreeNode | null {
         const response = this.getParentInternal(node);
-        if (response === null) return null;
-        return (
-            getManagedProxyForUnproxiedNode(response.rawNode) ??
-            response.proxyNode
-        );
+        return response?.proxyNode ?? null;
     }
 
     /**

@@ -34,8 +34,6 @@ import {
     getBaseHandlerOfProxy,
     getManagedProxyForUnproxiedNode,
     getReproxyNode,
-    latestIdentity,
-    latestIdentityOfHandler,
     registerBaseProxy,
     resolveBaseHandler,
     updateReproxyNode,
@@ -226,6 +224,7 @@ interface BoundFunctionCacheEntry {
 interface IHandlerCaches {
     boundFunctions: Map<string | symbol, BoundFunctionCacheEntry> | null;
     arrayMutators: Map<ArrayMutatingMethodName, Function> | null;
+    reproxyArrayMutators: Map<string | symbol, Function> | null;
     collectionProxies: Map<any, TCustomProxy<any>> | null;
 }
 
@@ -386,6 +385,7 @@ export class BaseProxyHandler<T extends TreeNode>
         return (this.caches ??= {
             boundFunctions: null,
             arrayMutators: null,
+            reproxyArrayMutators: null,
             collectionProxies: null,
         });
     }
@@ -469,7 +469,7 @@ export class BaseProxyHandler<T extends TreeNode>
                     this,
                     baseProxy,
                     prop,
-                    latestIdentityOfHandler(child)
+                    child.baseProxy
                 );
             }
         }
@@ -536,8 +536,8 @@ export class BaseProxyHandler<T extends TreeNode>
     }
 
     /**
-     * Serve an object read off the raw target as its latest identity: a
-     * stored managed proxy is adopted, a plain object or array on an own,
+     * Serve an object read off the raw target as its base proxy: a stored
+     * managed proxy is adopted, a plain object or array on an own,
      * redefinable data property materializes a child, and anything else
      * (inherited, locked, or a class instance the constructor never
      * proxied) is served as stored.
@@ -549,13 +549,11 @@ export class BaseProxyHandler<T extends TreeNode>
     ): object {
         const storedHandler = getCustomProxyHandlerFromMetadata(value);
         if (storedHandler !== undefined) {
-            return latestIdentity(
-                this.adoptStoredProxy(
-                    target,
-                    prop,
-                    value,
-                    storedHandler[unproxiedBaseNodeKey]
-                )
+            return this.adoptStoredProxy(
+                target,
+                prop,
+                value,
+                storedHandler[unproxiedBaseNodeKey]
             );
         }
         if (!hasLazilyProxiedShape(value)) {
@@ -568,9 +566,8 @@ export class BaseProxyHandler<T extends TreeNode>
         if (descriptorRequiresExactDefinedValue(descriptor, descriptor)) {
             return value;
         }
-        return latestIdentityOfHandler(
-            getOrCreateProxiedChildHandler(this, prop, value, this.emitter)
-        );
+        return getOrCreateProxiedChildHandler(this, prop, value, this.emitter)
+            .baseProxy;
     }
 
     private getInternalSlotMethod(
@@ -1764,9 +1761,16 @@ function wrapMapMutation(
                     hadKey ? undefined : "add"
                 )
             );
-            // Map.prototype.set returns the map itself; return its latest
-            // identity so chaining stays reactive.
-            return latestIdentityOfHandler(handler);
+            // Map.prototype.set returns the map itself; return the proxy so chaining stays reactive.
+            // Note: reproxy callers receive this base proxy as well. Unlike
+            // array mutators (whose reproxy reads map a base-proxy return to
+            // the latest reproxy in ReproxyHandler.get), Map/Set method reads
+            // delegate through the internal-slot branch wholesale, and
+            // wrapping every delegated method there to remap the return
+            // value would break bound-function identity stability. Chaining
+            // off the base proxy stays fully reactive, so this is a
+            // documented trade-off.
+            return baseProxy;
         };
     }
     if (prop === "delete") {
@@ -1977,7 +1981,7 @@ function wrapSetMutation(
         return function addWrapper(value: any) {
             const rawValue = unwrapCollectionValue(value);
             if (findSetStoredValue(target, rawValue) !== undefined) {
-                return latestIdentityOfHandler(handler);
+                return baseProxy;
             }
             if (value !== null && typeof value === "object") {
                 const parentToSet: IProxyParent<any> = {
@@ -2007,9 +2011,10 @@ function wrapSetMutation(
                 [],
                 createNodeFieldChanges(target, "add", undefined, rawValue)
             );
-            // Set.prototype.add returns the set itself; return its latest
-            // identity so chaining stays reactive.
-            return latestIdentityOfHandler(handler);
+            // Set.prototype.add returns the set itself; reproxy callers also
+            // receive this base proxy (see the trade-off note in
+            // wrapMapMutation's set wrapper).
+            return baseProxy;
         };
     }
     if (prop === "delete") {
@@ -2744,7 +2749,7 @@ function wrapArrayMutation(
             }
             const previousLength = target.length;
             if (previousLength <= 1) {
-                return latestIdentityOfHandler(handler);
+                return baseProxy;
             }
             const rawBefore = target.slice();
             let comparatorToUse:
@@ -2807,17 +2812,17 @@ function wrapArrayMutation(
             }
             const changes = collectReorderedArrayChanges(rawBefore, target);
             if (changes.length === 0) {
-                return latestIdentityOfHandler(handler);
+                return baseProxy;
             }
             emitCollectionChange(target, baseProxy, emitter, [], changes);
-            return latestIdentityOfHandler(handler);
+            return baseProxy;
         };
     }
     if (prop === "reverse") {
         return function reverseWrapper() {
             const previousLength = target.length;
             if (previousLength <= 1) {
-                return latestIdentityOfHandler(handler);
+                return baseProxy;
             }
             const rawBefore = target.slice();
             const cacheSnapshot = snapshotArrayChildCache(
@@ -2827,7 +2832,7 @@ function wrapArrayMutation(
             Array.prototype.reverse.call(target);
             const changes = collectReorderedArrayChanges(rawBefore, target);
             if (changes.length === 0) {
-                return latestIdentityOfHandler(handler);
+                return baseProxy;
             }
             rebuildArrayChildrenAfterReorder(
                 handler,
@@ -2837,7 +2842,7 @@ function wrapArrayMutation(
                 cacheSnapshot
             );
             emitCollectionChange(target, baseProxy, emitter, [], changes);
-            return latestIdentityOfHandler(handler);
+            return baseProxy;
         };
     }
     if (prop === "fill") {
@@ -2857,7 +2862,7 @@ function wrapArrayMutation(
                 }
             }
             if (changedIndices.length === 0) {
-                return latestIdentityOfHandler(handler);
+                return baseProxy;
             }
             const removedNodes: object[] = [];
             const changes: INodeFieldChanges[] = [];
@@ -2897,7 +2902,7 @@ function wrapArrayMutation(
                 removedNodes,
                 changes
             );
-            return latestIdentityOfHandler(handler);
+            return baseProxy;
         };
     }
     if (prop === "copyWithin") {
@@ -2912,7 +2917,7 @@ function wrapArrayMutation(
             const finalIndex = normalizeArrayOffset(end, length, length);
             const count = Math.min(finalIndex - from, length - to);
             if (count <= 0) {
-                return latestIdentityOfHandler(handler);
+                return baseProxy;
             }
             const rawBefore = target.slice();
             const cacheSnapshot = snapshotArrayChildCache(handler, length);
@@ -2947,7 +2952,7 @@ function wrapArrayMutation(
                 });
             }
             if (changes.length === 0) {
-                return latestIdentityOfHandler(handler);
+                return baseProxy;
             }
             Array.prototype.copyWithin.call(target, to, from, finalIndex);
             for (let offset = 0; offset < count; offset++) {
@@ -2979,7 +2984,7 @@ function wrapArrayMutation(
                 removedNodes,
                 changes
             );
-            return latestIdentityOfHandler(handler);
+            return baseProxy;
         };
     }
     // @retree-throws

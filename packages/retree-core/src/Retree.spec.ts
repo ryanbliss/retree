@@ -661,7 +661,7 @@ describe("Retree", () => {
             );
         }
         expect(nodeChanged).toHaveBeenCalledTimes(1);
-        expect(Retree.parent(child)).toBe(Retree.managed(root));
+        expect(Retree.parent(child)).toBe(root);
         if (!latestReproxy) {
             throw new Error(
                 "Expected Object.defineProperty object child listener to receive a reproxy"
@@ -833,11 +833,11 @@ describe("Retree", () => {
         if (setItem === undefined) {
             throw new Error("Expected replacement set item.");
         }
-        expect(Retree.parent(root.list)).toBe(Retree.managed(root));
+        expect(Retree.parent(root.list)).toBe(root);
         expect(Retree.parent(listItem)).toBe(root.list);
-        expect(Retree.parent(root.map)).toBe(Retree.managed(root));
+        expect(Retree.parent(root.map)).toBe(root);
         expect(Retree.parent(mapItem)).toBe(root.map);
-        expect(Retree.parent(root.set)).toBe(Retree.managed(root));
+        expect(Retree.parent(root.set)).toBe(root);
         expect(Retree.parent(setItem)).toBe(root.set);
         expect(getReproxyNode(root)).not.toBe(originalRootReproxy);
     });
@@ -975,7 +975,7 @@ describe("Retree", () => {
         if (!owner.selected) {
             throw new Error("Expected Retree.link to create a selected link.");
         }
-        expect(Retree.parent(owner.selected)).toBe(Retree.managed(owner));
+        expect(Retree.parent(owner.selected)).toBe(owner);
         expect(Retree.parent(owner.selected.current)).toBe(source);
     });
 
@@ -1016,7 +1016,7 @@ describe("Retree", () => {
 
         expect(nodeChanged).toHaveBeenCalledTimes(1);
         expect(owner.selected).toBe(selected);
-        expect(Retree.parent(selected)).toBe(Retree.managed(owner));
+        expect(Retree.parent(selected)).toBe(owner);
         expect(Retree.parent(selected.current)).toBe(source);
 
         const beforeChange = selected.current;
@@ -1218,7 +1218,7 @@ describe("Retree", () => {
         expect(root.copy).not.toBe(root.source);
         expect(root.copy.nested).not.toBe(root.source.nested);
         expect(root.copy.nested.value).toBe(1);
-        expect(Retree.parent(root.copy)).toBe(Retree.managed(root));
+        expect(Retree.parent(root.copy)).toBe(root);
         expect(Retree.parent(root.copy.nested)).toBe(root.copy);
     });
 

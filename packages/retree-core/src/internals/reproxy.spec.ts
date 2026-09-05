@@ -90,8 +90,7 @@ describe("reproxy internals", () => {
 
         const updated = getReproxyNode(root.child);
         expect(updated).not.toBe(original);
-        expect(updated).toBe(root.child);
-        expect(getBaseProxy(updated)).toBe(getBaseProxy(root.child));
+        expect(getBaseProxy(updated)).toBe(root.child);
 
         if (!isCustomProxy<{ value: number }>(root.child)) {
             throw new Error(
@@ -109,7 +108,7 @@ describe("reproxy internals", () => {
         });
         root.record.a = 10;
         const view = getReproxyNode(getBaseProxy(root.record));
-        expect(view).not.toBe(getBaseProxy(root.record));
+        expect(view).not.toBe(root.record);
         const changed = vi.fn();
         const stop = Retree.on(root.record, "nodeChanged", changed);
 

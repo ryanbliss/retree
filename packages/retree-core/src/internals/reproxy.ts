@@ -77,7 +77,7 @@ export function resolveBaseHandler<T extends TreeNode>(
  * The latest identity of a value read off a raw node: the current view of a
  * managed node, or the value itself when it is not managed.
  */
-export function latestIdentity<T>(value: T): T {
+function latestIdentity<T>(value: T): T {
     const handler = getCustomProxyHandlerFromMetadata(value);
     if (handler === undefined) {
         return value;
@@ -295,6 +295,36 @@ class ReproxyHandler<T extends TreeNode>
         );
     }
 
+    /**
+     * Wrap a base-proxy array mutator so callers holding a reproxy receive
+     * the latest reproxy back when the mutator returns the array itself
+     * (sort/reverse/fill/copyWithin). The wrapper is cached on the BASE
+     * handler, not this reproxy handler: reproxies are rebuilt on every
+     * mutation, and `arr.push === arr.push` must hold across generations so
+     * tracked selectors reading a mutator method do not re-run forever.
+     */
+    private getReproxyAwareArrayMutator(
+        prop: string | symbol,
+        baseMutator: Function
+    ): Function {
+        const cache = (this.baseHandler.ensureCaches().reproxyArrayMutators ??=
+            new Map());
+        const cached = cache.get(prop);
+        if (cached !== undefined) {
+            return cached;
+        }
+        const object = this.baseProxy;
+        const reproxyAwareMutator = (...args: unknown[]) => {
+            const result = baseMutator(...args);
+            if (result === object) {
+                return getReproxyNode(object);
+            }
+            return result;
+        };
+        cache.set(prop, reproxyAwareMutator);
+        return reproxyAwareMutator;
+    }
+
     public get(target: T, prop: string | symbol, receiver: any): any {
         if (prop === proxyHandlerSentinel) {
             return this;
@@ -347,15 +377,26 @@ class ReproxyHandler<T extends TreeNode>
         }
         // Map/Set/Date methods need the raw target as `this`, and native
         // array mutators must run as one batched write; the base trap owns
-        // both wrappers (which return the latest identity themselves), so
-        // ask it directly instead of dispatching through the base proxy.
+        // both wrappers, so ask it directly instead of dispatching through
+        // the base proxy.
         const kind = base.kind;
-        if (
-            kind >= NodeKind.Map ||
-            (kind === NodeKind.Array &&
-                isNativeArrayMutatorAccess(target, prop))
-        ) {
+        if (kind >= NodeKind.Map) {
             return base.get(target, prop, baseProxy);
+        }
+        if (
+            kind === NodeKind.Array &&
+            isNativeArrayMutatorAccess(target, prop)
+        ) {
+            const baseMutator: unknown = base.get(target, prop, baseProxy);
+            if (typeof baseMutator !== "function") {
+                // @retree-throws
+                throw new Error(
+                    `Retree internal invariant failed: expected the base proxy to resolve the native array mutator '${String(
+                        prop
+                    )}' to its batching wrapper function, but it resolved to type '${typeof baseMutator}'. This is unexpected and likely a Retree bug. Please file a Retree issue with the array operation that triggered this.`
+                );
+            }
+            return this.getReproxyAwareArrayMutator(prop, baseMutator);
         }
         let value: any;
         if (reactiveObject !== undefined) {
@@ -388,7 +429,7 @@ class ReproxyHandler<T extends TreeNode>
                 base,
                 baseProxy,
                 prop,
-                base.resolveStoredObject(target, prop, value)
+                latestIdentity(base.resolveStoredObject(target, prop, value))
             );
         }
         return trackPropertyAccessIfNeeded(base, baseProxy, prop, value);
