@@ -7,7 +7,9 @@
  * Wide-table render measurement for the raw-purity spec's performance gates
  * (specs/retree-raw.md §6): `useRaw` vs `useNode` for read-wide renders, and
  * `useRaw` mount with `toManaged` per row vs the `useNode` equivalent.
- * Prints timings with `--disable-console-intercept`; paired scenarios share
+ * Run with `npm run benchmark:react` on an idle machine. Shared CI runner
+ * timing is too variable for this ratio to gate correctness or publishing.
+ * Paired scenarios share
  * warmup and sampling conditions, with a 1.5x relative performance limit.
  */
 import { cleanup, render } from "@testing-library/react";

@@ -37,6 +37,7 @@
         "typecheck": "tsc -p packages/retree-core/tsconfig.json --noEmit && tsc -p packages/retree-core/tsconfig.test.json --noEmit && tsc -p packages/retree-query/tsconfig.json --noEmit && tsc -p packages/retree-react/tsconfig.json --noEmit && tsc -p packages/retree-devtools/tsconfig.json --noEmit && tsc -p packages/retree-convex/tsconfig.json --noEmit && tsc -p packages/retree-react-convex/tsconfig.json --noEmit && tsc -p packages/retree-react-eslint-plugin/tsconfig.json --noEmit && tsc -p packages/retree-react-eslint-plugin/tsconfig.test.json --noEmit && tsc -p packages/retree-benchmark-cli/tsconfig.json --noEmit && tsc -p packages/retree-create/tsconfig.json --noEmit && tsc -p samples/01.core-example/tsconfig.json --noEmit && tsc -b samples/02.react-example/tsconfig.json --pretty false && tsc -b samples/03.react-recursion/tsconfig.json --pretty false && tsc -p samples/04.convex-react-nextjs/tsconfig.json --noEmit --pretty false && npm run typecheck:benchmarks",
         "benchmark:sdk": "node --expose-gc scripts/run-sdk-scaling.mjs",
         "benchmark:materialization": "npm run build --workspace @retreejs/core && node scripts/benchmark-materialization.mjs",
+        "benchmark:react": "vitest run --config vitest.perf.config.ts --disable-console-intercept",
         "lint:architecture": "node scripts/lint-architecture.mjs",
         "typecheck:benchmarks": "tsc -p benchmarks/tsconfig.json"
     },

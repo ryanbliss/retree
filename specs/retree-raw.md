@@ -419,6 +419,6 @@ if (index >= 0) tasks[index].done = true;
 
 An object returned by `peekInto` can still be raw when it has never been materialized. Use it as a read-only result until its managed identity is resolved.
 
-The cold value-only lookup trades an O(collection size) slot index for avoiding unrelated proxy allocation. For a full-list mount this extra pass can cost more than managed indexing. Pass the known index or key in list mappings; the performance gate compares that direct form with `useNode`, while the benchmark reports the compatibility lookup separately.
+The cold value-only lookup trades an O(collection size) slot index for avoiding unrelated proxy allocation. For a full-list mount this extra pass can cost more than managed indexing. Pass the known index or key in list mappings; `npm run benchmark:react` compares that direct form with `useNode`, while reporting the compatibility lookup separately. This wall-clock gate runs separately from correctness and release CI, whose shared runner timing is variable. Deterministic materialization and slot-read assertions remain in the correctness suite.
 
 Value lookup also observes silent writes. Unrelated writes reuse the slot index when bounded write history proves that its node is unchanged; unknown or expired history rebuilds it conservatively.

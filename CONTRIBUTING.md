@@ -15,13 +15,18 @@ packages, samples, and the website install from the root.
 
 | Command                  | What it does                                          |
 | ------------------------ | ----------------------------------------------------- |
-| `npm run test`           | Full vitest suite across all packages                 |
+| `npm run test`           | Correctness suite across all packages                 |
 | `npm run test:watch`     | Watch mode                                            |
 | `npm run typecheck`      | `tsc --noEmit` across every package and sample        |
 | `npm run doctor`         | Prettier + ESLint with autofix — run before pushing   |
 | `npm run build:packages` | Build all publishable packages                        |
 | `npm run docs`           | Build packages + TypeDoc site + sync skill references |
 | `npm run benchmark`      | Benchmark CLI (writes to `benchmarks/results`)        |
+
+Run `npm run benchmark:react` on an idle machine for the `useRaw` wall-clock
+performance gates. It runs the existing 1.5x comparisons with one worker, outside
+the correctness and release suites. Those suites retain deterministic checks for
+selective materialization, keyed slot reads, and managed identities.
 
 CI (`.github/workflows/ci.yml`) runs typecheck, tests, and lint/format checks
 on every PR — the same commands as above, so a green local run means a green
