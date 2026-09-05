@@ -23,8 +23,8 @@ function getHandler(node: TreeNode, api: string): ICustomProxyHandler {
     const handler = getCustomProxyHandlerFromMetadata(node);
     if (handler === undefined)
         throw new Error(`${api}: expected a Retree-managed node.`);
-    // Parent edges and write-path callers hold base proxies, so this is
-    // normally one trap; a reproxy resolves through its base proxy.
+    // Write-path callers hold base proxies, so this is normally one trap; a
+    // reproxy resolves through its base proxy.
     if (handler.baseProxy === node) return handler;
     const base: ICustomProxyHandler | undefined =
         getCustomProxyHandlerFromMetadata(handler.baseProxy);
@@ -36,8 +36,7 @@ function getHandler(node: TreeNode, api: string): ICustomProxyHandler {
 function parentOf(
     handler: ICustomProxyHandler
 ): ICustomProxyHandler | undefined {
-    const parent = handler[proxiedParentKey]?.proxyNode;
-    return parent ? getHandler(parent, "snapshot parent") : undefined;
+    return handler[proxiedParentKey]?.handler ?? undefined;
 }
 
 function rootOf(handler: ICustomProxyHandler): ICustomProxyHandler {

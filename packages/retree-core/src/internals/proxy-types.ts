@@ -16,7 +16,11 @@ export const proxyHandlerSentinel = Symbol("retree-proxy-sentinel");
  * @internal
  */
 export interface IProxyParent<T extends TreeNode = TreeNode> {
-    proxyNode: ICustomProxy<T> | null;
+    /**
+     * Base handler of the parent node, or null once detached. Holding the
+     * handler (not the proxy) keeps ancestor walks free of proxy traps.
+     */
+    handler: ICustomProxyHandler<T> | null;
     propName: string | symbol | null;
 }
 

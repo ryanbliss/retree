@@ -65,14 +65,20 @@ function trackAccessIfNeeded<T>(value: T): T {
 }
 
 function trackPropertyAccessIfNeeded<T>(
-    owner: unknown,
+    ownerHandler: ICustomProxyHandler<TreeNode>,
+    owner: TCustomProxy<TreeNode>,
     propertyKey: string | symbol,
     value: T
 ): T {
     if (!isDependencyTrackingActive()) {
         return value;
     }
-    return trackDependencyPropertyAccess(owner, propertyKey, value);
+    return trackDependencyPropertyAccess(
+        ownerHandler,
+        owner,
+        propertyKey,
+        value
+    );
 }
 
 export function registerBaseProxy<T extends TreeNode = TreeNode>(
@@ -308,6 +314,7 @@ class ReproxyHandler<T extends TreeNode>
             if (typeof childProxy !== "function") {
                 const reproxy = getReproxyNode(childProxy);
                 return trackPropertyAccessIfNeeded(
+                    this.baseHandler,
                     object,
                     prop,
                     reproxy ?? childProxy
@@ -319,6 +326,7 @@ class ReproxyHandler<T extends TreeNode>
         // base proxy so the bind/wrap logic in buildProxy is reused (and mutations emit).
         if (isInternalSlotInstance(rawNode)) {
             return trackPropertyAccessIfNeeded(
+                this.baseHandler,
                 object,
                 prop,
                 Reflect.get(object, prop, object)
@@ -372,13 +380,19 @@ class ReproxyHandler<T extends TreeNode>
             const baseValue = Reflect.get(object, prop, object);
             if (isCustomProxy(baseValue)) {
                 return trackPropertyAccessIfNeeded(
+                    this.baseHandler,
                     object,
                     prop,
                     getReproxyNode(baseValue) ?? baseValue
                 );
             }
         }
-        return trackPropertyAccessIfNeeded(object, prop, value);
+        return trackPropertyAccessIfNeeded(
+            this.baseHandler,
+            object,
+            prop,
+            value
+        );
     }
 
     public set(
