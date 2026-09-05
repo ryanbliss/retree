@@ -3,7 +3,6 @@
  * Licensed under the MIT License.
  */
 
-import { ReactiveNode } from "../ReactiveNode.js";
 import { INodeFieldChanges, TRetreeChangedEvents, TreeNode } from "../types.js";
 import {
     areDependencyComparisonValuesEqual,
@@ -20,6 +19,7 @@ import {
     NodeReadRecord,
     runWithTrackedWriteWarningSuppressed,
 } from "./dependency-tracking.js";
+import { selectGetterMayReadKey } from "./select-getter-cache.js";
 import { isDevMode } from "./dev.js";
 import {
     getBaseProxy,
@@ -666,16 +666,10 @@ export function runTrackedSelection<TSelected>(
  * short-circuit that check entirely when none of the changed keys were read.
  * Arrays are excluded from key scoping because an index write (e.g. `push`)
  * implicitly changes `length` without emitting a `length` change record.
- * ReactiveNodes are excluded even though records now carry node identity
- * (`change.node` distinguishes own writes from dependency-forwarded records):
- * ReactiveNode property reads routinely resolve getters (`@memo`, `@select`,
- * computed getters) whose values derive from *other* own fields, so an own
- * write to a backing field would be key-scope-skipped while the read getter's
- * value changed. Scoping ReactiveNodes safely needs summaries to separate
- * data-field reads from getter reads first.
- * TODO(spec §6.1 / audit C6): once summaries record whether each validated
- * read was a plain data field, allow key scoping for ReactiveNode records
- * where `change.node === changedRawNode` and every read key is a data field.
+ * ReactiveNode getters need no exclusion: a plain getter's backing reads are
+ * keys of the same record, a `@memo` read replays its dependency reads as
+ * keys of the same record, and a `@select` getter read is scoped by the keys
+ * its cached body run read on the owner, looked up live.
  */
 export function canSkipTrackedDependencyChange(
     changedRawNode: TreeNode,
@@ -691,7 +685,6 @@ export function canSkipTrackedDependencyChange(
     const keyScopingAllowed =
         record.keyScopable &&
         !Array.isArray(changedRawNode) &&
-        !(changedRawNode instanceof ReactiveNode) &&
         !isInternalSlotInstance(changedRawNode);
     if (
         keyScopingAllowed &&
@@ -724,5 +717,12 @@ function isPossiblyRelevantFieldChange(
     if (change.node !== changedRawNode) {
         return true;
     }
-    return record.hasPropertyKey(change.key);
+    if (record.hasPropertyKey(change.key)) {
+        return true;
+    }
+    const selectGetterKeys = record.selectGetterKeys;
+    return (
+        selectGetterKeys !== null &&
+        selectGetterMayReadKey(changedRawNode, selectGetterKeys, change.key)
+    );
 }

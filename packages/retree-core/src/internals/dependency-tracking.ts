@@ -82,6 +82,8 @@ export interface DependencyComparisonAccessor {
     readonly kind: "retree-dependency-comparison-accessor";
     readonly dependencyNode?: TreeNode;
     readonly sourceUnproxiedNode?: TreeNode;
+    /** Property key the read is attributable to; absent for key-set reads. */
+    readonly propertyKey?: string | symbol;
     /** Managed property values also compare their current view; array slots compare raw identities. */
     readonly valueUnproxiedNode?: TreeNode;
     /** Values seen by the read that created this accessor, when it kept them. */
@@ -160,8 +162,9 @@ class TrackedNodeRead implements DependencyComparisonAccessor {
 
 /**
  * A cached trapped memo's comparison replayed into an enclosing frame. Kept
- * re-checkable so tracked selections can validate the read later; it has no
- * property key, so its node stays unscopeable by changed keys.
+ * re-checkable so tracked selections can validate the read later. Its
+ * accessor's property key scopes the node like a direct read; a key-set read
+ * leaves the node unscopeable.
  */
 class ReplayedRead {
     constructor(
@@ -234,6 +237,14 @@ export class NodeReadRecord {
      */
     public wholeNodeRead = false;
     public replayed: ReplayedRead[] | null = null;
+    /** A replayed read had no property key (a key-set read). */
+    public replayedKeyless = false;
+    /**
+     * Cache keys of the `@select` getters the run read on this node. Their
+     * bodies' reads live in the getters' own runs, so key scoping consults
+     * the cached runs live instead of this record's keys.
+     */
+    public selectGetterKeys: (string | symbol)[] | null = null;
     /** The run also read this node's parent, which subscribes for it. */
     public covered = false;
     /** At least one child record is covered by this one. */
@@ -255,7 +266,7 @@ export class NodeReadRecord {
      * field changes that miss those keys can be skipped outright.
      */
     public get keyScopable(): boolean {
-        return this.ownKeys === null && this.replayed === null;
+        return this.ownKeys === null && !this.replayedKeyless;
     }
 
     public hasPropertyKey(key: string): boolean {
@@ -267,6 +278,14 @@ export class NodeReadRecord {
             if (this.presenceKeys !== null) {
                 for (const propertyKey of this.presenceKeys) {
                     keySet.add(String(propertyKey));
+                }
+            }
+            if (this.replayed !== null) {
+                for (const read of this.replayed) {
+                    const propertyKey = read.accessor.propertyKey;
+                    if (propertyKey !== undefined) {
+                        keySet.add(String(propertyKey));
+                    }
                 }
             }
             this.keySet = keySet;
@@ -1035,11 +1054,40 @@ export function replayDependencyComparisonAccesses(
         // from their validation pass. Reusing those cells keeps nested @select
         // collection from re-running expensive property accessors a second time.
         const record = getReadRecord(currentFrame, handler);
+        if (comparison.propertyKey === undefined) {
+            record.replayedKeyless = true;
+        }
         (record.replayed ??= []).push(
             new ReplayedRead(dependencyNode, comparison, [
                 ...(comparisonValues?.[index] ?? comparison.getValues()),
             ])
         );
+    }
+}
+
+/**
+ * Record that the enclosing tracked run is reading the `@select` getter cached
+ * under `cacheKey` on the node behind `ownerHandler`.
+ */
+export function trackSelectGetterRead(
+    ownerHandler: ICustomProxyHandler<TreeNode>,
+    cacheKey: string | symbol
+): void {
+    if (pauseDependencyTrackingDepth > 0) {
+        return;
+    }
+    const currentFrame =
+        dependencyAccessStack[dependencyAccessStack.length - 1];
+    if (
+        currentFrame === undefined ||
+        currentFrame.mode !== FrameMode.Dependencies
+    ) {
+        return;
+    }
+    const record = getReadRecord(currentFrame, ownerHandler);
+    const selectGetterKeys = (record.selectGetterKeys ??= []);
+    if (!selectGetterKeys.includes(cacheKey)) {
+        selectGetterKeys.push(cacheKey);
     }
 }
 
