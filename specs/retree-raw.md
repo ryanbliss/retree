@@ -343,10 +343,10 @@ React (`useRaw.spec.tsx`):
 | Wide-table render: `useRaw` vs `useNode` (200×40)   | faster                             | ✅ 1.1 ms vs 9.2 ms (~8×) — `useRaw.perf.spec.tsx`                         |
 | `useRaw` mount, 2k-row list (`toManaged` every row) | ≤ `useNode` list equivalent        | ✅ 3.0 ms vs 3.0 ms (parity)                                               |
 
-The wide-table measurement lives in
-`packages/retree-react/src/useRaw.perf.spec.tsx` (loose sanity bounds so CI
-never gates on machine speed); a benchmark-CLI scenario remains an optional
-follow-up.
+The React timing measurements live in
+`packages/retree-react/src/useRaw.perf.spec.tsx`. Run them with
+`npm run benchmark:react` on an idle machine. They retain their 1.5x ratio
+limits and run outside correctness and release CI to avoid shared-runner noise.
 
 ## 7. Implementation slices
 
@@ -419,6 +419,6 @@ if (index >= 0) tasks[index].done = true;
 
 An object returned by `peekInto` can still be raw when it has never been materialized. Use it as a read-only result until its managed identity is resolved.
 
-The cold value-only lookup trades an O(collection size) slot index for avoiding unrelated proxy allocation. For a full-list mount this extra pass can cost more than managed indexing. Pass the known index or key in list mappings; the performance gate compares that direct form with `useNode`, while the benchmark reports the compatibility lookup separately.
+The cold value-only lookup trades an O(collection size) slot index for avoiding unrelated proxy allocation. For a full-list mount this extra pass can cost more than managed indexing. Pass the known index or key in list mappings; `npm run benchmark:react` compares that direct form with `useNode`, while reporting the compatibility lookup separately. This wall-clock gate runs separately from correctness and release CI, whose shared runner timing is variable. Deterministic materialization and slot-read assertions remain in the correctness suite.
 
 Value lookup also observes silent writes. Unrelated writes reuse the slot index when bounded write history proves that its node is unchanged; unknown or expired history rebuilds it conservatively.

@@ -4,7 +4,11 @@ import path from "node:path";
 import { transform as transformWithEsbuild } from "esbuild";
 import { defineConfig as defineViteConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig as defineVitestConfig, mergeConfig } from "vitest/config";
+import {
+    configDefaults,
+    defineConfig as defineVitestConfig,
+    mergeConfig,
+} from "vitest/config";
 
 const rootDir = __dirname;
 
@@ -142,6 +146,10 @@ const vitestConfig = defineVitestConfig({
                 extends: true,
                 test: {
                     name: "react-and-samples",
+                    exclude: [
+                        ...configDefaults.exclude,
+                        "**/useRaw.perf.spec.tsx",
+                    ],
                     include: [
                         "packages/retree-react/**/*.spec.ts",
                         "packages/retree-react/**/*.spec.tsx",
