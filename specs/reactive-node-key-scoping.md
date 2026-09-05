@@ -61,7 +61,7 @@ reads do not land in the reader's record a key set of their own.
     holds the getter name. `collectSelectGetter` records the getter's cache
     key on the reader's record (`selectGetterKeys`), and
     `isPossiblyRelevantFieldChange` asks `selectGetterMayReadKey` whether
-    the getter's *current* cached run read the changed key on the owner
+    the getter's _current_ cached run read the changed key on the owner
     (recursing into nested `@select` reads, conservative when the entry is
     missing or its owner record is unscopable). Because the lookup reads
     the cache at change time, a body whose read set changed without
@@ -103,14 +103,14 @@ behavior the reader already had for plain objects.
     readers (30 of 500 data-field readers; all 500 getter readers) for a
     write to `f0`.
 
-| Reader shape on a ReactiveNode VM              | Item 7  | Item 8  |
-| ---------------------------------------------- | ------- | ------- |
-| 3 data fields each                             | 18.7 ms | 9.3 ms  |
-| 3 plain getters each                           | 42 ms   | 3.6 ms  |
-| 3 `@select` getters each                       | 24 ms   | 11.5 ms |
-| 3 `@memo` getters each                         | 38 ms   | 7.3 ms  |
-| Plain-object VM, 3 data fields each (control)  | 7.5 ms  | 6.6 ms  |
-| 500 tiny root cells, 1 reader each (control)   | 0.6 ms  | 0.6 ms  |
+| Reader shape on a ReactiveNode VM             | Item 7  | Item 8  |
+| --------------------------------------------- | ------- | ------- |
+| 3 data fields each                            | 18.7 ms | 9.3 ms  |
+| 3 plain getters each                          | 42 ms   | 3.6 ms  |
+| 3 `@select` getters each                      | 24 ms   | 11.5 ms |
+| 3 `@memo` getters each                        | 38 ms   | 7.3 ms  |
+| Plain-object VM, 3 data fields each (control) | 7.5 ms  | 6.6 ms  |
+| 500 tiny root cells, 1 reader each (control)  | 0.6 ms  | 0.6 ms  |
 
 What remains is fan-out: 500 subscribers each hear the write and run the
 skip check (70 to 230 ns per reader). The `@select` shape pays one live
