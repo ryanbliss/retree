@@ -395,3 +395,28 @@ purity is a prerequisite for that design too, so no work here is wasted.
    members (§4.2).
 4. Convex reconcilers read raw and write proxied, with a backward-compatible
    `rawCurrent` parameter for dev-provided reconcilers (§4.5).
+
+### Nested input and constructor references
+
+New structural input is normalized once when it enters Retree. This inspects the input graph to replace embedded managed references with raw storage. Proxy allocation remains lazy for plain children. Accessors, ignored fields, and linked fields retain their existing contracts.
+
+Constructor references can alias an existing node. They reuse its managed identity and do not create a second structural parent. For shared raw objects that have never been managed, the first materialized occurrence establishes the structural parent. Tree events follow that parent. Use `Retree.link` or `@link` when the relationship should be explicit; use `Retree.clone` for independent state. Assigning an already-owned node after construction still requires the existing move/link/clone rules.
+
+### Selective managed resolution
+
+`toManaged(rawChild)` indexes direct raw slots once per node version and materializes only that child. It no longer materializes the entire collection. Set members resolve directly by membership.
+
+When a slot is already known, `toManaged(rawChild, { key: indexOrKey })` skips the lookup index. Use array indices, object properties, or Map keys. A mismatched slot returns `undefined`. Existing managed values still resolve regardless of location.
+
+For a core-only raw search, return the index and read that single managed path before writing:
+
+```ts
+const index = Retree.peekInto(tasks, (raw) =>
+    raw.findIndex((task) => task.id === id)
+);
+if (index >= 0) tasks[index].done = true;
+```
+
+An object returned by `peekInto` can still be raw when it has never been materialized. Use it as a read-only result until its managed identity is resolved.
+
+The cold value-only lookup trades an O(collection size) slot index for avoiding unrelated proxy allocation. For a full-list mount this extra pass can cost more than managed indexing. Pass the known index or key in list mappings; the performance gate compares that direct form with `useNode`, while the benchmark reports the compatibility lookup separately.

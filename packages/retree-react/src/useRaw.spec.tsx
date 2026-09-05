@@ -6,10 +6,7 @@ import { act, render, screen } from "@testing-library/react";
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ReactiveNode, Retree, select } from "@retreejs/core";
-import {
-    getCustomProxyHandler,
-    materializeDirectChildren,
-} from "@retreejs/core/internal";
+import { getCustomProxyHandler } from "@retreejs/core/internal";
 import { useNode } from "./useNode.js";
 import { ToManaged, useRaw } from "./useRaw.js";
 
@@ -29,6 +26,51 @@ function makeTasks(): Task[] {
 }
 
 describe("useRaw", () => {
+    it("materializes only selected rows with value lookup or an explicit index", () => {
+        const rows = Retree.root(
+            Array.from({ length: 10000 }, (_, id) => ({ id }))
+        );
+        const raw = Retree.raw(rows);
+        let resolve: ToManaged | undefined;
+        function List() {
+            [, resolve] = useRaw(rows);
+            return null;
+        }
+        render(<List />);
+        expect(resolve!(raw[9999], { key: 9998 })).toBeUndefined();
+        expect(resolve!(raw[9999], { key: 9999 })).toBeDefined();
+        expect(resolve!(raw[4])).toBeDefined();
+        expect(
+            raw.filter((row) => Retree.managed(row) !== undefined)
+        ).toHaveLength(2);
+    });
+
+    it("reads a keyed slot once and preserves existing managed identities", () => {
+        const child = { value: 1 };
+        let reads = 0;
+        const root = Retree.root({
+            get child() {
+                reads++;
+                return child;
+            },
+        });
+        let resolve: ToManaged | undefined;
+        function View() {
+            [, resolve] = useRaw(root);
+            return null;
+        }
+        render(<View />);
+        reads = 0;
+        const managed = resolve!(child, { key: "child" });
+        expect(managed).toBeDefined();
+        expect(reads).toBe(1);
+        act(() => {
+            managed!.value++;
+        });
+        const current = Retree.managed(child);
+        expect(resolve!(child, { key: "missing" })).toBe(current);
+    });
+
     it("returns the raw node and re-renders on own changes only", () => {
         const root = Retree.root({ tasks: makeTasks() });
         const listRenders = vi.fn();
@@ -237,9 +279,7 @@ describe("useRaw", () => {
         expect(renders).toHaveBeenCalledTimes(2);
     });
 
-    it("keys toManaged materialization retries on the node version, not the render", () => {
-        const materializeSpy = vi.mocked(materializeDirectChildren);
-        materializeSpy.mockClear();
+    it("resolves new children after structural changes without materializing unrelated rows", () => {
         const root = Retree.root({ tasks: makeTasks() });
         let capturedToManaged: ToManaged | undefined;
 
@@ -254,22 +294,22 @@ describe("useRaw", () => {
 
         // A miss runs exactly one materialization pass at this version.
         expect(capturedToManaged!(foreign)).toBeUndefined();
-        expect(materializeSpy).toHaveBeenCalledTimes(1);
+        expect(Retree.managed(Retree.raw(root.tasks)[0])).toBeUndefined();
 
         // A second miss at the same version — even after a fresh render —
         // does not run another pass.
         view.rerender(<List />);
         expect(capturedToManaged!(foreign)).toBeUndefined();
-        expect(materializeSpy).toHaveBeenCalledTimes(1);
+        expect(Retree.managed(Retree.raw(root.tasks)[0])).toBeUndefined();
 
         // A node change grants exactly one new pass, including outside render.
         act(() => {
             root.tasks.push({ id: "c", title: "Gamma", isComplete: false });
         });
         expect(capturedToManaged!(foreign)).toBeUndefined();
-        expect(materializeSpy).toHaveBeenCalledTimes(2);
+        expect(Retree.managed(Retree.raw(root.tasks)[0])).toBeUndefined();
         expect(capturedToManaged!(foreign)).toBeUndefined();
-        expect(materializeSpy).toHaveBeenCalledTimes(2);
+        expect(Retree.managed(Retree.raw(root.tasks)[0])).toBeUndefined();
 
         // Direct children still resolve throughout.
         const managed = capturedToManaged!(Retree.raw(root.tasks)[2]);

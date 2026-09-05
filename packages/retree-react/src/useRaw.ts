@@ -14,7 +14,7 @@ import {
     getBaseProxy,
     getNodeSnapshotVersion,
     getUnproxiedNode,
-    materializeDirectChildren,
+    createDirectChildResolver,
 } from "@retreejs/core/internal";
 import { useCallback, useMemo } from "react";
 import {
@@ -30,9 +30,13 @@ import { NodeFactory } from "./types.js";
  * @remarks
  * Returned by {@link useRaw}. Direct children of the subscribed node are
  * guaranteed to resolve (they are materialized on demand); deeper raw values
- * resolve when they have been materialized.
+ * resolve when they have been materialized. Pass `{ key: indexOrKey }` to
+ * bypass the raw slot index for an array, object, or Map. Set lookup is direct.
  */
-export type ToManaged = <T extends TreeNode>(rawValue: T) => T | undefined;
+export type ToManaged = <T extends TreeNode>(
+    rawValue: T,
+    location?: { key: unknown }
+) => T | undefined;
 
 export interface UseRawOptions {
     /**
@@ -50,13 +54,37 @@ function getNode<T extends TreeNode = TreeNode>(node: T | NodeFactory<T>) {
     return node;
 }
 
-/**
- * The node snapshot version at which a `toManaged` miss last ran a
- * materialization pass for a base proxy. A miss at the same version cannot be
- * cured by materializing again, so it short-circuits; a version advance (the
- * node's own data changed) grants exactly one new pass.
- */
-const materializationAttemptVersions = new WeakMap<TreeNode, number>();
+// The compatibility value lookup indexes raw slots once per structural change.
+// Supplying a key skips this index entirely.
+const childIndexes = new WeakMap<
+    TreeNode,
+    { version: number; keys: Map<object, unknown> }
+>();
+
+function findChildKey(
+    base: TreeNode,
+    raw: TreeNode,
+    value: object
+): { key: unknown } | undefined {
+    if (raw instanceof Set) return raw.has(value) ? { key: value } : undefined;
+    const version = getNodeSnapshotVersion(base);
+    let index = childIndexes.get(base);
+    if (index?.version !== version) {
+        const keys = new Map<object, unknown>();
+        const add = (key: unknown, child: unknown) => {
+            if (child !== null && typeof child === "object" && !keys.has(child))
+                keys.set(child, key);
+        };
+        if (raw instanceof Map) {
+            for (const [key, child] of raw) add(key, child);
+        } else {
+            for (const key of Object.keys(raw)) add(key, Reflect.get(raw, key));
+        }
+        index = { version, keys };
+        childIndexes.set(base, index);
+    }
+    return index.keys.has(value) ? { key: index.keys.get(value) } : undefined;
+}
 
 /**
  * Subscribe to a node like `useNode`, but read its data raw — native-speed,
@@ -97,8 +125,8 @@ const materializationAttemptVersions = new WeakMap<TreeNode, number>();
  *     const [tasksRaw, toManaged] = useRaw(list.tasks);
  *     return (
  *         <ul>
- *             {tasksRaw.map((rawTask) => (
- *                 <TaskRow key={rawTask.id} task={toManaged(rawTask)!} />
+ *             {tasksRaw.map((rawTask, index) => (
+ *                 <TaskRow key={rawTask.id} task={toManaged(rawTask, { key: index })!} />
  *             ))}
  *         </ul>
  *     );
@@ -124,26 +152,21 @@ export function useRaw<TNode extends TreeNode>(
     const source = getRetreeExternalStoreSource(baseProxy, listenerType);
     useRetreeExternalStore([source]);
 
-    const toManaged: ToManaged = useCallback(
-        <T extends TreeNode>(rawValue: T) => {
-            const existing = Retree.managed(rawValue);
-            if (existing !== undefined) {
-                return existing;
-            }
-            // At most one materialization pass per node version: a second
-            // miss at the same version means the value is not a direct child
-            // of this node. Keying retries on the version (not the render)
-            // keeps the contract identical inside and outside render and
-            // avoids per-render ref writes.
-            const version = getNodeSnapshotVersion(baseProxy);
-            if (materializationAttemptVersions.get(baseProxy) === version) {
-                return undefined;
-            }
-            materializationAttemptVersions.set(baseProxy, version);
-            materializeDirectChildren(baseProxy);
-            return Retree.managed(rawValue);
-        },
+    const resolveChild = useMemo(
+        () => createDirectChildResolver(baseProxy),
         [baseProxy]
+    );
+    const rawNode = Retree.raw(baseProxy);
+    const toManaged: ToManaged = useCallback(
+        <T extends TreeNode>(rawValue: T, location?: { key: unknown }) => {
+            const existing = Retree.managed(rawValue);
+            if (existing !== undefined) return existing;
+            const raw = rawNode;
+            const slot = location ?? findChildKey(baseProxy, raw, rawValue);
+            if (slot === undefined) return undefined;
+            return resolveChild(slot.key, rawValue) as T | undefined;
+        },
+        [baseProxy, rawNode, resolveChild]
     );
 
     const raw = getUnproxiedNode(baseProxy);

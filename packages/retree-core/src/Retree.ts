@@ -1132,13 +1132,11 @@ export class Retree {
      *         { id: "b", done: true },
      *     ],
      * });
-     * project.tasks.forEach(() => {}); // materialize once (or prepareTree)
-     *
-     * const task = Retree.peekInto(project.tasks, (rawTasks) =>
-     *     rawTasks.find((candidate) => candidate.id === "b")
+     * const index = Retree.peekInto(project.tasks, (rawTasks) =>
+     *     rawTasks.findIndex((candidate) => candidate.id === "b")
      * );
-     * // `task` is the managed node: mutations emit normally.
-     * if (task) task.done = false; // ✅ emits
+     * // Resolve just the selected path through the managed tree before writing.
+     * if (index >= 0) project.tasks[index].done = false; // emits
      *
      * const doneCount = Retree.peekInto(
      *     project.tasks,
