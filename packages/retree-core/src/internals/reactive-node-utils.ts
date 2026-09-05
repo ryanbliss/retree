@@ -2,7 +2,12 @@ import { IReactiveDependency, ReactiveNode } from "../ReactiveNode.js";
 import { TreeNode } from "../types.js";
 import type { ITrackedNodeAccessSummary } from "./dependency-tracking.js";
 
-export interface IActiveReactiveDependency extends IReactiveDependency {
+/**
+ * One dependency as produced by a collection pass. Records are shared by
+ * every caller within one write version and must be treated as immutable.
+ */
+export interface IReactiveDependencyCollectionEntry
+    extends IReactiveDependency {
     key: string;
     /**
      * Start index into `comparisons` for this dependency's comparison window.
@@ -12,7 +17,6 @@ export interface IActiveReactiveDependency extends IReactiveDependency {
      */
     comparisonsOffset?: number;
     selectGetterName?: string | symbol;
-    selectValue?: unknown;
     compareSelectValueBeforeNotify?: boolean;
     /**
      * Lazily builds per-node read summaries captured while an auto-trapped
@@ -20,27 +24,20 @@ export interface IActiveReactiveDependency extends IReactiveDependency {
      * `nodeChanged` can be skipped without re-running the getter.
      */
     getAccessSummaries?: () => Map<TreeNode, ITrackedNodeAccessSummary>;
-    unsubscribeListener: (() => void) | undefined;
-    unproxiedNode: TreeNode | undefined;
 }
 
-export interface IPreviousReactiveDependent {
+/**
+ * One live dependency edge. The same record is stored in the dependent
+ * ReactiveNode's dependency map and in the dependency node's dependents
+ * registry, so a lifecycle pass allocates one object per edge.
+ */
+export interface IActiveReactiveDependency
+    extends IReactiveDependencyCollectionEntry {
     reactiveNode: ReactiveNode;
     unproxiedReactiveNode: TreeNode;
-    comparisons?: any[];
-    /**
-     * Start index into `comparisons`; see
-     * {@link IActiveReactiveDependency.comparisonsOffset}.
-     */
-    comparisonsOffset?: number;
-    key: string;
-    selectGetterName?: string | symbol;
     selectValue?: unknown;
-    compareSelectValueBeforeNotify?: boolean;
-    /**
-     * See {@link IActiveReactiveDependency.getAccessSummaries}.
-     */
-    getAccessSummaries?: () => Map<TreeNode, ITrackedNodeAccessSummary>;
+    unsubscribeListener: (() => void) | undefined;
+    unproxiedNode: TreeNode | undefined;
 }
 
 /**
@@ -51,7 +48,7 @@ export interface IPreviousReactiveDependent {
  */
 export interface IReactiveDependentGroup {
     reactiveNode: ReactiveNode;
-    dependentsByKey: Map<string, IPreviousReactiveDependent>;
+    dependentsByKey: Map<string, IActiveReactiveDependency>;
 }
 
 let reactiveDependentMap:
@@ -59,7 +56,7 @@ let reactiveDependentMap:
     | undefined;
 
 let reactiveDependenciesMap:
-    | WeakMap<TreeNode, IActiveReactiveDependency[]>
+    | WeakMap<TreeNode, Map<string, IActiveReactiveDependency>>
     | undefined;
 
 let reactiveDependencySubscriptionMap:
@@ -74,7 +71,7 @@ let reactiveDependencySubscriptionMap:
 
 export function getReactiveDependencies(
     unproxiedNode: TreeNode
-): IActiveReactiveDependency[] | undefined {
+): Map<string, IActiveReactiveDependency> | undefined {
     if (!reactiveDependenciesMap) {
         reactiveDependenciesMap = new WeakMap();
         return undefined;
@@ -84,7 +81,7 @@ export function getReactiveDependencies(
 
 export function setReactiveDependencies(
     unproxiedNode: TreeNode,
-    dependencies: IActiveReactiveDependency[]
+    dependencies: Map<string, IActiveReactiveDependency>
 ) {
     if (!reactiveDependenciesMap) {
         reactiveDependenciesMap = new WeakMap();
@@ -112,7 +109,7 @@ export function getReactiveDependents(
 
 export function setReactiveDependents(
     unproxiedNode: TreeNode,
-    dependent: IPreviousReactiveDependent
+    dependent: IActiveReactiveDependency
 ) {
     if (!reactiveDependentMap) {
         reactiveDependentMap = new WeakMap();

@@ -33,8 +33,6 @@ import {
     unproxiedBaseNodeKey,
     proxiedParentKey,
     proxyHandlerSentinel,
-    proxyTargetKey,
-    registerCustomProxyMetadata,
     TCustomProxy,
 } from "./proxy-types.js";
 import { advanceSnapshotVersions } from "./snapshot-version.js";
@@ -113,15 +111,17 @@ export function updateReproxyNode<T extends TreeNode = TreeNode>(
     return reproxy;
 }
 
-/** Invalidate an ancestor identity without allocating a view until it is read. */
-export function invalidateReproxyNode(node: TreeNode): void {
-    const handler = getCustomProxyHandler(node);
-    if (handler === undefined)
-        throw new Error("invalidateReproxyNode: expected a managed node.");
-    const raw = handler[unproxiedBaseNodeKey];
+/**
+ * Invalidate an ancestor identity without allocating a view until it is
+ * read. Keyed by raw node so ancestor walks that already hold handler
+ * metadata skip the sentinel trap a proxy lookup would pay.
+ */
+export function invalidateReproxyNodeForUnproxiedNode(raw: TreeNode): void {
     const record = managedNodes.get(raw);
     if (record === undefined)
-        throw new Error("invalidateReproxyNode: missing managed node record.");
+        throw new Error(
+            "invalidateReproxyNodeForUnproxiedNode: missing managed node record."
+        );
     record.dirty = true;
     bumpGlobalWriteVersion(raw);
 }
@@ -183,21 +183,17 @@ class ReproxyHandler<T extends TreeNode>
     implements ProxyHandler<TCustomProxy<T>>, ICustomProxyHandler<T>
 {
     public [unproxiedBaseNodeKey]: T;
-    public [proxyTargetKey]?: T;
     /** The base proxy this reproxy wraps. */
-    private readonly baseProxyObject: TCustomProxy<T>;
+    public readonly baseProxy: TCustomProxy<T>;
     private readonly baseHandler: ICustomProxyHandler<T>;
     private boundFunctionCache: Map<
         string | symbol,
         { source: Function; bound: Function }
     > | null = null;
 
-    constructor(
-        baseProxyObject: TCustomProxy<T>,
-        baseHandler: ICustomProxyHandler<T>
-    ) {
+    constructor(baseHandler: ICustomProxyHandler<T>) {
         this[unproxiedBaseNodeKey] = baseHandler[unproxiedBaseNodeKey];
-        this.baseProxyObject = baseProxyObject;
+        this.baseProxy = baseHandler.baseProxy;
         this.baseHandler = baseHandler;
     }
 
@@ -265,7 +261,7 @@ class ReproxyHandler<T extends TreeNode>
         if (cached !== undefined) {
             return cached;
         }
-        const object = this.baseProxyObject;
+        const object = this.baseProxy;
         const reproxyAwareMutator = (...args: unknown[]) => {
             const result = baseMutator(...args);
             if (result === object) {
@@ -288,7 +284,7 @@ class ReproxyHandler<T extends TreeNode>
         if (prop === "[[Handler]]") {
             return this;
         }
-        const object = this.baseProxyObject;
+        const object = this.baseProxy;
         if (prop === "[[Target]]") {
             return object;
         }
@@ -405,19 +401,10 @@ class ReproxyHandler<T extends TreeNode>
 
 function buildReproxy<T extends TreeNode = TreeNode>(
     object: TCustomProxy<T>,
-    knownHandler?: ICustomProxyHandler<T>
+    handler: ICustomProxyHandler<T>
 ): TCustomProxy<T> {
-    const handler = knownHandler ?? getCustomProxyHandler(object);
-    if (!handler) {
-        // @retree-throws
-        throw new Error(
-            "Retree internal invariant failed: cannot build a reproxy for an unproxied node. This is unexpected and likely a Retree bug if it came from a public Retree API. Fix: make sure callers pass Retree-managed proxies from Retree.root(...) or tree children; otherwise file a Retree issue with the operation that triggered this."
-        );
-    }
-    const proxyHandler = new ReproxyHandler<T>(object, handler);
-    const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
-    registerCustomProxyMetadata(proxy, proxyHandler, object);
-    return proxy as TCustomProxy<T>;
+    const proxyHandler = new ReproxyHandler<T>(handler);
+    return new Proxy(object, proxyHandler) as TCustomProxy<T>;
 }
 
 function getLatestIgnoredValue(value: unknown) {

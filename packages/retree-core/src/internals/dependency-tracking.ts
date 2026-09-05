@@ -62,6 +62,7 @@ type DependencyAccessEntry =
           value: unknown;
           comparisonAccessor?: DependencyComparisonAccessor;
           ownerUnproxiedNode?: TreeNode;
+          ownerBaseProxy?: TCustomProxy<TreeNode>;
           propertyKey?: string | symbol;
           isArrayElementRead?: boolean;
           valueUnproxiedNode?: TreeNode;
@@ -70,6 +71,7 @@ type DependencyAccessEntry =
           kind: "managed-value";
           value: TCustomProxy<TreeNode>;
           unproxiedNode: TreeNode;
+          baseProxy: TCustomProxy<TreeNode>;
       };
 
 const dependencyAccessStack: DependencyAccessFrame[] = [];
@@ -105,6 +107,10 @@ export function runWithoutDependencyTracking<T>(callback: () => T): T {
 }
 
 export function runWithIsolatedDependencyTracking<T>(callback: () => T): T {
+    if (dependencyAccessStack.length === 0) {
+        // Nothing to isolate from: the common write-outside-tracking case.
+        return callback();
+    }
     const outerFrames = dependencyAccessStack.splice(
         0,
         dependencyAccessStack.length
@@ -184,9 +190,30 @@ export interface ITrackedNodeAccessSummary {
     validators: ITrackedAccessValidator[];
 }
 
+/**
+ * One Retree node a tracked run read, resolved to the identities subscription
+ * code needs: the raw node for keying and the base proxy for `Retree.on`.
+ */
+export interface ITrackedDependencySource {
+    rawNode: TreeNode;
+    baseProxy: TCustomProxy<TreeNode>;
+}
+
 export interface ITrackedSelectionAccesses<T> {
     value: T;
     dependencies: unknown[];
+    /**
+     * Every node the run read, deduped in first-read order. Computed from the
+     * entries' cached handlers so subscribers never re-normalize
+     * `dependencies` through proxy traps.
+     */
+    sources: readonly ITrackedDependencySource[];
+    /**
+     * Per-read comparison cells (the raw node read, or the primitive value
+     * for untracked reads) with consecutive duplicates collapsed. Two runs
+     * with equal cells read the same nodes in the same order.
+     */
+    comparisonValues: readonly unknown[];
     /**
      * Builds (and memoizes) per-node read summaries keyed by unproxied node.
      * Lazy because summaries are only needed when a dependency emits between
@@ -230,6 +257,16 @@ function getEntryDependencyUnproxiedNode(
     if (entry.ownerUnproxiedNode !== undefined) {
         return entry.ownerUnproxiedNode;
     }
+    return getEntryDependencyNodeHandler(entry)?.[unproxiedBaseNodeKey];
+}
+
+/**
+ * Handler of the node behind an ownerless dependency entry (a replayed memo
+ * comparison or an explicit `{ node }` dependency), if it is Retree-managed.
+ */
+function getEntryDependencyNodeHandler(
+    entry: DependencyAccessEntry
+): ICustomProxyHandler<TreeNode> | undefined {
     const value = entry.value;
     if (value === null || typeof value !== "object") {
         return undefined;
@@ -245,11 +282,7 @@ function getEntryDependencyUnproxiedNode(
     ) {
         return undefined;
     }
-    const handler = getCustomProxyHandlerFromMetadata(dependencyNode);
-    if (handler === undefined) {
-        return undefined;
-    }
-    return handler[unproxiedBaseNodeKey];
+    return getCustomProxyHandlerFromMetadata(dependencyNode);
 }
 
 /**
@@ -270,17 +303,55 @@ export function collectTrackedSelectionAccesses<T>(
     }
     const dependencies: unknown[] = [];
     const liveEntries: DependencyAccessEntry[] = [];
+    const sources: ITrackedDependencySource[] = [];
+    const sourceRawNodes = new Set<TreeNode>();
+    const comparisonValues: unknown[] = [];
     for (const entry of frame.entries) {
         if (entry === undefined) {
             continue;
         }
         dependencies.push(entry.value);
         liveEntries.push(entry);
+        let rawNode: TreeNode | undefined;
+        let baseProxy: TCustomProxy<TreeNode> | undefined;
+        if (entry.kind === "managed-value") {
+            rawNode = entry.unproxiedNode;
+            baseProxy = entry.baseProxy;
+        } else if (entry.ownerUnproxiedNode !== undefined) {
+            rawNode = entry.ownerUnproxiedNode;
+            baseProxy = entry.ownerBaseProxy;
+        } else {
+            const handler = getEntryDependencyNodeHandler(entry);
+            if (handler !== undefined) {
+                rawNode = handler[unproxiedBaseNodeKey];
+                baseProxy = handler.baseProxy;
+            }
+        }
+        const comparisonValue = rawNode !== undefined ? rawNode : entry.value;
+        if (
+            comparisonValues.length === 0 ||
+            !Object.is(
+                comparisonValues[comparisonValues.length - 1],
+                comparisonValue
+            )
+        ) {
+            comparisonValues.push(comparisonValue);
+        }
+        if (
+            rawNode !== undefined &&
+            baseProxy !== undefined &&
+            !sourceRawNodes.has(rawNode)
+        ) {
+            sourceRawNodes.add(rawNode);
+            sources.push({ rawNode, baseProxy });
+        }
     }
     let memoizedSummaries: Map<TreeNode, ITrackedNodeAccessSummary> | undefined;
     return {
         value: value as T,
         dependencies,
+        sources,
+        comparisonValues,
         getAccessSummaries: () => {
             memoizedSummaries ??= buildAccessSummaries(liveEntries);
             return memoizedSummaries;
@@ -403,6 +474,7 @@ function pushTrackedValueEntry(
             kind: "managed-value",
             value: value as TCustomProxy<TreeNode>,
             unproxiedNode,
+            baseProxy: handler.baseProxy,
         });
         frame.managedValueIndices = appendIndexEntry(
             frame.managedValueIndices,
@@ -530,6 +602,7 @@ export function trackDependencyPropertyAccess<T>(
             arrayElementRead ? undefined : valueUnproxiedNode
         ),
         ownerUnproxiedNode,
+        ownerBaseProxy: ownerHandler.baseProxy,
         propertyKey,
         isArrayElementRead: arrayElementRead,
         valueUnproxiedNode,
@@ -603,6 +676,7 @@ export function trackDependencyKeyPresenceAccess(
             getComparisonAccessorSource(ownerUnproxiedNode, propertyKey)
         ),
         ownerUnproxiedNode,
+        ownerBaseProxy: ownerHandler.baseProxy,
         propertyKey,
     });
 }
@@ -654,6 +728,7 @@ export function trackDependencyKeysAccess(owner: unknown): void {
             getComparisonAccessorSource(ownerUnproxiedNode, "ownKeys")
         ),
         ownerUnproxiedNode,
+        ownerBaseProxy: ownerHandler.baseProxy,
     });
 }
 

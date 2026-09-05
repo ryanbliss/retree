@@ -373,7 +373,9 @@ describe("ReactiveNode", () => {
         if (!rawRoot) {
             throw new Error("Expected root to be Retree managed.");
         }
-        const activeDependencies = getReactiveDependencies(rawRoot);
+        const activeDependencies = Array.from(
+            getReactiveDependencies(rawRoot)?.values() ?? []
+        );
 
         expect(activeDependencies?.[0]?.node).toBe(root.target.values);
         expect(activeDependencies?.[1]?.node).toBeUndefined();
@@ -982,9 +984,13 @@ it("retains active dependency records while refreshing values and removing stale
     const owner = trackRoot(Retree.root(new Owner()));
     const changed = vi.fn();
     const off = Retree.on(owner, "nodeChanged", changed);
-    const before = getReactiveDependencies(Retree.raw(owner))!.slice();
+    const before = Array.from(
+        getReactiveDependencies(Retree.raw(owner))!.values()
+    );
     owner.tick++;
-    const after = getReactiveDependencies(Retree.raw(owner))!;
+    const after = Array.from(
+        getReactiveDependencies(Retree.raw(owner))!.values()
+    );
     expect(after[0]).toBe(before[0]);
     expect(after[1]).toBe(before[1]);
     changed.mockClear();

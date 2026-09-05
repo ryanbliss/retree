@@ -60,10 +60,23 @@ export interface ITransaction {
     treeChanges?: INodeFieldChanges[];
 }
 
-interface IPendingTransaction
-    extends Omit<ITransaction, "nodeChanges" | "treeChanges"> {
-    nodeChanges?: INodeFieldChanges[][];
-    treeChanges?: INodeFieldChanges[][];
+/**
+ * Append a write's change records to a node's pending list. The pending list
+ * is owned by the transaction (copied off the first write's records, which
+ * callers may still hold), then grown in place: rebuilding it by spread on
+ * every write made an N-write transaction O(N²) in change records.
+ */
+function appendChanges(
+    pending: INodeFieldChanges[] | undefined,
+    changes: INodeFieldChanges[]
+): INodeFieldChanges[] {
+    if (pending === undefined) {
+        return changes.slice();
+    }
+    for (const change of changes) {
+        pending.push(change);
+    }
+    return pending;
 }
 
 /**
@@ -114,8 +127,7 @@ export class Transactions {
      * Each unique node can have one type of event listener.
      * Others will get replaced if another change happens during the transaction.
      */
-    private static pendingTransactions: Map<TreeNode, IPendingTransaction> =
-        new Map();
+    private static pendingTransactions: Map<TreeNode, ITransaction> = new Map();
 
     /**
      * @internal
@@ -168,14 +180,16 @@ export class Transactions {
             transaction.emitNodeRemoved = upsertTransaction.emitNodeRemoved;
         }
         if (upsertTransaction.nodeChanges !== undefined) {
-            (transaction.nodeChanges ??= []).push([
-                ...upsertTransaction.nodeChanges,
-            ]);
+            transaction.nodeChanges = appendChanges(
+                transaction.nodeChanges,
+                upsertTransaction.nodeChanges
+            );
         }
         if (upsertTransaction.treeChanges !== undefined) {
-            (transaction.treeChanges ??= []).push([
-                ...upsertTransaction.treeChanges,
-            ]);
+            transaction.treeChanges = appendChanges(
+                transaction.treeChanges,
+                upsertTransaction.treeChanges
+            );
         }
     }
 
