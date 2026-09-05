@@ -151,12 +151,92 @@ dependency update fan-out, React `useNode`/`useTree`, and `runTransaction`
 overhead are within noise (the last has 0 ms per-case medians at smoke
 frequencies).
 
-## Follow-ups
+## Follow-ups (done in the stacked PR)
 
-- The `treeChanged` path still pays one sentinel trap per ancestor level in
-  the notification walk and the snapshot version walk (the listener
-  precheck is cached). Storing the parent handler on the parent edge would
-  make both walks plain property reads.
-- Tracked selection re-evaluation is now dominated by the tracked read
-  itself (one entry, one comparison accessor, one closure per property
-  read). Lazily built accessors would be the next lever for large selectors.
+Both follow-ups below landed on `perf/audit-sep-2026-followups`, measured
+against this branch (`3848292`) on the same machine in the same session.
+
+- **Parent edges hold the parent handler.** `IProxyParent.proxyNode` became
+  `IProxyParent.handler`, so the `treeChanged` notification walk, the
+  listener precheck, the snapshot-version root walk, and the devtools root
+  name walk read ancestors as plain property reads. `Retree.parent` and
+  `Retree.move` derive the parent proxy from the handler.
+- **Tracked reads are self-validating records.** A tracked property,
+  presence, or keys read allocates one `TrackedNodeRead` (plus its captured
+  cells) that is simultaneously the frame entry, the comparison accessor
+  memos consume, and the validator tracked selections re-check. Traps pass
+  their own handler, so the owner's identity no longer costs a second proxy
+  trap per read. `{ node, comparisons }` dependency values are built only
+  for `@select` collection (`getDependencies()`), memo source resolution on
+  ReactiveNodes (a descriptor lookup per read) is deferred until memo
+  validation asks for it, and the unused `TrackedSelection.dependencies`
+  copy is gone.
+
+CPU-profile scenarios (median of three interleaved runs):
+
+| Scenario | branch | follow-ups |
+| --- | --- | --- |
+| Trapped `@select` over 1000 items, per related write | 2.51 ms | **2.04 ms** |
+| Tracked `Retree.select` over 1000 items, subscribe | 8.6 ms | **6.8 ms** |
+| Tracked `Retree.select` over 1000 items, per related write | 2.52 ms | **1.71 ms** |
+| Tracked `Retree.select`, 1000 unrelated writes | 2.7 ms | 2.7 ms |
+| 100k leaf writes at depth 20, root `treeChanged` + leaf `nodeChanged` | 157 ms | **118 ms** |
+| 100k leaf writes at depth 20, leaf `nodeChanged` only | 50.2 ms | 50.1 ms |
+| 100k flat writes, `nodeChanged` | 52.6 ms | 52.6 ms |
+
+Probe specs (best of two serial runs each):
+
+| Scenario | branch | follow-ups |
+| --- | --- | --- |
+| 10k leaf writes at depth 20, root `treeChanged` + leaf `nodeChanged` | 38.0 ms | **29.0 ms** |
+| 20 related writes, tracked select over 500 / 2000 items | 17.2 / 40.6 ms | **12.6 / 30.8 ms** |
+| Scalar write with tracked select active (first / second) | 7.4 / 8.2 ms | **3.9 / 3.2 ms** |
+| Tracked scan, 500 / 2000 items | 2.64 / 2.65 ms | **0.84 / 2.03 ms** |
+| `@select` related write, 500 / 2000 items | 3.82 / 6.50 ms | 2.62 / 5.90 ms |
+| Single own-field write, `@select` scanning 1000 items | 2.99 ms | 2.47 ms |
+| Transaction, 50 own-field writes, `@select` scanning 1000 items | 4.75 ms | 4.24 ms |
+| 100 writes with 50 dependency edges on one node | 8.9 ms | 9.0 ms |
+| Transaction, 8000 pushes under a root `treeChanged` listener | 14.8 ms | 14.9 ms |
+
+The `@select` related-write probe at exactly 1000 items reads slower on the
+follow-ups (3.1 → 4.5 ms for its five timed writes) while 250, 500, and
+2000 items all improve. A standalone rerun of that class at 1000 items shows
+the first five writes within noise (2.4–4.1 ms both ways) and steady state
+faster (2.3 → 2.05 ms/write), so that row is a warm-up artifact of the
+probe's fixed sequence, not a regression. Absolute numbers in this section
+are lower than the tables above because the machine was idle; compare
+within a table only.
+
+Benchmark CLI, `--profile smoke --workers 4`, two interleaved branch /
+follow-ups pairs with idle gaps; Δ is the median of per-case median deltas
+and the noise column is the branch-vs-branch delta from the same runs.
+
+| Scenario | Pair 1 Δ | Pair 2 Δ | Noise |
+| --- | --- | --- | --- |
+| Auto-trapped `@memo` | **-10.2%** | **-9.9%** | +1.1% |
+| Auto-trapped `@fnMemo` | -2.0% | **-6.6%** | +2.6% |
+| Auto-trapped `@select` | +6.8% | -0.3% | +0.2% |
+| React `useTree` | -0.8% | -2.3% | +1.1% |
+| `onChanged` effect | +5.2% | -3.3% | +1.6% |
+| Root `treeChanged` | +2.2% | -2.4% | +2.1% |
+| Reactive select vs tree traversal | +0.6% | +1.0% | +1.4% |
+| Everything else | within ±2% | within ±2% | within ±3% |
+
+Only `@memo` (and `@fnMemo` in one pair) clears the noise floor in both
+directions: memo collection ran the ReactiveNode descriptor lookup on every
+tracked read, and now runs it once per comparison at validation. The
+`@select` and `onChanged` effect rows flip sign between pairs and are noise
+at smoke frequencies. The smoke profile's trees are shallow and its selects
+small, so the deep-ancestor and large-selector gains above do not show up
+here; the scenario bundles and probe specs are the measurements that
+exercise those paths.
+
+## Remaining follow-ups
+
+- Tracked selection re-evaluation is now bounded by the get trap itself
+  plus one record per read; the next lever is the value-side handler lookup
+  (`getCustomProxyHandlerFromMetadata(value)`) for object-valued reads,
+  which could come from the children cache instead of a trap.
+- `buildAccessSummaries` still allocates one summary (with a `Set`) per
+  distinct node read; a selector over N items pays N small allocations per
+  run when a dependency emits between runs.

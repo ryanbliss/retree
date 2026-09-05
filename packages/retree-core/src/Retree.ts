@@ -1599,7 +1599,7 @@ export class Retree {
     ): boolean {
         const structure = getStructureVersion();
         const listeners = this.treeListenerVersion;
-        let handler = getCustomProxyHandler(proxyNode);
+        let handler = getCustomProxyHandler<TreeNode>(proxyNode);
         const path: TreeNode[] = [];
         let observed = false;
         while (handler !== undefined) {
@@ -1617,9 +1617,9 @@ export class Retree {
                 observed = true;
                 break;
             }
-            const parent = handler[proxiedParentKey]?.proxyNode;
+            const parent = handler[proxiedParentKey]?.handler;
             if (!parent) break;
-            handler = getCustomProxyHandler(parent);
+            handler = parent;
         }
         const entry = { structure, listeners, observed };
         for (const raw of path) this.treeListenerPaths.set(raw, entry);
@@ -1638,8 +1638,8 @@ export class Retree {
         proxyNode: TCustomProxy<TreeNode>,
         changes: INodeFieldChanges[]
     ) {
-        // Walk to the root over handler metadata: one sentinel trap per
-        // level and no per-level result objects. Listener arrays are
+        // Walk to the root over parent-edge handlers: plain property reads
+        // per level and no per-level result objects. Listener arrays are
         // snapshotted at write time so the deferred emission notifies the
         // listeners that existed when the change happened.
         let listenersByProxyNode:
@@ -1647,13 +1647,14 @@ export class Retree {
             | undefined;
         let topProxyNodeListenedTo: TCustomProxy<TreeNode> | null = null;
         const parentHandlers: ICustomProxyHandler<TreeNode>[] = [];
-        let handler = getCustomProxyHandler(proxyNode);
-        if (handler === undefined) {
+        const changedHandler = getCustomProxyHandler<TreeNode>(proxyNode);
+        if (changedHandler === undefined) {
             // @retree-throws
             throw new Error(
                 "Retree internal invariant failed in handleNotifyTreeChanged: the changed node has no Retree proxy metadata. This is unexpected and likely a Retree bug. Please file an issue with the mutation that triggered this."
             );
         }
+        let handler: ICustomProxyHandler<TreeNode> = changedHandler;
         let currentProxyNode = proxyNode;
         let currentUnproxiedNode = unproxiedNode;
         for (;;) {
@@ -1664,18 +1665,11 @@ export class Retree {
                 listenersByProxyNode.set(currentProxyNode, listeners.slice());
                 topProxyNodeListenedTo = currentProxyNode;
             }
-            const parentProxyNode: TCustomProxy<TreeNode> | null | undefined =
-                handler[proxiedParentKey]?.proxyNode;
-            if (!parentProxyNode) {
+            const parentHandler = handler[proxiedParentKey]?.handler;
+            if (!parentHandler) {
                 break;
             }
-            handler = getCustomProxyHandler(parentProxyNode);
-            if (handler === undefined) {
-                // @retree-throws
-                throw new Error(
-                    "Retree internal invariant failed in handleNotifyTreeChanged: a node has parent metadata, but the parent is not a Retree-managed proxy. This is unexpected and likely a Retree bug. Please file an issue with how the child was assigned, moved, or deleted."
-                );
-            }
+            handler = parentHandler;
             parentHandlers.push(handler);
             currentProxyNode = handler.baseProxy;
             currentUnproxiedNode = handler[unproxiedBaseNodeKey];
@@ -1897,18 +1891,12 @@ export class Retree {
         const oldHandler = getCustomProxyHandler(node);
         if (oldHandler) {
             const parent = oldHandler[proxiedParentKey];
-            if (!parent || !parent.proxyNode) return null;
-            const rawNode = getUnproxiedNode(parent.proxyNode);
-            if (!rawNode) {
-                // @retree-throws
-                throw new Error(
-                    "Retree internal invariant failed in Retree.parent: the child has parent metadata, but the parent is not a Retree-managed proxy. This is unexpected and likely a Retree bug. Please file an issue with how the child was assigned, moved, or deleted."
-                );
-            }
+            const parentHandler = parent?.handler;
+            if (!parentHandler) return null;
             return {
                 propName: parent.propName,
-                proxyNode: getBaseProxy(parent.proxyNode),
-                rawNode,
+                proxyNode: parentHandler.baseProxy,
+                rawNode: parentHandler[unproxiedBaseNodeKey],
             };
         }
         // @retree-throws
@@ -2452,7 +2440,7 @@ export class Retree {
                 selectGetter.collectTrackedDependencies?.(proxiedDependentNode);
             const selected =
                 trackedAccesses !== undefined
-                    ? trackedAccesses.dependencies
+                    ? trackedAccesses.getDependencies()
                     : selectGetter.getDependencies(proxiedDependentNode);
             const selectedDependencies = normalizeSelectDependencies(selected);
             if (selectedDependencies.length === 0) {

@@ -51,7 +51,6 @@ type SubscribeToNode = <TNode extends TreeNode>(
 
 export interface TrackedSelection<TSelected> {
     selected: TSelected;
-    dependencies: readonly unknown[];
     sources: readonly ITrackedDependencySource[];
     comparisonValues: readonly unknown[];
     getAccessSummaries: () => Map<TreeNode, ITrackedNodeAccessSummary>;
@@ -422,7 +421,6 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
         const previousToEmit = previous;
         previous = {
             selected: nextSelected,
-            dependencies: next.dependencies,
             sources: next.sources,
             comparisonValues: next.comparisonValues,
             getAccessSummaries: next.getAccessSummaries,
@@ -600,7 +598,7 @@ function didWriteInvalidateTrackedReads(
     accesses: ITrackedSelectionAccesses<void>
 ): boolean {
     for (const validator of accesses.writeInvalidatedReads) {
-        const currentValues = validator.accessor.getValues();
+        const currentValues = validator.getValues();
         if (currentValues.length !== validator.capturedValues.length) {
             return true;
         }
@@ -624,7 +622,6 @@ export function runTrackedSelection<TSelected>(
     const accesses = collectTrackedSelectionAccesses(selector);
     return {
         selected: accesses.value,
-        dependencies: accesses.dependencies,
         sources: accesses.sources,
         comparisonValues: accesses.comparisonValues,
         getAccessSummaries: accesses.getAccessSummaries,
@@ -678,7 +675,7 @@ export function canSkipTrackedDependencyChange(
         return true;
     }
     for (const validator of summary.validators) {
-        const currentValues = validator.accessor.getValues();
+        const currentValues = validator.getValues();
         if (currentValues.length !== validator.capturedValues.length) {
             return false;
         }

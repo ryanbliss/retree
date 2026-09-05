@@ -60,11 +60,11 @@ function resolveRootNameForProxy(proxyNode: TreeNode): string | undefined {
     let topRawNode: TreeNode | undefined;
     while (handler !== undefined) {
         topRawNode = handler[unproxiedBaseNodeKey];
-        const parentProxyNode = handler[proxiedParentKey]?.proxyNode;
-        if (!parentProxyNode) {
+        const parent = handler[proxiedParentKey]?.handler;
+        if (!parent) {
             break;
         }
-        handler = getCustomProxyHandlerFromMetadata(parentProxyNode);
+        handler = parent;
     }
     if (topRawNode === undefined) {
         return undefined;
