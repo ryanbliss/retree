@@ -395,6 +395,12 @@ export class Retree {
      ```
      */
     static root<T extends TreeNode = TreeNode>(object: T): T {
+        if (Object.isFrozen(object)) {
+            // @retree-throws
+            throw new Error(
+                "Retree.root: frozen objects are immutable leaves and cannot become a root. Pass a mutable object, or store the frozen object in a field of a mutable root."
+            );
+        }
         return buildProxy<T>(object, this.nodeChangeEmitter);
     }
 

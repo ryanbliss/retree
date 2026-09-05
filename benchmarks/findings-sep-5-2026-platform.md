@@ -301,3 +301,26 @@ Selector re-run counters in the probe read zero for the unrelated bumps and
 exactly the expected readers for a write to `f0`. A cell or boundary
 primitive is not designed: the remaining cost is subscriber count, which a
 boundary marker would not change (spec §5).
+
+## Item 9: frozen objects are immutable leaves
+
+A frozen object (`Object.isFrozen`) stored anywhere in a tree is now stored
+and returned as-is: no handler, proxy, or parent edge, and replacing it is
+the change signal. Its own properties were already returned raw (the proxy
+invariant for non-writable, non-configurable properties forced that), so
+nothing beneath a frozen object was ever reactive; only the object itself
+was proxied. Neo freezes sentinel collections today and its largest trees
+are read-only snapshots read once on mount, where this removes the
+per-node materialization entirely once the snapshot is frozen.
+
+Item 8 bundle vs this branch, serial alternating rounds:
+
+| Probe | Item 8 | Item 9 |
+| --- | --- | --- |
+| s11 50k frozen rows, `rows[i].meta.x` through the tree | 44 ms | 22 ms |
+| s5 A3 first scan, 150k unfrozen nodes materialized | 53.4 to 54.7 ms | 55.6 to 56.7 ms |
+| s5 A4 second scan, cached | 14.6 to 14.8 ms | 14.4 to 14.7 ms |
+
+The remaining frozen-scan cost is the three traps per element the probe
+loop performs; unfrozen first touch pays one `Object.isFrozen` (8 ns) per
+node. `Retree.root` rejects a frozen object. Spec `specs/immutable-leaves.md`.

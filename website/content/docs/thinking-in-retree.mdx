@@ -237,6 +237,10 @@ The practical consequences:
   `Retree.version(node)` (advances with the node's own fields, the same
   moments its reproxy identity changes) or `Retree.treeVersion(node)` (whole
   subtree) instead of holding the node.
+- **Frozen objects are leaves.** An `Object.freeze`d value stored in a tree
+  comes back as itself, never proxied, and replacing it is the change signal.
+  Use it for server snapshots, shared sentinels, and constants; nothing
+  beneath a frozen object is reactive.
 
 ## Managed vs raw
 

@@ -556,6 +556,9 @@ export class BaseProxyHandler<T extends TreeNode>
                 storedHandler[unproxiedBaseNodeKey]
             );
         }
+        if (Object.isFrozen(value)) {
+            return value;
+        }
         if (!hasLazilyProxiedShape(value)) {
             return value;
         }
@@ -742,6 +745,8 @@ export class BaseProxyHandler<T extends TreeNode>
                         prop,
                         reparentProxy(newValue, parentToSet)
                     );
+                } else if (Object.isFrozen(newValue)) {
+                    deleteProxiedChild(this, prop);
                 } else if (
                     getManagedProxyForUnproxiedNode(newValue) !== undefined
                 ) {
@@ -1142,6 +1147,9 @@ function buildProxyHandler<T extends TreeNode = TreeNode>(
             ) {
                 continue;
             } else if (typeof storedValue === "object") {
+                if (Object.isFrozen(storedValue)) {
+                    continue;
+                }
                 const storedHandler =
                     getCustomProxyHandlerFromMetadata(storedValue);
                 if (
@@ -1457,6 +1465,10 @@ function preparePropertyValue(
         deleteProxiedChild(proxyHandler, prop);
         return value;
     }
+    if (Object.isFrozen(value)) {
+        deleteProxiedChild(proxyHandler, prop);
+        return value;
+    }
     if (prop === "constructor") {
         deleteProxiedChild(proxyHandler, prop);
         return value;
@@ -1666,6 +1678,9 @@ function getOrCreateMapValueProxy(
     emitter: TreeChangeEmitter
 ) {
     if (value === null || typeof value !== "object") {
+        return value;
+    }
+    if (Object.isFrozen(value)) {
         return value;
     }
     // Raw purity: the raw map stores raw values; the child proxy lives in
@@ -1951,6 +1966,9 @@ function getOrCreateSetValueProxy(
     if (value === null || typeof value !== "object") {
         return value;
     }
+    if (Object.isFrozen(value)) {
+        return value;
+    }
     // Raw purity: the raw set stores raw members; the child proxy lives in
     // the handler's side cache keyed by the raw member.
     const cached = handler.caches?.collectionProxies?.get(value);
@@ -2210,6 +2228,10 @@ function prepareInsertedArrayValue(
 ): unknown {
     const propName = String(index);
     if (value === null || typeof value !== "object") {
+        deleteProxiedChild(handler, propName);
+        return value;
+    }
+    if (Object.isFrozen(value)) {
         deleteProxiedChild(handler, propName);
         return value;
     }
