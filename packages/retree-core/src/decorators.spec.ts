@@ -806,6 +806,31 @@ describe("select", () => {
         expect(raw.visible).not.toBe(raw.visible);
     });
 
+    it("runs a trapped @select getter every time when its reads bypass the traps", () => {
+        let filterRuns = 0;
+        class Board extends ReactiveNode {
+            @ignore private hidden = new Set<number>();
+            public rows = [{ id: 1 }, { id: 2 }];
+            @select()
+            get visible() {
+                filterRuns += 1;
+                return this.rows.filter((row) => !this.hidden.has(row.id));
+            }
+            public hide(id: number) {
+                this.hidden.add(id);
+            }
+            get dependencies() {
+                return [];
+            }
+        }
+        const root = trackRoot(Retree.root(new Board()));
+        expect(root.visible.map((row) => row.id)).toEqual([1, 2]);
+        expect(root.visible.map((row) => row.id)).toEqual([1, 2]);
+        expect(filterRuns).toBe(2);
+        root.hide(2);
+        expect(root.visible.map((row) => row.id)).toEqual([1]);
+    });
+
     it("compares trailing dependency values when an earlier @select dependency emits", () => {
         const root = trackRoot(Retree.root(new OrderedSelectNode()));
         const nodeChanged = vi.fn();

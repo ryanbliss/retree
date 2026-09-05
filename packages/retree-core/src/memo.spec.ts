@@ -1857,3 +1857,110 @@ describe("incremental trapped memo validation", () => {
         expect(read()).toBe(2);
     });
 });
+
+describe("keyed memo keys that read past the traps", () => {
+    interface IRow {
+        id: string;
+        label: string;
+    }
+    type TLookup = "untracked" | "ignored" | "peekInto";
+    class Store extends ReactiveNode {
+        @ignore private byId = new Map<string, IRow>();
+        public rows: IRow[] = [];
+        get dependencies() {
+            return [];
+        }
+        public lookup(id: string, via: TLookup): IRow | null {
+            if (via === "ignored") return this.byId.get(id) ?? null;
+            if (via === "peekInto") {
+                return Retree.peekInto(
+                    this,
+                    (raw) => raw.rows.find((row) => row.id === id) ?? null
+                );
+            }
+            return Retree.untracked(
+                () => this.rows.find((row) => row.id === id) ?? null
+            );
+        }
+        public replace(row: IRow): void {
+            Retree.runTransaction(() => {
+                const index = this.rows.findIndex(
+                    (candidate) => candidate.id === row.id
+                );
+                const slot = index === -1 ? this.rows.length : index;
+                this.rows[slot] = row;
+                // The cache holds the managed row, as a by-id index would.
+                this.byId.set(row.id, this.rows[slot]);
+            });
+        }
+    }
+    class Reader extends ReactiveNode {
+        public keyRuns = 0;
+        public constructor(
+            public readonly store: Store,
+            public readonly via: TLookup
+        ) {
+            super();
+        }
+        get dependencies() {
+            return [];
+        }
+        get row(): IRow | null {
+            return this.store.lookup("r1", this.via);
+        }
+        @memo((self) => {
+            self.keyRuns++;
+            return [self.row?.label];
+        })
+        get label(): string {
+            return this.row?.label ?? "";
+        }
+    }
+
+    it.each<TLookup>(["untracked", "ignored", "peekInto"])(
+        "re-evaluates a key whose row came through a %s read",
+        (via) => {
+            const root = trackRoot(
+                Retree.root({
+                    store: new Store(),
+                    reader: null as Reader | null,
+                })
+            );
+            root.store.replace({ id: "r1", label: "one" });
+            root.reader = new Reader(root.store, via);
+            const reader = root.reader!;
+            expect(reader.label).toBe("one");
+            // The row that replaces it is written to the array and the raw
+            // cache; the old row itself is never written.
+            root.store.replace({ id: "r1", label: "two" });
+            expect(reader.label).toBe("two");
+            const runs = reader.keyRuns;
+            expect(reader.label).toBe("two");
+            expect(reader.keyRuns).toBe(runs + 1);
+        }
+    );
+
+    it("keeps gating a key whose reads all went through the traps", () => {
+        class Tracked extends ReactiveNode {
+            public keyRuns = 0;
+            public rows: IRow[] = [{ id: "r1", label: "one" }];
+            get dependencies() {
+                return [];
+            }
+            @memo((self) => {
+                self.keyRuns++;
+                return [self.rows[0].label];
+            })
+            get label(): string {
+                return this.rows[0].label;
+            }
+        }
+        const root = trackRoot(Retree.root(new Tracked()));
+        expect(root.label).toBe("one");
+        const runs = root.keyRuns;
+        expect(root.label).toBe("one");
+        expect(root.keyRuns).toBe(runs);
+        root.rows[0] = { id: "r1", label: "two" };
+        expect(root.label).toBe("two");
+    });
+});

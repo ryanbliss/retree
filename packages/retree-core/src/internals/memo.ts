@@ -11,6 +11,7 @@ import {
 } from "./write-version.js";
 import {
     DependencyComparisonAccessor,
+    ReadCoverage,
     collectDependencyComparisonAccesses,
     replayDependencyComparisonAccesses,
     isDependencyTrackingActive,
@@ -299,8 +300,9 @@ export function runTrappedMemo<T>(
  * between a refreshed hit and a recompute, exactly as {@link runMemo} does.
  *
  * A key result element that is not one of the key function's tracked reads
- * (a derived value, a literal, an untracked read) cannot be validated, so
- * such entries run the key function on every read.
+ * (a derived value, a literal), or a key run that read past the traps
+ * (partial {@link ReadCoverage}), cannot be validated, so such entries run
+ * the key function on every read.
  */
 export function runKeyedMemo<T>(
     instance: ReactiveNode,
@@ -340,6 +342,7 @@ export function runKeyedMemo<T>(
             ? undefined
             : normalizeComparisons(keyRun.value);
     const keyReadsScoped =
+        keyRun.coverage === ReadCoverage.Complete &&
         keyRun.value !== undefined &&
         areKeyElementsTrackedReads(keyRun.value, keyRun.comparisons);
     const keyReads = normalizeComparisonsWithSnapshots(keyRun.comparisons);

@@ -193,8 +193,9 @@ cost 0.18 ms per read and returned a fresh array every time.
 Changes: the key function runs under comparisons tracking and its reads
 validate the entry like a trapped memo's body reads do, so the key function
 runs only after a write to something it read; key results that are not
-tracked read values (derived numbers, module state) keep today's
-evaluate-every-read behavior. Auto-trapped `@select` getters cache their
+tracked read values (derived numbers, module state), and key runs that read
+past the traps (`Retree.untracked`, `Retree.raw`, an unmanaged object behind
+`@ignore`), keep today's evaluate-every-read behavior. Auto-trapped `@select` getters cache their
 last tracked run per instance and validate only the records of owners
 written since, so reads return one instance until a read changes and the
 lifecycle compares that same instance. Trapped memo validation returns

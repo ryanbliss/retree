@@ -8,6 +8,7 @@ import { TreeNode } from "../types.js";
 import {
     collectTrackedSelectionAccesses,
     ITrackedSelectionAccesses,
+    ReadCoverage,
 } from "./dependency-tracking.js";
 import {
     getCustomProxyHandlerFromMetadata,
@@ -57,6 +58,9 @@ export function collectSelectGetter(
         return entry.accesses;
     }
     const accesses = collectTrackedSelectionAccesses(body);
+    if (accesses.coverage === ReadCoverage.Partial) {
+        return accesses;
+    }
     cache.set(key, { accesses, version: getGlobalWriteVersion() });
     return accesses;
 }

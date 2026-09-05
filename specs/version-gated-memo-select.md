@@ -51,12 +51,20 @@ every path, so selectors and lifecycles that used to see them leak through
 still see them.
 
 Scope guard: an element of the key result that is not one of the key
-function's tracked read values (a derived value, a literal, `Date.now()`, a
-`Retree.raw` read) marks the entry unscoped, and the key function runs on
-every read exactly as today. Managed elements compare by raw identity for
-this check. Keys whose control flow depends on non-tree state are the one
-case validation cannot see; that matches the existing contract for
-auto-trapped memos ("deterministic for the same dependency values").
+function's tracked read values (a derived value, a literal, `Date.now()`)
+marks the entry unscoped, and the key function runs on every read exactly
+as today. Managed elements compare by raw identity for this check.
+
+The same fallback applies when any read during the key function bypassed
+the traps: `Retree.untracked`, `Retree.peekInto`, `Retree.raw`, or the
+interior of an unmanaged object held behind an `@ignore` field (a raw
+`Map` cache, say). Such a read can hand the key function a managed row that
+no tracked read led to, so the row's own reads validate fine while the cache
+that chose the row has moved on. Tracking frames record this as partial
+coverage (`ReadCoverage`), and a partial key run is never gated. Keys whose
+control flow depends on state Retree cannot see at all (module-level
+caches) remain the caller's contract, as for auto-trapped memos
+("deterministic for the same dependency values").
 
 `ReactiveNode.memo(key, fn, comparisons)` is unchanged: the caller already
 evaluated its comparisons.
@@ -89,6 +97,8 @@ Consequences:
     per row the body touched.
 -   Unmanaged instances (`Retree.raw(vm).visible`, a bare `new VM()`) run
     the body untracked as today.
+-   A body whose run had partial read coverage (see §2.1) is not cached: it
+    runs on every read as before this item.
 
 Explicit-selector `@select((self) => [...])` getters are unchanged in this
 item: their selector may return `self.dependency(...)` entries that are
