@@ -70,11 +70,11 @@ for a 10-property object), which is still far below the trap it replaces.
 -   `npm run test`: 1009 passed. `npm run doctor` clean.
 -   Probes (item 8 bundle vs this branch, serial alternating rounds):
 
-| Probe                                                    | Item 8          | Item 9          |
-| -------------------------------------------------------- | --------------- | --------------- |
-| s11 50k frozen rows, `rows[i].meta.x` through the tree    | 44 ms           | 22 ms           |
-| s5 A3 first scan, 150k unfrozen nodes materialized       | 53.4 to 54.7 ms | 55.6 to 56.7 ms |
-| s5 A4 second scan, cached                                | 14.6 to 14.8 ms | 14.4 to 14.7 ms |
+| Probe                                                  | Item 8          | Item 9          |
+| ------------------------------------------------------ | --------------- | --------------- |
+| s11 50k frozen rows, `rows[i].meta.x` through the tree | 44 ms           | 22 ms           |
+| s5 A3 first scan, 150k unfrozen nodes materialized     | 53.4 to 54.7 ms | 55.6 to 56.7 ms |
+| s5 A4 second scan, cached                              | 14.6 to 14.8 ms | 14.4 to 14.7 ms |
 
 The frozen-row scan is now three proxy traps per element (`rows`,
 `length`, `rows[i]`) plus the raw reads; item 8 paid those plus one handler,
