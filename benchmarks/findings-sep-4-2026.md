@@ -21,13 +21,13 @@ The original audit used `main` at `2dd618e`, Node 22.13.1 on macOS arm64, produc
 
 | Workload                                                          | Original audit | After runtime changes |
 | ----------------------------------------------------------------- | -------------: | --------------------: |
-| 1,000 transaction writes at depth 1,000 with a root tree observer |       1,844 ms |                188 ms |
-| 1,000 writes at depth 1,000 with an unrelated tree observer       |       53.45 ms |               0.79 ms |
+| 1,000 transaction writes at depth 1,000 with a root tree observer |       1,844 ms |                177 ms |
+| 1,000 writes at depth 1,000 with an unrelated tree observer       |       53.45 ms |               0.62 ms |
 | One changed query leaf at depth 800                               |       14.44 ms |          About 0.1 ms |
 | Unchanged automatic memo over 10,000 nested rows                  |        3.11 ms |   Below 1 microsecond |
-| 5,000 stable dependency records per owner refresh                 |        4.13 ms |               4.11 ms |
+| 5,000 stable dependency records per owner refresh                 |        4.13 ms |               3.26 ms |
 
-The last row is an allocation improvement, not a meaningful timing improvement. Active records survive refreshes; collection still reads arbitrary dependency getters. Likewise, sub-microsecond memo timings should be read alongside the lookup-count tests, not treated as precise speedup ratios.
+The dependency change preserves active records and removes transient allocations. Its isolated before/after measurement was 4.13 ms versus 4.11 ms; the full-stack timing above also includes subsequent changes and run variation. Collection still reads arbitrary dependency getters. Likewise, sub-microsecond memo timings should be read alongside the lookup-count tests, not treated as precise speedup ratios.
 
 Run the permanent probe with:
 
@@ -37,9 +37,9 @@ npm run benchmark:sdk
 
 It bundles current source in production mode, uses the benchmark CLI's duration summary, and writes JSON lines. Each sample yields to the event loop and runs GC outside the timed interval. This prevents discarded weakly referenced trees and prior cold-ingestion cases from dominating later measurements. Fixture creation is outside cold-ingestion timings; ingestion is outside cold-scan and selective-resolution timings. The checked-in [sample output](sdk-scaling-2026-09-04.jsonl) uses this protocol and is separate from the matched historical probe above.
 
-Deterministic tests cover work hidden by emission counts: 5,000-level reconciliation visits each incoming child once; unchanged rows stay cold; unrelated React selector writes do not rerun the selector; warm unrelated-root writes avoid ancestor metadata; memo validation stays bounded after unrelated writes; and ten writes under a depth-100 root observer allocate twenty views. Reads between transaction writes still create distinct intermediate identities.
+Deterministic tests cover work hidden by emission counts: 5,000-level reconciliation visits each incoming child once; unchanged rows stay cold; unrelated React selector writes do not rerun the selector; warm unrelated-root writes avoid ancestor metadata; memo validation stays bounded after unrelated writes; and ten writes under a depth-100 root observer allocate twenty views. Reads between transaction writes still create distinct intermediate identities. Regression coverage also includes a 3,000-level input containing an existing managed leaf, terminal child identities in getter and method memos, and conservative validation when WeakRef is unavailable.
 
-Raw input normalization has a cost. The permanent probe measured about 27 ms to ingest 10,000 rows containing nested detail and tag objects. Each new graph is inspected once to keep embedded managed references out of raw storage. Subsequent raw reads remain zero-copy, and child proxy allocation remains lazy. Do not fold ingestion into a warm-read speedup claim.
+Raw input normalization has a cost. The permanent probe measured about 22 ms to ingest 10,000 rows containing nested detail and tag objects. Each new graph is inspected once to keep embedded managed references out of raw storage. Subsequent raw reads remain zero-copy, and child proxy allocation remains lazy. Do not fold ingestion into a warm-read speedup claim.
 
 `toManaged(row)` preserves value-only lookup, indexes raw slots and refreshes after direct writes, including silent writes, and materializes only the selected child. A cold full-list mount pays for that index. Passing `toManaged(row, { key: index })` avoids it; object properties and Map keys work too. A 100,000-row keyed lookup materialized one row in the permanent probe. The React benchmark reports the compatibility lookup separately and compares keyed resolution with managed indexing.
 
@@ -49,10 +49,10 @@ Full devtools snapshots remain proportional to the selected state size because t
 
 | Ten writes, four roots with 5,000 rows each | Actions | Clones |   Median |
 | ------------------------------------------- | ------: | -----: | -------: |
-| Snapshot every root                         |      10 |     40 | 43.80 ms |
-| Select one root                             |      10 |     10 | 10.60 ms |
-| One transaction, all roots                  |       1 |      4 |  4.27 ms |
-| `stateSnapshots: false`                     |      10 |      0 | 0.068 ms |
+| Snapshot every root                         |      10 |     40 | 43.57 ms |
+| Select one root                             |      10 |     10 | 10.54 ms |
+| One transaction, all roots                  |       1 |      4 |  4.36 ms |
+| `stateSnapshots: false`                     |      10 |      0 | 0.041 ms |
 
 Choose inspected roots explicitly, batch logically related writes, or disable snapshots when investigating action traffic. The snapshot feature and its defaults remain intact. Broad tree observers still require an ancestor walk; arbitrary collection selectors still require reading their inputs when relevant data changes. Those remaining costs are part of the requested behavior.
 
