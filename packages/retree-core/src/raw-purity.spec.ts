@@ -80,14 +80,14 @@ function expectPure(node: TreeNode) {
 }
 
 describe("raw purity invariant", () => {
-    it("normalizes nested constructor references without changing existing ownership", () => {
+    it("unwraps a managed node embedded in lazy input on first read without changing its ownership", () => {
         const owner = Retree.root({ child: { value: 1 } });
         const child = owner.child;
         const root = Retree.root({ nested: { child } });
+        expect(Retree.raw(root.nested.child)).toBe(Retree.raw(child));
         expect(structuredClone(Retree.raw(root))).toEqual({
             nested: { child: { value: 1 } },
         });
-        expect(Retree.raw(root.nested.child)).toBe(Retree.raw(child));
         expect(Retree.parent(root.nested.child)).toBe(owner);
         expect(Retree.root(Retree.raw(child))).toBe(child);
     });
@@ -104,12 +104,29 @@ describe("raw purity invariant", () => {
         root.list.push({ child });
         root.map.set("entry", { child });
         root.set.add({ child });
-        Object.defineProperty(root, "locked", {
-            value: { child },
-            enumerable: true,
-        });
+        // Plain input is not walked up front; each embedded proxy unwraps
+        // when the object holding it is first materialized.
+        expect(Reflect.get(root.nested, "child")).toBe(child);
+        expect(Reflect.get(root.list[0], "child")).toBe(child);
+        expect(Reflect.get(root.map.get("entry")!, "child")).toBe(child);
+        for (const entry of root.set)
+            expect(Reflect.get(entry, "child")).toBe(child);
         expectPure(root);
         expect(() => structuredClone(Retree.raw(root))).not.toThrow();
+    });
+
+    it("keeps a locked plain value exactly as defined, proxies included", () => {
+        const child = Retree.root({ value: 1 });
+        const root = Retree.root({ nested: {} as object });
+        const locked = { child };
+        Object.defineProperty(root, "locked", {
+            value: locked,
+            enumerable: true,
+        });
+        // Non-writable, non-configurable data properties must report their
+        // exact value, so Retree neither proxies nor rewrites inside them.
+        expect(Reflect.get(root, "locked")).toBe(locked);
+        expect(locked.child).toBe(child);
     });
 
     it("normalizes deep input iteratively while leaving plain children lazy", () => {
