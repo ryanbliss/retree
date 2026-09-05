@@ -11,6 +11,11 @@ import {
     QuerySkip,
 } from "./types.js";
 
+/** Context for one fetch subscription. Abort-aware clients can cancel disposed requests. */
+export interface IFetchQueryContext {
+    readonly signal: AbortSignal;
+}
+
 /**
  * Options for {@link createFetchQuerySource}.
  */
@@ -18,7 +23,8 @@ export interface IFetchQuerySourceOptions {
     /**
      * Poll interval in milliseconds. When set, the source re-runs the fetch
      * function on this interval for as long as the subscription is open. When
-     * omitted, the source fetches once per subscription.
+     * omitted, the source fetches once per subscription. Ticks are skipped
+     * while a request remains in flight.
      */
     refetchInterval?: number;
 }
@@ -96,18 +102,24 @@ export type FetchQueryNodeOptionsArgs<TArgs, TState> = TArgs extends Record<
  *
  * @remarks
  * Each subscription runs the fetch function once immediately and, when
- * `refetchInterval` is set, again on every interval tick. Results and errors
- * that resolve after the subscription is closed are dropped.
+ * `refetchInterval` is set, again on interval ticks. Ticks during an active
+ * request are skipped, so requests never overlap within a subscription.
+ * Closing the subscription aborts its signal and drops late results/errors.
  *
- * @param fetchFn Async function producing a query value for the given args.
+ * @param fetchFn Async function receiving query args and an abort signal context.
  * @param options Optional polling configuration.
  * @returns A subscription source usable with {@link QueryNode}.
  */
 export function createFetchQuerySource<TArgs, TState>(
-    fetchFn: (args: TArgs) => Promise<TState>,
+    fetchFn: (args: TArgs, context: IFetchQueryContext) => Promise<TState>,
     options?: IFetchQuerySourceOptions
 ): IQuerySubscriptionSource<TArgs, TState> {
     const refetchInterval = options?.refetchInterval;
+    if (refetchInterval !== undefined && !Number.isFinite(refetchInterval)) {
+        throw new Error(
+            "createFetchQuerySource: expected refetchInterval to be a finite number of milliseconds."
+        );
+    }
     if (refetchInterval !== undefined && refetchInterval <= 0) {
         throw new Error(
             "createFetchQuerySource: expected refetchInterval to be greater than 0 milliseconds."
@@ -117,15 +129,29 @@ export function createFetchQuerySource<TArgs, TState>(
     return {
         subscribe(args, onValue, onError) {
             let isActive = true;
+            let inFlight = false;
+            const controller = new AbortController();
+            const context: IFetchQueryContext = { signal: controller.signal };
             const runFetch = () => {
-                fetchFn(args).then(
+                if (!isActive) return;
+                if (inFlight) return;
+                inFlight = true;
+                let request: Promise<TState>;
+                try {
+                    request = Promise.resolve(fetchFn(args, context));
+                } catch (error) {
+                    request = Promise.reject(error);
+                }
+                request.then(
                     (value) => {
+                        inFlight = false;
                         if (!isActive) {
                             return;
                         }
                         onValue(value);
                     },
                     (error: unknown) => {
+                        inFlight = false;
                         if (!isActive) {
                             return;
                         }
@@ -145,6 +171,7 @@ export function createFetchQuerySource<TArgs, TState>(
                     if (timer !== undefined) {
                         clearInterval(timer);
                     }
+                    controller.abort();
                 },
                 getCurrentValue: () => undefined,
             };
@@ -178,7 +205,7 @@ export function createFetchQuerySource<TArgs, TState>(
  * ```
  */
 export function fetchQueryNode<TState, TArgs = Record<string, never>>(
-    source: (args: TArgs) => Promise<TState>,
+    source: (args: TArgs, context: IFetchQueryContext) => Promise<TState>,
     ...options: FetchQueryNodeOptionsArgs<TArgs, TState>
 ): QueryNode<TArgs, TState> {
     const rawOptions = options[0];
