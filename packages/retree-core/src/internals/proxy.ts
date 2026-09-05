@@ -21,14 +21,10 @@ import {
     IProxyParent,
     ISnapshotVersionRecord,
     getCustomProxyHandlerFromMetadata,
-    getCustomProxyTargetFromMetadata,
     isCustomProxy,
-    isCustomProxyHandler,
     proxiedChildrenKey,
     proxiedParentKey,
     proxyHandlerSentinel,
-    proxyTargetKey,
-    registerCustomProxyMetadata,
     TCustomProxy,
     unproxiedBaseNodeKey,
 } from "./proxy-types.js";
@@ -294,7 +290,6 @@ class BaseProxyHandler<T extends TreeNode>
     public [unproxiedBaseNodeKey]: T;
     public [proxiedChildrenKey]: Record<string | symbol, any> | null;
     public [proxiedParentKey]: IProxyParent | null;
-    public [proxyTargetKey]?: T;
     /**
      * External-store snapshot versions; allocated on first advance and then
      * mutated in place (see snapshot-version.ts).
@@ -644,7 +639,12 @@ class BaseProxyHandler<T extends TreeNode>
         const hasChanged = !Object.is(prev, rawNewValue);
         if (hasChanged) {
             if (Transactions.skipReproxy) bumpGlobalWriteVersion(target);
-            const nodeRemoved = handleNodeRemoved(baseProxy, prop);
+            // Only an object can be a removed child; skipping the proxied
+            // read for primitives keeps scalar writes off the get trap.
+            const nodeRemoved =
+                prev !== null && typeof prev === "object"
+                    ? handleNodeRemoved(baseProxy, prop)
+                    : undefined;
             if (newValue !== null && typeof newValue === "object") {
                 if (prop === "constructor")
                     return Reflect.set(target, prop, newValue, receiver);
@@ -1004,7 +1004,6 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
     proxyHandler.baseProxy = proxy;
     const reactiveObject = proxyHandler.reactiveObject;
-    registerCustomProxyMetadata(proxy, proxyHandler, object);
     registerBaseProxy(object, proxy);
     if (object instanceof Map) {
         for (const [key, value] of object.entries()) {
@@ -2924,18 +2923,14 @@ function emitCollectionChange(
 
 /**
  * @internal
- * Gets the proxy handler for a given TreeNode, assuming `isCustomProxyHandler` returns true.
+ * Gets the proxy handler for a given TreeNode.
  * @param proxy the proxied TreeNode to get the handler for.
  * @returns the handler if valid, otherwise undefined
  */
 export function getCustomProxyHandler<TNode extends TreeNode = TreeNode>(
     proxy: TNode
-) {
-    const handler = getCustomProxyHandlerFromMetadata<TNode>(proxy);
-    if (isCustomProxyHandler<TNode>(handler)) {
-        return handler;
-    }
-    return undefined;
+): ICustomProxyHandler<TNode> | undefined {
+    return getCustomProxyHandlerFromMetadata<TNode>(proxy);
 }
 
 /**
@@ -3050,7 +3045,7 @@ function handleNodeRemoved(
 export function getUnproxiedNodeFromProxy<TNode extends TreeNode = TreeNode>(
     proxy: TCustomProxy<TNode>
 ): TNode {
-    const handler = getCustomProxyHandler(proxy);
+    const handler = getCustomProxyHandlerFromMetadata<TNode>(proxy);
     if (handler === undefined) {
         throw new Error(
             "Retree internal invariant failed: cannot get a raw node from a proxy without Retree metadata."
@@ -3069,17 +3064,18 @@ export function getUnproxiedNodeFromProxy<TNode extends TreeNode = TreeNode>(
 export function getUnproxiedNode<TNode extends TreeNode = TreeNode>(
     node: TNode
 ): TNode | undefined {
-    if (isCustomProxy<TNode>(node)) {
-        return getUnproxiedNodeFromProxy<TNode>(node);
+    // One sentinel trap read answers both "is this a proxy" and "which raw
+    // node"; the isCustomProxy-then-lookup form paid that trap twice.
+    const handler = getCustomProxyHandlerFromMetadata<TNode>(node);
+    if (handler === undefined) {
+        return node;
     }
-    return node;
+    return handler[unproxiedBaseNodeKey];
 }
 
 /**
  * @internal
  * Gets the base proxied object, aka meaning the non reproxied object.
- * @remarks
- * Resolves the base proxy through Retree proxy metadata.
  *
  * @param node node to check
  * @returns the base proxied object
@@ -3087,17 +3083,9 @@ export function getUnproxiedNode<TNode extends TreeNode = TreeNode>(
 export function getBaseProxy<T extends TreeNode = TreeNode>(
     node: T
 ): TCustomProxy<T> {
-    if (isCustomProxy<T>(node)) {
-        const target = getCustomProxyTargetFromMetadata<T>(node);
-        if (target === undefined) {
-            throw new Error(
-                "Retree internal invariant failed: cannot get a base proxy from a proxy without Retree target metadata."
-            );
-        }
-        if (isCustomProxy<T>(target)) {
-            return getBaseProxy<T>(target as T);
-        }
-        return node;
+    const handler = getCustomProxyHandlerFromMetadata<T>(node);
+    if (handler !== undefined) {
+        return handler.baseProxy;
     }
     // @retree-throws
     throw new Error(

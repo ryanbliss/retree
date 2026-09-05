@@ -7,7 +7,6 @@ import {
     ICustomProxyHandler,
     getCustomProxyHandlerFromMetadata,
     proxiedParentKey,
-    proxyTargetKey,
     unproxiedBaseNodeKey,
 } from "./proxy-types.js";
 
@@ -21,21 +20,17 @@ const dirtyRoots = new WeakMap<ICustomProxyHandler, Set<ICustomProxyHandler>>();
 const PENDING_LIMIT = 10000;
 
 function getHandler(node: TreeNode, api: string): ICustomProxyHandler {
-    const initial = getCustomProxyHandlerFromMetadata(node);
-    if (initial === undefined)
+    const handler = getCustomProxyHandlerFromMetadata(node);
+    if (handler === undefined)
         throw new Error(`${api}: expected a Retree-managed node.`);
-    let handler: ICustomProxyHandler = initial;
-    while (
-        handler[proxyTargetKey] !== undefined &&
-        handler[proxyTargetKey] !== handler[unproxiedBaseNodeKey]
-    ) {
-        const base: ICustomProxyHandler | undefined =
-            getCustomProxyHandlerFromMetadata(handler[proxyTargetKey]);
-        if (base === undefined)
-            throw new Error(`${api}: proxy target is missing Retree metadata.`);
-        handler = base;
-    }
-    return handler;
+    // Parent edges and write-path callers hold base proxies, so this is
+    // normally one trap; a reproxy resolves through its base proxy.
+    if (handler.baseProxy === node) return handler;
+    const base: ICustomProxyHandler | undefined =
+        getCustomProxyHandlerFromMetadata(handler.baseProxy);
+    if (base === undefined)
+        throw new Error(`${api}: base proxy is missing Retree metadata.`);
+    return base;
 }
 
 function parentOf(

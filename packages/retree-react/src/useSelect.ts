@@ -19,7 +19,6 @@ import {
     defaultTrackedSelectedChanged,
     getBaseProxy,
     getReproxyNode,
-    getTrackedDependencyComparisonValues,
     normalizeDependencyEntry,
     normalizeSelectDependencies,
     runTrackedSelection,
@@ -166,22 +165,13 @@ function getNodeSelection<TNode extends TreeNode, TSelected>(
 function getTrackedSelectionSources(
     selection: TrackedSelection<unknown>
 ): readonly RetreeExternalStoreSource[] {
+    // Tracked sources are already deduped by raw node, and store sources are
+    // one-per-base-proxy, so this is a straight map.
     const sources: RetreeExternalStoreSource[] = [];
-    const seen = new Set<RetreeExternalStoreSource>();
-    for (const dependency of selection.dependencies) {
-        const normalized = normalizeDependencyEntry(dependency);
-        if (normalized.node === undefined) {
-            continue;
-        }
-        const source = getRetreeExternalStoreSource(
-            getBaseProxy(normalized.node),
-            "nodeChanged"
+    for (const source of selection.sources) {
+        sources.push(
+            getRetreeExternalStoreSource(source.baseProxy, "nodeChanged")
         );
-        if (seen.has(source)) {
-            continue;
-        }
-        seen.add(source);
-        sources.push(source);
     }
     return sources;
 }
@@ -438,9 +428,7 @@ function createTrackedSelectState<TSelected>(
     const store = createRetreeSwappableCompositeExternalStore(sources);
     return {
         getAccessSummaries: selection.getAccessSummaries,
-        comparisonValues: getTrackedDependencyComparisonValues(
-            selection.dependencies
-        ),
+        comparisonValues: selection.comparisonValues,
         sources,
         store,
         snapshot: store.getSnapshot(),
@@ -484,9 +472,7 @@ function refreshTrackedSelectState<TSelected>(
                   state.container.selected,
                   stabilizedSelected
               );
-    const nextComparisonValues = getTrackedDependencyComparisonValues(
-        nextSelection.dependencies
-    );
+    const nextComparisonValues = nextSelection.comparisonValues;
     const dependenciesEqual = areTrackedComparisonValuesEqual(
         state.comparisonValues,
         nextComparisonValues
@@ -574,9 +560,7 @@ function recomputeTrackedSelectStateForSelector<TSelected>(
     }
     return {
         getAccessSummaries: nextSelection.getAccessSummaries,
-        comparisonValues: getTrackedDependencyComparisonValues(
-            nextSelection.dependencies
-        ),
+        comparisonValues: nextSelection.comparisonValues,
         sources,
         store,
         snapshot: store.getSnapshot(),

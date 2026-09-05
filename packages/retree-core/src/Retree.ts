@@ -16,6 +16,7 @@ import {
 } from "./internals/index.js";
 import { TreeChangeEmitter } from "./internals/NodeChangeEmitter.js";
 import {
+    ICustomProxyHandler,
     isCustomProxy,
     proxiedParentKey,
     TCustomProxy,
@@ -28,7 +29,7 @@ import {
     getReactiveDependencies,
     getReactiveDependents,
     IActiveReactiveDependency,
-    IPreviousReactiveDependent,
+    IReactiveDependencyCollectionEntry,
     IReactiveDependentGroup,
     retainReactiveDependencySubscription,
     setReactiveDependencies,
@@ -38,8 +39,7 @@ import {
     getManagedProxyForUnproxiedNode,
     getReproxyNode,
     getReproxyNodeForUnproxiedNode,
-    updateReproxyNode,
-    invalidateReproxyNode,
+    invalidateReproxyNodeForUnproxiedNode,
     updateReproxyNodeForChange,
 } from "./internals/reproxy.js";
 import {
@@ -154,8 +154,42 @@ interface IReactiveSelectValueCell {
  */
 interface IReactiveDependencyCollection {
     version: number;
-    dependencies: IActiveReactiveDependency[];
+    dependencies: IReactiveDependencyCollectionEntry[];
     selectValues: Map<string | symbol, IReactiveSelectValueCell> | undefined;
+}
+
+/**
+ * Dependency keys are positional and rebuilt on every collection pass, so
+ * they are interned per position instead of re-allocated per dependency.
+ */
+const dependenciesGetterKeys: string[] = [];
+const selectGetterKeys = new Map<string | symbol, string[]>();
+
+function internDependencyKey(
+    keys: string[],
+    prefix: string,
+    index: number
+): string {
+    while (keys.length <= index) {
+        keys.push(`${prefix}:${keys.length}`);
+    }
+    return keys[index];
+}
+
+function getDependenciesGetterKey(index: number): string {
+    return internDependencyKey(dependenciesGetterKeys, "dependencies", index);
+}
+
+function getSelectDependencyKey(
+    getterName: string | symbol,
+    index: number
+): string {
+    let keys = selectGetterKeys.get(getterName);
+    if (keys === undefined) {
+        keys = [];
+        selectGetterKeys.set(getterName, keys);
+    }
+    return internDependencyKey(keys, `select:${String(getterName)}`, index);
 }
 
 function resolveReactiveSelectValueCell(cell: IReactiveSelectValueCell) {
@@ -1502,17 +1536,23 @@ export class Retree {
                 this.stopListening();
             }
         };
-        return unsubscribe.bind(this);
+        return unsubscribe;
     }
 
     private static hasReactiveChangedListeners(unproxiedNode: TreeNode) {
         const nodeChangedListeners =
-            this.nodeChangedListeners.get(unproxiedNode) ?? [];
+            this.nodeChangedListeners.get(unproxiedNode);
+        if (
+            nodeChangedListeners !== undefined &&
+            nodeChangedListeners.length > 0
+        ) {
+            return true;
+        }
         const treeChangedListeners =
-            this.treeChangedListeners.get(unproxiedNode) ?? [];
-
+            this.treeChangedListeners.get(unproxiedNode);
         return (
-            nodeChangedListeners.length > 0 || treeChangedListeners.length > 0
+            treeChangedListeners !== undefined &&
+            treeChangedListeners.length > 0
         );
     }
 
@@ -1586,52 +1626,123 @@ export class Retree {
         return observed;
     }
 
+    /**
+     * Schedule `treeChanged` emissions for a change at `proxyNode`. Every
+     * ancestor up to the topmost node with a treeChanged listener is
+     * reproxied (so consumers see fresh identities along the path) and each
+     * listened node on that path is notified. Only reached once
+     * {@link Retree.hasTreeChangedListenerOnAncestorPath} found a listener.
+     */
     private static handleNotifyTreeChanged(
-        node: TreeNode,
+        unproxiedNode: TreeNode,
         proxyNode: TCustomProxy<TreeNode>,
         changes: INodeFieldChanges[]
-    ): void {
-        const path: {
-            raw: TreeNode;
-            proxy: TreeNode;
-            listeners?: TNodeChangedListener[];
-        }[] = [];
-        let current: { raw: TreeNode; proxy: TreeNode } | undefined = {
-            raw: node,
-            proxy: proxyNode,
-        };
-        let lastObservedIndex = -1;
-        while (current !== undefined) {
-            const listeners = this.treeChangedListeners.get(current.raw);
-            path.push({ ...current, listeners: listeners?.slice() });
+    ) {
+        // Walk to the root over handler metadata: one sentinel trap per
+        // level and no per-level result objects. Listener arrays are
+        // snapshotted at write time so the deferred emission notifies the
+        // listeners that existed when the change happened.
+        let listenersByProxyNode:
+            | Map<TCustomProxy<TreeNode>, TRetreeListeners[]>
+            | undefined;
+        let topProxyNodeListenedTo: TCustomProxy<TreeNode> | null = null;
+        const parentHandlers: ICustomProxyHandler<TreeNode>[] = [];
+        let handler = getCustomProxyHandler(proxyNode);
+        if (handler === undefined) {
+            // @retree-throws
+            throw new Error(
+                "Retree internal invariant failed in handleNotifyTreeChanged: the changed node has no Retree proxy metadata. This is unexpected and likely a Retree bug. Please file an issue with the mutation that triggered this."
+            );
+        }
+        let currentProxyNode = proxyNode;
+        let currentUnproxiedNode = unproxiedNode;
+        for (;;) {
+            const listeners =
+                this.treeChangedListeners.get(currentUnproxiedNode);
             if (listeners !== undefined && listeners.length > 0) {
-                lastObservedIndex = path.length - 1;
+                listenersByProxyNode ??= new Map();
+                listenersByProxyNode.set(currentProxyNode, listeners.slice());
+                topProxyNodeListenedTo = currentProxyNode;
             }
-            const parent = this.getParentInternal(current.proxy);
-            current =
-                parent === null
-                    ? undefined
-                    : { raw: parent.rawNode, proxy: parent.proxyNode };
+            const parentProxyNode: TCustomProxy<TreeNode> | null | undefined =
+                handler[proxiedParentKey]?.proxyNode;
+            if (!parentProxyNode) {
+                break;
+            }
+            handler = getCustomProxyHandler(parentProxyNode);
+            if (handler === undefined) {
+                // @retree-throws
+                throw new Error(
+                    "Retree internal invariant failed in handleNotifyTreeChanged: a node has parent metadata, but the parent is not a Retree-managed proxy. This is unexpected and likely a Retree bug. Please file an issue with how the child was assigned, moved, or deleted."
+                );
+            }
+            parentHandlers.push(handler);
+            currentProxyNode = handler.baseProxy;
+            currentUnproxiedNode = handler[unproxiedBaseNodeKey];
         }
-        for (let index = 0; index <= lastObservedIndex; index++) {
-            const entry = path[index];
-            if (index > 0) invalidateReproxyNode(entry.proxy);
-            if (Transactions.skipEmit || entry.listeners === undefined)
-                continue;
-            const reproxy = getReproxyNode(entry.proxy);
-            const listeners = entry.listeners;
-            const emitTreeChanged = (records: INodeFieldChanges[]) => {
-                this.notifyChangedListeners(listeners, reproxy, records);
-            };
-            if (Transactions.runningTransaction) {
-                Transactions.upsertPendingTransaction(entry.raw, {
-                    emitTreeChanged,
-                    treeChanges: changes,
-                });
-            } else {
-                Transactions.runListenerFlush(() => emitTreeChanged(changes));
+        if (listenersByProxyNode === undefined) {
+            return;
+        }
+        const changedNodeListeners = listenersByProxyNode.get(proxyNode);
+        if (changedNodeListeners !== undefined && !Transactions.skipEmit) {
+            this.scheduleTreeChangedEmission(
+                unproxiedNode,
+                changes,
+                (changesToNotify) =>
+                    this.notifyChangedListeners(
+                        changedNodeListeners,
+                        getReproxyNode(proxyNode),
+                        changesToNotify
+                    )
+            );
+        }
+        // If the topmost listener is on the node that changed, skip parents.
+        if (topProxyNodeListenedTo === proxyNode) {
+            return;
+        }
+        for (const parentHandler of parentHandlers) {
+            const parentProxyNode = parentHandler.baseProxy;
+            const parentUnproxiedNode = parentHandler[unproxiedBaseNodeKey];
+            // Ancestors only lose their identity here; a listened ancestor
+            // materializes its view now because its emission hands it out.
+            invalidateReproxyNodeForUnproxiedNode(parentUnproxiedNode);
+            const parentListeners = listenersByProxyNode.get(parentProxyNode);
+            if (parentListeners !== undefined && !Transactions.skipEmit) {
+                const parentReproxyNode =
+                    getReproxyNodeForUnproxiedNode(parentUnproxiedNode) ??
+                    parentProxyNode;
+                this.scheduleTreeChangedEmission(
+                    parentUnproxiedNode,
+                    changes,
+                    (changesToNotify) =>
+                        this.notifyChangedListeners(
+                            parentListeners,
+                            parentReproxyNode,
+                            changesToNotify
+                        )
+                );
+            }
+            // Stop invalidating above the topmost node anyone listens to.
+            if (parentProxyNode === topProxyNodeListenedTo) {
+                return;
             }
         }
+    }
+
+    private static scheduleTreeChangedEmission(
+        unproxiedNode: TreeNode,
+        changes: INodeFieldChanges[],
+        emitTreeChanged: (changes: INodeFieldChanges[]) => void
+    ) {
+        // In a transaction, defer so repeat changes to one node emit once.
+        if (Transactions.runningTransaction) {
+            Transactions.upsertPendingTransaction(unproxiedNode, {
+                emitTreeChanged,
+                treeChanges: changes,
+            });
+            return;
+        }
+        Transactions.runListenerFlush(() => emitTreeChanged(changes));
     }
 
     private static startListening() {
@@ -1718,37 +1829,32 @@ export class Retree {
                 this.scheduleReactiveNodeLifecycle(proxyNode, unproxiedNode);
             }
 
-            const emitNodeChangedListeners = (
-                changesToNotify: INodeFieldChanges[]
-            ) => {
-                const nodeChangedListnersToNotify =
-                    this.nodeChangedListeners.get(unproxiedNode) ?? [];
-                this.notifyChangedListeners(
-                    nodeChangedListnersToNotify,
-                    reproxyNode,
-                    changesToNotify
-                );
-            };
-
-            const scheduleNodeChangedListeners = () => {
-                // If running a transaction, schedule this to emit later.
-                // That way if this same node gets changed later, we can only emit once for that node.
+            if (!Transactions.skipEmit) {
+                const emitNodeChangedListeners = (
+                    changesToNotify: INodeFieldChanges[]
+                ) => {
+                    const listeners =
+                        this.nodeChangedListeners.get(unproxiedNode);
+                    if (listeners !== undefined) {
+                        this.notifyChangedListeners(
+                            listeners,
+                            reproxyNode,
+                            changesToNotify
+                        );
+                    }
+                };
+                // In a transaction, defer so repeat changes to one node emit
+                // once.
                 if (Transactions.runningTransaction) {
                     Transactions.upsertPendingTransaction(unproxiedNode, {
                         emitNodeChanged: emitNodeChangedListeners,
                         nodeChanges: changes,
                     });
-                    return;
+                } else {
+                    Transactions.runListenerFlush(() =>
+                        emitNodeChangedListeners(changes)
+                    );
                 }
-
-                // emit immediately
-                Transactions.runListenerFlush(() =>
-                    emitNodeChangedListeners(changes)
-                );
-            };
-
-            if (!Transactions.skipEmit) {
-                scheduleNodeChangedListeners();
             }
 
             // Still handle here so we reproxy parents, despite skipping emit later in biz logic.
@@ -2132,14 +2238,11 @@ export class Retree {
             // throws (e.g. a throwing `dependencies` getter) must not drop
             // every other queued node's pass — the remainder stays queued for
             // the next drain — and must not retry itself forever.
-            while (this.pendingReactiveLifecycleNodes.size > 0) {
-                const next = this.pendingReactiveLifecycleNodes
-                    .entries()
-                    .next().value;
-                if (next === undefined) {
-                    break;
-                }
-                const [unproxiedNode, proxiedNode] = next;
+            // One live iterator also visits nodes queued mid-drain, where a
+            // fresh `entries().next()` per node scanned past every deleted
+            // slot and made the drain quadratic in queued nodes.
+            for (const [unproxiedNode, proxiedNode] of this
+                .pendingReactiveLifecycleNodes) {
                 this.pendingReactiveLifecycleNodes.delete(unproxiedNode);
                 this.handleReactiveNode(proxiedNode, unproxiedNode);
             }
@@ -2174,29 +2277,11 @@ export class Retree {
             }
             return;
         }
-        const previousDependenciesByKey = new Map<
-            string,
-            IActiveReactiveDependency
-        >();
-        for (const dependency of previousDependencies ?? [])
-            previousDependenciesByKey.set(dependency.key, dependency);
-        const selectValueFor = (dependency: IActiveReactiveDependency) =>
-            dependency.selectGetterName === undefined
-                ? undefined
-                : resolvedSelectValues?.get(dependency.selectGetterName);
-        const newActiveDependencies: IActiveReactiveDependency[] = [];
-        for (
-            let depIndex = 0;
-            depIndex < currentDependencies.length;
-            depIndex++
-        ) {
-            const currentDependency = currentDependencies[depIndex];
-            const previousDependency = previousDependenciesByKey.get(
-                currentDependency.key
-            );
-            previousDependenciesByKey.delete(currentDependency.key);
+        const nextDependencies = new Map<string, IActiveReactiveDependency>();
+        for (const currentDependency of currentDependencies) {
+            const key = currentDependency.key;
+            const previousDependency = previousDependencies?.get(key);
             const newDependencyNode = currentDependency.node;
-            let unsubscribe: (() => void) | undefined;
             const previousUnproxiedDependencyNode =
                 previousDependency?.unproxiedNode;
             let currentUnproxiedDependencyNode: TreeNode | undefined;
@@ -2236,110 +2321,120 @@ export class Retree {
             // and silently absorb the pending change. New records (no
             // previous baseline) store undefined, which validation treats as
             // "assume changed" — a conservative notify instead of a lost one.
+            // Access summaries are a validation gate over the same baseline.
             const preserveBaseline =
                 currentUnproxiedDependencyNode !== undefined &&
                 Transactions.hasPendingEmissionFor(
                     currentUnproxiedDependencyNode
                 );
-            const baselineComparisons = preserveBaseline
+            const selectGetterName = currentDependency.selectGetterName;
+            let selectValue: unknown;
+            if (preserveBaseline) {
+                selectValue = previousDependency?.selectValue;
+            } else if (selectGetterName !== undefined) {
+                selectValue = resolvedSelectValues?.get(selectGetterName);
+            }
+            const comparisons = preserveBaseline
                 ? previousDependency?.comparisons
                 : currentDependency.comparisons;
-            const baselineComparisonsOffset = preserveBaseline
+            const comparisonsOffset = preserveBaseline
                 ? previousDependency?.comparisonsOffset
                 : currentDependency.comparisonsOffset;
-            const baselineSelectValue = preserveBaseline
-                ? previousDependency?.selectValue
-                : selectValueFor(currentDependency);
-            // Access summaries are a validation gate over the same baseline:
-            // summaries captured post-write would re-read equal and absorb
-            // the pending change exactly like overwritten comparisons.
-            const baselineAccessSummaries = preserveBaseline
+            const getAccessSummaries = preserveBaseline
                 ? previousDependency?.getAccessSummaries
                 : currentDependency.getAccessSummaries;
+
+            // One record serves both registries and survives across passes:
+            // a retained edge refreshes its baselines in place with no
+            // allocation and no re-subscription.
+            let record: IActiveReactiveDependency;
+            if (previousDependency !== undefined) {
+                record = previousDependency;
+                record.node = newDependencyNode;
+                record.comparisons = comparisons;
+                record.comparisonsOffset = comparisonsOffset;
+                record.selectGetterName = selectGetterName;
+                record.selectValue = selectValue;
+                record.compareSelectValueBeforeNotify =
+                    currentDependency.compareSelectValueBeforeNotify;
+                record.getAccessSummaries = getAccessSummaries;
+                record.reactiveNode = proxiedDependentNode;
+            } else {
+                record = {
+                    key,
+                    node: newDependencyNode,
+                    comparisons,
+                    comparisonsOffset,
+                    selectGetterName,
+                    selectValue,
+                    compareSelectValueBeforeNotify:
+                        currentDependency.compareSelectValueBeforeNotify,
+                    getAccessSummaries,
+                    reactiveNode: proxiedDependentNode,
+                    unproxiedReactiveNode: unproxiedDependentNode,
+                    unsubscribeListener: undefined,
+                    unproxiedNode: currentUnproxiedDependencyNode,
+                };
+            }
 
             if (
                 previousUnproxiedDependencyNode !== undefined &&
                 previousUnproxiedDependencyNode ===
                     currentUnproxiedDependencyNode
             ) {
-                setReactiveDependents(previousUnproxiedDependencyNode, {
-                    reactiveNode: proxiedDependentNode,
-                    unproxiedReactiveNode: unproxiedDependentNode,
-                    comparisons: baselineComparisons,
-                    comparisonsOffset: baselineComparisonsOffset,
-                    key: currentDependency.key,
-                    selectGetterName: currentDependency.selectGetterName,
-                    selectValue: baselineSelectValue,
-                    compareSelectValueBeforeNotify:
-                        currentDependency.compareSelectValueBeforeNotify,
-                    getAccessSummaries: baselineAccessSummaries,
-                });
-                unsubscribe = previousDependency?.unsubscribeListener;
+                setReactiveDependents(previousUnproxiedDependencyNode, record);
             } else {
-                previousDependency?.unsubscribeListener?.();
+                record.unsubscribeListener?.();
+                record.unsubscribeListener = undefined;
                 if (previousUnproxiedDependencyNode !== undefined) {
                     deleteReactiveDependent(
                         previousUnproxiedDependencyNode,
                         unproxiedDependentNode,
-                        currentDependency.key
+                        key
                     );
                 }
+                record.unproxiedNode = currentUnproxiedDependencyNode;
                 if (currentUnproxiedDependencyNode !== undefined) {
-                    setReactiveDependents(currentUnproxiedDependencyNode, {
-                        reactiveNode: proxiedDependentNode,
-                        unproxiedReactiveNode: unproxiedDependentNode,
-                        comparisons: baselineComparisons,
-                        comparisonsOffset: baselineComparisonsOffset,
-                        key: currentDependency.key,
-                        selectGetterName: currentDependency.selectGetterName,
-                        selectValue: baselineSelectValue,
-                        compareSelectValueBeforeNotify:
-                            currentDependency.compareSelectValueBeforeNotify,
-                        getAccessSummaries: baselineAccessSummaries,
-                    });
+                    setReactiveDependents(
+                        currentUnproxiedDependencyNode,
+                        record
+                    );
                     if (newDependencyNode) {
-                        unsubscribe = retainReactiveDependencySubscription(
-                            currentUnproxiedDependencyNode,
-                            () =>
-                                this.on(
-                                    newDependencyNode,
-                                    // TODO: figure out if I should support treeChanged for this...seems expensive
-                                    "nodeChanged",
-                                    this.reactiveDependentNodeChangedListener
-                                )
-                        );
+                        record.unsubscribeListener =
+                            retainReactiveDependencySubscription(
+                                currentUnproxiedDependencyNode,
+                                () =>
+                                    this.on(
+                                        newDependencyNode,
+                                        // TODO: figure out if I should support treeChanged for this...seems expensive
+                                        "nodeChanged",
+                                        this
+                                            .reactiveDependentNodeChangedListener
+                                    )
+                            );
                     }
                 }
             }
-
-            const active = previousDependency ?? { ...currentDependency };
-            active.key = currentDependency.key;
-            active.node = currentDependency.node;
-            active.comparisons = baselineComparisons;
-            active.comparisonsOffset = baselineComparisonsOffset;
-            active.selectGetterName = currentDependency.selectGetterName;
-            active.selectValue = baselineSelectValue;
-            active.compareSelectValueBeforeNotify =
-                currentDependency.compareSelectValueBeforeNotify;
-            active.getAccessSummaries = baselineAccessSummaries;
-            active.unsubscribeListener = unsubscribe;
-            active.unproxiedNode = currentUnproxiedDependencyNode;
-            newActiveDependencies.push(active);
+            nextDependencies.set(key, record);
         }
-        for (const previousDependency of previousDependenciesByKey.values()) {
-            previousDependency.unsubscribeListener?.();
-            const previousUnproxiedDependencyNode =
-                previousDependency.unproxiedNode;
-            if (previousUnproxiedDependencyNode !== undefined) {
-                deleteReactiveDependent(
-                    previousUnproxiedDependencyNode,
-                    unproxiedDependentNode,
-                    previousDependency.key
-                );
+        if (previousDependencies !== undefined) {
+            for (const [key, previousDependency] of previousDependencies) {
+                if (nextDependencies.has(key)) {
+                    continue;
+                }
+                previousDependency.unsubscribeListener?.();
+                const previousUnproxiedDependencyNode =
+                    previousDependency.unproxiedNode;
+                if (previousUnproxiedDependencyNode !== undefined) {
+                    deleteReactiveDependent(
+                        previousUnproxiedDependencyNode,
+                        unproxiedDependentNode,
+                        key
+                    );
+                }
             }
         }
-        // Set reactive dependencies
-        setReactiveDependencies(unproxiedDependentNode, newActiveDependencies);
+        setReactiveDependencies(unproxiedDependentNode, nextDependencies);
     }
 
     private static getReactiveSelectDependencies(
@@ -2348,9 +2443,9 @@ export class Retree {
             getterName: string | symbol,
             cell: IReactiveSelectValueCell
         ) => void
-    ): IActiveReactiveDependency[] {
+    ): IReactiveDependencyCollectionEntry[] {
         const selectGetters = proxiedDependentNode[SELECT_GETTERS_SYMBOL];
-        const dependencies: IActiveReactiveDependency[] = [];
+        const dependencies: IReactiveDependencyCollectionEntry[] = [];
         const unproxiedDependentNode = getUnproxiedNode(proxiedDependentNode);
         for (const [getterName, selectGetter] of selectGetters.entries()) {
             const trackedAccesses =
@@ -2408,7 +2503,7 @@ export class Retree {
                 dependencyIndex++
             ) {
                 const normalizedEntry = normalizedEntries[dependencyIndex];
-                const key = `select:${String(getterName)}:${dependencyIndex}`;
+                const key = getSelectDependencyKey(getterName, dependencyIndex);
                 if (
                     normalizedEntry.node !== undefined &&
                     normalizedEntry.node !== null &&
@@ -2434,16 +2529,9 @@ export class Retree {
                         ? undefined
                         : suffixOffset,
                     selectGetterName: getterName,
-                    // Select values are resolved per lifecycle pass from the
-                    // collection's captured values (see
-                    // getReactiveNodeDependencies); shared cached records
-                    // never carry one.
-                    selectValue: undefined,
                     compareSelectValueBeforeNotify:
                         selectGetter.compareValueBeforeNotify,
                     getAccessSummaries: trackedAccesses?.getAccessSummaries,
-                    unsubscribeListener: undefined,
-                    unproxiedNode: undefined,
                 });
             }
         }
@@ -2549,7 +2637,7 @@ export class Retree {
                         (dependency, index) =>
                             this.normalizeReactiveNodeDependency(
                                 dependency,
-                                `dependencies:${index}`
+                                getDependenciesGetterKey(index)
                             )
                     ),
                     ...this.getReactiveSelectDependencies(
@@ -2588,22 +2676,20 @@ export class Retree {
     private static normalizeReactiveNodeDependency(
         dependency: unknown,
         key: string
-    ): IActiveReactiveDependency {
+    ): IReactiveDependencyCollectionEntry {
         const normalizedDependency = normalizeDependencyEntry(dependency);
         return {
             key,
             node: normalizedDependency.node,
             comparisons: normalizedDependency.comparisons,
-            unsubscribeListener: undefined,
-            unproxiedNode: undefined,
         };
     }
 
     private static unsubscribeReactiveDependencies(
-        dependencies: IActiveReactiveDependency[],
+        dependencies: Map<string, IActiveReactiveDependency>,
         unproxiedNode: TreeNode
     ) {
-        for (const dependency of dependencies) {
+        for (const dependency of dependencies.values()) {
             dependency.unsubscribeListener?.();
             const unproxiedDependencyNode = dependency.unproxiedNode;
             if (unproxiedDependencyNode !== undefined) {
@@ -2625,24 +2711,9 @@ export class Retree {
         // re-schedules it exactly like the eager sequence would have.
         this.pendingReactiveLifecycleNodes.delete(unproxiedNode);
         const previous = getReactiveDependencies(unproxiedNode);
-        if (!previous) {
-            deleteReactiveDependencies(unproxiedNode);
-            return;
+        if (previous !== undefined) {
+            this.unsubscribeReactiveDependencies(previous, unproxiedNode);
         }
-
-        for (let depIndex = 0; depIndex < previous.length; depIndex++) {
-            const depPrevious = previous[depIndex];
-            depPrevious?.unsubscribeListener?.();
-            const prevUnproxiedDependentNode = depPrevious?.unproxiedNode;
-            if (prevUnproxiedDependentNode !== undefined) {
-                deleteReactiveDependent(
-                    prevUnproxiedDependentNode,
-                    unproxiedNode,
-                    depPrevious.key
-                );
-            }
-        }
-        // Delete reactive dependencies
         deleteReactiveDependencies(unproxiedNode);
     }
 
@@ -2672,7 +2743,7 @@ export class Retree {
             // per dependent re-runs the `dependencies` getter and every @select
             // getter M times for a node with M edges onto the changed node.
             let latestDependenciesByKey:
-                | Map<string, IActiveReactiveDependency>
+                | Map<string, IReactiveDependencyCollectionEntry>
                 | undefined;
             const getLatestDependenciesByKey = () => {
                 if (latestDependenciesByKey === undefined) {
@@ -2705,7 +2776,10 @@ export class Retree {
                 getUnproxiedNodeFromProxy(dependentBaseProxy);
             const dependentReproxy = Transactions.skipReproxy
                 ? getReproxyNodeForUnproxiedNode(dependentUnproxied)
-                : updateReproxyNodeForChange(dependentBaseProxy);
+                : this.reproxyDependentForNotification(
+                      dependentBaseProxy,
+                      dependentUnproxied
+                  );
             if (!dependentReproxy) {
                 // @retree-throws
                 throw new Error(
@@ -2721,6 +2795,29 @@ export class Retree {
         });
     }
 
+    /**
+     * Reproxy a dependent ReactiveNode whose dependency changed. The reproxy
+     * bumps the global write version, but the only state it changes is this
+     * node's own proxy identity, which its own dependency collection cannot
+     * observe. Re-stamping the collection that validation just built lets
+     * the deferred lifecycle pass reuse it instead of re-running the
+     * `dependencies` getter and every `@select` getter a second time.
+     */
+    private static reproxyDependentForNotification(
+        dependentBaseProxy: TCustomProxy<ReactiveNode>,
+        dependentUnproxied: TreeNode
+    ) {
+        const cached =
+            this.reactiveDependencyCollectionCache.get(dependentUnproxied);
+        const cachedIsCurrent =
+            cached !== undefined && cached.version === getGlobalWriteVersion();
+        const reproxy = updateReproxyNodeForChange(dependentBaseProxy);
+        if (cachedIsCurrent) {
+            cached.version = getGlobalWriteVersion();
+        }
+        return reproxy;
+    }
+
     private static groupReactiveDependents(
         dependentGroups: Map<TreeNode, IReactiveDependentGroup>
     ) {
@@ -2728,7 +2825,7 @@ export class Retree {
         // handleReactiveNode, which mutates these maps while we iterate.
         const groups: {
             reactiveNode: ReactiveNode;
-            dependents: IPreviousReactiveDependent[];
+            dependents: IActiveReactiveDependency[];
         }[] = [];
         for (const group of dependentGroups.values()) {
             groups.push({
@@ -2740,10 +2837,13 @@ export class Retree {
     }
 
     private static shouldNotifyReactiveDependent(
-        dependent: IPreviousReactiveDependent,
+        dependent: IActiveReactiveDependency,
         changedUnproxiedNode: TreeNode,
         changes: INodeFieldChanges[],
-        getLatestDependenciesByKey: () => Map<string, IActiveReactiveDependency>
+        getLatestDependenciesByKey: () => Map<
+            string,
+            IReactiveDependencyCollectionEntry
+        >
     ) {
         // Auto-trapped @select dependents carry per-node read summaries from
         // their last collection pass. When every value the getter read from
@@ -2777,9 +2877,12 @@ export class Retree {
     }
 
     private static hasReactiveDependencyChanged(
-        dependent: IPreviousReactiveDependent,
+        dependent: IActiveReactiveDependency,
         changedUnproxiedNode: TreeNode,
-        getLatestDependenciesByKey: () => Map<string, IActiveReactiveDependency>
+        getLatestDependenciesByKey: () => Map<
+            string,
+            IReactiveDependencyCollectionEntry
+        >
     ) {
         const previousComparisons = dependent.comparisons;
         if (previousComparisons === undefined) {
@@ -2822,7 +2925,7 @@ export class Retree {
     }
 
     private static hasReactiveSelectValueChanged(
-        dependent: IPreviousReactiveDependent
+        dependent: IActiveReactiveDependency
     ): boolean | undefined {
         const selectGetterName = dependent.selectGetterName;
         if (selectGetterName === undefined) {
