@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setRetreeListenerFlushWrapper, Transactions } from "./transactions.js";
+import { Retree } from "../Retree.js";
+import type { INodeFieldChanges } from "../types.js";
 
 afterEach(() => {
     Transactions.skipEmit = false;
@@ -10,6 +12,75 @@ afterEach(() => {
 });
 
 describe("Transactions", () => {
+    it("keeps delivered records stable when a listener queues more changes", () => {
+        const node = {};
+        const first: INodeFieldChanges = {
+            node,
+            key: "value",
+            previous: 0,
+            new: 1,
+        };
+        const second: INodeFieldChanges = {
+            node,
+            key: "value",
+            previous: 1,
+            new: 2,
+        };
+        const input = [first];
+        let delivered: INodeFieldChanges[] = [];
+        let treeRecords: INodeFieldChanges[] = [];
+        Transactions.upsertPendingTransaction(node, {
+            nodeChanges: input,
+            treeChanges: input,
+            emitNodeChanged(records) {
+                delivered = records;
+                Transactions.upsertPendingTransaction(node, {
+                    nodeChanges: [second],
+                    treeChanges: [second],
+                });
+            },
+            emitTreeChanged(records) {
+                treeRecords = records;
+            },
+        });
+        input.length = 0;
+        Transactions.runPendingTransactions();
+        expect(delivered).toEqual([first]);
+        expect(treeRecords).toEqual([first, second]);
+    });
+
+    it("handles a deep tree without scheduling payloads for unobserved ancestors", () => {
+        interface Branch {
+            value: number;
+            child?: Branch;
+        }
+        let input: Branch = { value: 0 };
+        for (let depth = 0; depth < 5000; depth++)
+            input = { value: 0, child: input };
+        const root = Retree.root(input);
+        let leaf = root;
+        while (leaf.child !== undefined) leaf = leaf.child;
+        const listener = vi.fn();
+        const unsubscribe = Retree.on(root, "treeChanged", listener);
+        const upsert = vi.spyOn(Transactions, "upsertPendingTransaction");
+        try {
+            Retree.runTransaction(() => {
+                leaf.value = 1;
+                leaf.value = 2;
+            });
+            expect(listener).toHaveBeenCalledTimes(1);
+            expect(
+                listener.mock.calls[0][1].map(
+                    (record: INodeFieldChanges) => record.new
+                )
+            ).toEqual([1, 2]);
+            expect(upsert).toHaveBeenCalledTimes(4);
+        } finally {
+            upsert.mockRestore();
+            unsubscribe();
+        }
+    });
+
     it("upserts pending transaction callbacks without clearing omitted callbacks", () => {
         const node = {};
         const firstNodeChanged = vi.fn();
