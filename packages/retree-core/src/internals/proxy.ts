@@ -51,6 +51,7 @@ import {
 import { Transactions } from "./transactions.js";
 import { bumpGlobalWriteVersion } from "./write-version.js";
 import { normalizeRawInput } from "./raw-input.js";
+import { prepareSnapshotParentChange } from "./snapshot-version.js";
 
 export const FUNCTION_NAMES_BIND_TO_RAW: ReadonlySet<string | symbol> = new Set(
     ["valueOf", "toISOString", "toJSON"]
@@ -2143,6 +2144,7 @@ function takeRemovedArrayElement(
             parent.proxyNode === baseProxy &&
             parent.propName === propName
         ) {
+            prepareSnapshotParentChange(childProxy);
             parent.propName = null;
             parent.proxyNode = null;
             removedNodes.push(childProxy);
@@ -2889,6 +2891,7 @@ function detachCollectionChild(
     if (!oldParent || oldParent.proxyNode !== parentBaseProxy) {
         return undefined;
     }
+    prepareSnapshotParentChange(child);
     oldParent.propName = null;
     oldParent.proxyNode = null;
     return child;
@@ -2966,9 +2969,12 @@ function reparentProxy<T extends TreeNode = TreeNode>(
                 ].join(" ")
             );
         }
+        if (currentParent.proxyNode !== newParent.proxyNode)
+            prepareSnapshotParentChange(proxy);
         currentParent.propName = newParent.propName;
         currentParent.proxyNode = newParent.proxyNode;
     } else {
+        prepareSnapshotParentChange(proxy);
         handler[proxiedParentKey] = newParent;
     }
     return proxy;
@@ -3020,6 +3026,7 @@ function handleNodeRemoved(
         }
         // Reproxy shares same reference to original IProxyParent object.
         // Set deep values directly.
+        prepareSnapshotParentChange(nodeRemoved);
         oldParent.propName = null;
         oldParent.proxyNode = null;
     }
