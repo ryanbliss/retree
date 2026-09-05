@@ -598,6 +598,7 @@ class BaseProxyHandler<T extends TreeNode>
                 } finally {
                     this.isApplyingSet = false;
                 }
+                if (Transactions.skipReproxy) bumpGlobalWriteVersion(target);
                 if (!Transactions.skipReproxy) {
                     const reproxy = updateReproxyNodeForChange(baseProxy);
                     const changes = createNodeFieldChanges(
@@ -624,7 +625,7 @@ class BaseProxyHandler<T extends TreeNode>
                 // Ignored-key writes never reproxy, so they must invalidate
                 // version-stamped dependency caches here: `dependencies` and
                 // @select getters may read @ignore fields.
-                bumpGlobalWriteVersion();
+                bumpGlobalWriteVersion(target);
                 return Reflect.set(target, prop, newValue, target);
             }
         }
@@ -642,6 +643,7 @@ class BaseProxyHandler<T extends TreeNode>
         // `Object.is` so NaN-to-NaN writes are treated as unchanged.
         const hasChanged = !Object.is(prev, rawNewValue);
         if (hasChanged) {
+            if (Transactions.skipReproxy) bumpGlobalWriteVersion(target);
             const nodeRemoved = handleNodeRemoved(baseProxy, prop);
             if (newValue !== null && typeof newValue === "object") {
                 if (prop === "constructor")
@@ -756,7 +758,7 @@ class BaseProxyHandler<T extends TreeNode>
             ) {
                 // See the set trap: ignored-key mutations must invalidate
                 // version-stamped dependency caches.
-                bumpGlobalWriteVersion();
+                bumpGlobalWriteVersion(target);
                 return Reflect.defineProperty(target, prop, descriptor);
             }
         }
@@ -830,6 +832,8 @@ class BaseProxyHandler<T extends TreeNode>
             descriptorToDefine
         );
         // If in a skip reproxy transaction, do not reproxy node
+        if (returnValue && Transactions.skipReproxy)
+            bumpGlobalWriteVersion(target);
         if (returnValue && !Transactions.skipReproxy) {
             if (baseProxy) {
                 const reproxy = updateReproxyNodeForChange(baseProxy);
@@ -904,7 +908,7 @@ class BaseProxyHandler<T extends TreeNode>
             ) {
                 // See the set trap: ignored-key mutations must invalidate
                 // version-stamped dependency caches.
-                bumpGlobalWriteVersion();
+                bumpGlobalWriteVersion(target);
                 return Reflect.deleteProperty(target, prop);
             }
         }
@@ -927,6 +931,7 @@ class BaseProxyHandler<T extends TreeNode>
         const previousValue = Reflect.get(target, prop, target);
         const returnValue = Reflect.deleteProperty(target, prop);
         if (returnValue) {
+            if (Transactions.skipReproxy) bumpGlobalWriteVersion(target);
             deleteProxiedChild(this, prop);
         }
         // If in a skip reproxy transaction, do not reproxy node
@@ -2904,7 +2909,10 @@ function emitCollectionChange(
     removedNodes: object[],
     changes: INodeFieldChanges[]
 ) {
-    if (Transactions.skipReproxy) return;
+    if (Transactions.skipReproxy) {
+        bumpGlobalWriteVersion(target);
+        return;
+    }
     const reproxy = updateReproxyNodeForChange(baseProxy);
     emitter.emit("nodeChanged", target, baseProxy, reproxy, changes);
     if (removedNodes.length === 0 || Transactions.skipEmit) return;

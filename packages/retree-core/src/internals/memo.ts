@@ -6,9 +6,14 @@
 import { ReactiveNode } from "../ReactiveNode.js";
 import { TreeNode } from "../types.js";
 import {
+    getGlobalWriteVersion,
+    getWrittenOwnersSince,
+} from "./write-version.js";
+import {
     DependencyComparisonAccessor,
     collectDependencyComparisonAccesses,
     replayDependencyComparisonAccesses,
+    isDependencyTrackingActive,
 } from "./dependency-tracking.js";
 import { getDependencyComparisonValues } from "./dependencies.js";
 import { getUnproxiedNode } from "./proxy.js";
@@ -21,6 +26,7 @@ import { getManagedProxyForUnproxiedNode } from "./reproxy.js";
  */
 interface IMemoCacheEntry {
     value: unknown;
+    validation?: ITrappedMemoValidation;
     /**
      * Comparisons array captured the last time the memo computed.
      * `undefined` means "no comparisons; invalidate when the ReactiveNode reproxies."
@@ -43,6 +49,98 @@ interface IMemoCacheEntry {
      * `undefined` means this entry belongs to regular getter memoization.
      */
     args: unknown[] | undefined;
+}
+
+interface ITrappedMemoValidation {
+    version: number;
+    sources: Map<object, number[]>;
+    unscoped: number[];
+    replayValues: unknown[][];
+}
+
+function createTrappedValidation(
+    comparisons: unknown[],
+    snapshots: IComparisonSnapshot[]
+): ITrappedMemoValidation {
+    const sources = new Map<object, number[]>();
+    const unscoped: number[] = [];
+    for (let index = 0; index < comparisons.length; index++) {
+        const comparison = comparisons[index];
+        const owner = isDependencyComparisonAccessor(comparison)
+            ? comparison.sourceUnproxiedNode
+            : undefined;
+        if (owner === undefined) {
+            unscoped.push(index);
+            continue;
+        }
+        const addSource = (source: object) => {
+            const indices = sources.get(source);
+            if (indices === undefined) sources.set(source, [index]);
+            else if (indices[indices.length - 1] !== index) indices.push(index);
+        };
+        addSource(owner);
+        const valueOwner = isDependencyComparisonAccessor(comparison)
+            ? comparison.valueUnproxiedNode
+            : undefined;
+        if (valueOwner !== undefined) addSource(valueOwner);
+    }
+    return {
+        version: getGlobalWriteVersion(),
+        sources,
+        unscoped,
+        replayValues: snapshots.map((snapshot) => snapshot.normalizedValues),
+    };
+}
+
+function validateTrappedMemo(entry: IMemoCacheEntry): boolean {
+    const validation = entry.validation;
+    const accessors = entry.comparisonAccessors;
+    const snapshots = entry.comparisonSnapshots;
+    if (
+        validation === undefined ||
+        accessors === undefined ||
+        snapshots === undefined
+    )
+        return false;
+    const version = getGlobalWriteVersion();
+    if (validation.version === version && validation.unscoped.length === 0)
+        return true;
+    const owners = getWrittenOwnersSince(validation.version);
+    const validate = (index: number): boolean => {
+        const next = normalizeComparisonWithSnapshot(accessors[index]);
+        if (
+            !shallowEqualArrays(
+                snapshots[index].normalizedValues,
+                next.normalizedValues
+            )
+        )
+            return false;
+        snapshots[index] = next;
+        validation.replayValues[index] = next.normalizedValues;
+        return true;
+    };
+    if (owners === undefined) {
+        for (let index = 0; index < accessors.length; index++)
+            if (!validate(index)) return false;
+    } else {
+        for (const index of validation.unscoped)
+            if (!validate(index)) return false;
+        for (const owner of owners) {
+            for (const index of validation.sources.get(owner) ?? [])
+                if (!validate(index)) return false;
+        }
+    }
+    validation.version = version;
+    return true;
+}
+
+function replayTrappedMemo(entry: IMemoCacheEntry): void {
+    if (!isDependencyTrackingActive()) return;
+    if (entry.comparisonAccessors === undefined) return;
+    replayDependencyComparisonAccesses(
+        entry.comparisonAccessors,
+        entry.validation?.replayValues
+    );
 }
 
 interface IComparisonSnapshot {
@@ -156,17 +254,8 @@ export function runTrappedMemo<T>(
         prev.args === undefined &&
         prev.comparisonAccessors !== undefined
     ) {
-        const latest = normalizeComparisonsWithSnapshots(
-            prev.comparisonAccessors,
-            prev.comparisonSnapshots
-        );
-        if (shallowEqualArrays(prev.comparisons ?? [], latest.values)) {
-            prev.comparisons = latest.values;
-            prev.comparisonSnapshots = latest.snapshots;
-            replayDependencyComparisonAccesses(
-                prev.comparisonAccessors,
-                latest.snapshots.map((snapshot) => snapshot.normalizedValues)
-            );
+        if (validateTrappedMemo(prev)) {
+            replayTrappedMemo(prev);
             return prev.value as T;
         }
     }
@@ -178,6 +267,10 @@ export function runTrappedMemo<T>(
         comparisons: normalized.values,
         comparisonAccessors: result.comparisons,
         comparisonSnapshots: normalized.snapshots,
+        validation: createTrappedValidation(
+            result.comparisons,
+            normalized.snapshots
+        ),
         reproxy: getManagedProxyForUnproxiedNode(unproxied),
         args: undefined,
     });
@@ -259,17 +352,8 @@ export function runTrappedFnMemo<T>(
         prev.comparisonAccessors !== undefined &&
         shallowEqualArrays(prev.args, normalizedArgs)
     ) {
-        const latest = normalizeComparisonsWithSnapshots(
-            prev.comparisonAccessors,
-            prev.comparisonSnapshots
-        );
-        if (shallowEqualArrays(prev.comparisons ?? [], latest.values)) {
-            prev.comparisons = latest.values;
-            prev.comparisonSnapshots = latest.snapshots;
-            replayDependencyComparisonAccesses(
-                prev.comparisonAccessors,
-                latest.snapshots.map((snapshot) => snapshot.normalizedValues)
-            );
+        if (validateTrappedMemo(prev)) {
+            replayTrappedMemo(prev);
             return prev.value as T;
         }
     }
@@ -281,6 +365,10 @@ export function runTrappedFnMemo<T>(
         comparisons: normalized.values,
         comparisonAccessors: result.comparisons,
         comparisonSnapshots: normalized.snapshots,
+        validation: createTrappedValidation(
+            result.comparisons,
+            normalized.snapshots
+        ),
         reproxy: getManagedProxyForUnproxiedNode(unproxied),
         args: normalizedArgs,
     });

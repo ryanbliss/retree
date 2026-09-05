@@ -11,14 +11,43 @@
  * decide whether cached results still describe current tree state.
  */
 let globalWriteVersion = 0;
+const RECENT_WRITE_LIMIT = 256;
+const recentOwners: (WeakRef<object> | undefined)[] = new Array(
+    RECENT_WRITE_LIMIT
+);
+const ownerReferences = new WeakMap<object, WeakRef<object>>();
 
 /**
  * @internal
  * Advance the global write version. Call after any mutation that could change
  * what a dependency collection or selector would observe.
  */
-export function bumpGlobalWriteVersion(): void {
+export function bumpGlobalWriteVersion(owner?: object): void {
     globalWriteVersion++;
+    let reference: WeakRef<object> | undefined;
+    if (owner !== undefined && typeof WeakRef === "function") {
+        reference = ownerReferences.get(owner);
+        if (reference === undefined) {
+            reference = new WeakRef(owner);
+            ownerReferences.set(owner, reference);
+        }
+    }
+    recentOwners[globalWriteVersion % RECENT_WRITE_LIMIT] = reference;
+}
+
+/** Undefined means history overflowed or an unscoped write requires full validation. */
+export function getWrittenOwnersSince(
+    version: number
+): Set<object> | undefined {
+    if (globalWriteVersion - version > RECENT_WRITE_LIMIT) return undefined;
+    const owners = new Set<object>();
+    for (let next = version + 1; next <= globalWriteVersion; next++) {
+        const reference = recentOwners[next % RECENT_WRITE_LIMIT];
+        if (reference === undefined) return undefined;
+        const owner = reference.deref();
+        if (owner !== undefined) owners.add(owner);
+    }
+    return owners;
 }
 
 /**
