@@ -291,3 +291,63 @@ measure your own shape.
     memoization in depth.
 -   [Choosing a hook](/docs/react) — `useNode` vs `useTree` vs `useSelect` vs
     `useRaw`.
+
+## Build large results across browser tasks
+
+`Retree.materializeAsync` runs a generator against an existing managed root.
+Yield after each small unit of work. Retree resumes the same generator until
+it returns a complete result, preserving ordinary proxy identities and memo caches.
+
+```ts
+const controller = new AbortController();
+const rows = await Retree.materializeAsync(
+    source,
+    function* (node) {
+        const rows: { title: string }[] = [];
+        for (const section of node.sections) {
+            for (const item of section.items) {
+                rows.push({ title: item.title });
+                yield;
+            }
+        }
+        return rows;
+    },
+    {
+        budgetMs: 4,
+        signal: controller.signal,
+        onProgress: ({ steps, done }) => updateLoadingState({ steps, done }),
+    }
+);
+// Publish only after the whole computation completes.
+setRows(rows);
+```
+
+The default scheduler waits for an animation frame followed by a timer in a
+visible browser, giving the loading UI a chance to paint before the first slice.
+It uses a timer in other environments. A `schedule(signal)` override can integrate
+with another host scheduler; it must yield to a task rather than a microtask.
+
+The budget is a target checked between generator steps. Retree cannot interrupt
+one expensive getter, constructor, `Retree.root` call, garbage collection pause,
+or progress callback. Split expensive application work into smaller steps and
+measure on target devices. `npm run benchmark:materialization` compares synchronous
+and cooperative traversal of 10,000 nested rows, checks identical results and
+cancellation, and reports slice durations separately from root construction.
+
+Keep partial output local to the generator. Source writes reject the promise
+with `AbortError`; Retree does not roll back application side effects. A silent
+block conservatively invalidates all pending materializations because it can
+change data without advancing tree snapshots. Direct raw writes remain invisible
+to Retree and must be represented in the revision supplied by the caller.
+
+Call `controller.abort()` when selection changes or the loading boundary unmounts.
+Cancellation closes the iterator, running its `finally` block. Already materialized
+proxies and valid memo caches remain available to a subsequent task, but cancelled
+partial results are discarded. Handle the rejection at your loading boundary.
+
+Work does not subscribe its caller to dependencies across an `await`. Each slice
+has its own dependency context, so nested `@memo` reads still track normally.
+`Retree.peekInto`, `Retree.managed`, and explicit `Retree.untracked` calls keep their
+usual behavior. For linked nodes or other inputs outside the source's structural
+tree, pass `getRevision: () => revision` with a value that changes whenever those
+inputs change. Retree compares that value with `Object.is` before and after slices.

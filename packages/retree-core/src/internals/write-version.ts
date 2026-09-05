@@ -11,6 +11,7 @@
  * decide whether cached results still describe current tree state.
  */
 let globalWriteVersion = 0;
+let unscopedWriteVersion = 0;
 const RECENT_WRITE_LIMIT = 256;
 const recentOwners: (WeakRef<object> | undefined)[] = new Array(
     RECENT_WRITE_LIMIT
@@ -24,6 +25,7 @@ const ownerReferences = new WeakMap<object, WeakRef<object>>();
  */
 export function bumpGlobalWriteVersion(owner?: object): void {
     globalWriteVersion++;
+    if (owner === undefined) unscopedWriteVersion++;
     let reference: WeakRef<object> | undefined;
     if (owner !== undefined && typeof WeakRef === "function") {
         reference = ownerReferences.get(owner);
@@ -56,4 +58,9 @@ export function getWrittenOwnersSince(
  */
 export function getGlobalWriteVersion(): number {
     return globalWriteVersion;
+}
+
+/** @internal Includes silent blocks whose writes cannot be scoped to one tree. */
+export function getUnscopedWriteVersion(): number {
+    return unscopedWriteVersion;
 }

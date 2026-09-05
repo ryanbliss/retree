@@ -8,3 +8,7 @@ export * from "./types.js";
 export * from "./ReactiveNode.js";
 export * from "./decorators.js";
 export * from "./undoHistory.js";
+export type {
+    RetreeMaterializeOptions,
+    RetreeMaterializeProgress,
+} from "./materializeAsync.js";
