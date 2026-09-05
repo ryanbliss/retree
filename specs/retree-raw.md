@@ -343,10 +343,10 @@ React (`useRaw.spec.tsx`):
 | Wide-table render: `useRaw` vs `useNode` (200×40)   | faster                             | ✅ 1.1 ms vs 9.2 ms (~8×) — `useRaw.perf.spec.tsx`                         |
 | `useRaw` mount, 2k-row list (`toManaged` every row) | ≤ `useNode` list equivalent        | ✅ 3.0 ms vs 3.0 ms (parity)                                               |
 
-The wide-table measurement lives in
-`packages/retree-react/src/useRaw.perf.spec.tsx` (loose sanity bounds so CI
-never gates on machine speed); a benchmark-CLI scenario remains an optional
-follow-up.
+The React timing measurements live in
+`packages/retree-react/src/useRaw.perf.spec.tsx`. Run them with
+`npm run benchmark:react` on an idle machine. They retain their 1.5x ratio
+limits and run outside correctness and release CI to avoid shared-runner noise.
 
 ## 7. Implementation slices
 
