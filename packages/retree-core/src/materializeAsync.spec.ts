@@ -114,7 +114,7 @@ it.each(["tree", "revision", "silent"])(
             },
             {
                 budgetMs: 1,
-                getRevision: () => revision,
+                getRevision: kind === "revision" ? () => revision : undefined,
                 schedule: async () => {
                     if (++schedules !== 2) return;
                     if (kind === "revision") revision++;
@@ -128,6 +128,35 @@ it.each(["tree", "revision", "silent"])(
         expect(closed).toBe(true);
     }
 );
+
+it("allows silent cache warming with an explicit source revision", async () => {
+    const tick = clock();
+    class Node extends ReactiveNode {
+        revision = 0;
+        private cached: { value: number } | null = null;
+        get preview() {
+            if (this.cached === null) {
+                Retree.runSilent(() => {
+                    this.cached = { value: 42 };
+                });
+            }
+            return this.cached;
+        }
+    }
+    const root = Retree.root(new Node());
+    const result = await Retree.materializeAsync(
+        root,
+        function* (source) {
+            const preview = source.preview;
+            tick();
+            yield;
+            return preview;
+        },
+        { budgetMs: 1, getRevision: () => root.revision }
+    );
+    expect(result).toBe(root.preview);
+    expect(result?.value).toBe(42);
+});
 
 it("does not invalidate for writes to a separate tree", async () => {
     const root = Retree.root({ value: 1 });

@@ -353,8 +353,10 @@ export class Retree {
      * The budget is checked between steps; a getter, constructor, or root()
      * call cannot itself be interrupted. Keep each step small.
      *
-     * Source-tree writes or a changed getRevision value reject with AbortError.
-     * Silent blocks conservatively invalidate all pending materializations.
+     * By default, source-tree writes reject with AbortError and silent blocks
+     * conservatively invalidate all pending materializations. getRevision
+     * replaces these checks with an application revision, allowing cache writes
+     * that do not change inputs. Include every source input in that revision.
      * Use an AbortSignal when selection changes. Completed proxy reads and memo
      * caches retain their ordinary identities; cancellation does not undo them.
      * Keep partial output local to the iterator and do not write to the source.

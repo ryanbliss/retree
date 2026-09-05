@@ -334,7 +334,7 @@ measure on target devices. `npm run benchmark:materialization` compares synchron
 and cooperative traversal of 10,000 nested rows, checks identical results and
 cancellation, and reports slice durations separately from root construction.
 
-Keep partial output local to the generator. Source writes reject the promise
+Keep partial output local to the generator. By default, source writes reject the promise
 with `AbortError`; Retree does not roll back application side effects. A silent
 block conservatively invalidates all pending materializations because it can
 change data without advancing tree snapshots. Direct raw writes remain invisible
@@ -350,4 +350,7 @@ has its own dependency context, so nested `@memo` reads still track normally.
 `Retree.peekInto`, `Retree.managed`, and explicit `Retree.untracked` calls keep their
 usual behavior. For linked nodes or other inputs outside the source's structural
 tree, pass `getRevision: () => revision` with a value that changes whenever those
-inputs change. Retree compares that value with `Object.is` before and after slices.
+inputs change. This replaces the automatic tree and silent-write checks. Include
+every input that can change the result. Retree compares the revision with
+`Object.is` before and after slices. Use this mode when computed getters warm
+internal caches with silent writes without changing the input revision.

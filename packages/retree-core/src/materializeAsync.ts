@@ -16,8 +16,10 @@ export interface RetreeMaterializeOptions {
     /** Abort when the selected root changes or the loading boundary unmounts. */
     signal?: AbortSignal;
     /**
-     * Additional revision for inputs outside the root's structural tree.
-     * Must return a stable value until those inputs change, compared with Object.is.
+     * Replaces automatic tree invalidation with an application revision.
+     * Include every input that can change the result, including linked nodes.
+     * Return a stable value until inputs change, compared with Object.is.
+     * This allows cache writes that do not change the source revision.
      */
     getRevision?: () => unknown;
     /** Called after each slice. No partial result is exposed. */
@@ -54,13 +56,26 @@ export async function materializeAsync<TNode extends TreeNode, TResult>(
     let completed = false;
     try {
         signal.throwIfAborted();
-        const version = getTreeSnapshotVersion(root);
+        const getRevision = options.getRevision;
+        const version =
+            getRevision === undefined
+                ? getTreeSnapshotVersion(root)
+                : undefined;
         const unscopedVersion = getUnscopedWriteVersion();
         const revision = runWithIsolatedDependencyTracking(() =>
-            options.getRevision?.()
+            getRevision?.()
         );
         const validate = () => {
             signal.throwIfAborted();
+            if (getRevision !== undefined) {
+                if (!Object.is(getRevision(), revision)) {
+                    throw new DOMException(
+                        "Retree.materializeAsync: the supplied revision changed. Start a new task for the current revision.",
+                        "AbortError"
+                    );
+                }
+                return;
+            }
             if (getUnscopedWriteVersion() !== unscopedVersion) {
                 throw new DOMException(
                     "Retree.materializeAsync: a silent or unscoped write may have changed the source. Start a new task after the write.",
@@ -70,12 +85,6 @@ export async function materializeAsync<TNode extends TreeNode, TResult>(
             if (getTreeSnapshotVersion(root) !== version) {
                 throw new DOMException(
                     "Retree.materializeAsync: the source tree changed. Start a new task for the current source.",
-                    "AbortError"
-                );
-            }
-            if (!Object.is(options.getRevision?.(), revision)) {
-                throw new DOMException(
-                    "Retree.materializeAsync: the supplied revision changed. Start a new task for the current revision.",
                     "AbortError"
                 );
             }
