@@ -9,60 +9,79 @@
 "use no memo";
 "use client";
 
-import { TRetreeChangedEvents, TreeNode } from "@retreejs/core";
+import { INodeFieldChanges, TreeNode } from "@retreejs/core";
 import {
     getNodeSnapshotVersion,
     getTreeSnapshotVersion,
+    getUnproxiedNode,
 } from "@retreejs/core/internal";
 import { useEffect, useMemo, useRef } from "react";
 import { useSyncExternalStore } from "use-sync-external-store/shim";
 import { registerReactBatchedListenerFlushWrapper } from "./reactBatch.js";
-import { subscribeToNode } from "./subscriptionHub.js";
+import { RetreeStoreListenerType, subscribeToNode } from "./subscriptionHub.js";
 
 // Every subscribing hook (useNode/useTree/useRaw/useSelect) flows through
 // this module, so registering here guarantees the React batching wrapper is
 // installed before any Retree listener a hook creates can flush.
 registerReactBatchedListenerFlushWrapper();
 
+export type RetreeStoreChangeListener = (
+    node: TreeNode,
+    changes?: INodeFieldChanges[]
+) => void;
+
 export interface RetreeExternalStoreSource {
     readonly baseProxy: TreeNode;
-    readonly listenerType: TRetreeChangedEvents;
+    readonly listenerType: RetreeStoreListenerType;
     getVersion(): number;
-    subscribe(onStoreChange: () => void): () => void;
+    subscribe(onStoreChange: RetreeStoreChangeListener): () => void;
+}
+
+export interface RetreeSnapshotChange {
+    readonly rawNode: TreeNode;
+    readonly changes: INodeFieldChanges[] | undefined;
 }
 
 export interface RetreeCompositeSnapshot {
     readonly kind: "retree-external-store-snapshot";
     readonly sources: readonly RetreeExternalStoreSource[];
     readonly versions: readonly number[];
+    /**
+     * Changes delivered to a live subscription since the previous snapshot.
+     * `undefined` when a version moved without one, so the consumer cannot
+     * scope its work to the changed nodes.
+     */
+    readonly changes: readonly RetreeSnapshotChange[] | undefined;
 }
 
 export interface RetreeCompositeExternalStore {
     getServerSnapshot(): RetreeCompositeSnapshot;
     getSnapshot(): RetreeCompositeSnapshot;
-    subscribe(onStoreChange: () => void): () => void;
+    subscribe(onStoreChange: RetreeStoreChangeListener): () => void;
 }
 
 const sourceCache = new WeakMap<
     TreeNode,
-    Map<TRetreeChangedEvents, RetreeExternalStoreSource>
+    Map<RetreeStoreListenerType, RetreeExternalStoreSource>
 >();
 
 function createSnapshot(
     sources: readonly RetreeExternalStoreSource[],
-    versions: readonly number[]
+    versions: readonly number[],
+    changes: readonly RetreeSnapshotChange[] | undefined
 ): RetreeCompositeSnapshot {
     const snapshot: RetreeCompositeSnapshot = {
         kind: "retree-external-store-snapshot",
         sources,
         versions: Object.freeze([...versions]),
+        changes,
     };
     return Object.freeze(snapshot);
 }
 
 export function getRetreeExternalStoreSource(
     baseProxy: TreeNode,
-    listenerType: TRetreeChangedEvents
+    listenerType: RetreeStoreListenerType
 ): RetreeExternalStoreSource {
     let nodeSources = sourceCache.get(baseProxy);
     if (nodeSources === undefined) {
@@ -79,10 +98,11 @@ export function getRetreeExternalStoreSource(
         baseProxy,
         listenerType,
         getVersion() {
-            if (listenerType === "treeChanged") {
-                return getTreeSnapshotVersion(baseProxy);
+            // A subtree source moves with any descendant, like a tree source.
+            if (listenerType === "nodeChanged") {
+                return getNodeSnapshotVersion(baseProxy);
             }
-            return getNodeSnapshotVersion(baseProxy);
+            return getTreeSnapshotVersion(baseProxy);
         },
         subscribe(onStoreChange) {
             return subscribeToNode(baseProxy, listenerType, onStoreChange);
@@ -129,7 +149,22 @@ export function createRetreeCompositeExternalStore(
         dedupeRetreeExternalStoreSources(inputSources)
     );
     let versions = sources.map((source) => source.getVersion());
-    let snapshot = createSnapshot(sources, versions);
+    let snapshot = createSnapshot(sources, versions, undefined);
+    // Changes seen by the live subscription since `snapshot` was taken. They
+    // describe every version move only while a subscriber was wired the whole
+    // time, so a gap resets them to unknown.
+    let pendingChanges: RetreeSnapshotChange[] = [];
+    let pendingChangesKnown = false;
+    let subscriberCount = 0;
+
+    const hasMovedSinceSnapshot = () => {
+        for (let index = 0; index < sources.length; index++) {
+            if (!Object.is(sources[index].getVersion(), versions[index])) {
+                return true;
+            }
+        }
+        return false;
+    };
 
     const getSnapshot = () => {
         // Compare in a plain loop first so the unchanged path (the common
@@ -144,7 +179,13 @@ export function createRetreeCompositeExternalStore(
         }
         if (changed) {
             versions = sources.map((source) => source.getVersion());
-            snapshot = createSnapshot(sources, versions);
+            const changes =
+                pendingChangesKnown && pendingChanges.length > 0
+                    ? pendingChanges
+                    : undefined;
+            snapshot = createSnapshot(sources, versions, changes);
+            pendingChanges = [];
+            pendingChangesKnown = subscriberCount > 0;
         }
         return snapshot;
     };
@@ -153,12 +194,35 @@ export function createRetreeCompositeExternalStore(
         getSnapshot,
         getServerSnapshot: getSnapshot,
         subscribe(onStoreChange) {
+            const onSourceChange: RetreeStoreChangeListener = (
+                node,
+                changes
+            ) => {
+                const rawNode = getUnproxiedNode(node);
+                if (rawNode !== undefined) {
+                    pendingChanges.push({ rawNode, changes });
+                }
+                onStoreChange(node, changes);
+            };
             const unsubscribes = sources.map((source) =>
-                source.subscribe(onStoreChange)
+                source.subscribe(onSourceChange)
             );
+            if (subscriberCount === 0) {
+                pendingChangesKnown = !hasMovedSinceSnapshot();
+            }
+            subscriberCount += 1;
+            let unsubscribed = false;
             return () => {
+                if (unsubscribed) {
+                    return;
+                }
+                unsubscribed = true;
                 for (const unsubscribe of unsubscribes) {
                     unsubscribe();
+                }
+                subscriberCount -= 1;
+                if (subscriberCount === 0) {
+                    pendingChangesKnown = false;
                 }
             };
         },
@@ -178,7 +242,7 @@ export interface RetreeSwappableCompositeExternalStore
 }
 
 interface SwappableStoreWiring {
-    readonly onStoreChange: () => void;
+    readonly onStoreChange: RetreeStoreChangeListener;
     unsubscribe: () => void;
 }
 

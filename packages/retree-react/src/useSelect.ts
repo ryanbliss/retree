@@ -12,8 +12,9 @@
 
 import { RetreeSelectOptions, TreeNode } from "@retreejs/core";
 import {
-    areTrackedComparisonValuesEqual,
+    areTrackedReadsEqual,
     canSkipTrackedDependencyChange,
+    DependencySubscriptionKind,
     getUnproxiedNode,
     defaultSelectShouldNotify,
     defaultTrackedSelectedChanged,
@@ -165,15 +166,81 @@ function getNodeSelection<TNode extends TreeNode, TSelected>(
 function getTrackedSelectionSources(
     selection: TrackedSelection<unknown>
 ): readonly RetreeExternalStoreSource[] {
-    // Tracked sources are already deduped by raw node, and store sources are
-    // one-per-base-proxy, so this is a straight map.
+    // Tracked sources are the run's covers, already deduped by raw node, and
+    // store sources are one per (base proxy, listener type).
     const sources: RetreeExternalStoreSource[] = [];
     for (const source of selection.sources) {
         sources.push(
-            getRetreeExternalStoreSource(source.baseProxy, "nodeChanged")
+            getRetreeExternalStoreSource(
+                source.baseProxy,
+                source.kind === DependencySubscriptionKind.Subtree
+                    ? "subtreeChanged"
+                    : "nodeChanged"
+            )
         );
     }
     return sources;
+}
+
+/**
+ * True when a moved source can still affect the selection. With the changed
+ * nodes known, only their records validate (nodes without a record are
+ * descendants of a subtree cover the selector never read). Without them every
+ * record under a moved source re-reads; validation is raw reads, far cheaper
+ * than re-running the selector.
+ */
+function isTrackedSnapshotChangeRelevant(
+    state: TrackedSelectState<unknown>,
+    snapshot: RetreeCompositeSnapshot
+): boolean {
+    const reads = state.reads;
+    const changes = snapshot.changes;
+    if (changes !== undefined) {
+        for (const change of changes) {
+            const record = reads.get(change.rawNode);
+            if (record === undefined) {
+                continue;
+            }
+            if (
+                !canSkipTrackedDependencyChange(
+                    change.rawNode,
+                    record,
+                    change.changes
+                )
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+    for (let index = 0; index < snapshot.sources.length; index++) {
+        if (snapshot.versions[index] === state.snapshot.versions[index]) {
+            continue;
+        }
+        const source = snapshot.sources[index];
+        if (source.listenerType === "subtreeChanged") {
+            for (const record of reads.values()) {
+                if (
+                    !canSkipTrackedDependencyChange(
+                        record.rawNode,
+                        record,
+                        undefined
+                    )
+                ) {
+                    return true;
+                }
+            }
+            continue;
+        }
+        const raw = getUnproxiedNode(source.baseProxy);
+        if (
+            raw === undefined ||
+            !canSkipTrackedDependencyChange(raw, reads.get(raw), undefined)
+        ) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function getChangedNodeDependencyIndices<TSelected>(
@@ -407,8 +474,7 @@ function recomputeNodeSelectStateForSelector<TNode extends TreeNode, TSelected>(
  * dependency-tracking proxy overhead, so avoiding re-runs matters even more.
  */
 interface TrackedSelectState<TSelected> {
-    getAccessSummaries: TrackedSelection<TSelected>["getAccessSummaries"];
-    comparisonValues: readonly unknown[];
+    reads: TrackedSelection<TSelected>["reads"];
     sources: readonly RetreeExternalStoreSource[];
     /**
      * Swappable for the same reason as {@link NodeSelectState.store}: a
@@ -427,8 +493,7 @@ function createTrackedSelectState<TSelected>(
     const sources = getTrackedSelectionSources(selection);
     const store = createRetreeSwappableCompositeExternalStore(sources);
     return {
-        getAccessSummaries: selection.getAccessSummaries,
-        comparisonValues: selection.comparisonValues,
+        reads: selection.reads,
         sources,
         store,
         snapshot: store.getSnapshot(),
@@ -445,22 +510,13 @@ function refreshTrackedSelectState<TSelected>(
     if (snapshot === state.snapshot) {
         return state.container;
     }
-    const summaries = state.getAccessSummaries();
-    const relevantChange = snapshot.sources.some((source, index) => {
-        if (snapshot.versions[index] === state.snapshot.versions[index])
-            return false;
-        const raw = getUnproxiedNode(source.baseProxy);
-        return (
-            raw === undefined ||
-            !canSkipTrackedDependencyChange(raw, summaries.get(raw), undefined)
-        );
-    });
-    if (!relevantChange) {
+    if (!isTrackedSnapshotChangeRelevant(state, snapshot)) {
         state.snapshot = snapshot;
         return state.container;
     }
     const nextSelection = runTrackedSelection(selector);
-    state.getAccessSummaries = nextSelection.getAccessSummaries;
+    const previousReads = state.reads;
+    state.reads = nextSelection.reads;
     const stabilizedSelected = stabilizeSelectedRetreeReferences(
         state.container.selected,
         nextSelection.selected
@@ -472,10 +528,9 @@ function refreshTrackedSelectState<TSelected>(
                   state.container.selected,
                   stabilizedSelected
               );
-    const nextComparisonValues = nextSelection.comparisonValues;
-    const dependenciesEqual = areTrackedComparisonValuesEqual(
-        state.comparisonValues,
-        nextComparisonValues
+    const dependenciesEqual = areTrackedReadsEqual(
+        previousReads,
+        nextSelection.reads
     );
     const nextSources = getTrackedSelectionSources(nextSelection);
     const sourcesEqual = areRetreeExternalStoreSourcesEqual(
@@ -499,7 +554,6 @@ function refreshTrackedSelectState<TSelected>(
         // store object here would strand the committed subscription.
         state.store.swapSources(nextSources);
     }
-    state.comparisonValues = nextComparisonValues;
     state.sources = nextSources;
     state.snapshot = state.store.getSnapshot();
     state.container = { selected };
@@ -559,8 +613,7 @@ function recomputeTrackedSelectStateForSelector<TSelected>(
         store = createRetreeSwappableCompositeExternalStore(sources);
     }
     return {
-        getAccessSummaries: nextSelection.getAccessSummaries,
-        comparisonValues: nextSelection.comparisonValues,
+        reads: nextSelection.reads,
         sources,
         store,
         snapshot: store.getSnapshot(),

@@ -36,6 +36,7 @@ import {
     setReactiveDependents,
 } from "./internals/reactive-node-utils.js";
 import {
+    getBaseHandlerForUnproxiedNode,
     getManagedProxyForUnproxiedNode,
     getReproxyNode,
     getReproxyNodeForUnproxiedNode,
@@ -52,6 +53,8 @@ import {
     RetreeSelectEquals,
     RetreeSelectSelector,
     RetreeTrackedSelectSelector,
+    SUBSCRIBE_SUBTREE_CHANGED_SYMBOL,
+    TSubtreeChangedListener,
 } from "./internals/select.js";
 import {
     applyNodeFieldChangesForward,
@@ -327,9 +330,20 @@ export class Retree {
     > = new WeakMap();
     private static nodeRemovedListeners: WeakMap<TreeNode, (() => void)[]> =
         new WeakMap();
+    /**
+     * Internal subtree subscriptions (tracked selectors and effects). A
+     * listener here receives every `nodeChanged` emitted by the node or a
+     * descendant, keyed by the raw node that emitted, and never refreshes
+     * ancestor identities the way `treeChanged` does.
+     */
+    private static subtreeChangedListeners: WeakMap<
+        TreeNode,
+        TNodeChangedListener[]
+    > = new WeakMap();
     private static treeChangedListenerCount = 0;
     private static nodeChangedListenerCount = 0;
     private static nodeRemovedListenerCount = 0;
+    private static subtreeChangedListenerCount = 0;
     private static nodeChangeEmitter = new TreeChangeEmitter();
     private static reactiveDependentNodeChangedListener = (
         reproxy: TreeNode,
@@ -631,8 +645,56 @@ export class Retree {
                 : listenerType === "treeChanged"
                 ? this.treeChangedListeners
                 : this.nodeRemovedListeners;
+        return this.addListener(
+            node,
+            unproxiedNode,
+            relevantListenerMap,
+            callback as TRetreeListeners
+        );
+    }
+
+    /**
+     * @internal
+     * Subscribe to every `nodeChanged` emitted by `node` or any node beneath
+     * it. Tracked selectors subscribe their read covers this way so a scan
+     * over thousands of rows holds one subscription instead of one per row.
+     * Unlike `treeChanged`, no ancestor identity is refreshed: the listener
+     * receives the raw node that emitted plus its change records.
+     */
+    static [SUBSCRIBE_SUBTREE_CHANGED_SYMBOL](
+        node: TreeNode,
+        listener: TSubtreeChangedListener
+    ): () => void {
+        if (!this.nodeChangeListener) {
+            this.startListening();
+        }
+        const unproxiedNode = getUnproxiedNode(node);
+        if (!unproxiedNode) {
+            // @retree-throws
+            throw new Error(
+                "Retree internal invariant failed: a subtree subscription was requested for an unproxied value. This is unexpected and likely a Retree bug. Please file an issue with the selector that triggered this."
+            );
+        }
+        return this.addListener(
+            node,
+            unproxiedNode,
+            this.subtreeChangedListeners,
+            listener
+        );
+    }
+
+    /**
+     * Register `callback` in one registry and run the ReactiveNode observed
+     * lifecycle when a change registry gains the node's first listener.
+     */
+    private static addListener(
+        node: TreeNode,
+        unproxiedNode: TreeNode,
+        relevantListenerMap: WeakMap<TreeNode, TRetreeListeners[]>,
+        callback: TRetreeListeners
+    ): () => void {
         const isReactiveChangeListener =
-            listenerType === "nodeChanged" || listenerType === "treeChanged";
+            relevantListenerMap !== this.nodeRemovedListeners;
         const wasObserved =
             node instanceof ReactiveNode &&
             isReactiveChangeListener &&
@@ -640,10 +702,10 @@ export class Retree {
 
         let listeners = relevantListenerMap.get(unproxiedNode);
         if (!listeners) {
-            listeners = [callback as TRetreeListeners];
+            listeners = [callback];
             relevantListenerMap.set(unproxiedNode, listeners);
         } else {
-            listeners.push(callback as TRetreeListeners);
+            listeners.push(callback);
         }
         this.handleListenerCountChanged(relevantListenerMap, 1);
         if (node instanceof ReactiveNode && isReactiveChangeListener) {
@@ -655,7 +717,7 @@ export class Retree {
         return this.buildUnsubscribeCallback(
             unproxiedNode,
             node,
-            callback as TRetreeListeners,
+            callback,
             relevantListenerMap
         );
     }
@@ -769,6 +831,11 @@ export class Retree {
                     selectedListenerType,
                     listener
                 ) => this.on(selectedNode, selectedListenerType, listener),
+                subscribeToSubtree: (selectedNode, listener) =>
+                    this[SUBSCRIBE_SUBTREE_CHANGED_SYMBOL](
+                        selectedNode,
+                        listener
+                    ),
                 onChange: selectorOrCallback as (
                     next: TSelected,
                     previous: TSelected
@@ -857,6 +924,8 @@ export class Retree {
             onError: options.onError,
             subscribeToNode: (node, listenerType, listener) =>
                 this.on(node, listenerType, listener),
+            subscribeToSubtree: (node, listener) =>
+                this[SUBSCRIBE_SUBTREE_CHANGED_SYMBOL](node, listener),
         });
     }
 
@@ -1389,6 +1458,7 @@ export class Retree {
         this.deleteListenerRegistryEntry(this.nodeChangedListeners, rawNode);
         this.deleteListenerRegistryEntry(this.nodeRemovedListeners, rawNode);
         this.deleteListenerRegistryEntry(this.treeChangedListeners, rawNode);
+        this.deleteListenerRegistryEntry(this.subtreeChangedListeners, rawNode);
         if (shouldStopReactiveNode) {
             this.stopReactiveNode(node, rawNode);
             ReactiveNode[RUN_UNOBSERVED_EFFECT_SYMBOL](node);
@@ -1447,7 +1517,8 @@ export class Retree {
         return (
             this.nodeChangedListenerCount +
             this.treeChangedListenerCount +
-            this.nodeRemovedListenerCount
+            this.nodeRemovedListenerCount +
+            this.subtreeChangedListenerCount
         );
     }
 
@@ -1464,6 +1535,8 @@ export class Retree {
         } else if (relevantListenerMap === this.treeChangedListeners) {
             this.treeChangedListenerCount += delta;
             this.treeListenerVersion++;
+        } else if (relevantListenerMap === this.subtreeChangedListeners) {
+            this.subtreeChangedListenerCount += delta;
         } else {
             this.nodeRemovedListenerCount += delta;
         }
@@ -1511,26 +1584,15 @@ export class Retree {
                 }
             }
             const isReactiveChangeListenerMap =
-                relevantListenerMap === this.nodeChangedListeners ||
-                relevantListenerMap === this.treeChangedListeners;
+                relevantListenerMap !== this.nodeRemovedListeners;
             if (
                 proxiedNode instanceof ReactiveNode &&
                 isReactiveChangeListenerMap &&
-                (_listeners === undefined || _listeners.length === 0)
+                !this.hasReactiveChangedListeners(unproxiedNode)
             ) {
-                // Check if listening to this node from other reactive listener type.
-                const otherListeners =
-                    relevantListenerMap === this.nodeChangedListeners
-                        ? this.treeChangedListeners.get(unproxiedNode)
-                        : this.nodeChangedListeners.get(unproxiedNode);
-                if (
-                    otherListeners === undefined ||
-                    otherListeners.length === 0
-                ) {
-                    // Stop listening to reactive dependencies
-                    this.stopReactiveNode(proxiedNode, unproxiedNode);
-                    ReactiveNode[RUN_UNOBSERVED_EFFECT_SYMBOL](proxiedNode);
-                }
+                // Stop listening to reactive dependencies
+                this.stopReactiveNode(proxiedNode, unproxiedNode);
+                ReactiveNode[RUN_UNOBSERVED_EFFECT_SYMBOL](proxiedNode);
             }
             if (this.liveListenerCount() === 0) {
                 this.stopListening();
@@ -1550,10 +1612,43 @@ export class Retree {
         }
         const treeChangedListeners =
             this.treeChangedListeners.get(unproxiedNode);
-        return (
+        if (
             treeChangedListeners !== undefined &&
             treeChangedListeners.length > 0
+        ) {
+            return true;
+        }
+        const subtreeChangedListeners =
+            this.subtreeChangedListeners.get(unproxiedNode);
+        return (
+            subtreeChangedListeners !== undefined &&
+            subtreeChangedListeners.length > 0
         );
+    }
+
+    /**
+     * Deliver one node's `nodeChanged` to the subtree listeners on it and on
+     * each ancestor. Listeners resolve at emission time, like `nodeChanged`,
+     * so a cover subscribed mid-flush still sees later emissions.
+     */
+    private static notifySubtreeChanged(
+        unproxiedNode: TreeNode,
+        changes: INodeFieldChanges[]
+    ): void {
+        if (this.subtreeChangedListenerCount === 0) {
+            return;
+        }
+        let handler: ICustomProxyHandler<TreeNode> | undefined =
+            getBaseHandlerForUnproxiedNode(unproxiedNode);
+        while (handler !== undefined) {
+            const listeners = this.subtreeChangedListeners.get(
+                handler[unproxiedBaseNodeKey]
+            );
+            if (listeners !== undefined) {
+                this.notifyChangedListeners(listeners, unproxiedNode, changes);
+            }
+            handler = handler[proxiedParentKey]?.handler ?? undefined;
+        }
     }
 
     private static notifyChangedListeners(
@@ -1848,6 +1943,21 @@ export class Retree {
                     Transactions.runListenerFlush(() =>
                         emitNodeChangedListeners(changes)
                     );
+                }
+                if (this.subtreeChangedListenerCount > 0) {
+                    if (Transactions.runningTransaction) {
+                        Transactions.upsertPendingTransaction(unproxiedNode, {
+                            emitSubtreeChanged: (changesToNotify) =>
+                                this.notifySubtreeChanged(
+                                    unproxiedNode,
+                                    changesToNotify
+                                ),
+                        });
+                    } else {
+                        Transactions.runListenerFlush(() =>
+                            this.notifySubtreeChanged(unproxiedNode, changes)
+                        );
+                    }
                 }
             }
 
@@ -2328,9 +2438,9 @@ export class Retree {
             const comparisonsOffset = preserveBaseline
                 ? previousDependency?.comparisonsOffset
                 : currentDependency.comparisonsOffset;
-            const getAccessSummaries = preserveBaseline
-                ? previousDependency?.getAccessSummaries
-                : currentDependency.getAccessSummaries;
+            const reads = preserveBaseline
+                ? previousDependency?.reads
+                : currentDependency.reads;
 
             // One record serves both registries and survives across passes:
             // a retained edge refreshes its baselines in place with no
@@ -2345,7 +2455,7 @@ export class Retree {
                 record.selectValue = selectValue;
                 record.compareSelectValueBeforeNotify =
                     currentDependency.compareSelectValueBeforeNotify;
-                record.getAccessSummaries = getAccessSummaries;
+                record.reads = reads;
                 record.reactiveNode = proxiedDependentNode;
             } else {
                 record = {
@@ -2357,7 +2467,7 @@ export class Retree {
                     selectValue,
                     compareSelectValueBeforeNotify:
                         currentDependency.compareSelectValueBeforeNotify,
-                    getAccessSummaries,
+                    reads,
                     reactiveNode: proxiedDependentNode,
                     unproxiedReactiveNode: unproxiedDependentNode,
                     unsubscribeListener: undefined,
@@ -2519,7 +2629,7 @@ export class Retree {
                     selectGetterName: getterName,
                     compareSelectValueBeforeNotify:
                         selectGetter.compareValueBeforeNotify,
-                    getAccessSummaries: trackedAccesses?.getAccessSummaries,
+                    reads: trackedAccesses?.reads,
                 });
             }
         }
@@ -2837,12 +2947,12 @@ export class Retree {
         // their last collection pass. When every value the getter read from
         // the changed node re-reads equal, skip without re-running the
         // getter's dependency collection at all.
-        const getAccessSummaries = dependent.getAccessSummaries;
+        const reads = dependent.reads;
         if (
-            getAccessSummaries !== undefined &&
+            reads !== undefined &&
             canSkipTrackedDependencyChange(
                 changedUnproxiedNode,
-                getAccessSummaries().get(changedUnproxiedNode),
+                reads.get(changedUnproxiedNode),
                 changes
             )
         ) {

@@ -329,6 +329,7 @@ interface IListenerCountProbe {
     nodeChangedListenerCount: number;
     treeChangedListenerCount: number;
     nodeRemovedListenerCount: number;
+    subtreeChangedListenerCount: number;
 }
 
 /**
@@ -341,6 +342,7 @@ function liveListenerCount(): number {
     return (
         probe.nodeChangedListenerCount +
         probe.treeChangedListenerCount +
-        probe.nodeRemovedListenerCount
+        probe.nodeRemovedListenerCount +
+        probe.subtreeChangedListenerCount
     );
 }
