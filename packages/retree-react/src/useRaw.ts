@@ -12,7 +12,8 @@
 import { Retree, TreeNode } from "@retreejs/core";
 import {
     getBaseProxy,
-    getNodeSnapshotVersion,
+    getGlobalWriteVersion,
+    getWrittenOwnersSince,
     getUnproxiedNode,
     createDirectChildResolver,
 } from "@retreejs/core/internal";
@@ -67,8 +68,12 @@ function findChildKey(
     value: object
 ): { key: unknown } | undefined {
     if (raw instanceof Set) return raw.has(value) ? { key: value } : undefined;
-    const version = getNodeSnapshotVersion(base);
+    const version = getGlobalWriteVersion();
     let index = childIndexes.get(base);
+    if (index !== undefined && index.version !== version) {
+        const owners = getWrittenOwnersSince(index.version);
+        if (owners !== undefined && !owners.has(raw)) index.version = version;
+    }
     if (index?.version !== version) {
         const keys = new Map<object, unknown>();
         const add = (key: unknown, child: unknown) => {

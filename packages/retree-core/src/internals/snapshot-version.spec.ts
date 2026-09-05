@@ -84,8 +84,7 @@ describe("snapshot versions", () => {
 
     it("advances node and ancestor tree versions while a listener exists", () => {
         const root = Retree.root({ child: { count: 0 }, sibling: 0 });
-        // Any live listener opens the advancement gate; React's external
-        // store always subscribes through Retree.on before observing writes.
+        // Snapshot reads work independently of the subscription lifecycle.
         const unsubscribe = Retree.on(root, "nodeChanged", () => {});
         const initialRootNode = getNodeSnapshotVersion(root);
         const initialRootTree = getTreeSnapshotVersion(root);
@@ -110,8 +109,7 @@ describe("snapshot versions", () => {
         const initialChildNode = getNodeSnapshotVersion(root.child);
         const initialRootTree = getTreeSnapshotVersion(root);
 
-        // Gate closed: writes skip the per-write ancestor walk and pend.
-        // The next gated read settles them — two writes, one version.
+        // Direct versions advance now; the tree read settles their ancestry.
         root.child.count = 1;
         root.child.count = 2;
         const settledChildNode = getNodeSnapshotVersion(root.child);
@@ -125,7 +123,7 @@ describe("snapshot versions", () => {
         expect(getNodeSnapshotVersion(root.child)).toBe(settledChildNode);
         expect(getTreeSnapshotVersion(root)).toBe(settledRootTree);
 
-        // Writes while subscribed advance per write.
+        // A subsequent write advances the direct version again.
         root.child.count = 3;
         expect(getNodeSnapshotVersion(root.child)).toBeGreaterThan(
             settledChildNode
@@ -133,42 +131,33 @@ describe("snapshot versions", () => {
         unsubscribe();
     });
 
-    it("bumps versions at reopen for reads that survived a closed window (open read → close → write → subscribe)", () => {
+    it("preserves reads across unsubscribe, write, and subscribe", () => {
         const root = Retree.root({ count: 0 });
 
-        // A component renders while the gate is open (another subscriber
-        // exists) and reads a version...
+        // A component reads while another subscription exists.
         const outer = Retree.on(root, "nodeChanged", () => {});
         const renderRead = getNodeSnapshotVersion(root);
 
-        // ...then every other subscriber unmounts (gate closes) and a write
-        // lands before the component's own subscription commits.
+        // The other subscription closes before a write and this commit.
         outer();
         root.count = 1;
 
-        // The commit-time subscribe reopens the gate; its post-subscribe
-        // snapshot check must observe the skipped write or the component is
-        // permanently stale.
+        // The post-subscribe check must observe the intervening write.
         const unsubscribe = Retree.on(root, "nodeChanged", () => {});
         expect(getNodeSnapshotVersion(root)).toBeGreaterThan(renderRead);
         unsubscribe();
     });
 
-    it("bumps reported versions when a gated read precedes a skipped write (read → write → subscribe)", () => {
+    it("detects writes between snapshot read and subscription", () => {
         const root = Retree.root({ count: 0 });
-        // Open and close the gate once so flags from earlier tests are
-        // consumed and this test starts from a clean closed gate.
-        Retree.on(root, "nodeChanged", () => {})();
-
-        // Pre-subscribe read while the gate is closed (uSES render read).
+        // The external store reads before subscribing.
         const preWriteNode = getNodeSnapshotVersion(root);
         const preWriteTree = getTreeSnapshotVersion(root);
 
-        // Skipped write after the gated read: the reader's version is stale.
+        // A write after that read makes its snapshot stale.
         root.count = 1;
 
-        // Subscribing opens the gate; the post-subscribe snapshot check must
-        // observe a change for the write that happened after the read.
+        // Subscribing must preserve the detectable change.
         const unsubscribe = Retree.on(root, "nodeChanged", () => {});
         expect(getNodeSnapshotVersion(root)).toBeGreaterThan(preWriteNode);
         expect(getTreeSnapshotVersion(root)).toBeGreaterThan(preWriteTree);
@@ -177,12 +166,7 @@ describe("snapshot versions", () => {
 
     it("keeps versions stable for a write-then-first-read-at-mount bootstrap (write → read → subscribe)", () => {
         const root = Retree.root({ count: 0 });
-        // Open and close the gate once so flags from earlier tests are
-        // consumed and this test starts from a clean closed gate.
-        Retree.on(root, "nodeChanged", () => {})();
-
-        // Populate before anything mounts: skipped write with no gated read
-        // before it.
+        // Populate before the first render read.
         root.count = 1;
 
         // Mount: the render read happens before the subscription (uSES), and
@@ -198,7 +182,7 @@ describe("snapshot versions", () => {
         unsubscribe();
     });
 
-    it("does not jump versions when the gate reopens without skipped writes", () => {
+    it("does not change snapshots on resubscription without writes", () => {
         const root = Retree.root({ count: 0 });
         const first = Retree.on(root, "nodeChanged", () => {});
         root.count = 1;

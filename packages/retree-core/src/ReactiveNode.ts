@@ -23,7 +23,7 @@ type LinkReactiveNode = <TNode extends TreeNode>(
 let linkReactiveNode: LinkReactiveNode = () => {
     // @retree-throws
     throw new Error(
-        "ReactiveNode.link: Retree link support has not been initialized. This is unexpected and likely a Retree packaging or module-loading bug. Fix: import ReactiveNode and Retree from the same @retreejs/core package instance. If your app already does that, please file a Retree issue with your package manager lockfile and a minimal reproduction."
+        "ReactiveNode.link: Retree link support has not been initialized. Import ReactiveNode and Retree from the same @retreejs/core package instance."
     );
 };
 
@@ -36,7 +36,7 @@ type MoveReactiveNode = <TNode extends ReactiveNode>(
 let moveReactiveNode: MoveReactiveNode = () => {
     // @retree-throws
     throw new Error(
-        "ReactiveNode.moveTo: Retree move support has not been initialized. This is unexpected and likely a Retree packaging or module-loading bug. Fix: import ReactiveNode and Retree from the same @retreejs/core package instance. If your app already does that, please file a Retree issue with your package manager lockfile and a minimal reproduction."
+        "ReactiveNode.moveTo: Retree move support has not been initialized. Import ReactiveNode and Retree from the same @retreejs/core package instance."
     );
 };
 
@@ -63,7 +63,7 @@ type RawReactiveNode = <TNode extends ReactiveNode>(node: TNode) => TNode;
 let rawReactiveNode: RawReactiveNode = () => {
     // @retree-throws
     throw new Error(
-        "ReactiveNode.raw: Retree raw support has not been initialized. This is unexpected and likely a Retree packaging or module-loading bug. Fix: import ReactiveNode and Retree from the same @retreejs/core package instance. If your app already does that, please file a Retree issue with your package manager lockfile and a minimal reproduction."
+        "ReactiveNode.raw: Retree raw support has not been initialized. Import ReactiveNode and Retree from the same @retreejs/core package instance."
     );
 };
 
@@ -72,7 +72,7 @@ type UntrackedReactiveNode = <T>(fn: () => T) => T;
 let untrackedReactiveNode: UntrackedReactiveNode = () => {
     // @retree-throws
     throw new Error(
-        "ReactiveNode.untracked: Retree untracked support has not been initialized. This is unexpected and likely a Retree packaging or module-loading bug. Fix: import ReactiveNode and Retree from the same @retreejs/core package instance. If your app already does that, please file a Retree issue with your package manager lockfile and a minimal reproduction."
+        "ReactiveNode.untracked: Retree untracked support has not been initialized. Import ReactiveNode and Retree from the same @retreejs/core package instance."
     );
 };
 
@@ -84,7 +84,7 @@ type PeekIntoReactiveNode = <TNode extends ReactiveNode, TResult>(
 let peekIntoReactiveNode: PeekIntoReactiveNode = () => {
     // @retree-throws
     throw new Error(
-        "ReactiveNode.peekInto: Retree peekInto support has not been initialized. This is unexpected and likely a Retree packaging or module-loading bug. Fix: import ReactiveNode and Retree from the same @retreejs/core package instance. If your app already does that, please file a Retree issue with your package manager lockfile and a minimal reproduction."
+        "ReactiveNode.peekInto: Retree peekInto support has not been initialized. Import ReactiveNode and Retree from the same @retreejs/core package instance."
     );
 };
 

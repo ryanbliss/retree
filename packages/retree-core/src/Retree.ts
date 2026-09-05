@@ -1762,7 +1762,7 @@ export class Retree {
         }
         // @retree-throws
         throw new Error(
-            "Retree.parent: expected a Retree-managed node but received a value without Retree proxy metadata. This is expected when calling Retree.parent(...) with a plain object, primitive, or object not read from a Retree tree. Fix: pass an object returned by Retree.root(...) or a child read from that tree."
+            "Retree.parent: expected a Retree-managed node but received a value without Retree proxy metadata. Pass an object returned by Retree.root(...) or a child read from that tree."
         );
     }
 
@@ -1770,7 +1770,7 @@ export class Retree {
         if (!getCustomProxyHandler(node)) {
             // @retree-throws
             throw new Error(
-                `${apiName}: expected a Retree-managed node but received a value without Retree proxy metadata. This is expected when passing a plain object. Fix: pass an object returned by Retree.root(...) or read a child from an existing Retree tree.`
+                `${apiName}: expected a Retree-managed node but received a value without Retree proxy metadata. Pass an object returned by Retree.root(...) or read a child from an existing Retree tree.`
             );
         }
     }
@@ -1784,7 +1784,7 @@ export class Retree {
             if (index === -1) {
                 // @retree-throws
                 throw new Error(
-                    "Retree.move: could not find the node in its array parent while removing it. This is unexpected if the node was not manually deleted or reassigned before Retree.move(...) ran. Fix: call Retree.move(node, destination, key) without first mutating the old parent; if that is already true, file a Retree issue with the source and destination."
+                    "Retree.move: could not find the node in its array parent while removing it. Call Retree.move(node, destination, key) before deleting or reassigning the old entry."
                 );
             }
             parent.splice(index, 1);
@@ -1796,7 +1796,7 @@ export class Retree {
             if (!key.found) {
                 // @retree-throws
                 throw new Error(
-                    "Retree.move: could not find the node in its Map parent while removing it. This is unexpected if the node was not manually deleted or reassigned before Retree.move(...) ran. Fix: call Retree.move(node, destination, key) without first mutating the old parent; if that is already true, file a Retree issue with the source and destination."
+                    "Retree.move: could not find the node in its Map parent while removing it. Call Retree.move(node, destination, key) before deleting or reassigning the old entry."
                 );
             }
             parent.delete(key.value);
@@ -1807,7 +1807,7 @@ export class Retree {
             if (!parent.delete(node)) {
                 // @retree-throws
                 throw new Error(
-                    "Retree.move: could not find the node in its Set parent while removing it. This is unexpected if the node was not manually deleted or reassigned before Retree.move(...) ran. Fix: call Retree.move(node, destination) without first mutating the old parent; if that is already true, file a Retree issue with the source and destination."
+                    "Retree.move: could not find the node in its Set parent while removing it. Call Retree.move(node, destination) before deleting the old Set entry."
                 );
             }
             return;
@@ -1817,7 +1817,7 @@ export class Retree {
         if (!parentInfo || parentInfo.propName === null) {
             // @retree-throws
             throw new Error(
-                "Retree.move: could not determine the object property that currently owns this node. This is unexpected for object parents and can happen if parent metadata was detached before the move. Fix: call Retree.move(...) before manually deleting/reassigning the old property; if that is already true, file a Retree issue with the source and destination."
+                "Retree.move: could not determine the object property that currently owns this node. Call Retree.move(...) before deleting or reassigning the old property."
             );
         }
         if (!this.isSameTreeNode((parent as any)[parentInfo.propName], node)) {
@@ -1825,7 +1825,7 @@ export class Retree {
             throw new Error(
                 `Retree.move: parent property ${String(
                     parentInfo.propName
-                )} no longer points to the node being moved. This is unexpected if the old parent was not manually mutated before Retree.move(...) ran. Fix: call Retree.move(...) before deleting or overwriting the old property; if that is already true, file a Retree issue with the source and destination.`
+                )} no longer points to the node being moved. Call Retree.move(...) before deleting or overwriting the old property.`
             );
         }
         delete (parent as any)[parentInfo.propName];
@@ -1844,7 +1844,7 @@ export class Retree {
             if (typeof key !== "number") {
                 // @retree-throws
                 throw new Error(
-                    "Retree.move: array destinations require a numeric key, or no key to append. This is a caller argument error that TypeScript should usually catch. Fix: pass a number index, or omit the key to append to the array."
+                    "Retree.move: array destinations require a numeric key, or no key to append. Pass a number index, or omit the key to append to the array."
                 );
             }
             destination.splice(key, 0, node);
@@ -1855,7 +1855,7 @@ export class Retree {
             if (key === undefined) {
                 // @retree-throws
                 throw new Error(
-                    "Retree.move: Map destinations require a key. This is a caller argument error that TypeScript should usually catch. Fix: pass the Map key as the third argument."
+                    "Retree.move: Map destinations require a key. Pass the Map key as the third argument."
                 );
             }
             destination.set(key, node);
@@ -1870,7 +1870,7 @@ export class Retree {
         if (typeof key !== "string" && typeof key !== "symbol") {
             // @retree-throws
             throw new Error(
-                "Retree.move: object destinations require a string or symbol key. This is a caller argument error that TypeScript should usually catch. Fix: pass the destination property name as the third argument."
+                "Retree.move: object destinations require a string or symbol key. Pass the destination property name as the third argument."
             );
         }
         (destination as any)[key] = node;
@@ -2609,8 +2609,6 @@ export class Retree {
         reproxy: TreeNode,
         changes: INodeFieldChanges[]
     ) {
-        // I could get unproxied node from scope...tradeoff between memory and runtime hit
-        // It's cheap to get unproxied node, so doing that for now
         const _unproxy = getUnproxiedNode(reproxy);
         if (!_unproxy) {
             // @retree-throws

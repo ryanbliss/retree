@@ -31,6 +31,9 @@ jobs:
             - name: Typecheck
               run: npm run typecheck
 
+            - name: SDK runtime import boundaries
+              run: npm run lint:architecture
+
             - name: Test
               run: npm run test
 

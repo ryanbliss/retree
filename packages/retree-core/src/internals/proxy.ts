@@ -2970,10 +2970,9 @@ function reparentProxy<T extends TreeNode = TreeNode>(
             throw new Error(
                 [
                     "Retree cannot assign this node because it already has a structural parent.",
-                    "This is expected when the same object is inserted into two different places in the tree.",
                     `Current parent: ${describeParentEdge(currentParent)}.`,
                     `Requested parent: ${describeParentEdge(newParent)}.`,
-                    "Fix: choose one explicit ownership operation: move it with Retree.move(node, destination, key), store a reactive pointer with Retree.link(node) or @link, ignore it via @ignore, or duplicate it with Retree.clone(node).",
+                    "Use Retree.move(node, destination, key), Retree.link(node) or @link for a reactive reference, @ignore for a non-reactive reference, or Retree.clone(node) for a copy.",
                 ].join(" ")
             );
         }
@@ -3080,7 +3079,7 @@ export function getUnproxiedNode<TNode extends TreeNode = TreeNode>(
  * @internal
  * Gets the base proxied object, aka meaning the non reproxied object.
  * @remarks
- * Recursively goes through each proxy until there are no more proxy references.
+ * Resolves the base proxy through Retree proxy metadata.
  *
  * @param node node to check
  * @returns the base proxied object
