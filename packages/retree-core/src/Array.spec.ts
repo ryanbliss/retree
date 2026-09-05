@@ -8,6 +8,7 @@ import { Retree } from "./Retree.js";
 import { INodeFieldChanges } from "./types.js";
 import { Transactions } from "./internals/transactions.js";
 import { getReproxyNode } from "./internals/reproxy.js";
+import { getBaseProxy } from "./internals/proxy.js";
 
 const rootsToCleanup: object[] = [];
 
@@ -324,7 +325,8 @@ describe("Array mutating methods within Retree proxy", () => {
             const tree = trackRoot(Retree.root(makeList(3)));
             tree.list.pop();
             const firstReproxy = getReproxyNode(tree.list);
-            expect(firstReproxy).not.toBe(tree.list);
+            expect(firstReproxy).toBe(tree.list);
+            expect(firstReproxy).not.toBe(getBaseProxy(tree.list));
 
             expect(firstReproxy.push).toBe(firstReproxy.push);
 
@@ -370,7 +372,7 @@ describe("Array mutating methods within Retree proxy", () => {
             // Any mutation forces a reproxy; pop keeps `count` items.
             tree.list.pop();
             const reproxy = getReproxyNode(tree.list);
-            expect(reproxy).not.toBe(tree.list);
+            expect(reproxy).not.toBe(getBaseProxy(tree.list));
             return { tree, reproxy };
         }
 
@@ -421,7 +423,8 @@ describe("Array mutating methods within Retree proxy", () => {
 
             expect(probe.calls()).toBe(1);
             expect(result).toBe(getReproxyNode(tree.list));
-            expect(result).not.toBe(tree.list);
+            expect(result).toBe(tree.list);
+            expect(result).not.toBe(getBaseProxy(tree.list));
             expect(Retree.raw(result)).toBe(Retree.raw(tree.list));
             expect(tree.list.map((item) => item.v)).toEqual([2, 1, 0]);
         });
@@ -458,7 +461,7 @@ describe("Array mutating methods within Retree proxy", () => {
             const tree = trackRoot(Retree.root({ list }));
             tree.list.push(1);
             const reproxy = getReproxyNode(tree.list);
-            expect(reproxy).not.toBe(tree.list);
+            expect(reproxy).not.toBe(getBaseProxy(tree.list));
 
             reproxy.push(2);
 
@@ -536,7 +539,7 @@ describe("Array mutating methods within Retree proxy", () => {
             const tree = trackRoot(Retree.root(makeList(4)));
             tree.list.pop();
             const reproxy = getReproxyNode(tree.list);
-            expect(reproxy).not.toBe(tree.list);
+            expect(reproxy).not.toBe(getBaseProxy(tree.list));
             const probe = listenTo(tree.list);
 
             expect(() =>

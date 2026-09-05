@@ -31,6 +31,7 @@ import {
     proxiedParentKey,
     proxyHandlerSentinel,
     TCustomProxy,
+    TProxiedChildren,
 } from "./proxy-types.js";
 import { advanceSnapshotVersions } from "./snapshot-version.js";
 import { bumpGlobalWriteVersion } from "./write-version.js";
@@ -56,7 +57,7 @@ function currentView<T extends TreeNode>(
  * their own handler; views answer with a {@link ReproxyHandler}, whose raw
  * node resolves the base handler through the registry.
  */
-function resolveBaseHandler<T extends TreeNode>(
+export function resolveBaseHandler<T extends TreeNode>(
     handler: ICustomProxyHandler<T>
 ): BaseProxyHandler<T> {
     if (handler instanceof BaseProxyHandler) {
@@ -76,12 +77,33 @@ function resolveBaseHandler<T extends TreeNode>(
  * The latest identity of a value read off a raw node: the current view of a
  * managed node, or the value itself when it is not managed.
  */
-function latestIdentity<T>(value: T): T {
+export function latestIdentity<T>(value: T): T {
     const handler = getCustomProxyHandlerFromMetadata(value);
     if (handler === undefined) {
         return value;
     }
     return (currentView(resolveBaseHandler(handler)) ?? value) as T;
+}
+
+/** A node's latest identity from its handler: its view, or its base proxy before the first change. */
+export function latestIdentityOfHandler<T extends TreeNode>(
+    handler: ICustomProxyHandler<T>
+): TCustomProxy<T> {
+    return currentView(resolveBaseHandler(handler)) ?? handler.baseProxy;
+}
+
+/** The base handler behind a base proxy or a view. */
+export function getBaseHandlerOfProxy(
+    proxy: object
+): BaseProxyHandler<TreeNode> {
+    const handler = getCustomProxyHandlerFromMetadata(proxy);
+    if (handler === undefined) {
+        // @retree-throws
+        throw new Error(
+            "Retree internal invariant failed: expected a Retree proxy but the value has no proxy metadata. This is unexpected and likely a Retree bug. Please file a Retree issue with the operation that triggered this."
+        );
+    }
+    return resolveBaseHandler(handler);
 }
 
 function trackAccessIfNeeded<T>(value: T): T {
@@ -239,13 +261,11 @@ class ReproxyHandler<T extends TreeNode>
      * The children cache belongs to the base handler and is allocated lazily,
      * so delegate instead of copying a reference at construction time.
      */
-    public get [proxiedChildrenKey](): Record<string | symbol, any> | null {
+    public get [proxiedChildrenKey](): TProxiedChildren | null {
         return this.baseHandler[proxiedChildrenKey];
     }
 
-    public set [proxiedChildrenKey](
-        value: Record<string | symbol, any> | null
-    ) {
+    public set [proxiedChildrenKey](value: TProxiedChildren | null) {
         this.baseHandler[proxiedChildrenKey] = value;
     }
 
@@ -273,36 +293,6 @@ class ReproxyHandler<T extends TreeNode>
             source,
             thisArg
         );
-    }
-
-    /**
-     * Wrap a base-proxy array mutator so callers holding a reproxy receive
-     * the latest reproxy back when the mutator returns the array itself
-     * (sort/reverse/fill/copyWithin). The wrapper is cached on the BASE
-     * handler, not this reproxy handler: reproxies are rebuilt on every
-     * mutation, and `arr.push === arr.push` must hold across generations so
-     * tracked selectors reading a mutator method do not re-run forever.
-     */
-    private getReproxyAwareArrayMutator(
-        prop: string | symbol,
-        baseMutator: Function
-    ): Function {
-        const cache = (this.baseHandler.ensureCaches().reproxyArrayMutators ??=
-            new Map());
-        const cached = cache.get(prop);
-        if (cached !== undefined) {
-            return cached;
-        }
-        const object = this.baseProxy;
-        const reproxyAwareMutator = (...args: unknown[]) => {
-            const result = baseMutator(...args);
-            if (result === object) {
-                return getReproxyNode(object);
-            }
-            return result;
-        };
-        cache.set(prop, reproxyAwareMutator);
-        return reproxyAwareMutator;
     }
 
     public get(target: T, prop: string | symbol, receiver: any): any {
@@ -344,39 +334,28 @@ class ReproxyHandler<T extends TreeNode>
         // The children cache has a null prototype, so prototype members like
         // "constructor" can never appear as phantom cache hits here.
         const children = base[proxiedChildrenKey];
-        if (children !== null && typeof prop === "string" && children[prop]) {
-            const childProxy = children[prop];
-            if (typeof childProxy !== "function") {
+        if (children !== null && typeof prop === "string") {
+            const child = children[prop];
+            if (child !== undefined) {
                 return trackPropertyAccessIfNeeded(
                     base,
                     baseProxy,
                     prop,
-                    getReproxyNode(childProxy)
+                    latestIdentityOfHandler(child)
                 );
             }
         }
         // Map/Set/Date methods need the raw target as `this`, and native
         // array mutators must run as one batched write; the base trap owns
-        // both wrappers, so ask it directly instead of dispatching through
-        // the base proxy.
+        // both wrappers (which return the latest identity themselves), so
+        // ask it directly instead of dispatching through the base proxy.
         const kind = base.kind;
-        if (kind >= NodeKind.Map) {
-            return base.get(target, prop, baseProxy);
-        }
         if (
-            kind === NodeKind.Array &&
-            isNativeArrayMutatorAccess(target, prop)
+            kind >= NodeKind.Map ||
+            (kind === NodeKind.Array &&
+                isNativeArrayMutatorAccess(target, prop))
         ) {
-            const baseMutator: unknown = base.get(target, prop, baseProxy);
-            if (typeof baseMutator !== "function") {
-                // @retree-throws
-                throw new Error(
-                    `Retree internal invariant failed: expected the base proxy to resolve the native array mutator '${String(
-                        prop
-                    )}' to its batching wrapper function, but it resolved to type '${typeof baseMutator}'. This is unexpected and likely a Retree bug. Please file a Retree issue with the array operation that triggered this.`
-                );
-            }
-            return this.getReproxyAwareArrayMutator(prop, baseMutator);
+            return base.get(target, prop, baseProxy);
         }
         let value: any;
         if (reactiveObject !== undefined) {
@@ -409,7 +388,7 @@ class ReproxyHandler<T extends TreeNode>
                 base,
                 baseProxy,
                 prop,
-                latestIdentity(base.resolveStoredObject(target, prop, value))
+                base.resolveStoredObject(target, prop, value)
             );
         }
         return trackPropertyAccessIfNeeded(base, baseProxy, prop, value);

@@ -38,6 +38,7 @@ Use this as a quick map before choosing an API:
 -   [`Retree.managed`](#read-fast-with-raw) resolves a raw value back to its managed node. Use it to recover the write surface after a raw scan or from a change payload.
 -   [`Retree.peekInto`](#read-fast-with-raw) runs a read-only query against a node's raw object and resolves the result to its managed node when one exists.
 -   [`Retree.untracked`](#read-fast-with-raw) pauses dependency tracking during a synchronous callback. Use it for bulk reads inside tracked selectors and memo getters.
+-   [`Retree.version` and `Retree.treeVersion`](#node-identity-and-versions) return a node's own-field or subtree version as a number. Use them as cache keys instead of holding node identities.
 -   [`Retree.move`](#move-link-or-clone-existing-nodes) transfers an existing node to a new structural parent. Use it when ownership should change.
 -   [`Retree.link` and `@link`](#move-link-or-clone-existing-nodes) store a reactive pointer to a node without reparenting it. Use it for selected items and cross-references.
 -   [`Retree.clone`](#move-link-or-clone-existing-nodes) creates a detached copy. Use it when two places need independent state.
@@ -368,6 +369,53 @@ Rules that keep raw reads safe:
     catching the error.
 -   `ReactiveNode` exposes instance conveniences: `this.raw()`,
     `this.untracked(fn)`, and `this.peekInto(fn)`.
+
+## Node identity and versions
+
+A node's identity is its version. Reading a node returns the same object
+until that node changes, then a fresh one, whichever path you read it
+through: a parent, `Retree.parent`, `Retree.managed`, a listener argument,
+or a chaining mutator like `sort` or `Map.set`. Two reads are `===` exactly
+while nothing on that node was written between them, which is what
+`useSelect` and `React.memo` rely on.
+
+```ts
+const project = Retree.root({ tasks: [{ done: false }], name: "a" });
+
+const tasks = project.tasks;
+project.name = "b"; // unrelated write
+project.tasks === tasks; // true
+project.tasks[0].done = true; // writes a task, not the array
+project.tasks === tasks; // true
+project.tasks.push({ done: false }); // writes the array
+project.tasks === tasks; // false: fresh identity
+```
+
+Two handles stay put on purpose: the object `Retree.root(...)` returned and
+`this` inside a method, which is whatever receiver the caller used. Compare
+`Retree.raw(a) === Retree.raw(b)` when you need an identity that survives
+writes, or store a version number instead of a node:
+
+```ts
+let cachedVersion = Retree.version(project.tasks);
+let cachedCount = project.tasks.filter((task) => task.done).length;
+
+function doneCount(): number {
+    const version = Retree.version(project.tasks);
+    if (version !== cachedVersion) {
+        cachedVersion = version;
+        cachedCount = project.tasks.filter((task) => task.done).length;
+    }
+    return cachedCount;
+}
+```
+
+-   `Retree.version(node)` advances when the node's own fields change, the
+    same moments its identity changes.
+-   `Retree.treeVersion(node)` advances when the node or any structural
+    descendant changes, like `treeChanged`, with no listener required.
+-   Both accept a managed node or the raw object behind one, and both stay
+    put across `Retree.runSilent(fn)` because silent writes skip reproxying.
 
 ## Reactive dependencies
 
@@ -788,7 +836,7 @@ For Redux DevTools Extension integration (action stream, state inspection, time 
 
 ## Performance model
 
-Retree is built on JavaScript proxies plus stable "base" proxies and fresh reproxy identities after changes. That model is ergonomic, but the cost is not uniform. The main rule of thumb is to subscribe and read as narrowly as your UI or workflow allows.
+Retree is built on JavaScript proxies: every node has one identity per version, refreshed when the node changes. That model is ergonomic, but the cost is not uniform. The main rule of thumb is to subscribe and read as narrowly as your UI or workflow allows.
 
 ### Prefer narrow `nodeChanged` subscriptions
 

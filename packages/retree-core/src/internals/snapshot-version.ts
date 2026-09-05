@@ -99,14 +99,20 @@ export function getStructureVersion(): number {
 }
 
 export function getNodeSnapshotVersion(node: TreeNode): number {
-    return (
-        getHandler(node, "getNodeSnapshotVersion").snapshotVersionsRecord
-            ?.node ?? 0
-    );
+    return getNodeVersionOfHandler(getHandler(node, "getNodeSnapshotVersion"));
 }
 
 export function getTreeSnapshotVersion(node: TreeNode): number {
-    const handler = getHandler(node, "getTreeSnapshotVersion");
+    return getTreeVersionOfHandler(getHandler(node, "getTreeSnapshotVersion"));
+}
+
+/** Own-field version of a node whose base handler is already in hand. */
+export function getNodeVersionOfHandler(handler: ICustomProxyHandler): number {
+    return handler.snapshotVersionsRecord?.node ?? 0;
+}
+
+/** Subtree version of a node whose base handler is already in hand. */
+export function getTreeVersionOfHandler(handler: ICustomProxyHandler): number {
     flush(rootOf(handler));
     return handler.snapshotVersionsRecord?.tree ?? 0;
 }

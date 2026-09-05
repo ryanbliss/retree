@@ -1,4 +1,11 @@
 import { TreeNode } from "../types.js";
+import type { BaseProxyHandler } from "./proxy.js";
+
+/** @internal Children cache: property key to the child's base handler. */
+export type TProxiedChildren = Record<
+    string | symbol,
+    BaseProxyHandler<TreeNode>
+>;
 
 export const unproxiedBaseNodeKey = Symbol("retree-base-node");
 export const proxiedParentKey = Symbol("retree-parent");
@@ -42,7 +49,11 @@ export interface ISnapshotVersionRecord {
  */
 export interface ICustomProxyHandler<TNode extends TreeNode = TreeNode> {
     [unproxiedBaseNodeKey]: TNode;
-    [proxiedChildrenKey]: Record<string | symbol, any> | null;
+    /**
+     * Materialized children by property key, as their base handlers. Reads
+     * resolve a child's latest identity from its handler without a trap.
+     */
+    [proxiedChildrenKey]: TProxiedChildren | null;
     [proxiedParentKey]: IProxyParent | null;
     /**
      * External-store snapshot versions for this node, allocated lazily on the

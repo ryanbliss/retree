@@ -22,7 +22,11 @@ import {
     TCustomProxy,
     unproxiedBaseNodeKey,
 } from "./internals/proxy-types.js";
-import { getStructureVersion } from "./internals/snapshot-version.js";
+import {
+    getNodeVersionOfHandler,
+    getStructureVersion,
+    getTreeVersionOfHandler,
+} from "./internals/snapshot-version.js";
 import {
     deleteReactiveDependencies,
     deleteReactiveDependent,
@@ -1084,7 +1088,11 @@ export class Retree {
      */
     static parent(node: TreeNode): TreeNode | null {
         const response = this.getParentInternal(node);
-        return response?.proxyNode ?? null;
+        if (response === null) return null;
+        return (
+            getManagedProxyForUnproxiedNode(response.rawNode) ??
+            response.proxyNode
+        );
     }
 
     /**
@@ -1211,6 +1219,85 @@ export class Retree {
             getUnproxiedNode(value) as TreeNode
         );
         return managed as TNode | undefined;
+    }
+
+    /**
+     * The version of a node's own fields: a number that advances exactly
+     * when the node receives a fresh identity for a change of its own.
+     *
+     * @remarks
+     * Two reads of a node are `===` while `Retree.version` is unchanged, so
+     * the number is the node's identity in a form a cache can store and
+     * compare without holding the node. It advances with `nodeChanged`, not
+     * with descendant writes; use {@link Retree.treeVersion} for those.
+     * `Retree.runSilent(fn)` skips reproxying and leaves it unchanged, the
+     * same way it leaves identities equal.
+     *
+     * Accepts a managed node or the raw object behind one. Throws for a
+     * value that has never been materialized as a Retree node.
+     *
+     * @param node Managed node or raw object to read the version of.
+     * @returns The node's own-field version.
+     *
+     * @example
+     * ```ts
+     * const project = Retree.root({ tasks: [{ done: false }] });
+     * let cachedVersion = Retree.version(project.tasks);
+     * let cachedCount = project.tasks.filter((task) => task.done).length;
+     *
+     * function doneCount(): number {
+     *     const version = Retree.version(project.tasks);
+     *     if (version !== cachedVersion) {
+     *         cachedVersion = version;
+     *         cachedCount = project.tasks.filter((task) => task.done).length;
+     *     }
+     *     return cachedCount;
+     * }
+     * ```
+     */
+    static version(node: TreeNode): number {
+        return getNodeVersionOfHandler(
+            this.resolveBaseHandler(node, "Retree.version")
+        );
+    }
+
+    /**
+     * The version of a node's subtree: a number that advances when the node
+     * or any structural descendant changes.
+     *
+     * @remarks
+     * Matches what `treeChanged` observes, without needing a listener: a
+     * write anywhere under the node advances it, a write elsewhere does not.
+     * Reading it settles pending ancestor stamps for the node's root, the
+     * same lazy walk `useSelect` performs. Accepts a managed node or the raw
+     * object behind one; `Retree.runSilent(fn)` leaves it unchanged.
+     *
+     * @param node Managed node or raw object to read the version of.
+     * @returns The node's subtree version.
+     */
+    static treeVersion(node: TreeNode): number {
+        return getTreeVersionOfHandler(
+            this.resolveBaseHandler(node, "Retree.treeVersion")
+        );
+    }
+
+    private static resolveBaseHandler(node: TreeNode, apiName: string) {
+        if (node === null || typeof node !== "object") {
+            // @retree-throws
+            throw new Error(
+                `${apiName}: expected a Retree-managed node or the raw object behind one but received a ${typeof node}.`
+            );
+        }
+        const handler = getBaseHandlerForUnproxiedNode(
+            getUnproxiedNode(node) as TreeNode
+        );
+        if (handler === undefined) {
+            // @retree-throws
+            throw new Error(
+                `${apiName}: expected a Retree-managed node or the raw object behind one, but the value has never been materialized as a Retree node. Read it through its managed parent first, or pass a node returned by Retree.root(...).`
+            );
+        }
+        return handler;
     }
 
     /**

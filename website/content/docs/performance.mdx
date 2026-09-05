@@ -3,9 +3,9 @@ title: Performance
 description: Retree's cost model and how to work with it — narrow subscriptions, raw reads, lazy materialization, transactions, and how to profile.
 ---
 
-Retree is built on JavaScript proxies plus stable base proxies and fresh
-[reproxy](/docs/thinking-in-retree) identities after changes. That model is
-ergonomic, but the cost is not uniform. One rule of thumb explains most of
+Retree is built on JavaScript proxies: every node has one identity per
+version, refreshed by a [reproxy](/docs/thinking-in-retree) when the node
+changes. That model is ergonomic, but the cost is not uniform. One rule of thumb explains most of
 this page: **subscribe and read as narrowly as your UI or workflow allows.**
 
 ## Subscribe to the narrowest node you need

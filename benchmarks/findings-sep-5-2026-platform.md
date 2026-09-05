@@ -223,3 +223,49 @@ Not done here: explicit-selector `@select((self) => [...])` getters stay
 uncached because `self.dependency(...)` entries are fresh objects per call.
 `ReactiveNode.memo(key, fn, comparisons)` evaluates its comparisons in the
 caller and cannot skip them.
+
+## Item 7: one identity per node, public versions (`perf/one-identity-version`)
+
+Spec: `specs/one-identity-per-node.md`. Which proxy a read returned depended
+on the receiver: a child read through a base proxy came back as the child's
+base proxy, the same read through a view came back as the child's latest
+view, `Retree.parent` always answered with the base proxy, and array
+mutators had one wrapper per receiver kind. React hands components views
+while view models call each other through base proxies, so Neo's
+hand-rolled caches compared identities from alternating contexts and missed
+forever; `retreeRevisionCell` (a `peekInto` round trip, 54 call sites)
+exists to normalize them. There was also no number to key a cache on.
+
+Changes: the children cache stores each child's base handler, and both traps
+resolve a child to its latest identity from the handler with no trap. Reads
+through any receiver, `Retree.parent`, and the chaining mutators all return
+the same object, which changes exactly when the node changes. `Retree.root()`
+and a method's `this` stay the receiver you hold. `Retree.version(node)` and
+`Retree.treeVersion(node)` expose the own-field and subtree counters React's
+store already kept; both accept raw input.
+
+Base = item 6 bundle, serial alternating rounds:
+
+| Probe | Item 6 | Item 7 |
+| --- | --- | --- |
+| A3 first scan (150k nodes materialized) | 53 to 55 ms | 54 to 56 ms |
+| A4 second scan through base | 15.5 to 15.7 ms | 14.0 to 14.8 ms |
+| A5 first scan through view | 14.8 to 15.2 ms | 13.7 to 14.0 ms |
+| s6 steady 50k-row scan via base / view | 14.1 / 14.1 ms | 14.1 / 13.8 ms |
+| s8 200k child reads via VM base / view | 12.1 / 16.7 ms | 11.8 / 11.4 ms |
+| s8 200k x 9 scalar reads via VM base / view | 133 / 128 ms | 110 / 100 ms |
+| s9 200k `Retree.version(node)` / `(raw)` | | 4.1 / 2.1 ms |
+| s9 200k `Retree.treeVersion(root)` / with a write per 100 | | 6.4 / 8.0 ms |
+| s9 200k `Retree.peekInto(v, raw => raw)` | 10.3 ms | 10.3 ms |
+
+View child reads drop the sentinel trap they paid to recover the handler
+from a cached proxy. The scalar-read gain is the smaller base get trap (the
+children branch no longer type-checks a cached value). A version read is 10
+to 30 ns, against 50 ns for the `peekInto` normalization it replaces.
+
+Semantics: 15 tests that asserted the receiver-dependent identity were
+updated (see the spec). The one user-visible comparison that changes is
+`Retree.parent(child) === root` after the root itself was written; the
+README's new "Node identity and versions" section documents the rule and
+the `Retree.raw` / version alternatives.
+

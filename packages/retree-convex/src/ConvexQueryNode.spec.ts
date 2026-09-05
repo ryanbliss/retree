@@ -1295,11 +1295,16 @@ describe("ConvexQueryNode", () => {
         ]);
 
         const task = node.state?.[0];
+        if (task === undefined) {
+            throw new Error("Expected the first task to exist.");
+        }
         client.subscriptions[0].callback([
             { id: "task-1", text: "Buy groceries", isCompleted: true },
         ]);
 
-        expect(node.state?.[0]).toBe(task);
+        // Reconciled in place: same raw node, fresh identity for the change.
+        expect(Retree.raw(node.state![0])).toBe(Retree.raw(task));
+        expect(node.state?.[0]).not.toBe(task);
         expect(node.state?.[0]).toEqual({
             id: "task-1",
             text: "Buy groceries",
@@ -1351,8 +1356,11 @@ describe("ConvexQueryNode", () => {
         expect(getCustomProxyHandler(seen[1].rawCurrent as object)).toBe(
             undefined
         );
-        // Writes through current kept identity and applied the diff.
-        expect(node.state?.[0]).toBe(task);
+        // Writes through current kept the raw node and applied the diff.
+        if (task === undefined) {
+            throw new Error("Expected the first task to exist.");
+        }
+        expect(Retree.raw(node.state![0])).toBe(Retree.raw(task));
         expect(node.state?.[0]?.text).toBe("Buy oat milk");
     });
 
