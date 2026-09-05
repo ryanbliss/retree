@@ -758,6 +758,54 @@ describe("select", () => {
         expect(root.total).toBe(14);
     });
 
+    it("caches trapped @select values until a read they made changes", () => {
+        let filterRuns = 0;
+        class Board extends ReactiveNode {
+            public rows = [
+                { id: 1, done: false, label: "a" },
+                { id: 2, done: true, label: "b" },
+            ];
+            public showDone = false;
+            public unrelated = 0;
+
+            @select()
+            get visible() {
+                filterRuns += 1;
+                return this.rows.filter((row) => row.done === this.showDone);
+            }
+            get dependencies() {
+                return [];
+            }
+        }
+        const root = trackRoot(Retree.root(new Board()));
+        const nodeChanged = vi.fn();
+        Retree.on(root, "nodeChanged", nodeChanged);
+
+        const first = root.visible;
+        expect(first.map((row) => row.id)).toEqual([1]);
+        expect(root.visible).toBe(first);
+        expect(filterRuns).toBe(1);
+
+        // Writes the getter never read keep the cached instance.
+        root.unrelated = 1;
+        root.rows[1].label = "renamed";
+        expect(root.visible).toBe(first);
+        expect(filterRuns).toBe(1);
+        expect(nodeChanged).toHaveBeenCalledTimes(1);
+
+        // A read that changed recomputes, and the owner emits for the getter.
+        root.rows[1].done = false;
+        const second = root.visible;
+        expect(second).not.toBe(first);
+        expect(second.map((row) => row.id)).toEqual([1, 2]);
+        expect(root.visible).toBe(second);
+        expect(nodeChanged).toHaveBeenCalledTimes(2);
+
+        // Unmanaged instances run the getter untracked every time.
+        const raw = Retree.raw(root);
+        expect(raw.visible).not.toBe(raw.visible);
+    });
+
     it("compares trailing dependency values when an earlier @select dependency emits", () => {
         const root = trackRoot(Retree.root(new OrderedSelectNode()));
         const nodeChanged = vi.fn();

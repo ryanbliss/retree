@@ -49,6 +49,12 @@ interface IMemoCacheEntry {
      * `undefined` means this entry belongs to regular getter memoization.
      */
     args: unknown[] | undefined;
+    /**
+     * Keyed entries only: every element of the last key result was one of
+     * the key function's tracked reads, so validating those reads can stand
+     * in for running the key function.
+     */
+    keyReadsScoped: boolean;
 }
 
 interface ITrappedMemoValidation {
@@ -102,9 +108,10 @@ function validateTrappedMemo(entry: IMemoCacheEntry): boolean {
         snapshots === undefined
     )
         return false;
+    // Unscoped reads are getter reads whose value derives from other tree
+    // state, so they can only move when something in the tree was written.
     const version = getGlobalWriteVersion();
-    if (validation.version === version && validation.unscoped.length === 0)
-        return true;
+    if (validation.version === version) return true;
     const owners = getWrittenOwnersSince(validation.version);
     const validate = (index: number): boolean => {
         const next = normalizeComparisonWithSnapshot(accessors[index]);
@@ -234,6 +241,7 @@ export function runMemo<T>(
         comparisonSnapshots: undefined,
         reproxy: getManagedProxyForUnproxiedNode(unproxied) ?? currentReproxy,
         args: undefined,
+        keyReadsScoped: false,
     });
     return value;
 }
@@ -262,7 +270,7 @@ export function runTrappedMemo<T>(
 
     const result = collectDependencyComparisonAccesses(fn);
     const normalized = normalizeComparisonsWithSnapshots(result.comparisons);
-    cache.set(key, {
+    const entry: IMemoCacheEntry = {
         value: result.value,
         comparisons: normalized.values,
         comparisonAccessors: result.comparisons,
@@ -273,66 +281,149 @@ export function runTrappedMemo<T>(
         ),
         reproxy: getManagedProxyForUnproxiedNode(unproxied),
         args: undefined,
-    });
+        keyReadsScoped: false,
+    };
+    cache.set(key, entry);
+    // The body ran in its own frame; an enclosing tracked run still needs
+    // these reads, exactly as it receives them on a cache hit.
+    replayTrappedMemo(entry);
     return result.value;
 }
 
 /**
  * @internal
- * Shared memo runner used by the `@fnMemo` decorator. It follows the same
- * dependency semantics as {@link runMemo}, but also shallow-compares the
- * arguments passed to the function every time.
+ * Runner for `@memo(keyFn)` and `@fnMemo(keyFn)`. The key function runs
+ * under comparisons tracking so its reads can validate the entry: while
+ * they re-read equal the key function does not run at all. Only when a read
+ * changed does the key function run again, and its normalized result decides
+ * between a refreshed hit and a recompute, exactly as {@link runMemo} does.
+ *
+ * A key result element that is not one of the key function's tracked reads
+ * (a derived value, a literal, an untracked read) cannot be validated, so
+ * such entries run the key function on every read.
  */
-export function runFnMemo<T>(
+export function runKeyedMemo<T>(
     instance: ReactiveNode,
     key: string | symbol,
     fn: () => T,
-    args: unknown[],
-    comparisons: unknown[] | undefined
+    getComparisons: () => unknown[] | undefined,
+    args: unknown[] | undefined
 ): T {
     const unproxied = getUnproxiedNode(instance) as ReactiveNode | undefined;
     if (!unproxied) {
         return fn();
     }
     const cache = getOrCreateMemoCache(unproxied);
-    const currentReproxy = getManagedProxyForUnproxiedNode(unproxied);
-    const normalizedArgs = normalizeComparisons(args);
-    const normalizedComparisons =
-        comparisons === undefined
-            ? undefined
-            : normalizeComparisons(comparisons);
+    const normalizedArgs =
+        args === undefined ? undefined : normalizeComparisons(args);
     const prev = cache.get(key);
-    if (prev && prev.args !== undefined) {
-        const argsMatch = shallowEqualArrays(prev.args, normalizedArgs);
-        if (argsMatch && normalizedComparisons === undefined) {
-            if (
-                prev.comparisons === undefined &&
-                prev.reproxy === currentReproxy
-            ) {
-                return prev.value as T;
-            }
-        }
-        if (
-            argsMatch &&
-            normalizedComparisons !== undefined &&
-            prev.comparisons !== undefined &&
-            shallowEqualArrays(prev.comparisons, normalizedComparisons)
-        ) {
+    const argsMatch =
+        prev !== undefined &&
+        (normalizedArgs === undefined
+            ? prev.args === undefined
+            : prev.args !== undefined &&
+              shallowEqualArrays(prev.args, normalizedArgs));
+    if (
+        prev !== undefined &&
+        argsMatch &&
+        prev.keyReadsScoped &&
+        validateTrappedMemo(prev)
+    ) {
+        replayTrappedMemo(prev);
+        return prev.value as T;
+    }
+    const currentReproxy = getManagedProxyForUnproxiedNode(unproxied);
+    const keyRun = collectDependencyComparisonAccesses(getComparisons);
+    replayDependencyComparisonAccesses(keyRun.comparisons);
+    const normalized =
+        keyRun.value === undefined
+            ? undefined
+            : normalizeComparisons(keyRun.value);
+    const keyReadsScoped =
+        keyRun.value !== undefined &&
+        areKeyElementsTrackedReads(keyRun.value, keyRun.comparisons);
+    const keyReads = normalizeComparisonsWithSnapshots(keyRun.comparisons);
+    if (prev !== undefined && argsMatch) {
+        const hit =
+            normalized === undefined
+                ? prev.comparisons === undefined &&
+                  prev.reproxy === currentReproxy
+                : prev.comparisons !== undefined &&
+                  shallowEqualArrays(prev.comparisons, normalized);
+        if (hit) {
+            prev.comparisonAccessors = keyRun.comparisons;
+            prev.comparisonSnapshots = keyReads.snapshots;
+            prev.validation = createTrappedValidation(
+                keyRun.comparisons,
+                keyReads.snapshots
+            );
+            prev.keyReadsScoped = keyReadsScoped;
             return prev.value as T;
         }
     }
     const value = fn();
     cache.set(key, {
         value,
-        comparisons: normalizedComparisons,
-        comparisonAccessors: undefined,
-        comparisonSnapshots: undefined,
+        comparisons: normalized,
+        comparisonAccessors: keyRun.comparisons,
+        comparisonSnapshots: keyReads.snapshots,
+        validation: createTrappedValidation(
+            keyRun.comparisons,
+            keyReads.snapshots
+        ),
         reproxy: getManagedProxyForUnproxiedNode(unproxied) ?? currentReproxy,
         args: normalizedArgs,
+        keyReadsScoped,
     });
     return value;
 }
 
+/**
+ * True when every key element is a value one of the key function's tracked
+ * reads produced. Managed values compare by raw node so a read that
+ * returned a child proxy covers the child listed in the key.
+ */
+function areKeyElementsTrackedReads(
+    elements: unknown[],
+    comparisons: unknown[]
+): boolean {
+    if (elements.length === 0) {
+        return false;
+    }
+    let readValues: Set<unknown> | undefined;
+    for (const element of elements) {
+        if (readValues === undefined) {
+            readValues = new Set();
+            for (const comparison of comparisons) {
+                if (!isDependencyComparisonAccessor(comparison)) {
+                    continue;
+                }
+                const values =
+                    comparison.capturedValues ?? comparison.getValues();
+                for (const value of values) {
+                    readValues.add(toRawIdentity(value));
+                }
+            }
+        }
+        if (!readValues.has(toRawIdentity(element))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function toRawIdentity(value: unknown): unknown {
+    if (value !== null && typeof value === "object") {
+        return getUnproxiedNode(value as TreeNode) ?? value;
+    }
+    return value;
+}
+
+/**
+ * @internal
+ * Auto-trapped runner used by the `@fnMemo` decorator: {@link runTrappedMemo}
+ * plus a shallow comparison of the arguments passed to the method.
+ */
 export function runTrappedFnMemo<T>(
     instance: ReactiveNode,
     key: string | symbol,
@@ -360,7 +451,7 @@ export function runTrappedFnMemo<T>(
 
     const result = collectDependencyComparisonAccesses(fn);
     const normalized = normalizeComparisonsWithSnapshots(result.comparisons);
-    cache.set(key, {
+    const entry: IMemoCacheEntry = {
         value: result.value,
         comparisons: normalized.values,
         comparisonAccessors: result.comparisons,
@@ -371,7 +462,10 @@ export function runTrappedFnMemo<T>(
         ),
         reproxy: getManagedProxyForUnproxiedNode(unproxied),
         args: normalizedArgs,
-    });
+        keyReadsScoped: false,
+    };
+    cache.set(key, entry);
+    replayTrappedMemo(entry);
     return result.value;
 }
 
@@ -384,10 +478,12 @@ function normalizeComparisons(comparisons: unknown[]): unknown[] {
     return normalizeComparisonsWithSnapshots(comparisons).values;
 }
 
-function normalizeComparisonsWithSnapshots(
-    comparisons: unknown[],
-    previousSnapshots?: IComparisonSnapshot[]
-): {
+/**
+ * Snapshots for the comparisons of a run that just finished. Accessors that
+ * kept the values they read are snapshotted from those, so a fresh run does
+ * not re-read every property a second time.
+ */
+function normalizeComparisonsWithSnapshots(comparisons: unknown[]): {
     values: unknown[];
     snapshots: IComparisonSnapshot[];
 } {
@@ -395,9 +491,9 @@ function normalizeComparisonsWithSnapshots(
     const snapshots: IComparisonSnapshot[] = [];
     for (let i = 0; i < comparisons.length; i++) {
         const comparison = comparisons[i];
-        const snapshot = normalizeComparisonWithSnapshot(
+        const snapshot = createComparisonSnapshot(
             comparison,
-            previousSnapshots?.[i]
+            getComparisonCells(comparison, ComparisonCellSource.Captured)
         );
         values.push(...snapshot.normalizedValues);
         snapshots.push(snapshot);
@@ -405,34 +501,46 @@ function normalizeComparisonsWithSnapshots(
     return { values, snapshots };
 }
 
+/** Re-reads one comparison for validation. */
 function normalizeComparisonWithSnapshot(
-    comparison: unknown,
-    previousSnapshot?: IComparisonSnapshot
+    comparison: unknown
 ): IComparisonSnapshot {
-    const sourceReproxy = getComparisonSourceReproxy(comparison);
-    if (
-        sourceReproxy !== undefined &&
-        previousSnapshot !== undefined &&
-        previousSnapshot.comparison === comparison &&
-        previousSnapshot.sourceReproxy === sourceReproxy
-    ) {
-        return previousSnapshot;
-    }
-    const normalizedValues = getComparisonCells(comparison).map((cell) =>
-        normalizeComparisonCell(cell)
+    return createComparisonSnapshot(
+        comparison,
+        getComparisonCells(comparison, ComparisonCellSource.Current)
     );
+}
+
+function createComparisonSnapshot(
+    comparison: unknown,
+    cells: unknown[]
+): IComparisonSnapshot {
     return {
         comparison,
-        sourceReproxy,
-        normalizedValues,
+        sourceReproxy: getComparisonSourceReproxy(comparison),
+        normalizedValues: cells.map((cell) => normalizeComparisonCell(cell)),
     };
 }
 
-function getComparisonCells(comparison: unknown): unknown[] {
+enum ComparisonCellSource {
+    Captured,
+    Current,
+}
+
+function getComparisonCells(
+    comparison: unknown,
+    source: ComparisonCellSource
+): unknown[] {
     if (!isDependencyComparisonAccessor(comparison)) {
         return [comparison];
     }
-    return getDependencyComparisonValues(comparison.getValues());
+    const captured =
+        source === ComparisonCellSource.Captured
+            ? comparison.capturedValues
+            : undefined;
+    return getDependencyComparisonValues(
+        captured === undefined ? comparison.getValues() : [...captured]
+    );
 }
 
 function getComparisonSourceReproxy(comparison: unknown): TreeNode | undefined {

@@ -72,6 +72,8 @@ export interface DependencyComparisonAccessor {
     readonly sourceUnproxiedNode?: TreeNode;
     /** Managed property values also compare their current view; array slots compare raw identities. */
     readonly valueUnproxiedNode?: TreeNode;
+    /** Values seen by the read that created this accessor, when it kept them. */
+    readonly capturedValues?: readonly unknown[];
     getValues(): unknown[];
 }
 

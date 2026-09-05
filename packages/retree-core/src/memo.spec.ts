@@ -323,8 +323,8 @@ describe("@memo decorator", () => {
     });
 
     it("supports the dynamic-deps form (function captures live `this`)", () => {
-        // Sanity check: the decorator's deps function is called every read with the
-        // current instance, so it sees mutations made after class declaration.
+        // Sanity check: the deps function reads live instance state, so a
+        // write to a field it read re-evaluates it and it sees the new shape.
         class Dyn extends ReactiveNode {
             public toggle = false;
             public a = 1;
@@ -355,6 +355,84 @@ describe("@memo decorator", () => {
         // Flip toggle. Deps shape changes from [b] to [a]; counts as a change.
         root.toggle = true;
         expect(root.value).toBe(99);
+        expect(root.computeCount).toBe(2);
+    });
+
+    it("skips the deps function while the fields it read are unchanged", () => {
+        const depsRuns = vi.fn((self: Keyed) => [self.a, self.list]);
+        class Keyed extends ReactiveNode {
+            public a = 1;
+            public list: number[] = [1];
+            public unrelated = 0;
+            public computeCount = 0;
+
+            @memo(depsRuns)
+            get value(): number {
+                this.computeCount += 1;
+                return this.a + this.list.length;
+            }
+            get dependencies() {
+                return [];
+            }
+        }
+        const root = trackRoot(Retree.root(new Keyed()));
+        const other = trackRoot(Retree.root({ n: 0 }));
+        Retree.on(root, "nodeChanged", vi.fn());
+        Retree.on(other, "nodeChanged", vi.fn());
+
+        expect(root.value).toBe(2);
+        expect(depsRuns).toHaveBeenCalledTimes(1);
+
+        // No writes anywhere: neither the deps function nor the body runs.
+        root.value;
+        root.value;
+        expect(depsRuns).toHaveBeenCalledTimes(1);
+
+        // Writes to other trees and to unread fields validate without
+        // running the deps function.
+        other.n = 1;
+        root.unrelated = 1;
+        expect(root.value).toBe(2);
+        expect(depsRuns).toHaveBeenCalledTimes(1);
+        expect(root.computeCount).toBe(1);
+
+        // A write to a read field re-evaluates the deps and recomputes.
+        root.a = 5;
+        expect(root.value).toBe(6);
+        expect(depsRuns).toHaveBeenCalledTimes(2);
+        expect(root.computeCount).toBe(2);
+
+        // A deep write beneath a listed node still counts as a change.
+        root.list.push(2);
+        expect(root.value).toBe(7);
+        expect(root.computeCount).toBe(3);
+    });
+
+    it("keeps evaluating deps functions whose result is not read from the tree", () => {
+        let clock = 0;
+        const depsRuns = vi.fn((self: Clocked) => [self.a, clock]);
+        class Clocked extends ReactiveNode {
+            public a = 1;
+            public computeCount = 0;
+
+            @memo(depsRuns)
+            get value(): number {
+                this.computeCount += 1;
+                return this.a + clock;
+            }
+            get dependencies() {
+                return [];
+            }
+        }
+        const root = trackRoot(Retree.root(new Clocked()));
+
+        expect(root.value).toBe(1);
+        expect(root.value).toBe(1);
+        expect(depsRuns).toHaveBeenCalledTimes(2);
+        expect(root.computeCount).toBe(1);
+
+        clock = 10;
+        expect(root.value).toBe(11);
         expect(root.computeCount).toBe(2);
     });
 
@@ -488,17 +566,17 @@ describe("@memo decorator", () => {
         expect(root.doubled).toBe(2);
         expect(root.doubled).toBe(2);
         expect(root.computeCount).toBe(1);
-        expect(valueReadCount).toBe(3);
+        expect(valueReadCount).toBe(2);
 
         root.child.current = 2;
 
         expect(root.doubled).toBe(4);
         expect(root.computeCount).toBe(2);
-        expect(valueReadCount).toBe(5);
+        expect(valueReadCount).toBe(3);
 
         expect(root.doubled).toBe(4);
         expect(root.doubled).toBe(4);
-        expect(valueReadCount).toBe(5);
+        expect(valueReadCount).toBe(3);
     });
 
     it("still emits and reproxies when a @memo getter writes a non-ignored field", () => {
@@ -1144,21 +1222,21 @@ describe("@fnMemo decorator", () => {
         expect(root.format(1)).toBe("1:a");
         expect(root.format(1)).toBe("1:a");
         expect(root.computeCount).toBe(1);
-        expect(suffixReadCount).toBe(3);
+        expect(suffixReadCount).toBe(2);
 
         expect(root.format(2)).toBe("2:a");
         expect(root.computeCount).toBe(2);
-        expect(suffixReadCount).toBe(5);
+        expect(suffixReadCount).toBe(3);
 
         expect(root.format(2)).toBe("2:a");
         expect(root.format(2)).toBe("2:a");
-        expect(suffixReadCount).toBe(5);
+        expect(suffixReadCount).toBe(3);
 
         root.child.current = "b";
 
         expect(root.format(2)).toBe("2:b");
         expect(root.computeCount).toBe(3);
-        expect(suffixReadCount).toBe(7);
+        expect(suffixReadCount).toBe(4);
     });
 
     it("still emits and reproxies when a @fnMemo method writes a non-ignored field", () => {
