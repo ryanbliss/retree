@@ -4,6 +4,10 @@
  */
 
 import {
+    materializeAsync,
+    RetreeMaterializeOptions,
+} from "./materializeAsync.js";
+import {
     buildProxy,
     getBaseProxy,
     getCustomProxyHandler,
@@ -339,6 +343,47 @@ export class Retree {
      */
     static root<T extends TreeNode = TreeNode>(object: T): T {
         return buildProxy<T>(object, this.nodeChangeEmitter);
+    }
+
+    /**
+     * Build a result cooperatively from an existing managed tree.
+     *
+     * Yield from the iterator after each bounded piece of work. Retree resumes
+     * the same iterator across host tasks and returns only its final value.
+     * The budget is checked between steps; a getter, constructor, or root()
+     * call cannot itself be interrupted. Keep each step small.
+     *
+     * By default, source-tree writes reject with AbortError and silent blocks
+     * conservatively invalidate all pending materializations. getRevision
+     * replaces these checks with an application revision, allowing cache writes
+     * that do not change inputs. Include every source input in that revision.
+     * Use an AbortSignal when selection changes. Completed proxy reads and memo
+     * caches retain their ordinary identities; cancellation does not undo them.
+     * Keep partial output local to the iterator and do not write to the source.
+     *
+     * Work runs untracked, while nested memos retain their own tracking.
+     * peekInto and managed work normally. Use getRevision for linked or external
+     * inputs. No ambient dependency collector or transaction spans an await.
+     *
+     * @example
+     * ```ts
+     * const rows = await Retree.materializeAsync(source, function* (node) {
+     *     const rows: string[] = [];
+     *     for (const item of node.items) {
+     *         rows.push(item.title);
+     *         yield;
+     *     }
+     *     return rows;
+     * }, { signal: controller.signal, budgetMs: 4 });
+     * ```
+     */
+    static materializeAsync<TNode extends TreeNode, TResult>(
+        root: TNode,
+        build: (root: TNode) => Iterator<void, TResult, void>,
+        options: RetreeMaterializeOptions = {}
+    ): Promise<TResult> {
+        this.assertRetreeManagedNode(root, "Retree.materializeAsync");
+        return materializeAsync(getBaseProxy(root) as TNode, build, options);
     }
 
     /**
