@@ -207,6 +207,30 @@ probe's fixed sequence, not a regression. Absolute numbers in this section
 are lower than the tables above because the machine was idle; compare
 within a table only.
 
+Benchmark CLI, `--profile smoke --workers 4`, two interleaved branch /
+follow-ups pairs with idle gaps; Δ is the median of per-case median deltas
+and the noise column is the branch-vs-branch delta from the same runs.
+
+| Scenario | Pair 1 Δ | Pair 2 Δ | Noise |
+| --- | --- | --- | --- |
+| Auto-trapped `@memo` | **-10.2%** | **-9.9%** | +1.1% |
+| Auto-trapped `@fnMemo` | -2.0% | **-6.6%** | +2.6% |
+| Auto-trapped `@select` | +6.8% | -0.3% | +0.2% |
+| React `useTree` | -0.8% | -2.3% | +1.1% |
+| `onChanged` effect | +5.2% | -3.3% | +1.6% |
+| Root `treeChanged` | +2.2% | -2.4% | +2.1% |
+| Reactive select vs tree traversal | +0.6% | +1.0% | +1.4% |
+| Everything else | within ±2% | within ±2% | within ±3% |
+
+Only `@memo` (and `@fnMemo` in one pair) clears the noise floor in both
+directions: memo collection ran the ReactiveNode descriptor lookup on every
+tracked read, and now runs it once per comparison at validation. The
+`@select` and `onChanged` effect rows flip sign between pairs and are noise
+at smoke frequencies. The smoke profile's trees are shallow and its selects
+small, so the deep-ancestor and large-selector gains above do not show up
+here; the scenario bundles and probe specs are the measurements that
+exercise those paths.
+
 ## Remaining follow-ups
 
 - Tracked selection re-evaluation is now bounded by the get trap itself
