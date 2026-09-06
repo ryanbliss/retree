@@ -232,6 +232,11 @@ The practical consequences:
   a stale reference compares as different from the current reproxy even
   though it reads the same data. Read through the value your hook returned
   this render.
+- **Versions are identities you can store.** For an identity that survives
+  writes, compare `Retree.raw(a) === Retree.raw(b)`; for a cache key, store
+  `Retree.version(node)` (advances with the node's own fields, the same
+  moments its reproxy identity changes) or `Retree.treeVersion(node)` (whole
+  subtree) instead of holding the node.
 
 ## Managed vs raw
 

@@ -38,6 +38,7 @@ Use this as a quick map before choosing an API:
 -   [`Retree.managed`](#read-fast-with-raw) resolves a raw value back to its managed node. Use it to recover the write surface after a raw scan or from a change payload.
 -   [`Retree.peekInto`](#read-fast-with-raw) runs a read-only query against a node's raw object and resolves the result to its managed node when one exists.
 -   [`Retree.untracked`](#read-fast-with-raw) pauses dependency tracking during a synchronous callback. Use it for bulk reads inside tracked selectors and memo getters.
+-   [`Retree.version` and `Retree.treeVersion`](#node-identity-and-versions) return a node's own-field or subtree version as a number. Use them as cache keys instead of holding node identities.
 -   [`Retree.move`](#move-link-or-clone-existing-nodes) transfers an existing node to a new structural parent. Use it when ownership should change.
 -   [`Retree.link` and `@link`](#move-link-or-clone-existing-nodes) store a reactive pointer to a node without reparenting it. Use it for selected items and cross-references.
 -   [`Retree.clone`](#move-link-or-clone-existing-nodes) creates a detached copy. Use it when two places need independent state.
@@ -368,6 +369,47 @@ Rules that keep raw reads safe:
     catching the error.
 -   `ReactiveNode` exposes instance conveniences: `this.raw()`,
     `this.untracked(fn)`, and `this.peekInto(fn)`.
+
+## Node identity and versions
+
+Every node has a stable base proxy and, once it has changed, a view (a
+reproxy) whose identity is fresh per version. Which one a read returns
+follows the receiver: reads through a base proxy return base proxies, and
+reads through a view return the latest views. `useNode`, `useTree`, listener
+arguments, and `Retree.managed` hand you views, so in React a changed node
+is a new reference and an unchanged one is the same reference, which is what
+`useSelect` and `React.memo` rely on. The object `Retree.root(...)` returned
+and `this` inside a method are whatever receiver the caller used.
+
+Compare `Retree.raw(a) === Retree.raw(b)` when you need an identity that
+survives writes, or store a version number instead of a node:
+
+```ts
+const project = Retree.root({ tasks: [{ done: false }], name: "a" });
+
+let cachedVersion = Retree.version(project.tasks);
+let cachedCount = project.tasks.filter((task) => task.done).length;
+
+function doneCount(): number {
+    const version = Retree.version(project.tasks);
+    if (version !== cachedVersion) {
+        cachedVersion = version;
+        cachedCount = project.tasks.filter((task) => task.done).length;
+    }
+    return cachedCount;
+}
+
+project.name = "b"; // unrelated write: version unchanged
+project.tasks[0].done = true; // writes a task, not the array: unchanged
+project.tasks.push({ done: false }); // writes the array: version advances
+```
+
+-   `Retree.version(node)` advances when the node's own fields change, the
+    same moments its view identity changes.
+-   `Retree.treeVersion(node)` advances when the node or any structural
+    descendant changes, like `treeChanged`, with no listener required.
+-   Both accept a managed node or the raw object behind one, and both stay
+    put across `Retree.runSilent(fn)` because silent writes skip reproxying.
 
 ## Reactive dependencies
 

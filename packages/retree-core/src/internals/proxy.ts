@@ -30,9 +30,12 @@ import {
 } from "./proxy-types.js";
 import { readReactiveNodeProperty } from "./memo.js";
 import {
+    getBaseHandlerForUnproxiedNode,
+    getBaseHandlerOfProxy,
     getManagedProxyForUnproxiedNode,
     getReproxyNode,
     registerBaseProxy,
+    resolveBaseHandler,
     updateReproxyNode,
     updateReproxyNodeForChange,
 } from "./reproxy.js";
@@ -459,18 +462,14 @@ export class BaseProxyHandler<T extends TreeNode>
             }
         }
         const cachedChildren = this[proxiedChildrenKey];
-        if (
-            cachedChildren !== null &&
-            typeof prop === "string" &&
-            cachedChildren[prop]
-        ) {
-            const value = cachedChildren[prop];
-            if (typeof value !== "function") {
+        if (cachedChildren !== null && typeof prop === "string") {
+            const child = cachedChildren[prop];
+            if (child !== undefined) {
                 return trackPropertyAccessIfNeeded(
                     this,
                     baseProxy,
                     prop,
-                    value
+                    child.baseProxy
                 );
             }
         }
@@ -537,10 +536,11 @@ export class BaseProxyHandler<T extends TreeNode>
     }
 
     /**
-     * Serve an object read off the raw target: a stored managed proxy is
-     * adopted, a plain object or array on an own, redefinable data property
-     * materializes a child, and anything else (inherited, locked, or a
-     * class instance the constructor never proxied) is served as stored.
+     * Serve an object read off the raw target as its base proxy: a stored
+     * managed proxy is adopted, a plain object or array on an own,
+     * redefinable data property materializes a child, and anything else
+     * (inherited, locked, or a class instance the constructor never
+     * proxied) is served as stored.
      */
     public resolveStoredObject(
         target: T,
@@ -566,13 +566,8 @@ export class BaseProxyHandler<T extends TreeNode>
         if (descriptorRequiresExactDefinedValue(descriptor, descriptor)) {
             return value;
         }
-        return getOrCreateProxiedChild(
-            this,
-            prop,
-            value,
-            this.baseProxy,
-            this.emitter
-        );
+        return getOrCreateProxiedChildHandler(this, prop, value, this.emitter)
+            .baseProxy;
     }
 
     private getInternalSlotMethod(
@@ -1036,6 +1031,16 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     knownUnmanaged = false
 ): T {
     if (object === null) return object;
+    return buildProxyHandler(object, emitter, parent, knownUnmanaged).baseProxy;
+}
+
+/** {@link buildProxy}, returning the node's base handler instead of its proxy. */
+function buildProxyHandler<T extends TreeNode = TreeNode>(
+    object: T,
+    emitter: TreeChangeEmitter,
+    parent?: IProxyParent<any>,
+    knownUnmanaged = false
+): BaseProxyHandler<T> {
     const objectHandler = knownUnmanaged
         ? undefined
         : getCustomProxyHandlerFromMetadata<T>(object);
@@ -1047,12 +1052,12 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             parent
         );
     }
-    if (objectHandler !== undefined) return objectHandler.baseProxy;
+    if (objectHandler !== undefined) return resolveBaseHandler(objectHandler);
     const existing = knownUnmanaged
         ? undefined
-        : getManagedProxyForUnproxiedNode(object);
+        : getBaseHandlerForUnproxiedNode(object);
     if (existing !== undefined) {
-        return getBaseProxy(existing) as T;
+        return existing as BaseProxyHandler<T>;
     }
     const proxyHandler = new BaseProxyHandler<T>(
         object,
@@ -1135,7 +1140,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         reactiveObject[COLLECTED_KEYS_SYMBOL].has(prop) ||
                         reactiveObject[LINKED_KEYS_SYMBOL].has(prop)))
             ) {
-                setProxiedChild(proxyHandler, prop, storedValue);
+                continue;
             } else if (typeof storedValue === "object") {
                 const storedHandler =
                     getCustomProxyHandlerFromMetadata(storedValue);
@@ -1169,11 +1174,14 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                         value,
                     });
                 }
-                const cProxy = buildProxy(value, emitter, {
-                    handler: proxyHandler,
-                    propName: prop,
-                });
-                setProxiedChild(proxyHandler, prop, getBaseProxy(cProxy));
+                setProxiedChildHandler(
+                    proxyHandler,
+                    prop,
+                    buildProxyHandler(value, emitter, {
+                        handler: proxyHandler,
+                        propName: prop,
+                    })
+                );
             }
         }
     }
@@ -1186,7 +1194,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
             depth: object.options.prepare.depth,
         });
     }
-    return proxy;
+    return proxyHandler;
 }
 
 function mapKeyAsPropName(key: unknown): string | symbol | null {
@@ -1208,9 +1216,22 @@ function deleteProxiedChild(
 function setProxiedChild(
     proxyHandler: ICustomProxyHandler<any>,
     prop: string | symbol,
-    value: unknown
+    childProxy: object
 ) {
-    (proxyHandler[proxiedChildrenKey] ??= createChildrenCache())[prop] = value;
+    setProxiedChildHandler(
+        proxyHandler,
+        prop,
+        getBaseHandlerOfProxy(childProxy)
+    );
+}
+
+function setProxiedChildHandler(
+    proxyHandler: ICustomProxyHandler<any>,
+    prop: string | symbol,
+    childHandler: BaseProxyHandler<TreeNode>
+) {
+    (proxyHandler[proxiedChildrenKey] ??= createChildrenCache())[prop] =
+        childHandler;
 }
 
 /**
@@ -1336,8 +1357,18 @@ function getOrCreateProxiedChild(
     baseProxy: TCustomProxy<any>,
     emitter: TreeChangeEmitter
 ): object {
+    return getOrCreateProxiedChildHandler(proxyHandler, prop, value, emitter)
+        .baseProxy;
+}
+
+function getOrCreateProxiedChildHandler(
+    proxyHandler: ICustomProxyHandler<any>,
+    prop: string | symbol,
+    value: object,
+    emitter: TreeChangeEmitter
+): BaseProxyHandler<TreeNode> {
     const cachedChild = proxyHandler[proxiedChildrenKey]?.[prop];
-    if (cachedChild) {
+    if (cachedChild !== undefined) {
         return cachedChild;
     }
     const parentToSet: IProxyParent<any> = {
@@ -1346,19 +1377,22 @@ function getOrCreateProxiedChild(
     };
     // Callers guarantee `value` is a raw (non-proxy) object, so a managed
     // proxy can only exist if this same raw node was proxied elsewhere first.
-    const existingManagedProxy = getManagedProxyForUnproxiedNode(value);
-    if (existingManagedProxy === undefined) {
-        // buildProxy returns the base proxy for a fresh raw object.
-        const builtChildProxy = buildProxy(value, emitter, parentToSet, true);
-        setProxiedChild(proxyHandler, prop, builtChildProxy);
-        return builtChildProxy;
+    const existingHandler = getBaseHandlerForUnproxiedNode(value);
+    if (existingHandler === undefined) {
+        const builtHandler = buildProxyHandler(
+            value,
+            emitter,
+            parentToSet,
+            true
+        );
+        setProxiedChildHandler(proxyHandler, prop, builtHandler);
+        return builtHandler;
     }
     // Shared without reparenting, so the ownership check in reparentProxy
     // never runs for this edge; the cycle check must.
     assertNoStructuralCycle(value, parentToSet);
-    const baseChildProxy = getBaseProxy(existingManagedProxy);
-    setProxiedChild(proxyHandler, prop, baseChildProxy);
-    return baseChildProxy;
+    setProxiedChildHandler(proxyHandler, prop, existingHandler);
+    return existingHandler;
 }
 
 /**
@@ -2254,6 +2288,8 @@ function takeRemovedArrayElement(
     return childProxy;
 }
 
+type TArrayChildCacheSnapshot = (BaseProxyHandler<TreeNode> | undefined)[];
+
 /**
  * Snapshot the children-cache entries for indices `[0, length)` so cache
  * records can be re-keyed after the raw target's indices shift.
@@ -2261,8 +2297,8 @@ function takeRemovedArrayElement(
 function snapshotArrayChildCache(
     handler: BaseProxyHandler<any>,
     length: number
-): unknown[] {
-    const snapshot = new Array<unknown>(length);
+): TArrayChildCacheSnapshot {
+    const snapshot: TArrayChildCacheSnapshot = new Array(length);
     const children = handler[proxiedChildrenKey];
     if (children === null) {
         return snapshot;
@@ -2287,17 +2323,17 @@ function moveArrayChild(
     fromIndex: number,
     toIndex: number,
     baseProxy: TCustomProxy<any>,
-    cacheSnapshot: unknown[]
+    cacheSnapshot: TArrayChildCacheSnapshot
 ): void {
     const toKey = String(toIndex);
     const entry = cacheSnapshot[fromIndex];
     if (entry !== undefined) {
-        setProxiedChild(handler, toKey, entry);
+        setProxiedChildHandler(handler, toKey, entry);
     } else {
         deleteProxiedChild(handler, toKey);
     }
-    let movedProxy: unknown = entry;
-    if (movedProxy === undefined || movedProxy === null) {
+    let childHandler = entry;
+    if (childHandler === undefined) {
         // Children materialized outside this handler's cache (e.g. via a
         // managed raw assignment elsewhere) still need their parent edge
         // repointed; the registry resolves them by raw identity.
@@ -2305,16 +2341,8 @@ function moveArrayChild(
         if (rawValue === null || typeof rawValue !== "object") {
             return;
         }
-        movedProxy = getManagedProxyForUnproxiedNode(rawValue);
+        childHandler = getBaseHandlerForUnproxiedNode(rawValue);
     }
-    if (
-        movedProxy === undefined ||
-        movedProxy === null ||
-        typeof movedProxy !== "object"
-    ) {
-        return;
-    }
-    const childHandler = getCustomProxyHandler(movedProxy);
     if (childHandler === undefined) {
         return;
     }
@@ -2329,14 +2357,10 @@ function moveArrayChild(
 }
 
 function setArrayChildParentIndex(
-    childProxy: object,
+    childHandler: BaseProxyHandler<TreeNode>,
     handler: BaseProxyHandler<any>,
     toKey: string
 ): void {
-    const childHandler = getCustomProxyHandler(childProxy);
-    if (childHandler === undefined) {
-        return;
-    }
     const parent = childHandler[proxiedParentKey];
     if (parent !== null && parent.handler === handler) {
         parent.propName = toKey;
@@ -2353,14 +2377,15 @@ function rebuildArrayChildrenAfterReorder(
     target: unknown[],
     baseProxy: TCustomProxy<any>,
     rawBefore: unknown[],
-    cacheSnapshot: unknown[]
+    cacheSnapshot: TArrayChildCacheSnapshot
 ): void {
-    const entryByRaw = new Map<object, unknown>();
+    const entryByRaw = new Map<object, BaseProxyHandler<TreeNode>>();
     // Reverse iteration so the first occurrence of a duplicated raw wins.
     for (let i = rawBefore.length - 1; i >= 0; i--) {
         const raw = rawBefore[i];
-        if (raw !== null && typeof raw === "object") {
-            entryByRaw.set(raw, cacheSnapshot[i]);
+        const entry = cacheSnapshot[i];
+        if (raw !== null && typeof raw === "object" && entry !== undefined) {
+            entryByRaw.set(raw, entry);
         }
     }
     for (let i = 0; i < target.length; i++) {
@@ -2370,19 +2395,13 @@ function rebuildArrayChildrenAfterReorder(
             deleteProxiedChild(handler, key);
             continue;
         }
-        let entry = entryByRaw.get(raw);
-        if (entry === undefined || entry === null) {
-            entry = getManagedProxyForUnproxiedNode(raw);
-        }
-        if (
-            entry === undefined ||
-            entry === null ||
-            typeof entry !== "object"
-        ) {
+        const entry =
+            entryByRaw.get(raw) ?? getBaseHandlerForUnproxiedNode(raw);
+        if (entry === undefined) {
             deleteProxiedChild(handler, key);
             continue;
         }
-        setProxiedChild(handler, key, entry);
+        setProxiedChildHandler(handler, key, entry);
         setArrayChildParentIndex(entry, handler, key);
     }
 }
@@ -2948,19 +2967,14 @@ function wrapArrayMutation(
                     deleteProxiedChild(handler, destinationKey);
                     continue;
                 }
-                let entry = cacheSnapshot[sourceIndex];
-                if (entry === undefined || entry === null) {
-                    entry = getManagedProxyForUnproxiedNode(sourceRaw);
-                }
-                if (
-                    entry === undefined ||
-                    entry === null ||
-                    typeof entry !== "object"
-                ) {
+                const entry =
+                    cacheSnapshot[sourceIndex] ??
+                    getBaseHandlerForUnproxiedNode(sourceRaw);
+                if (entry === undefined) {
                     deleteProxiedChild(handler, destinationKey);
                     continue;
                 }
-                setProxiedChild(handler, destinationKey, entry);
+                setProxiedChildHandler(handler, destinationKey, entry);
                 setArrayChildParentIndex(entry, handler, destinationKey);
             }
             emitCollectionChange(

@@ -223,3 +223,46 @@ Not done here: explicit-selector `@select((self) => [...])` getters stay
 uncached because `self.dependency(...)` entries are fresh objects per call.
 `ReactiveNode.memo(key, fn, comparisons)` evaluates its comparisons in the
 caller and cannot skip them.
+
+## Item 7: handler-backed children cache, public versions (`perf/one-identity-version`)
+
+Spec: `specs/node-versions.md`. The view trap resolved a cached child by
+reading the child proxy out of the children cache and paying a sentinel trap
+on it to recover the handler, so every child read through a view (the React
+path) cost one trap more than through a base proxy. There was also no
+number to key a cache on: the only version signal was the view identity, and
+Neo's `retreeRevisionCell` (a `peekInto` round trip, 54 call sites) exists to
+normalize identities across read contexts for exactly that comparison.
+
+Changes: the children cache stores each child's base handler, and both traps
+resolve a child from the handler with no trap: the base trap serves the base
+proxy, the view trap the latest view. `Retree.version(node)` and
+`Retree.treeVersion(node)` expose the own-field and subtree counters React's
+store already kept; both accept raw input. What a read returns is unchanged.
+
+Base = item 6 bundle, serial alternating rounds:
+
+| Probe | Item 6 | Item 7 |
+| --- | --- | --- |
+| A3 first scan (150k nodes materialized) | 53 to 55 ms | 54 to 56 ms |
+| A4 second scan through base | 15.5 to 15.7 ms | 14.0 to 14.8 ms |
+| A5 first scan through view | 14.8 to 15.2 ms | 13.7 to 14.0 ms |
+| s6 steady 50k-row scan via base / view | 14.1 / 14.1 ms | 14.1 / 13.8 ms |
+| s8 200k child reads via VM base / view | 12.1 / 16.7 ms | 11.8 / 11.4 ms |
+| s8 200k x 9 scalar reads via VM base / view | 133 / 128 ms | 110 / 100 ms |
+| s9 200k `Retree.version(node)` / `(raw)` | | 4.1 / 2.1 ms |
+| s9 200k `Retree.treeVersion(root)` / with a write per 100 | | 6.4 / 8.0 ms |
+| s9 200k `Retree.peekInto(v, raw => raw)` | 10.3 ms | 10.3 ms |
+
+View child reads drop the sentinel trap they paid to recover the handler
+from a cached proxy. The scalar-read gain is the smaller base get trap (the
+children branch no longer type-checks a cached value). A version read is 10
+to 30 ns, against 50 ns for the `peekInto` normalization it replaces.
+
+Semantics: unchanged. A first cut made every read return the node's latest
+identity whatever the receiver (a base child read came back as the child's
+view once the child had changed; `Retree.parent` and chaining mutators did
+the same). It was reverted before merge: a `React.memo` component under a
+never-written container VM would render again on any unrelated parent
+render for every child that changed since, and the gains above come from
+the handler cache, not from the identity rule (spec §5).
