@@ -43,6 +43,8 @@ Use this as a quick map before choosing an API:
 -   [`Retree.managed`](#read-fast-with-raw) resolves a raw value back to its managed node. Use it to recover the write surface after a raw scan or from a change payload.
 -   [`Retree.peekInto`](#read-fast-with-raw) runs a read-only query against a node's raw object and resolves the result to its managed node when one exists.
 -   [`Retree.untracked`](#read-fast-with-raw) pauses dependency tracking during a synchronous callback. Use it for bulk reads inside tracked selectors and memo getters.
+-   [Frozen objects](#immutable-leaves) are immutable leaves: stored and returned as-is, never proxied. Use `Object.freeze` for server snapshots, sentinels, and constants that you replace wholesale.
+-   [`Retree.version` and `Retree.treeVersion`](#node-identity-and-versions) return a node's own-field or subtree version as a number. Use them as cache keys instead of holding node identities.
 -   [`Retree.move`](#move-link-or-clone-existing-nodes) transfers an existing node to a new structural parent. Use it when ownership should change.
 -   [`Retree.link` and `@link`](#move-link-or-clone-existing-nodes) store a reactive pointer to a node without reparenting it. Use it for selected items and cross-references.
 -   [`Retree.clone`](#move-link-or-clone-existing-nodes) creates a detached copy. Use it when two places need independent state.
@@ -374,6 +376,95 @@ Rules that keep raw reads safe:
 -   `ReactiveNode` exposes instance conveniences: `this.raw()`,
     `this.untracked(fn)`, and `this.peekInto(fn)`.
 
+## Node identity and versions
+
+Every node has a stable base proxy and, once it has changed, a view (a
+reproxy) whose identity is fresh per version. Which one a read returns
+follows the receiver: reads through a base proxy return base proxies, and
+reads through a view return the latest views. `useNode`, `useTree`, listener
+arguments, and `Retree.managed` hand you views, so in React a changed node
+is a new reference and an unchanged one is the same reference, which is what
+`useSelect` and `React.memo` rely on. The object `Retree.root(...)` returned
+and `this` inside a method are whatever receiver the caller used.
+
+Compare `Retree.raw(a) === Retree.raw(b)` when you need an identity that
+survives writes, or store a version number instead of a node:
+
+```ts
+const project = Retree.root({ tasks: [{ done: false }], name: "a" });
+
+let cachedVersion = Retree.version(project.tasks);
+let cachedCount = project.tasks.filter((task) => task.done).length;
+
+function doneCount(): number {
+    const version = Retree.version(project.tasks);
+    if (version !== cachedVersion) {
+        cachedVersion = version;
+        cachedCount = project.tasks.filter((task) => task.done).length;
+    }
+    return cachedCount;
+}
+
+project.name = "b"; // unrelated write: version unchanged
+project.tasks[0].done = true; // writes a task, not the array: unchanged
+project.tasks.push({ done: false }); // writes the array: version advances
+```
+
+-   `Retree.version(node)` advances when the node's own fields change, the
+    same moments its view identity changes.
+-   `Retree.treeVersion(node)` advances when the node or any structural
+    descendant changes, like `treeChanged`, with no listener required.
+-   Both accept a managed node or the raw object behind one, and both stay
+    put across `Retree.runSilent(fn)` because silent writes skip reproxying.
+-   Both are tracked reads. A memo key that lists one validates against it,
+    and a tracked selector, effect, or `@select` getter that reads one
+    re-runs when it advances; a tree version read also re-runs it for
+    descendants the run never read.
+
+```ts
+class Library extends ReactiveNode {
+    public books: { title: string; tags: string[] }[] = [];
+
+    get dependencies() {
+        return [];
+    }
+
+    // One cell stands in for every write under `books`.
+    @memo((self: Library) => [Retree.treeVersion(self.books)])
+    get tagCount(): number {
+        let count = 0;
+        for (const book of this.books) count += book.tags.length;
+        return count;
+    }
+}
+```
+
+### Immutable leaves
+
+A frozen object (`Object.isFrozen`) stored anywhere in a tree is a leaf, like
+a primitive. Retree stores and returns the object itself, never proxies it,
+and treats replacing it as the change. Nothing beneath a frozen object is
+reactive, which was already true: its properties cannot change.
+
+```ts
+const project = Retree.root({
+    settings: Object.freeze({ theme: "dark", limits: { rows: 100 } }),
+    tasks: [] as { title: string }[],
+});
+
+project.settings === Retree.raw(project).settings; // true: no proxy
+Retree.select(
+    () => project.settings.theme,
+    (theme) => render(theme)
+);
+project.settings = Object.freeze({ ...project.settings, theme: "light" }); // ✅ notifies
+```
+
+Freeze data that changes wholesale: a server snapshot, an empty sentinel
+shared across records, a config constant. Reads are raw-speed and the tree
+allocates nothing for the subtree. Freeze before storing; `Retree.root`
+rejects a frozen object because a root must be a node.
+
 ## Reactive dependencies
 
 `ReactiveNode.dependencies` lets one node emit `nodeChanged` when another node changes. Use it when a node exposes derived state but you do not want broad `treeChanged` subscriptions.
@@ -603,6 +694,16 @@ Comparison semantics (same for all forms; `@fnMemo` also compares method argumen
 -   `[a, b, ...]` → recompute when any cell shallow-changes (compared with `Object.is`). Tree-node cells are compared by their latest reproxy identity, so passing `this.list` correctly invalidates when `list` mutates.
 
 The cache is per-instance (a `WeakMap` keyed by the unproxied `ReactiveNode`) and is GC'd with the node.
+
+### Key functions validate by their reads
+
+A key function runs under tracking, and while every read it made re-reads equal the key function does not run at all: the entry is gated by its reads. A gated key only runs again when one of those reads changed. If its result changed, the memo recomputes and stays gated; if the result held, the reads churn faster than the key, so the key runs plainly on every read until the memo next recomputes. A key gates when:
+
+-   every read went through a trap. `Retree.raw`, `Retree.untracked`, `Retree.peekInto`, and the interior of a mutable object behind an `@ignore` field leave the run partial, so the key runs on every read instead. A frozen object is a leaf and does not.
+-   every object in the result is a value a read returned whole, one of the call's arguments, or a managed node. A managed node the key only compared by identity (an array slot, a node it then read into) is checked by its own version. Primitives (`?? 0`, `.length`, a derived string) compare by value in the result and need no read of their own.
+-   the result is not empty.
+
+A plain object the key derived, or a function, leaves the key unscoped: it runs on every read and its normalized result decides the hit. `Retree.version(node)` and `Retree.treeVersion(node)` are tracked reads, so `[Retree.treeVersion(self.rows)]` gates a memo on writes anywhere under `rows` with one cell. Keys must derive from Retree reads and arguments: a value read from outside the tree is compared once and never re-read.
 
 ## React to observation and changes
 
@@ -877,6 +978,8 @@ node.count = 1; //            ✅ logs "changed"
 ```
 
 **Caveat:** because the field's value isn't wrapped, plain objects stored under it lose `Retree.parent(...)` and won't appear in `treeChanged` notifications. If you store an existing Retree-managed node in an ignored field, Retree does not reparent it, but reads still return that node's latest reproxy.
+
+Reading a mutable object out of an ignored field inside a memo key, `@select` getter, or tracked selector leaves that run partial: its interior is read without traps, so the run cannot be validated and a memo key runs on every read. A managed node or a frozen object read out of an ignored field is fine. Freeze a registry whose own fields never change (a map of cells looked up by id) so reads through it stay validatable by the cells themselves.
 
 ## Core samples
 

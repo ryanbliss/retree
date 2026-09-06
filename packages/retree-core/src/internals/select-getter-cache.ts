@@ -128,6 +128,13 @@ function isSelectGetterEntryValid(entry: ISelectGetterCacheEntry): boolean {
             }
         }
     } else {
+        // A tree version read moves with writes to nodes the run never
+        // read, so its record re-reads whatever was written.
+        for (const record of entry.accesses.subtreeReads) {
+            if (!isReadRecordValid(record)) {
+                return false;
+            }
+        }
         for (const owner of owners) {
             const record = reads.get(owner);
             if (record !== undefined && !isReadRecordValid(record)) {

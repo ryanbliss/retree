@@ -8,6 +8,10 @@ import {
     proxiedParentKey,
     unproxiedBaseNodeKey,
 } from "./proxy-types.js";
+import {
+    getNodeVersionOfHandler,
+    getTreeVersionOfHandler,
+} from "./snapshot-version.js";
 
 enum FrameMode {
     /** Tracked selectors, effects and `@select`: one record per node read. */
@@ -20,7 +24,8 @@ enum FrameMode {
  * Whether every read a frame saw went through a trap. A read that bypassed
  * the traps (`Retree.untracked`, `Retree.raw`, the interior of an unmanaged
  * object behind an `@ignore` field) leaves the frame partial: no tracked
- * read can prove a value derived from it is still current.
+ * read can prove a value derived from it is still current. A frozen object
+ * is a leaf, not a bypass: nothing beneath it is reactive by contract.
  */
 export enum ReadCoverage {
     Complete,
@@ -63,6 +68,12 @@ interface DependencyAccessFrame {
      */
     uncovered: NodeReadRecord[];
     /**
+     * Dependencies mode: records holding a subtree version read. A change
+     * under one of them matters even when the run never read the changed
+     * node itself.
+     */
+    subtreeReads: NodeReadRecord[] | null;
+    /**
      * Comparisons mode: property keys written during the frame, keyed by
      * owner. Reads of a written property are excluded from comparisons at
      * collection time.
@@ -93,6 +104,11 @@ export interface DependencyComparisonAccessor {
      * for that node's own version.
      */
     readonly identityOnly?: boolean;
+    /**
+     * The read observes the node's whole subtree, so a change to any
+     * descendant may change it.
+     */
+    readonly subtree?: boolean;
     getValues(): unknown[];
 }
 
@@ -170,6 +186,56 @@ class TrackedNodeRead implements DependencyComparisonAccessor {
             default:
                 return [Reflect.get(this.dependencyNode, propertyKey)];
         }
+    }
+}
+
+export enum VersionReadKind {
+    /** `Retree.version`: the node's own fields. */
+    Node,
+    /** `Retree.treeVersion`: the node and every descendant. */
+    Tree,
+}
+
+function readVersion(
+    handler: ICustomProxyHandler<TreeNode>,
+    versionKind: VersionReadKind
+): number {
+    return versionKind === VersionReadKind.Node
+        ? getNodeVersionOfHandler(handler)
+        : getTreeVersionOfHandler(handler);
+}
+
+/**
+ * One read of a node's version. A node version is the node's own identity
+ * in number form, so it re-reads on writes to that node alone; a tree
+ * version moves with any write beneath the node, so it re-reads on every
+ * write.
+ */
+class VersionRead implements DependencyComparisonAccessor {
+    public readonly kind = "retree-dependency-comparison-accessor";
+    public readonly dependencyNode: TCustomProxy<TreeNode>;
+    public readonly sourceUnproxiedNode: TreeNode | undefined;
+    public readonly capturedValues: readonly number[];
+
+    constructor(
+        private readonly handler: ICustomProxyHandler<TreeNode>,
+        private readonly versionKind: VersionReadKind,
+        version: number
+    ) {
+        this.dependencyNode = handler.baseProxy;
+        this.sourceUnproxiedNode =
+            versionKind === VersionReadKind.Node
+                ? handler[unproxiedBaseNodeKey]
+                : undefined;
+        this.capturedValues = [version];
+    }
+
+    public get subtree(): boolean {
+        return this.versionKind === VersionReadKind.Tree;
+    }
+
+    public getValues(): number[] {
+        return [readVersion(this.handler, this.versionKind)];
     }
 }
 
@@ -252,6 +318,8 @@ export class NodeReadRecord {
     public replayed: ReplayedRead[] | null = null;
     /** A replayed read had no property key (a key-set read). */
     public replayedKeyless = false;
+    /** The run read the node's tree version, which covers its descendants. */
+    public subtreeRead = false;
     /**
      * Cache keys of the `@select` getters the run read on this node. Their
      * bodies' reads live in the getters' own runs, so key scoping consults
@@ -475,6 +543,7 @@ export function areTrackedReadsEqual(
 
 type DependencyAccessEntry =
     | TrackedNodeRead
+    | VersionRead
     | ReplayedRead
     | { kind: "value"; value: unknown }
     | {
@@ -588,6 +657,7 @@ function createDependencyAccessFrame(mode: FrameMode): DependencyAccessFrame {
         reads: null,
         lastRecord: null,
         uncovered: [],
+        subtreeReads: null,
         writtenKeys: null,
         writeInvalidatedReads: null,
     };
@@ -678,6 +748,11 @@ export interface ITrackedSelectionAccesses<T> {
     /** Every node the run read, keyed by raw node, in first-read order. */
     reads: ReadonlyMap<TreeNode, NodeReadRecord>;
     /**
+     * Records holding a tree version read. A `nodeChanged` from a node the
+     * run never read still matters when one of these covers it.
+     */
+    subtreeReads: readonly NodeReadRecord[];
+    /**
      * Reads the run made and then invalidated by writing the same
      * owner+property later in the same run. Empty for pure runs.
      * `Retree.effect` re-checks these after a run so its creation run
@@ -733,6 +808,7 @@ export function collectTrackedSelectionAccesses<T>(
         getDependencies: () => toDependencyValues(reads),
         sources: resolveCovers(frame, reads),
         reads,
+        subtreeReads: frame.subtreeReads ?? [],
         writeInvalidatedReads: frame.writeInvalidatedReads ?? [],
     };
 }
@@ -751,6 +827,10 @@ export function collectDependencyComparisonAccesses<T>(callback: () => T): {
         }
         if (entry instanceof TrackedNodeRead) {
             if (!isWrittenPropertyRead(frame, entry)) comparisons.push(entry);
+            continue;
+        }
+        if (entry instanceof VersionRead) {
+            comparisons.push(entry);
             continue;
         }
         if (entry instanceof ReplayedRead) {
@@ -1101,11 +1181,7 @@ export function replayDependencyComparisonAccesses(
             currentFrame.entries.push(replayed);
             continue;
         }
-        const record = getReadRecord(currentFrame, handler);
-        if (comparison.propertyKey === undefined) {
-            record.replayedKeyless = true;
-        }
-        (record.replayed ??= []).push(replayed);
+        recordReplayedRead(currentFrame, handler, replayed);
         // A managed value the memo did not read into counts as read whole,
         // exactly as a direct read of it would.
         if (comparison.valueUnproxiedNode === undefined) {
@@ -1118,6 +1194,75 @@ export function replayDependencyComparisonAccesses(
             getReadRecord(currentFrame, valueHandler).wholeNodeRead = true;
         }
     }
+}
+
+/**
+ * Add a replayed read to the record of the node behind `handler`. A read
+ * without a property key leaves the record unscopeable by key; a subtree
+ * read makes the record cover the node's descendants.
+ */
+function recordReplayedRead(
+    frame: DependencyAccessFrame,
+    handler: ICustomProxyHandler<TreeNode>,
+    replayed: ReplayedRead
+): void {
+    const record = getReadRecord(frame, handler);
+    const accessor = replayed.accessor;
+    if (accessor.propertyKey === undefined) {
+        record.replayedKeyless = true;
+    }
+    (record.replayed ??= []).push(replayed);
+    if (accessor.subtree !== true || record.subtreeRead) {
+        return;
+    }
+    record.subtreeRead = true;
+    record.coversChildren = true;
+    (frame.subtreeReads ??= []).push(record);
+}
+
+/**
+ * Read a node's version on the enclosing tracked frame, if any. A memo key
+ * validates the entry by re-reading it; a tracked selection re-runs when it
+ * moves, and a tree version also re-runs it for descendants it never read.
+ */
+export function trackVersionRead(
+    handler: ICustomProxyHandler<TreeNode>,
+    versionKind: VersionReadKind
+): number {
+    const version = readVersion(handler, versionKind);
+    if (pauseDependencyTrackingDepth > 0) {
+        return version;
+    }
+    const currentFrame =
+        dependencyAccessStack[dependencyAccessStack.length - 1];
+    if (currentFrame === undefined) {
+        return version;
+    }
+    const read = new VersionRead(handler, versionKind, version);
+    if (currentFrame.mode === FrameMode.Comparisons) {
+        currentFrame.entries.push(read);
+        return version;
+    }
+    recordReplayedRead(
+        currentFrame,
+        handler,
+        new ReplayedRead(read.dependencyNode, read, [version])
+    );
+    return version;
+}
+
+/**
+ * Accessor that validates a memo key element listed for its own version:
+ * a node the key run compared by identity alone.
+ */
+export function createNodeVersionRead(
+    handler: ICustomProxyHandler<TreeNode>
+): DependencyComparisonAccessor {
+    return new VersionRead(
+        handler,
+        VersionReadKind.Node,
+        getNodeVersionOfHandler(handler)
+    );
 }
 
 /**

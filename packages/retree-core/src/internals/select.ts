@@ -27,8 +27,8 @@ import {
     getUnproxiedNode,
     isInternalSlotInstance,
 } from "./proxy.js";
-import { unproxiedBaseNodeKey } from "./proxy-types.js";
-import { getReproxyNode } from "./reproxy.js";
+import { proxiedParentKey, unproxiedBaseNodeKey } from "./proxy-types.js";
+import { getBaseHandlerForUnproxiedNode, getReproxyNode } from "./reproxy.js";
 
 export type RetreeSelectSelector<TNode extends TreeNode, TSelected> = (
     node: TNode
@@ -78,6 +78,7 @@ export interface TrackedSelection<TSelected> {
     selected: TSelected;
     sources: readonly ITrackedDependencySource[];
     reads: ReadonlyMap<TreeNode, NodeReadRecord>;
+    subtreeReads: readonly NodeReadRecord[];
 }
 
 interface DependencySubscription {
@@ -429,7 +430,11 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
     ) => {
         // Subtree subscriptions deliver every descendant emission; a node
         // the run never read cannot change what it selected.
-        const record = previous.reads.get(changedRawNode);
+        const record = resolveChangedReadRecord(
+            previous.reads,
+            previous.subtreeReads,
+            changedRawNode
+        );
         if (record === undefined) {
             return;
         }
@@ -462,6 +467,7 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
             selected: nextSelected,
             sources: next.sources,
             reads: next.reads,
+            subtreeReads: next.subtreeReads,
         };
         if (!selectedChanged && !dependenciesChanged) {
             return;
@@ -552,7 +558,11 @@ export function createRetreeTrackedEffect(options: {
         // and are skipped without re-running the effect, exactly like the
         // tracked Retree.select form.
         if (previousAccesses !== undefined) {
-            const record = previousAccesses.reads.get(changedRawNode);
+            const record = resolveChangedReadRecord(
+                previousAccesses.reads,
+                previousAccesses.subtreeReads,
+                changedRawNode
+            );
             if (record === undefined) {
                 return;
             }
@@ -654,7 +664,35 @@ export function runTrackedSelection<TSelected>(
         selected: accesses.value,
         sources: accesses.sources,
         reads: accesses.reads,
+        subtreeReads: accesses.subtreeReads,
     };
+}
+
+/**
+ * The record that decides a `nodeChanged` from `changedRawNode`: the node's
+ * own, or else the nearest ancestor record whose tree version the run read,
+ * which re-reads that version. Undefined when the run read neither.
+ */
+export function resolveChangedReadRecord(
+    reads: ReadonlyMap<TreeNode, NodeReadRecord>,
+    subtreeReads: readonly NodeReadRecord[],
+    changedRawNode: TreeNode
+): NodeReadRecord | undefined {
+    const record = reads.get(changedRawNode);
+    if (record !== undefined || subtreeReads.length === 0) {
+        return record;
+    }
+    let handler =
+        getBaseHandlerForUnproxiedNode(changedRawNode)?.[proxiedParentKey]
+            ?.handler;
+    while (handler !== undefined && handler !== null) {
+        const ancestor = reads.get(handler[unproxiedBaseNodeKey]);
+        if (ancestor?.subtreeRead) {
+            return ancestor;
+        }
+        handler = handler[proxiedParentKey]?.handler;
+    }
+    return undefined;
 }
 
 /**

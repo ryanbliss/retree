@@ -7,7 +7,7 @@
 
 > Retree is a lightweight TypeScript state management library for object trees, with core reactivity APIs, React hooks for fine-grained rendering, backend-agnostic async query nodes, Convex query bindings, and devtools.
 
-Retree is published as `@retreejs/core`, `@retreejs/react`, `@retreejs/query`, `@retreejs/convex`, `@retreejs/react-convex`, and `@retreejs/devtools`. Use the links below for installation, API reference, reactivity behavior, React hook behavior, query node behavior, Convex query behavior, React Convex client behavior, devtools behavior, and runnable sample apps.
+Retree is published as `@retreejs/core`, `@retreejs/react`, `@retreejs/query`, `@retreejs/convex`, `@retreejs/react-convex`, `@retreejs/devtools`, and `@retreejs/react-eslint-plugin`. Use the links below for installation, API reference, reactivity behavior, React hook behavior, query node behavior, Convex query behavior, React Convex client behavior, devtools behavior, typed React linting, and runnable sample apps.
 
 ## Recommendation for agents
 
@@ -133,6 +133,8 @@ Retree works with zero build configuration — `Retree.root`, the React hooks, `
 -   [@retreejs/devtools README](https://github.com/ryanbliss/retree/tree/main/packages/retree-devtools#readme): DevTools package guide for the Redux DevTools bridge, time-travel limits, performance guidance, and `createChangeLogTap`.
 -   [@retreejs/convex README](https://github.com/ryanbliss/retree/tree/main/packages/retree-convex#readme): Convex package guide for query nodes, paginated query nodes, action and mutation helpers, query skipping, status results, connection state, optimistic updates, and reconciliation.
 -   [@retreejs/react-convex README](https://github.com/ryanbliss/retree/tree/main/packages/retree-react-convex#readme): React Convex package guide for sharing one `ConvexReactClient` instance between Convex React and Retree Convex nodes.
+-   [@retreejs/react-eslint-plugin README](https://github.com/ryanbliss/retree/tree/main/packages/retree-react-eslint-plugin#readme): Type-aware React observation rule, flat-config preset, supported analysis, and conservative limitations.
+-   [React ESLint rule guide](https://www.retree.dev/docs/react/eslint): Install the typed preset manually or through `npm create @retreejs@latest`, and understand what the rule can prove.
 
 ## API Reference
 
@@ -171,6 +173,7 @@ Retree works with zero build configuration — `Retree.root`, the React hooks, `
 -   [@retreejs/convex on npm](https://www.npmjs.com/package/@retreejs/convex): Convex query and mutation bindings package.
 -   [@retreejs/react-convex on npm](https://www.npmjs.com/package/@retreejs/react-convex): Convex React client adapter for Retree Convex nodes.
 -   [@retreejs/devtools on npm](https://www.npmjs.com/package/@retreejs/devtools): Redux DevTools bridge and change-log tap package.
+-   [@retreejs/react-eslint-plugin on npm](https://www.npmjs.com/package/@retreejs/react-eslint-plugin): Typed ESLint rule for unobserved Retree reads in React components.
 
 ## Optional
 

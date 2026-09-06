@@ -50,15 +50,23 @@ The key function's reads are replayed into any enclosing tracking frame on
 every path, so selectors and lifecycles that used to see them leak through
 still see them.
 
-Scope guard: an element of the key result that is not one of the key
-function's tracked read values (a derived value, a literal, `Date.now()`)
-marks the entry unscoped, and the key function runs on every read exactly
-as today. Managed elements compare by raw identity for this check.
+Scope guard: an object element of the key result that is not one of the key
+function's tracked read values, one of the call's arguments, or a managed
+node (a derived plain object, a function) marks the entry unscoped, and the
+key function runs on every read exactly as today. Managed elements compare
+by raw identity for this check; a managed node the run only compared by
+identity gains a version read so the entry validates on the node's own
+version. Primitive elements (`?? 0`, `.length`, derived strings) need no
+read: the normalized result compares them by value, so a key must derive
+its primitives from Retree reads and arguments, as an auto-trapped memo
+must ("deterministic for the same dependency values"). `Retree.version`
+and `Retree.treeVersion` are tracked reads, so they are valid key elements.
 
 The same fallback applies when any read during the key function bypassed
 the traps: `Retree.untracked`, `Retree.peekInto`, `Retree.raw`, or the
-interior of an unmanaged object held behind an `@ignore` field (a raw
-`Map` cache, say). Such a read can hand the key function a managed row that
+interior of a mutable unmanaged object held behind an `@ignore` field (a raw
+`Map` cache, say; a frozen object is a leaf, as in a regular field). Such a
+read can hand the key function a managed row that
 no tracked read led to, so the row's own reads validate fine while the cache
 that chose the row has moved on. Tracking frames record this as partial
 coverage (`ReadCoverage`), and a partial key run is never gated. Keys whose
@@ -189,3 +197,28 @@ record or accessor for that owner is the only one validated.
     17% over 0.9.0 with every body count identical. A key element that is one
     of the call's arguments counts as covered, so those lookups gate once an
     argument repeats.
+-   Version reads are tracked and key coverage gates on primitives
+    (2026-09-06). Instrumenting Neo Compose's steady state with 0.10.2 showed
+    182k keyed reads and 243 gated hits: 72 keys were unscoped for a literal
+    `?? 0` or `: 0`, and the rest were partial from `Retree.raw` in the
+    project locator and the mutable `ProjectInvalidations` object behind an
+    `@ignore` field. A ceiling experiment that gated every key regardless
+    (unsound) showed no timing win, so the sound rule was widened instead:
+    primitives compare by value in the result, identity-only nodes get a
+    node version read, and only derived plain objects stay unscoped.
+    `Retree.version` / `Retree.treeVersion` reads land as comparison
+    accessors in key frames and as keyless replayed reads in dependency
+    frames; a tree version read marks its record as covering the subtree,
+    and tracked selectors, effects and the `@select` lifecycle resolve a
+    `nodeChanged` from an unread descendant to the nearest such ancestor
+    record. The `@select` lifecycle subscribes such an edge to the node's
+    subtree in addition to its `nodeChanged`. A frozen object behind an
+    `@ignore` field reads as a leaf, matching regular fields. Widening
+    gating exposed a cost on Neo's frame clicks (+0.3–1.0 ms per click,
+    three interleaved rounds): keys such as `ConstructorPreviewGraphVM`'s
+    (138 accessors) read `documentState` chains that move on every click
+    while the key holds, so each click re-validated, re-tracked and re-stored
+    them. A scoped key whose reads moved now runs under tracking once; if
+    its result held it is unscoped until its body next recomputes, so the
+    reads-churn-faster-than-key case costs one plain run per read, as in
+    0.10.2.

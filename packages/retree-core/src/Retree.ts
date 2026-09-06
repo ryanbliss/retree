@@ -22,11 +22,7 @@ import {
     TCustomProxy,
     unproxiedBaseNodeKey,
 } from "./internals/proxy-types.js";
-import {
-    getNodeVersionOfHandler,
-    getStructureVersion,
-    getTreeVersionOfHandler,
-} from "./internals/snapshot-version.js";
+import { getStructureVersion } from "./internals/snapshot-version.js";
 import {
     deleteReactiveDependencies,
     deleteReactiveDependent,
@@ -49,6 +45,7 @@ import {
 } from "./internals/reproxy.js";
 import {
     canSkipTrackedDependencyChange,
+    resolveChangedReadRecord,
     createRetreeSelectionObserver,
     createRetreeTrackedEffect,
     createRetreeTrackedSelectionObserver,
@@ -70,9 +67,12 @@ import {
     retreeDebugTapCount,
 } from "./internals/debug-tap.js";
 import {
+    NodeReadRecord,
     noteUntrackedRead,
     runWithIsolatedDependencyTracking,
     runWithoutDependencyTracking,
+    trackVersionRead,
+    VersionReadKind,
 } from "./internals/dependency-tracking.js";
 import {
     areDependencyValuesEqual,
@@ -110,6 +110,25 @@ import {
     TRetreeChangedEvents,
     INodeFieldChanges,
 } from "./types.js";
+
+/** True when one of `subtreeReads` is the record of `node`. */
+const noSubtreeReads: readonly NodeReadRecord[] = [];
+
+function isSubtreeReadNode(
+    subtreeReads: readonly NodeReadRecord[],
+    node: TreeNode | null | undefined
+): boolean {
+    if (subtreeReads.length === 0 || node === null || node === undefined) {
+        return false;
+    }
+    const rawNode = getUnproxiedNode(node);
+    for (const record of subtreeReads) {
+        if (record.rawNode === rawNode) {
+            return true;
+        }
+    }
+    return false;
+}
 
 export interface RetreeSelectOptions<TSelected = unknown> {
     equals?: RetreeSelectEquals<TSelected>;
@@ -1235,6 +1254,10 @@ export class Retree {
      * `Retree.runSilent(fn)` skips reproxying and leaves it unchanged, the
      * same way it leaves identities equal.
      *
+     * The read is tracked: a memo key that lists it validates against it,
+     * and a tracked selector, effect or `@select` getter that reads it
+     * re-runs when the node's own fields change.
+     *
      * Accepts a managed node or the raw object behind one. Throws for a
      * value that has never been materialized as a Retree node.
      *
@@ -1258,8 +1281,9 @@ export class Retree {
      * ```
      */
     static version(node: TreeNode): number {
-        return getNodeVersionOfHandler(
-            this.resolveBaseHandler(node, "Retree.version")
+        return trackVersionRead(
+            this.resolveBaseHandler(node, "Retree.version"),
+            VersionReadKind.Node
         );
     }
 
@@ -1274,12 +1298,38 @@ export class Retree {
      * same lazy walk `useSelect` performs. Accepts a managed node or the raw
      * object behind one; `Retree.runSilent(fn)` leaves it unchanged.
      *
+     * The read is tracked: a memo key that lists it validates against it,
+     * and a tracked selector, effect or `@select` getter that reads it
+     * re-runs on a write anywhere under the node, including nodes the run
+     * never read. One tree version read replaces a hand-maintained revision
+     * counter for a subtree every write of which goes through Retree.
+     *
      * @param node Managed node or raw object to read the version of.
      * @returns The node's subtree version.
+     *
+     * @example
+     * ```ts
+     * class Library extends ReactiveNode {
+     *     public books: { title: string; tags: string[] }[] = [];
+     *     get dependencies() {
+     *         return [];
+     *     }
+     *     // Recomputes only after a write somewhere under `books`.
+     *     @memo((self: Library) => [Retree.treeVersion(self.books)])
+     *     get tagIndex(): Map<string, number> {
+     *         const index = new Map<string, number>();
+     *         for (const book of this.books)
+     *             for (const tag of book.tags)
+     *                 index.set(tag, (index.get(tag) ?? 0) + 1);
+     *         return index;
+     *     }
+     * }
+     * ```
      */
     static treeVersion(node: TreeNode): number {
-        return getTreeVersionOfHandler(
-            this.resolveBaseHandler(node, "Retree.treeVersion")
+        return trackVersionRead(
+            this.resolveBaseHandler(node, "Retree.treeVersion"),
+            VersionReadKind.Tree
         );
     }
 
@@ -2532,6 +2582,12 @@ export class Retree {
             const reads = preserveBaseline
                 ? previousDependency?.reads
                 : currentDependency.reads;
+            const subtreeReads = preserveBaseline
+                ? previousDependency?.subtreeReads
+                : currentDependency.subtreeReads;
+            const subtree = preserveBaseline
+                ? previousDependency?.subtree
+                : currentDependency.subtree;
 
             // One record serves both registries and survives across passes:
             // a retained edge refreshes its baselines in place with no
@@ -2547,6 +2603,7 @@ export class Retree {
                 record.compareSelectValueBeforeNotify =
                     currentDependency.compareSelectValueBeforeNotify;
                 record.reads = reads;
+                record.subtreeReads = subtreeReads;
                 record.reactiveNode = proxiedDependentNode;
             } else {
                 record = {
@@ -2559,6 +2616,8 @@ export class Retree {
                     compareSelectValueBeforeNotify:
                         currentDependency.compareSelectValueBeforeNotify,
                     reads,
+                    subtreeReads,
+                    subtree,
                     reactiveNode: proxiedDependentNode,
                     unproxiedReactiveNode: unproxiedDependentNode,
                     unsubscribeListener: undefined,
@@ -2569,12 +2628,14 @@ export class Retree {
             if (
                 previousUnproxiedDependencyNode !== undefined &&
                 previousUnproxiedDependencyNode ===
-                    currentUnproxiedDependencyNode
+                    currentUnproxiedDependencyNode &&
+                record.subtree === subtree
             ) {
                 setReactiveDependents(previousUnproxiedDependencyNode, record);
             } else {
                 record.unsubscribeListener?.();
                 record.unsubscribeListener = undefined;
+                record.subtree = subtree;
                 if (previousUnproxiedDependencyNode !== undefined) {
                     deleteReactiveDependent(
                         previousUnproxiedDependencyNode,
@@ -2590,16 +2651,10 @@ export class Retree {
                     );
                     if (newDependencyNode) {
                         record.unsubscribeListener =
-                            retainReactiveDependencySubscription(
+                            this.subscribeReactiveDependencyEdge(
+                                newDependencyNode,
                                 currentUnproxiedDependencyNode,
-                                () =>
-                                    this.on(
-                                        newDependencyNode,
-                                        // TODO: figure out if I should support treeChanged for this...seems expensive
-                                        "nodeChanged",
-                                        this
-                                            .reactiveDependentNodeChangedListener
-                                    )
+                                subtree === true
                             );
                     }
                 }
@@ -2721,6 +2776,13 @@ export class Retree {
                     compareSelectValueBeforeNotify:
                         selectGetter.compareValueBeforeNotify,
                     reads: trackedAccesses?.reads,
+                    subtreeReads: trackedAccesses?.subtreeReads,
+                    subtree:
+                        trackedAccesses !== undefined &&
+                        isSubtreeReadNode(
+                            trackedAccesses.subtreeReads,
+                            normalizedEntry.node
+                        ),
                 });
             }
         }
@@ -2921,6 +2983,62 @@ export class Retree {
                 "Retree internal invariant failed: a ReactiveNode dependency change arrived with an unproxied node. This is unexpected and likely a Retree bug. Please file an issue with the dependency node and mutation that triggered this."
             );
         }
+        this.notifyReactiveDependents(_unproxy, _unproxy, changes);
+    }
+
+    /**
+     * Subscribe one dependency edge. Every edge shares the node's
+     * `nodeChanged` subscription; an edge whose getter read the node's tree
+     * version also routes the subtree's emissions to the node's dependents.
+     */
+    private static subscribeReactiveDependencyEdge(
+        dependencyNode: TreeNode,
+        unproxiedDependencyNode: TreeNode,
+        subtree: boolean
+    ): () => void {
+        const releaseNode = retainReactiveDependencySubscription(
+            unproxiedDependencyNode,
+            () =>
+                this.on(
+                    dependencyNode,
+                    "nodeChanged",
+                    this.reactiveDependentNodeChangedListener
+                )
+        );
+        if (!subtree) {
+            return releaseNode;
+        }
+        const unsubscribeSubtree = this[SUBSCRIBE_SUBTREE_CHANGED_SYMBOL](
+            dependencyNode,
+            (changedRawNode, changes) => {
+                // The node's own emissions arrive through `nodeChanged`.
+                if (changedRawNode === unproxiedDependencyNode) {
+                    return;
+                }
+                this.notifyReactiveDependents(
+                    unproxiedDependencyNode,
+                    changedRawNode,
+                    changes
+                );
+            }
+        );
+        return () => {
+            unsubscribeSubtree();
+            releaseNode();
+        };
+    }
+
+    /**
+     * Notify the dependents of `dependencyUnproxiedNode` of a `nodeChanged`
+     * emitted by `changedUnproxiedNode`: the dependency node itself, or a
+     * node beneath it for edges that read the dependency's tree version.
+     */
+    private static notifyReactiveDependents(
+        dependencyUnproxiedNode: TreeNode,
+        changedUnproxiedNode: TreeNode,
+        changes: INodeFieldChanges[]
+    ) {
+        const _unproxy = dependencyUnproxiedNode;
         const dependents = getReactiveDependents(_unproxy);
         if (!dependents) {
             return;
@@ -2952,6 +3070,7 @@ export class Retree {
                     this.shouldNotifyReactiveDependent(
                         dependent,
                         _unproxy,
+                        changedUnproxiedNode,
                         changes,
                         getLatestDependenciesByKey
                     )
@@ -3027,6 +3146,7 @@ export class Retree {
 
     private static shouldNotifyReactiveDependent(
         dependent: IActiveReactiveDependency,
+        dependencyUnproxiedNode: TreeNode,
         changedUnproxiedNode: TreeNode,
         changes: INodeFieldChanges[],
         getLatestDependenciesByKey: () => Map<
@@ -3039,19 +3159,40 @@ export class Retree {
         // the changed node re-reads equal, skip without re-running the
         // getter's dependency collection at all.
         const reads = dependent.reads;
-        if (
-            reads !== undefined &&
-            canSkipTrackedDependencyChange(
-                changedUnproxiedNode,
-                reads.get(changedUnproxiedNode),
-                changes
-            )
-        ) {
-            return false;
+        const descendant = changedUnproxiedNode !== dependencyUnproxiedNode;
+        if (reads === undefined) {
+            if (descendant) {
+                return false;
+            }
+        } else {
+            const record = resolveChangedReadRecord(
+                reads,
+                dependent.subtreeReads ?? noSubtreeReads,
+                changedUnproxiedNode
+            );
+            // A descendant emission reaches a dependent only through an
+            // ancestor record that read the tree version; a node the getter
+            // read directly notifies through its own edge.
+            if (
+                descendant &&
+                (record === undefined ||
+                    record.rawNode === changedUnproxiedNode)
+            ) {
+                return false;
+            }
+            if (
+                canSkipTrackedDependencyChange(
+                    changedUnproxiedNode,
+                    record,
+                    changes
+                )
+            ) {
+                return false;
+            }
         }
         const dependencyChanged = this.hasReactiveDependencyChanged(
             dependent,
-            changedUnproxiedNode,
+            dependencyUnproxiedNode,
             getLatestDependenciesByKey
         );
         if (!dependencyChanged) {
