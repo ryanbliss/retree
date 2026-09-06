@@ -177,3 +177,8 @@ record or accessor for that owner is the only one validated.
     and the `@select` getter cache treats a whole-node record of a written
     owner as changed. Normalizing a key no longer reads `kind` through a
     managed element's trap, which had narrowed the key's own read of it.
+    A key element that is a node is covered only by a read of its view; an
+    identity-only read (array slot, narrowed path read) leaves the key
+    unscoped, which also closes a 0.10.0 hole where
+    `@memo((self) => [self.rows[0]])` gated on the slot's identity and
+    missed writes to the row.

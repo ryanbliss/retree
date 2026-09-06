@@ -2108,6 +2108,40 @@ describe("reads through memos with hidden bodies", () => {
         expect(changed).toHaveBeenCalled();
     });
 
+    it("keeps a key that lists a node it also reads into on the node's version", () => {
+        interface IBase {
+            name: string;
+            modifier: string;
+        }
+        class Editor extends ReactiveNode {
+            public base: IBase = { name: "a", modifier: "concrete" };
+            public rows: IBase[] = [{ name: "r", modifier: "concrete" }];
+            get dependencies() {
+                return [];
+            }
+            // Reading `name` narrows the `base` read to its identity, which
+            // cannot stand in for the `base` element's own version.
+            @memo((self: Editor) => [self.base, self.base.name])
+            get abstract(): boolean {
+                return this.base.modifier === "abstract";
+            }
+            // An array slot read compares identity alone as well.
+            @memo((self: Editor) => [self.rows[0]])
+            get firstAbstract(): boolean {
+                return this.rows[0].modifier === "abstract";
+            }
+        }
+        const root = trackRoot(Retree.root(new Editor()));
+        expect(root.abstract).toBe(false);
+        expect(root.abstract).toBe(false);
+        root.base.modifier = "abstract";
+        expect(root.abstract).toBe(true);
+        expect(root.firstAbstract).toBe(false);
+        expect(root.firstAbstract).toBe(false);
+        root.rows[0].modifier = "abstract";
+        expect(root.firstAbstract).toBe(true);
+    });
+
     it("re-runs a @select over an unscoped keyed memo when its key node changes", () => {
         class Store extends ReactiveNode {
             public rows: IRow[] = [];

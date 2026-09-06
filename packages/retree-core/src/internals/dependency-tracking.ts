@@ -88,6 +88,11 @@ export interface DependencyComparisonAccessor {
     readonly valueUnproxiedNode?: TreeNode;
     /** Values seen by the read that created this accessor, when it kept them. */
     readonly capturedValues?: readonly unknown[];
+    /**
+     * The read compares a node's raw identity alone, so it cannot stand in
+     * for that node's own version.
+     */
+    readonly identityOnly?: boolean;
     getValues(): unknown[];
 }
 
@@ -123,6 +128,10 @@ class TrackedNodeRead implements DependencyComparisonAccessor {
 
     public get ownerUnproxiedNode(): TreeNode {
         return this.ownerHandler[unproxiedBaseNodeKey];
+    }
+
+    public get identityOnly(): boolean {
+        return this.readKind === TrackedReadKind.Identity;
     }
 
     /**

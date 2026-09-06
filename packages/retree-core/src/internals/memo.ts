@@ -495,7 +495,10 @@ function storeUnscopedKeyedMemo<T>(
 /**
  * True when every key element is a value one of the key function's tracked
  * reads produced. Managed values compare by raw node so a read that
- * returned a child proxy covers the child listed in the key.
+ * returned a child proxy covers the child listed in the key. A read that
+ * compares a node's identity alone (an array slot, a path read the key
+ * then read into) does not cover it: the key lists the node for its own
+ * version, which only the key function's normalized result compares.
  */
 function areKeyElementsTrackedReads(
     elements: unknown[],
@@ -515,6 +518,12 @@ function areKeyElementsTrackedReads(
                 const values =
                     comparison.capturedValues ?? comparison.getValues();
                 for (const value of values) {
+                    if (
+                        comparison.identityOnly === true &&
+                        isObjectValue(value)
+                    ) {
+                        continue;
+                    }
                     readValues.add(toRawIdentity(value));
                 }
             }
@@ -524,6 +533,10 @@ function areKeyElementsTrackedReads(
         }
     }
     return true;
+}
+
+function isObjectValue(value: unknown): value is object {
+    return value !== null && typeof value === "object";
 }
 
 function toRawIdentity(value: unknown): unknown {
