@@ -5,13 +5,9 @@ import {
     ReactiveNode,
     SELECT_GETTERS_SYMBOL,
 } from "./ReactiveNode.js";
+import { collectSelectGetter } from "./internals/select-getter-cache.js";
 import {
-    collectDependencyAccesses,
-    collectTrackedSelectionAccesses,
-} from "./internals/dependency-tracking.js";
-import {
-    runFnMemo,
-    runMemo,
+    runKeyedMemo,
     runTrappedFnMemo,
     runTrappedMemo,
 } from "./internals/memo.js";
@@ -143,6 +139,12 @@ export function link(
  * trigger React renders by itself. Use `ReactiveNode.dependencies`,
  * `Retree.select`, or `useSelect` when you also need notification behavior.
  *
+ * A comparisons function runs only when a tree value it read has changed:
+ * while nothing it read was written, reads return the cached value without
+ * evaluating it. Keep comparisons functions deterministic over tree state; a
+ * comparison that is not a value the function read from the tree (a derived
+ * number, a module variable) makes the function run on every read instead.
+ *
  * Do not use `@memo` on methods; use {@link fnMemo}. Do not use it for values
  * with side effects.
  *
@@ -248,8 +250,13 @@ function decorateMemoGetter<This extends ReactiveNode, Value>(
         if (getComparisons === undefined) {
             return runTrappedMemo(this, cacheKey, () => target.call(this));
         }
-        const comparisons = getComparisons(this);
-        return runMemo(this, cacheKey, () => target.call(this), comparisons);
+        return runKeyedMemo(
+            this,
+            cacheKey,
+            () => target.call(this),
+            () => getComparisons(this),
+            undefined
+        );
     };
 }
 
@@ -266,7 +273,10 @@ function decorateMemoGetter<This extends ReactiveNode, Value>(
  * broadly. Property reads subscribe to the owner node but compare the specific
  * property value, so `task.isCompleted` can update when the task slot is
  * replaced or `isCompleted` changes without reacting to unrelated `task.text`
- * changes. Primitive values read by the getter are compared.
+ * changes. Primitive values read by the getter are compared. The trapped
+ * getter also caches its result: reads return the same instance until a
+ * value the getter read changes, so keep the getter deterministic over tree
+ * state.
  * Pass an explicit selector when you want to choose or customize the dependency
  * slots yourself. Wrap a slot with `self.dependency(node, comparisons)` when
  * that slot needs custom comparison cells. When a selected slot changes,
@@ -511,6 +521,9 @@ function decorateSelectGetter<This extends ReactiveNode, Value, Dependencies>(
             "@select can only be applied to a getter on a ReactiveNode subclass. This is expected when @select is placed on a field, method, setter, or non-ReactiveNode class. Fix: move @select to a getter on a class that extends ReactiveNode."
         );
     }
+    const cacheKey = Symbol(`select:${String(context.name)}`);
+    const collectTracked = (self: ReactiveNode) =>
+        collectSelectGetter(self, cacheKey, () => target.call(self as This));
     context.addInitializer(function () {
         if (!(this instanceof ReactiveNode)) {
             return;
@@ -519,15 +532,10 @@ function decorateSelectGetter<This extends ReactiveNode, Value, Dependencies>(
             getDependencies === undefined
                 ? {
                       getDependencies: (self: ReactiveNode) =>
-                          collectDependencyAccesses(() =>
-                              target.call(self as This)
-                          ),
-                      collectTrackedDependencies: (self: ReactiveNode) =>
-                          collectTrackedSelectionAccesses(() =>
-                              target.call(self as This)
-                          ),
+                          collectTracked(self).getDependencies(),
+                      collectTrackedDependencies: collectTracked,
                       getValue: (self: ReactiveNode) =>
-                          target.call(self as This),
+                          collectTracked(self).value,
                       compareValueBeforeNotify: true,
                       equals: options?.equals as
                           | ((
@@ -555,7 +563,10 @@ function decorateSelectGetter<This extends ReactiveNode, Value, Dependencies>(
         this[SELECT_GETTERS_SYMBOL].set(context.name, selectGetter);
     });
     return function selectedGetter(this: This): Value {
-        return target.call(this);
+        if (getDependencies !== undefined) {
+            return target.call(this);
+        }
+        return collectTracked(this).value as Value;
     };
 }
 
@@ -741,13 +752,12 @@ function decorateFnMemoMethod<
                 args
             );
         }
-        const comparisons = getComparisons(this, ...args);
-        return runFnMemo(
+        return runKeyedMemo(
             this,
             cacheKey,
             () => target.call(this, ...args),
-            args,
-            comparisons
+            () => getComparisons(this, ...args),
+            args
         );
     };
 }

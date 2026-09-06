@@ -577,7 +577,15 @@ describe("useSelect", () => {
             root.child.count = 2;
         });
 
+        // The cached getter still answers true, so nothing rerenders.
         expect(screen.getByTestId("value").textContent).toBe("true");
+        expect(renderCount).toBe(1);
+
+        act(() => {
+            root.child.count = -1;
+        });
+
+        expect(screen.getByTestId("value").textContent).toBe("false");
         expect(renderCount).toBe(2);
     });
 

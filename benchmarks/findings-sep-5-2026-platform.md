@@ -180,3 +180,46 @@ Not done here: the record still allocates two arrays per node; a
 struct-of-arrays layout per frame would trade that for index bookkeeping.
 Whole-node reads still emit a bare node dependency for `@select`, which is
 broader than the record's cells.
+
+## Item 6: version-gated keyed memos and cached `@select` getters (`perf/version-gated-memo-select`)
+
+Spec: `specs/version-gated-memo-select.md`. `@memo(keyFn)` evaluated its
+key function on every read, so a key that reads other memos paid their keys
+recursively: a memo keyed on three levels of memos cost 16 µs per read
+against 0.6 µs for a flat key, which is why Neo flattens memo dependencies
+by hand. `@select` getters had no cache at all: a filter over 1000 rows
+cost 0.18 ms per read and returned a fresh array every time.
+
+Changes: the key function runs under comparisons tracking and its reads
+validate the entry like a trapped memo's body reads do, so the key function
+runs only after a write to something it read; key results that are not
+tracked read values (derived numbers, module state), and key runs that read
+past the traps (`Retree.untracked`, `Retree.raw`, an unmanaged object behind
+`@ignore`), keep today's evaluate-every-read behavior. Auto-trapped `@select` getters cache their
+last tracked run per instance and validate only the records of owners
+written since, so reads return one instance until a read changes and the
+lifecycle compares that same instance. Trapped memo validation returns
+early whenever the write version is unchanged, and fresh runs snapshot from
+captured values instead of re-reading.
+
+Base = item 5 bundle, three alternating serial rounds:
+
+| Probe | Item 5 | Item 6 |
+| --- | --- | --- |
+| C1 10k reads of a memo keyed on three levels of memos | 163 to 166 ms | 6.2 to 7.9 ms |
+| C2 10k reads of a flat-keyed memo | 6.2 to 6.5 ms | 2.6 to 2.7 ms |
+| C3 10k nested-memo reads, unrelated write every 10 reads | 155 to 156 ms | 14.9 to 15.9 ms |
+| C4 1k related write + nested-memo read pairs | 47 ms | 30 to 33 ms |
+| C5 1k reads of a `@select` filter over 1000 rows, no writes | 181 to 186 ms | 0.38 ms |
+| C6 1k `@select` reads, unrelated write every 10 reads | 180 to 185 ms | 0.43 to 0.48 ms |
+| Phase A materialization, phase B tracked scan | unchanged | unchanged |
+
+C4 is the recompute cascade (every level miss); the win there comes from
+the captured-value snapshots. The remaining cost after an unrelated write
+(C3) is one validation walk down the key graph per write; a flat key avoids
+even that, but the nested form is now within 3x of flat instead of 26x.
+
+Not done here: explicit-selector `@select((self) => [...])` getters stay
+uncached because `self.dependency(...)` entries are fresh objects per call.
+`ReactiveNode.memo(key, fn, comparisons)` evaluates its comparisons in the
+caller and cannot skip them.

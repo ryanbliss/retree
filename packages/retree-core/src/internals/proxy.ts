@@ -38,6 +38,7 @@ import {
 } from "./reproxy.js";
 import {
     isDependencyTrackingActive,
+    noteUntrackedRead,
     trackDependencyAccess,
     trackDependencyKeyPresenceAccess,
     trackDependencyKeysAccess,
@@ -281,9 +282,14 @@ function isDateMutatingMethod(prop: string): prop is DateMutatingMethodName {
 }
 
 export function getLatestIgnoredValue(value: unknown) {
+    if (value === null || typeof value !== "object") {
+        return value;
+    }
     if (isCustomProxy(value)) {
         return getReproxyNode(value);
     }
+    // Its interior is read without traps.
+    noteUntrackedRead();
     return value;
 }
 

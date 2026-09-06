@@ -66,6 +66,7 @@ import {
     retreeDebugTapCount,
 } from "./internals/debug-tap.js";
 import {
+    noteUntrackedRead,
     runWithIsolatedDependencyTracking,
     runWithoutDependencyTracking,
 } from "./internals/dependency-tracking.js";
@@ -1167,6 +1168,7 @@ export class Retree {
      */
     static raw<TNode extends TreeNode>(node: TNode): TNode {
         this.assertRetreeManagedNode(node, "Retree.raw");
+        noteUntrackedRead();
         return getUnproxiedNode(node) as TNode;
     }
 

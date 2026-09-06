@@ -16,8 +16,20 @@ enum FrameMode {
     Comparisons,
 }
 
+/**
+ * Whether every read a frame saw went through a trap. A read that bypassed
+ * the traps (`Retree.untracked`, `Retree.raw`, the interior of an unmanaged
+ * object behind an `@ignore` field) leaves the frame partial: no tracked
+ * read can prove a value derived from it is still current.
+ */
+export enum ReadCoverage {
+    Complete,
+    Partial,
+}
+
 interface DependencyAccessFrame {
     mode: FrameMode;
+    coverage: ReadCoverage;
     /**
      * Comparisons mode: append-only entry log. Removals tombstone slots to
      * `undefined` instead of splicing so that per-access bookkeeping stays
@@ -72,6 +84,8 @@ export interface DependencyComparisonAccessor {
     readonly sourceUnproxiedNode?: TreeNode;
     /** Managed property values also compare their current view; array slots compare raw identities. */
     readonly valueUnproxiedNode?: TreeNode;
+    /** Values seen by the read that created this accessor, when it kept them. */
+    readonly capturedValues?: readonly unknown[];
     getValues(): unknown[];
 }
 
@@ -490,7 +504,17 @@ export function runWithTrackedWriteWarningSuppressed<T>(callback: () => T): T {
     }
 }
 
+/**
+ * Mark every active frame partial: a read is about to bypass the traps.
+ */
+export function noteUntrackedRead(): void {
+    for (const frame of dependencyAccessStack) {
+        frame.coverage = ReadCoverage.Partial;
+    }
+}
+
 export function runWithoutDependencyTracking<T>(callback: () => T): T {
+    noteUntrackedRead();
     pauseDependencyTrackingDepth++;
     try {
         return callback();
@@ -525,6 +549,7 @@ export function isDependencyTrackingActive(): boolean {
 function createDependencyAccessFrame(mode: FrameMode): DependencyAccessFrame {
     return {
         mode,
+        coverage: ReadCoverage.Complete,
         entries: [],
         managedValueIndices: null,
         propertyValueIndices: null,
@@ -573,6 +598,7 @@ export interface ITrackedDependencySource {
 
 export interface ITrackedSelectionAccesses<T> {
     value: T;
+    coverage: ReadCoverage;
     /**
      * The run's reads as `IReactiveDependency` values, one per node. Built
      * on demand: only `@select` collection consumes them.
@@ -638,6 +664,7 @@ export function collectTrackedSelectionAccesses<T>(
     const reads = frame.reads ?? new Map<TreeNode, NodeReadRecord>();
     return {
         value,
+        coverage: frame.coverage,
         getDependencies: () => toDependencyValues(reads),
         sources: resolveCovers(frame, reads),
         reads,
@@ -647,6 +674,7 @@ export function collectTrackedSelectionAccesses<T>(
 
 export function collectDependencyComparisonAccesses<T>(callback: () => T): {
     value: T;
+    coverage: ReadCoverage;
     comparisons: unknown[];
 } {
     let value: T | undefined;
@@ -680,6 +708,7 @@ export function collectDependencyComparisonAccesses<T>(callback: () => T): {
     }
     return {
         value: value as T,
+        coverage: frame.coverage,
         comparisons,
     };
 }
