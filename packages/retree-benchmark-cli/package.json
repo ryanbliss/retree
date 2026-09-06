@@ -19,8 +19,8 @@
     },
     "dependencies": {
         "@inquirer/prompts": "^7.0.0",
-        "@retreejs/core": "0.10.2",
-        "@retreejs/react": "0.10.2",
+        "@retreejs/core": "0.10.3",
+        "@retreejs/react": "0.10.3",
         "jsdom": "^26.1.0",
         "react": "^19.2.5",
         "react-dom": "^19.2.5"
