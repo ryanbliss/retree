@@ -169,3 +169,11 @@ record or accessor for that owner is the only one validated.
     405 ms to 1500 ms. An entry's scope is `Unknown` when fresh and after an
     unscoped recompute, `Scoped` once a tracked run finds every element read,
     and `Unscoped` otherwise; only `Unknown` runs the key under tracking.
+-   Hidden memo bodies exposed reads the leaks had covered (2026-09-06).
+    A trapped memo's path read `a.b` was dropped once the run read into
+    `b`, so replacing `b` never invalidated it; the read now narrows to
+    `b`'s identity. Replays land in comparison frames too, a replayed
+    managed value the memo did not read into marks a whole-node record,
+    and the `@select` getter cache treats a whole-node record of a written
+    owner as changed. Normalizing a key no longer reads `kind` through a
+    managed element's trap, which had narrowed the key's own read of it.

@@ -19,6 +19,7 @@ import {
 } from "./dependency-tracking.js";
 import { getDependencyComparisonValues } from "./dependencies.js";
 import { getUnproxiedNode } from "./proxy.js";
+import { getCustomProxyHandlerFromMetadata } from "./proxy-types.js";
 import { getManagedProxyForUnproxiedNode } from "./reproxy.js";
 
 /**
@@ -684,6 +685,11 @@ function isDependencyComparisonAccessor(
     value: unknown
 ): value is DependencyComparisonAccessor {
     if (value === null || typeof value !== "object") {
+        return false;
+    }
+    // A managed node is never an accessor, and reading `kind` through its
+    // trap would land a read in the enclosing frame.
+    if (getCustomProxyHandlerFromMetadata(value) !== undefined) {
         return false;
     }
     return (
