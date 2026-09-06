@@ -46,7 +46,6 @@ import {
 } from "./dependency-tracking.js";
 import { Transactions } from "./transactions.js";
 import { bumpGlobalWriteVersion } from "./write-version.js";
-import { normalizeRawInput } from "./raw-input.js";
 import { prepareSnapshotParentChange } from "./snapshot-version.js";
 
 export const FUNCTION_NAMES_BIND_TO_RAW: ReadonlySet<string | symbol> = new Set(
@@ -546,35 +545,83 @@ class BaseProxyHandler<T extends TreeNode>
                 this.getBoundFunction(prop, value, baseProxy)
             );
         }
-        if (shouldLazilyProxyProperty(target, prop, value)) {
-            const descriptor = Reflect.getOwnPropertyDescriptor(target, prop);
-            if (!descriptor || !descriptorHasValue(descriptor)) {
+        if (
+            value !== null &&
+            typeof value === "object" &&
+            prop !== "constructor"
+        ) {
+            const storedHandler = getCustomProxyHandlerFromMetadata(value);
+            if (storedHandler !== undefined) {
                 return trackPropertyAccessIfNeeded(
                     this,
                     baseProxy,
                     prop,
-                    value
-                );
-            }
-            // shouldLazilyProxyProperty already established the value is a
-            // proxyable non-proxy object; only the descriptor lock check
-            // from shouldKeepRawPropertyValue remains.
-            if (!descriptorRequiresExactDefinedValue(descriptor, descriptor)) {
-                return trackPropertyAccessIfNeeded(
-                    this,
-                    baseProxy,
-                    prop,
-                    getOrCreateProxiedChild(
-                        this,
+                    this.adoptStoredProxy(
+                        target,
                         prop,
                         value,
-                        baseProxy,
-                        this.emitter
+                        storedHandler[unproxiedBaseNodeKey]
                     )
                 );
             }
+            if (hasLazilyProxiedShape(value)) {
+                const descriptor = Reflect.getOwnPropertyDescriptor(
+                    target,
+                    prop
+                );
+                // Inherited and locked values are served as stored; only an
+                // own, redefinable data property materializes a child.
+                if (
+                    descriptor !== undefined &&
+                    descriptorHasValue(descriptor) &&
+                    !descriptorRequiresExactDefinedValue(descriptor, descriptor)
+                ) {
+                    return trackPropertyAccessIfNeeded(
+                        this,
+                        baseProxy,
+                        prop,
+                        getOrCreateProxiedChild(
+                            this,
+                            prop,
+                            value,
+                            baseProxy,
+                            this.emitter
+                        )
+                    );
+                }
+            }
         }
         return trackPropertyAccessIfNeeded(this, baseProxy, prop, value);
+    }
+
+    /**
+     * A managed node stored as a proxy inside plain input (raw input is not
+     * walked up front). Store its raw node in the target (raw purity) and
+     * serve the managed child. A locked property keeps the stored proxy: the
+     * get invariant requires the exact value for non-writable,
+     * non-configurable data properties.
+     */
+    private adoptStoredProxy(
+        target: T,
+        prop: string | symbol,
+        storedProxy: object,
+        raw: object
+    ): object {
+        const descriptor = Reflect.getOwnPropertyDescriptor(target, prop);
+        if (descriptor === undefined || !descriptorHasValue(descriptor)) {
+            return storedProxy;
+        }
+        if (descriptorRequiresExactDefinedValue(descriptor, descriptor)) {
+            return storedProxy;
+        }
+        Reflect.defineProperty(target, prop, { ...descriptor, value: raw });
+        return getOrCreateProxiedChild(
+            this,
+            prop,
+            raw,
+            this.baseProxy,
+            this.emitter
+        );
     }
 
     public set(
@@ -643,8 +690,6 @@ class BaseProxyHandler<T extends TreeNode>
                 return Reflect.set(target, prop, newValue, target);
             }
         }
-        if (rawNewValue !== null && typeof rawNewValue === "object")
-            normalizeRawInput(rawNewValue);
         const prev = (target as any)[prop];
         // Exact-inversion metadata: a write that creates the key is marked
         // "add" so undo can delete the key rather than leave it present with
@@ -800,12 +845,6 @@ class BaseProxyHandler<T extends TreeNode>
                 ? getUnproxiedNode(descriptor.value) ?? descriptor.value
                 : descriptor.value
             : descriptor;
-        if (
-            descriptorHasValue(descriptor) &&
-            rawNextValue !== null &&
-            typeof rawNextValue === "object"
-        )
-            normalizeRawInput(rawNextValue);
         const nextValue = rawNextValue;
         let nodeRemoved: object | undefined;
 
@@ -1012,14 +1051,24 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     knownUnmanaged = false
 ): T {
     if (object === null) return object;
-    if (!knownUnmanaged && isCustomProxy(object)) return getBaseProxy(object);
+    const objectHandler = knownUnmanaged
+        ? undefined
+        : getCustomProxyHandlerFromMetadata<T>(object);
+    if (parent !== undefined) {
+        assertNoStructuralCycle(
+            objectHandler === undefined
+                ? object
+                : objectHandler[unproxiedBaseNodeKey],
+            parent
+        );
+    }
+    if (objectHandler !== undefined) return objectHandler.baseProxy;
     const existing = knownUnmanaged
         ? undefined
         : getManagedProxyForUnproxiedNode(object);
     if (existing !== undefined) {
         return getBaseProxy(existing) as T;
     }
-    normalizeRawInput(object);
     const proxyHandler = new BaseProxyHandler<T>(
         object,
         emitter,
@@ -1030,12 +1079,13 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     const reactiveObject = proxyHandler.reactiveObject;
     registerBaseProxy(object, proxy);
     if (object instanceof Map) {
-        for (const [key, value] of object.entries()) {
-            if (
-                value !== null &&
-                typeof value === "object" &&
-                getManagedProxyForUnproxiedNode(value) !== undefined
-            ) {
+        for (const [key, storedValue] of object.entries()) {
+            if (storedValue === null || typeof storedValue !== "object") {
+                continue;
+            }
+            // Stored proxies unwrap here; plain values stay lazy.
+            const value = getUnproxiedNode(storedValue) ?? storedValue;
+            if (getManagedProxyForUnproxiedNode(value) !== undefined) {
                 const parentToSet: IProxyParent<any> = {
                     handler: proxyHandler,
                     propName: mapKeyAsPropName(key),
@@ -1056,12 +1106,12 @@ export function buildProxy<T extends TreeNode = TreeNode>(
         }
     } else if (object instanceof Set) {
         const replacements: { previous: unknown; next: unknown }[] = [];
-        for (const value of object.values()) {
-            if (
-                value !== null &&
-                typeof value === "object" &&
-                getManagedProxyForUnproxiedNode(value) !== undefined
-            ) {
+        for (const storedValue of object.values()) {
+            if (storedValue === null || typeof storedValue !== "object") {
+                continue;
+            }
+            const value = getUnproxiedNode(storedValue) ?? storedValue;
+            if (getManagedProxyForUnproxiedNode(value) !== undefined) {
                 const parentToSet: IProxyParent<any> = {
                     handler: proxyHandler,
                     propName: null,
@@ -1074,9 +1124,9 @@ export function buildProxy<T extends TreeNode = TreeNode>(
                 const rawChild = getUnproxiedNode(childProxy);
                 cacheCollectionChildProxy(proxyHandler, rawChild, childProxy);
                 // Raw purity: the raw set stores the raw node.
-                if (rawChild !== value) {
+                if (rawChild !== storedValue) {
                     replacements.push({
-                        previous: value,
+                        previous: storedValue,
                         next: rawChild,
                     });
                 }
@@ -1092,28 +1142,47 @@ export function buildProxy<T extends TreeNode = TreeNode>(
         // read path. Checking laziness before descriptors keeps this walk
         // free of per-property descriptor allocations for plain data.
         for (const prop of Object.keys(object)) {
-            const value = (object as Record<string, unknown>)[prop];
+            const storedValue = (object as Record<string, unknown>)[prop];
             if (
-                value === null ||
+                storedValue === null ||
                 (reactiveObject !== undefined &&
                     (prop === COLLECTED_KEYS_SYMBOL ||
                         reactiveObject[COLLECTED_KEYS_SYMBOL].has(prop) ||
                         reactiveObject[LINKED_KEYS_SYMBOL].has(prop)))
             ) {
-                setProxiedChild(proxyHandler, prop, value);
-            } else if (typeof value === "object") {
+                setProxiedChild(proxyHandler, prop, storedValue);
+            } else if (typeof storedValue === "object") {
+                const storedHandler =
+                    getCustomProxyHandlerFromMetadata(storedValue);
                 if (
-                    shouldCreatePlainObjectProxyLazily(value) &&
-                    getManagedProxyForUnproxiedNode(value) === undefined
+                    storedHandler === undefined &&
+                    hasLazilyProxiedShape(storedValue) &&
+                    getManagedProxyForUnproxiedNode(storedValue) === undefined
                 ) {
                     continue;
                 }
+                const value: object =
+                    storedHandler === undefined
+                        ? storedValue
+                        : storedHandler[unproxiedBaseNodeKey];
                 const descriptor = Reflect.getOwnPropertyDescriptor(
                     object,
                     prop
                 );
                 if (shouldKeepRawPropertyValue(descriptor, value)) {
                     continue;
+                }
+                // Raw purity: a proxy the constructor stored is replaced by
+                // its raw node before the child edge is built.
+                if (
+                    storedHandler !== undefined &&
+                    descriptor !== undefined &&
+                    descriptorHasValue(descriptor)
+                ) {
+                    Reflect.defineProperty(object, prop, {
+                        ...descriptor,
+                        value,
+                    });
                 }
                 const cProxy = buildProxy(value, emitter, {
                     handler: proxyHandler,
@@ -1245,29 +1314,20 @@ function shouldKeepRawPropertyValue(
     return descriptorRequiresExactDefinedValue(descriptor, descriptor);
 }
 
-function shouldLazilyProxyProperty(
-    target: object,
-    prop: string | symbol,
-    value: unknown
-): value is object {
-    if (prop === "constructor") {
-        return false;
-    }
-    if (!shouldCreatePlainObjectProxyLazily(value)) {
-        return false;
-    }
-    return true;
+/** Plain objects and arrays are proxied on first read; other shapes eagerly. */
+function hasLazilyProxiedShape(value: object): boolean {
+    return (
+        Array.isArray(value) ||
+        Object.getPrototypeOf(value) === Object.prototype
+    );
 }
 
 function shouldCreatePlainObjectProxyLazily(value: unknown): value is object {
     if (!isProxyableObject(value)) {
         return false;
     }
-    // Cheap shape checks first; isCustomProxy costs a WeakMap lookup.
-    if (
-        !Array.isArray(value) &&
-        Object.getPrototypeOf(value) !== Object.prototype
-    ) {
+    // Cheap shape check first; isCustomProxy costs a sentinel trap read.
+    if (!hasLazilyProxiedShape(value)) {
         return false;
     }
     return !isCustomProxy(value);
@@ -1297,9 +1357,33 @@ function getOrCreateProxiedChild(
         setProxiedChild(proxyHandler, prop, builtChildProxy);
         return builtChildProxy;
     }
+    // Shared without reparenting, so the ownership check in reparentProxy
+    // never runs for this edge; the cycle check must.
+    assertNoStructuralCycle(value, parentToSet);
     const baseChildProxy = getBaseProxy(existingManagedProxy);
     setProxiedChild(proxyHandler, prop, baseChildProxy);
     return baseChildProxy;
+}
+
+/**
+ * A node may not own itself through any chain of children. Checked where an
+ * edge is materialized (a child proxy is built, shared, or reparented), so
+ * the cost is one hop per ancestor instead of a pass over all raw input.
+ */
+function assertNoStructuralCycle(
+    childRaw: object,
+    parent: IProxyParent<any>
+): void {
+    let handler = parent.handler;
+    while (handler !== null) {
+        if (handler[unproxiedBaseNodeKey] === childRaw) {
+            // @retree-throws
+            throw new Error(
+                "Retree cannot own a structural cycle. Use Retree.link or @link for a back-reference."
+            );
+        }
+        handler = handler[proxiedParentKey]?.handler ?? null;
+    }
 }
 
 function createStructuralProxyForValue(
@@ -1348,7 +1432,6 @@ function preparePropertyValue(
         return value;
     }
     if (!baseProxy) return value;
-    normalizeRawInput(getUnproxiedNode(value) ?? value);
 
     const parentToSet: IProxyParent<any> = {
         handler: proxyHandler,
@@ -1407,7 +1490,8 @@ export function createDirectChildResolver(
             return undefined;
         if (
             handler.reactiveObject === undefined &&
-            shouldLazilyProxyProperty(raw, prop, value) &&
+            prop !== "constructor" &&
+            shouldCreatePlainObjectProxyLazily(value) &&
             !shouldKeepRawPropertyValue(
                 Reflect.getOwnPropertyDescriptor(raw, prop),
                 value
@@ -1588,8 +1672,6 @@ function wrapMapMutation(
             // `undefined` as its value.
             const hadKey = Map.prototype.has.call(target, key);
             const rawValue = unwrapCollectionValue(value);
-            if (rawValue !== null && typeof rawValue === "object")
-                normalizeRawInput(rawValue);
             const removedNodes: object[] = [];
             // If we are replacing an existing object child of this map, detach it.
             if (
@@ -1868,8 +1950,6 @@ function wrapSetMutation(
     if (prop === "add") {
         return function addWrapper(value: any) {
             const rawValue = unwrapCollectionValue(value);
-            if (rawValue !== null && typeof rawValue === "object")
-                normalizeRawInput(rawValue);
             if (findSetStoredValue(target, rawValue) !== undefined) {
                 return baseProxy;
             }
@@ -2103,7 +2183,6 @@ function prepareInsertedArrayValue(
         deleteProxiedChild(handler, propName);
         return value;
     }
-    normalizeRawInput(getUnproxiedNode(value) ?? value);
     const parentToSet: IProxyParent<any> = {
         handler,
         propName,
@@ -2761,8 +2840,6 @@ function wrapArrayMutation(
             const fillStart = normalizeArrayOffset(start, length, 0);
             const fillEnd = normalizeArrayOffset(end, length, length);
             const rawValue = unwrapCollectionValue(value);
-            if (rawValue !== null && typeof rawValue === "object")
-                normalizeRawInput(rawValue);
             const changedIndices: number[] = [];
             for (let i = fillStart; i < fillEnd; i++) {
                 if (!Object.is(target[i], rawValue)) {
@@ -2970,6 +3047,7 @@ function reparentProxy<T extends TreeNode = TreeNode>(
             "Retree internal invariant failed: cannot reparent a proxy without Retree metadata."
         );
     }
+    assertNoStructuralCycle(handler[unproxiedBaseNodeKey], newParent);
     const currentParent = handler[proxiedParentKey];
     // Reproxy shares same reference to original IProxyParent object.
     // Set deep values directly.

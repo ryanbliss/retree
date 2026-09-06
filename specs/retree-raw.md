@@ -111,6 +111,18 @@ deletes, and `defineProperty` — walking `Retree.raw(root)` (including into
 raw Maps/Sets) finds **zero** values with proxy metadata
 (`getCustomProxyHandler(value) === undefined` for every reachable value).
 
+Scope (revised 2026-09-05): Retree never _stores_ a proxy, and every node it
+has materialized is pure. Raw input is not walked up front any more (that
+eager pass cost `root()` one visit per object in the input, 57 ms for 50k
+plain rows). A proxy the caller embedded inside a plain object or array is
+unwrapped when that object is first materialized, so it can still be found
+by walking raw storage under a lazy subtree nobody has read. A locked
+(non-writable, non-configurable) data property keeps the caller's exact
+value, proxies included, because the get invariant requires it. Structural
+cycle detection moved with the walk: the closing edge throws when it is
+materialized (at `root()` for class fields and collections, on first read
+for lazy plain objects and arrays).
+
 Plus behavior-preservation tests: reads through proxies still return managed
 children; reproxy identity semantics unchanged; `Retree.parent`/`move`/
 `clone` unchanged; `structuredClone(Retree.raw(n))` succeeds on a tree
