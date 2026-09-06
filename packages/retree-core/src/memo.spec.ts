@@ -1963,4 +1963,218 @@ describe("keyed memo keys that read past the traps", () => {
         root.rows[0] = { id: "r1", label: "two" };
         expect(root.label).toBe("two");
     });
+
+    it("gates a key again once a recompute leaves it fully tracked", () => {
+        class Switching extends ReactiveNode {
+            public keyRuns = 0;
+            public tagged = true;
+            public rows: IRow[] = [{ id: "r1", label: "one" }];
+            get dependencies() {
+                return [];
+            }
+            @memo((self) => {
+                self.keyRuns++;
+                const label = self.rows[0].label;
+                return self.tagged ? [label, "tag"] : [label];
+            })
+            get label(): string {
+                return this.rows[0].label;
+            }
+        }
+        const root = trackRoot(Retree.root(new Switching()));
+        expect(root.label).toBe("one");
+        let runs = root.keyRuns;
+        // The literal element leaves the key unscoped: it runs per read.
+        expect(root.label).toBe("one");
+        expect(root.keyRuns).toBe(runs + 1);
+        root.tagged = false;
+        expect(root.label).toBe("one");
+        runs = root.keyRuns;
+        // One tracked run after the recompute finds every element read.
+        expect(root.label).toBe("one");
+        expect(root.keyRuns).toBe(runs + 1);
+        runs = root.keyRuns;
+        expect(root.label).toBe("one");
+        expect(root.keyRuns).toBe(runs);
+        root.rows[0] = { id: "r1", label: "two" };
+        expect(root.label).toBe("two");
+    });
+
+    it("keeps an outer key gated while a nested memo recomputes inside it", () => {
+        let outerKeyRuns = 0;
+        class Nested extends ReactiveNode {
+            public rows: IRow[] = [{ id: "r1", label: "one" }];
+            get dependencies() {
+                return [];
+            }
+            @memo((self) => [self.rows[0].label])
+            get inner(): string {
+                return this.rows[0].label;
+            }
+            @memo((self) => {
+                outerKeyRuns++;
+                return [self.inner];
+            })
+            get outer(): string {
+                return `${this.inner}!`;
+            }
+        }
+        const root = trackRoot(Retree.root(new Nested()));
+        expect(root.outer).toBe("one!");
+        let runs = outerKeyRuns;
+        expect(root.outer).toBe("one!");
+        expect(outerKeyRuns).toBe(runs);
+        // The inner body recomputes inside the outer key's run; its reads
+        // stay out of that frame and the outer key gates again.
+        root.rows[0] = { id: "r1", label: "two" };
+        expect(root.outer).toBe("two!");
+        runs = outerKeyRuns;
+        expect(root.outer).toBe("two!");
+        expect(outerKeyRuns).toBe(runs);
+    });
+});
+
+describe("reads through memos with hidden bodies", () => {
+    interface IRow {
+        id: string;
+        value: string;
+    }
+
+    it("recomputes when a path read serves another node", () => {
+        let runs = 0;
+        class Store extends ReactiveNode {
+            public row: IRow = { id: "a", value: "Ada" };
+            get dependencies() {
+                return [];
+            }
+            @memo
+            get value(): string {
+                runs++;
+                return this.row.value;
+            }
+        }
+        const root = trackRoot(Retree.root(new Store()));
+        expect(root.value).toBe("Ada");
+        // Reading into the row narrows the `row` read to its identity, so
+        // the row's other fields do not recompute.
+        root.row.id = "b";
+        expect(root.value).toBe("Ada");
+        expect(runs).toBe(1);
+        root.row = { id: "a", value: "Grace" };
+        expect(root.value).toBe("Grace");
+        expect(runs).toBe(2);
+    });
+
+    it("recomputes when a keyed memo it reads into serves another node", () => {
+        class Store extends ReactiveNode {
+            public rows: IRow[] = [];
+            public rowId = "";
+            get dependencies() {
+                return [];
+            }
+            @memo((self: Store) => [self.rows, self.rowId])
+            get currentRow(): IRow | null {
+                return this.rows.find((row) => row.id === this.rowId) ?? null;
+            }
+        }
+        class Consumer extends ReactiveNode {
+            @link public store: Store | null = null;
+            get dependencies() {
+                return [];
+            }
+            @memo
+            private get _value(): string | null {
+                return this.store?.currentRow?.value ?? null;
+            }
+            @select
+            get value(): string | null {
+                return this._value;
+            }
+        }
+        const root = trackRoot(
+            Retree.root({ store: new Store(), consumer: new Consumer() })
+        );
+        root.store.rows.push({ id: "a", value: "Ada" });
+        root.store.rowId = "a";
+        root.consumer.store = root.store;
+        const changed = vi.fn();
+        Retree.on(root.consumer, "nodeChanged", changed);
+        expect(root.consumer.value).toBe("Ada");
+        // The keyed memo's body reads stay out of the outer frames, so the
+        // outer memo validates through the getter read and the select
+        // subscribes through the replayed key reads.
+        root.store.rows.splice(0, 1, { id: "a", value: "Grace" });
+        expect(root.consumer.value).toBe("Grace");
+        expect(changed).toHaveBeenCalled();
+    });
+
+    it("keeps a key that lists a node it also reads into on the node's version", () => {
+        interface IBase {
+            name: string;
+            modifier: string;
+        }
+        class Editor extends ReactiveNode {
+            public base: IBase = { name: "a", modifier: "concrete" };
+            public rows: IBase[] = [{ name: "r", modifier: "concrete" }];
+            get dependencies() {
+                return [];
+            }
+            // Reading `name` narrows the `base` read to its identity, which
+            // cannot stand in for the `base` element's own version.
+            @memo((self: Editor) => [self.base, self.base.name])
+            get abstract(): boolean {
+                return this.base.modifier === "abstract";
+            }
+            // An array slot read compares identity alone as well.
+            @memo((self: Editor) => [self.rows[0]])
+            get firstAbstract(): boolean {
+                return this.rows[0].modifier === "abstract";
+            }
+        }
+        const root = trackRoot(Retree.root(new Editor()));
+        expect(root.abstract).toBe(false);
+        expect(root.abstract).toBe(false);
+        root.base.modifier = "abstract";
+        expect(root.abstract).toBe(true);
+        expect(root.firstAbstract).toBe(false);
+        expect(root.firstAbstract).toBe(false);
+        root.rows[0].modifier = "abstract";
+        expect(root.firstAbstract).toBe(true);
+    });
+
+    it("re-runs a @select over an unscoped keyed memo when its key node changes", () => {
+        class Store extends ReactiveNode {
+            public rows: IRow[] = [];
+            public rowId = "";
+            get dependencies() {
+                return [];
+            }
+            // The literal leaves the key unscoped: it runs plainly inside
+            // the select's frame on every read.
+            @memo((self: Store) => [self.rows, self.rowId, "tag"])
+            get currentRow(): IRow | null {
+                return this.rows.find((row) => row.id === this.rowId) ?? null;
+            }
+        }
+        class Consumer extends ReactiveNode {
+            @link public store: Store | null = null;
+            get dependencies() {
+                return [];
+            }
+            @select
+            get value(): string | null {
+                return this.store?.currentRow?.value ?? null;
+            }
+        }
+        const root = trackRoot(
+            Retree.root({ store: new Store(), consumer: new Consumer() })
+        );
+        root.store.rows.push({ id: "a", value: "Ada" });
+        root.store.rowId = "a";
+        root.consumer.store = root.store;
+        expect(root.consumer.value).toBe("Ada");
+        expect(root.consumer.value).toBe("Ada");
+        root.store.rows.splice(0, 1, { id: "a", value: "Grace" });
+        expect(root.consumer.value).toBe("Grace");
+    });
 });

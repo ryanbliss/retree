@@ -45,8 +45,8 @@ interface DependencyAccessFrame {
     managedValueIndices: Map<TreeNode, number[]> | null;
     /**
      * Comparisons mode: live indices of property-read entries keyed by the
-     * read value's unproxied node, so intermediate path reads are deduped
-     * when the same node is read from again as an owner.
+     * read value's unproxied node, so a path read narrows to the node's
+     * identity when the run reads into that node.
      */
     propertyValueIndices: Map<TreeNode, number[]> | null;
     /**
@@ -84,16 +84,25 @@ export interface DependencyComparisonAccessor {
     readonly sourceUnproxiedNode?: TreeNode;
     /** Property key the read is attributable to; absent for key-set reads. */
     readonly propertyKey?: string | symbol;
-    /** Managed property values also compare their current view; array slots compare raw identities. */
+    /** Managed property values also compare their current view; identity reads compare raw identities. */
     readonly valueUnproxiedNode?: TreeNode;
     /** Values seen by the read that created this accessor, when it kept them. */
     readonly capturedValues?: readonly unknown[];
+    /**
+     * The read compares a node's raw identity alone, so it cannot stand in
+     * for that node's own version.
+     */
+    readonly identityOnly?: boolean;
     getValues(): unknown[];
 }
 
 enum TrackedReadKind {
     Property,
-    ArrayElement,
+    /**
+     * Compares the raw identity of the value: array slots, and property
+     * reads whose node the run then read into.
+     */
+    Identity,
     Presence,
     Keys,
 }
@@ -119,6 +128,10 @@ class TrackedNodeRead implements DependencyComparisonAccessor {
 
     public get ownerUnproxiedNode(): TreeNode {
         return this.ownerHandler[unproxiedBaseNodeKey];
+    }
+
+    public get identityOnly(): boolean {
+        return this.readKind === TrackedReadKind.Identity;
     }
 
     /**
@@ -148,7 +161,7 @@ class TrackedNodeRead implements DependencyComparisonAccessor {
         switch (this.readKind) {
             case TrackedReadKind.Presence:
                 return [Reflect.has(this.dependencyNode, propertyKey)];
-            case TrackedReadKind.ArrayElement:
+            case TrackedReadKind.Identity:
                 return [
                     toComparisonCell(
                         Reflect.get(this.dependencyNode, propertyKey)
@@ -585,11 +598,44 @@ function runDependenciesFrame<T>(callback: () => T): {
     frame: DependencyAccessFrame;
 } {
     const frame = createDependencyAccessFrame(FrameMode.Dependencies);
+    return { value: runFrame(frame, callback), frame };
+}
+
+/**
+ * Runs `callback` with `frame` on top of the stack. A frame tracks its own
+ * reads whatever paused the frames beneath it: a `@select` body or memo key
+ * that runs inside `Retree.untracked` or a memo body still has to see every
+ * read it validates by, or it would cache with none and never invalidate.
+ */
+function runFrame<T>(frame: DependencyAccessFrame, callback: () => T): T {
+    const pausedDepth = pauseDependencyTrackingDepth;
+    pauseDependencyTrackingDepth = 0;
     dependencyAccessStack.push(frame);
     try {
-        return { value: callback(), frame };
+        return callback();
     } finally {
         dependencyAccessStack.pop();
+        pauseDependencyTrackingDepth = pausedDepth;
+    }
+}
+
+/**
+ * Runs a memo body with its reads hidden from the enclosing frame. That frame
+ * validates the memo through the getter read that produced its value, and the
+ * memo validates itself through its key, so the body's reads would only add
+ * records nothing consults; inside a key function's frame they made every
+ * nested recompute pay comparisons bookkeeping per read. This is not a bypass
+ * read, so no frame turns partial, and frames the body opens track normally.
+ */
+export function runMemoBody<T>(fn: () => T): T {
+    if (dependencyAccessStack.length === 0) {
+        return fn();
+    }
+    pauseDependencyTrackingDepth++;
+    try {
+        return fn();
+    } finally {
+        pauseDependencyTrackingDepth--;
     }
 }
 
@@ -696,14 +742,8 @@ export function collectDependencyComparisonAccesses<T>(callback: () => T): {
     coverage: ReadCoverage;
     comparisons: unknown[];
 } {
-    let value: T | undefined;
     const frame = createDependencyAccessFrame(FrameMode.Comparisons);
-    dependencyAccessStack.push(frame);
-    try {
-        value = callback();
-    } finally {
-        dependencyAccessStack.pop();
-    }
+    const value = runFrame(frame, callback);
     const comparisons: unknown[] = [];
     for (const entry of frame.entries) {
         if (entry === undefined) {
@@ -902,13 +942,13 @@ export function trackDependencyPropertyAccess<T>(
         return value;
     }
     removePendingManagedValueAccess(currentFrame, ownerUnproxiedNode);
-    removePendingPropertyValueAccess(currentFrame, ownerUnproxiedNode);
+    narrowPendingPropertyValueAccess(currentFrame, ownerUnproxiedNode);
     const valueUnproxiedNode = valueHandler?.[unproxiedBaseNodeKey];
     const entryIndex = currentFrame.entries.length;
     currentFrame.entries.push(
         arrayElementRead
             ? new TrackedNodeRead(
-                  TrackedReadKind.ArrayElement,
+                  TrackedReadKind.Identity,
                   ownerHandler,
                   owner,
                   propertyKey,
@@ -969,7 +1009,7 @@ export function trackDependencyKeyPresenceAccess(
     }
     const ownerUnproxiedNode = ownerHandler[unproxiedBaseNodeKey];
     removePendingManagedValueAccess(currentFrame, ownerUnproxiedNode);
-    removePendingPropertyValueAccess(currentFrame, ownerUnproxiedNode);
+    narrowPendingPropertyValueAccess(currentFrame, ownerUnproxiedNode);
     currentFrame.entries.push(
         new TrackedNodeRead(
             TrackedReadKind.Presence,
@@ -1012,7 +1052,7 @@ export function trackDependencyKeysAccess(
         return;
     }
     removePendingManagedValueAccess(currentFrame, ownerUnproxiedNode);
-    removePendingPropertyValueAccess(currentFrame, ownerUnproxiedNode);
+    narrowPendingPropertyValueAccess(currentFrame, ownerUnproxiedNode);
     currentFrame.entries.push(
         new TrackedNodeRead(
             TrackedReadKind.Keys,
@@ -1031,10 +1071,7 @@ export function replayDependencyComparisonAccesses(
 ): void {
     const currentFrame =
         dependencyAccessStack[dependencyAccessStack.length - 1];
-    if (
-        currentFrame === undefined ||
-        currentFrame.mode !== FrameMode.Dependencies
-    ) {
+    if (currentFrame === undefined) {
         return;
     }
     for (let index = 0; index < comparisons.length; index++) {
@@ -1050,18 +1087,36 @@ export function replayDependencyComparisonAccesses(
         if (handler === undefined) {
             continue;
         }
-        // Cached trapped memos can already know the current comparison cells
-        // from their validation pass. Reusing those cells keeps nested @select
-        // collection from re-running expensive property accessors a second time.
+        // Cached trapped memos know the current cells from their validation
+        // pass and a fresh run kept the values it read, so a replay never
+        // re-runs the property accessors a second time.
+        const values =
+            comparisonValues?.[index] ??
+            comparison.capturedValues ??
+            comparison.getValues();
+        const replayed = new ReplayedRead(dependencyNode, comparison, [
+            ...values,
+        ]);
+        if (currentFrame.mode === FrameMode.Comparisons) {
+            currentFrame.entries.push(replayed);
+            continue;
+        }
         const record = getReadRecord(currentFrame, handler);
         if (comparison.propertyKey === undefined) {
             record.replayedKeyless = true;
         }
-        (record.replayed ??= []).push(
-            new ReplayedRead(dependencyNode, comparison, [
-                ...(comparisonValues?.[index] ?? comparison.getValues()),
-            ])
+        (record.replayed ??= []).push(replayed);
+        // A managed value the memo did not read into counts as read whole,
+        // exactly as a direct read of it would.
+        if (comparison.valueUnproxiedNode === undefined) {
+            continue;
+        }
+        const valueHandler = getCustomProxyHandlerFromMetadata(
+            replayed.capturedValues[0]
         );
+        if (valueHandler !== undefined) {
+            getReadRecord(currentFrame, valueHandler).wholeNodeRead = true;
+        }
     }
 }
 
@@ -1242,15 +1297,38 @@ function isWrittenPropertyRead(
     return writtenOwnerKeys.has(entry.propertyKey);
 }
 
-function removePendingPropertyValueAccess(
+/**
+ * A read into a node the run reached through a property narrows that
+ * property read to the node's identity: the fields read validate the node's
+ * own writes, while the property serving another node still invalidates.
+ */
+function narrowPendingPropertyValueAccess(
     frame: DependencyAccessFrame,
     valueUnproxiedNode: TreeNode
 ) {
-    tombstoneIndexedEntries(
-        frame,
-        frame.propertyValueIndices,
-        valueUnproxiedNode
-    );
+    const indexMap = frame.propertyValueIndices;
+    if (indexMap === null) {
+        return;
+    }
+    const indices = indexMap.get(valueUnproxiedNode);
+    if (indices === undefined) {
+        return;
+    }
+    for (const entryIndex of indices) {
+        const entry = frame.entries[entryIndex];
+        if (!(entry instanceof TrackedNodeRead)) {
+            continue;
+        }
+        frame.entries[entryIndex] = new TrackedNodeRead(
+            TrackedReadKind.Identity,
+            entry.ownerHandler,
+            entry.dependencyNode,
+            entry.propertyKey,
+            [valueUnproxiedNode],
+            undefined
+        );
+    }
+    indexMap.delete(valueUnproxiedNode);
 }
 
 function isArrayElementRead(

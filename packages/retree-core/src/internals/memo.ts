@@ -15,9 +15,11 @@ import {
     collectDependencyComparisonAccesses,
     replayDependencyComparisonAccesses,
     isDependencyTrackingActive,
+    runMemoBody,
 } from "./dependency-tracking.js";
 import { getDependencyComparisonValues } from "./dependencies.js";
 import { getUnproxiedNode } from "./proxy.js";
+import { getCustomProxyHandlerFromMetadata } from "./proxy-types.js";
 import { getManagedProxyForUnproxiedNode } from "./reproxy.js";
 
 /**
@@ -51,11 +53,27 @@ interface IMemoCacheEntry {
      */
     args: unknown[] | undefined;
     /**
-     * Keyed entries only: every element of the last key result was one of
-     * the key function's tracked reads, so validating those reads can stand
-     * in for running the key function.
+     * Keyed entries only: whether validating the key function's reads can
+     * stand in for running the key function. See {@link KeyScope}.
      */
-    keyReadsScoped: boolean;
+    keyScope: KeyScope;
+}
+
+/**
+ * How a keyed entry decides whether its key function must run.
+ *
+ * Every element of a scoped key result was one of the key function's tracked
+ * reads, so validating those reads stands in for running it. An unscoped key
+ * (a derived element, a literal, a run that read past the traps) runs on
+ * every read, so it runs plainly: tracking its reads would only allocate
+ * records nothing validates. Scope is unknown for a fresh entry and again
+ * after an unscoped entry recomputes, so a key that was unscoped in one
+ * state can gate in the next.
+ */
+enum KeyScope {
+    Unknown,
+    Scoped,
+    Unscoped,
 }
 
 interface ITrappedMemoValidation {
@@ -230,7 +248,7 @@ export function runMemo<T>(
             return prev.value as T;
         }
     }
-    const value = fn();
+    const value = runMemoBody(fn);
     // Capture the reproxy AFTER fn so any mutations the computation performed on
     // `this` (e.g. an internal counter) are folded into the cached snapshot. Otherwise
     // the very first read would reproxy mid-compute and every subsequent read would
@@ -242,7 +260,7 @@ export function runMemo<T>(
         comparisonSnapshots: undefined,
         reproxy: getManagedProxyForUnproxiedNode(unproxied) ?? currentReproxy,
         args: undefined,
-        keyReadsScoped: false,
+        keyScope: KeyScope.Unknown,
     });
     return value;
 }
@@ -282,7 +300,7 @@ export function runTrappedMemo<T>(
         ),
         reproxy: getManagedProxyForUnproxiedNode(unproxied),
         args: undefined,
-        keyReadsScoped: false,
+        keyScope: KeyScope.Unknown,
     };
     cache.set(key, entry);
     // The body ran in its own frame; an enclosing tracked run still needs
@@ -325,14 +343,22 @@ export function runKeyedMemo<T>(
             ? prev.args === undefined
             : prev.args !== undefined &&
               shallowEqualArrays(prev.args, normalizedArgs));
-    if (
-        prev !== undefined &&
-        argsMatch &&
-        prev.keyReadsScoped &&
-        validateTrappedMemo(prev)
-    ) {
-        replayTrappedMemo(prev);
-        return prev.value as T;
+    if (prev !== undefined && argsMatch) {
+        if (prev.keyScope === KeyScope.Scoped && validateTrappedMemo(prev)) {
+            replayTrappedMemo(prev);
+            return prev.value as T;
+        }
+        if (prev.keyScope === KeyScope.Unscoped) {
+            return runUnscopedKeyedMemo(
+                unproxied,
+                cache,
+                key,
+                prev,
+                fn,
+                getComparisons,
+                normalizedArgs
+            );
+        }
     }
     const currentReproxy = getManagedProxyForUnproxiedNode(unproxied);
     const keyRun = collectDependencyComparisonAccesses(getComparisons);
@@ -345,6 +371,18 @@ export function runKeyedMemo<T>(
         keyRun.coverage === ReadCoverage.Complete &&
         keyRun.value !== undefined &&
         areKeyElementsTrackedReads(keyRun.value, keyRun.comparisons);
+    if (!keyReadsScoped) {
+        return storeUnscopedKeyedMemo(
+            unproxied,
+            cache,
+            key,
+            prev !== undefined && argsMatch ? prev : undefined,
+            fn,
+            normalized,
+            currentReproxy,
+            normalizedArgs
+        );
+    }
     const keyReads = normalizeComparisonsWithSnapshots(keyRun.comparisons);
     if (prev !== undefined && argsMatch) {
         const hit =
@@ -360,11 +398,11 @@ export function runKeyedMemo<T>(
                 keyRun.comparisons,
                 keyReads.snapshots
             );
-            prev.keyReadsScoped = keyReadsScoped;
+            prev.keyScope = KeyScope.Scoped;
             return prev.value as T;
         }
     }
-    const value = fn();
+    const value = runMemoBody(fn);
     cache.set(key, {
         value,
         comparisons: normalized,
@@ -376,7 +414,80 @@ export function runKeyedMemo<T>(
         ),
         reproxy: getManagedProxyForUnproxiedNode(unproxied) ?? currentReproxy,
         args: normalizedArgs,
-        keyReadsScoped,
+        keyScope: KeyScope.Scoped,
+    });
+    return value;
+}
+
+/**
+ * Read path of an entry whose key cannot be validated: the key function runs
+ * plainly, so its reads land in the enclosing frame as any other read does,
+ * and only its normalized result decides between a hit and a recompute.
+ */
+function runUnscopedKeyedMemo<T>(
+    unproxied: ReactiveNode,
+    cache: Map<string | symbol, IMemoCacheEntry>,
+    key: string | symbol,
+    prev: IMemoCacheEntry,
+    fn: () => T,
+    getComparisons: () => unknown[] | undefined,
+    normalizedArgs: unknown[] | undefined
+): T {
+    const currentReproxy = getManagedProxyForUnproxiedNode(unproxied);
+    const comparisons = getComparisons();
+    const normalized =
+        comparisons === undefined
+            ? undefined
+            : normalizeComparisons(comparisons);
+    return storeUnscopedKeyedMemo(
+        unproxied,
+        cache,
+        key,
+        prev,
+        fn,
+        normalized,
+        currentReproxy,
+        normalizedArgs
+    );
+}
+
+/**
+ * Serves a hit for an unscoped key result or recomputes and stores the entry
+ * with its scope unknown, so the next read runs the key under tracking once
+ * and can gate it if the new state allows.
+ */
+function storeUnscopedKeyedMemo<T>(
+    unproxied: ReactiveNode,
+    cache: Map<string | symbol, IMemoCacheEntry>,
+    key: string | symbol,
+    prev: IMemoCacheEntry | undefined,
+    fn: () => T,
+    normalized: unknown[] | undefined,
+    currentReproxy: TreeNode | undefined,
+    normalizedArgs: unknown[] | undefined
+): T {
+    if (prev !== undefined) {
+        const hit =
+            normalized === undefined
+                ? prev.comparisons === undefined &&
+                  prev.reproxy === currentReproxy
+                : prev.comparisons !== undefined &&
+                  shallowEqualArrays(prev.comparisons, normalized);
+        if (hit) {
+            prev.keyScope = KeyScope.Unscoped;
+            return prev.value as T;
+        }
+    }
+    const value = runMemoBody(fn);
+    cache.set(key, {
+        value,
+        comparisons: normalized,
+        comparisonAccessors: undefined,
+        comparisonSnapshots: undefined,
+        validation: undefined,
+        reproxy: getManagedProxyForUnproxiedNode(unproxied) ?? currentReproxy,
+        args: normalizedArgs,
+        keyScope: KeyScope.Unknown,
     });
     return value;
 }
@@ -384,7 +495,10 @@ export function runKeyedMemo<T>(
 /**
  * True when every key element is a value one of the key function's tracked
  * reads produced. Managed values compare by raw node so a read that
- * returned a child proxy covers the child listed in the key.
+ * returned a child proxy covers the child listed in the key. A read that
+ * compares a node's identity alone (an array slot, a path read the key
+ * then read into) does not cover it: the key lists the node for its own
+ * version, which only the key function's normalized result compares.
  */
 function areKeyElementsTrackedReads(
     elements: unknown[],
@@ -404,6 +518,12 @@ function areKeyElementsTrackedReads(
                 const values =
                     comparison.capturedValues ?? comparison.getValues();
                 for (const value of values) {
+                    if (
+                        comparison.identityOnly === true &&
+                        isObjectValue(value)
+                    ) {
+                        continue;
+                    }
                     readValues.add(toRawIdentity(value));
                 }
             }
@@ -413,6 +533,10 @@ function areKeyElementsTrackedReads(
         }
     }
     return true;
+}
+
+function isObjectValue(value: unknown): value is object {
+    return value !== null && typeof value === "object";
 }
 
 function toRawIdentity(value: unknown): unknown {
@@ -465,7 +589,7 @@ export function runTrappedFnMemo<T>(
         ),
         reproxy: getManagedProxyForUnproxiedNode(unproxied),
         args: normalizedArgs,
-        keyReadsScoped: false,
+        keyScope: KeyScope.Unknown,
     };
     cache.set(key, entry);
     replayTrappedMemo(entry);
@@ -574,6 +698,11 @@ function isDependencyComparisonAccessor(
     value: unknown
 ): value is DependencyComparisonAccessor {
     if (value === null || typeof value !== "object") {
+        return false;
+    }
+    // A managed node is never an accessor, and reading `kind` through its
+    // trap would land a read in the enclosing frame.
+    if (getCustomProxyHandlerFromMetadata(value) !== undefined) {
         return false;
     }
     return (

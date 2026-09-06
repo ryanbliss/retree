@@ -1,0 +1,7 @@
+---
+"@retreejs/core": patch
+---
+
+`@memo(keyFn)` and `@fnMemo(keyFn)` entries whose key cannot be gated (a derived or literal element, or a key run that read past the traps) run their key function plainly again. Every read of such an entry was collecting tracked reads, snapshots, and a source map that nothing validated; on a view model with a few hundred keyed memos that tripled a constructor replay. An unscoped entry re-attempts scoping once after each recompute, so a key that becomes fully tracked in a later state still gates.
+
+Hiding memo bodies from enclosing frames exposed three gaps that the leaked body reads had covered. A trapped memo that read `a.b.c` dropped its `a.b` read once it read into `b`, so a new `b` never invalidated it; that read now narrows to `b`'s identity instead. Reads a nested memo replays now land in enclosing memo frames too, and a replayed managed value the memo did not read into counts as a whole-node read, so a `@select` over a keyed memo subscribes to the key's nodes and re-runs when one is written. Key elements that are managed nodes no longer read `kind` through their traps while a key normalizes. A key element that is a node validates through a read of that node's view only; a read that compares its identity alone (an array slot, a path read the key then read into) leaves the key unscoped, so `@memo((self) => [self.rows[0]])` recomputes again when the slot's node is written.

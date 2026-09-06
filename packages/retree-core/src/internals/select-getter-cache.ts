@@ -8,6 +8,7 @@ import { TreeNode } from "../types.js";
 import {
     collectTrackedSelectionAccesses,
     ITrackedSelectionAccesses,
+    NodeReadRecord,
     ReadCoverage,
     trackSelectGetterRead,
 } from "./dependency-tracking.js";
@@ -122,18 +123,29 @@ function isSelectGetterEntryValid(entry: ISelectGetterCacheEntry): boolean {
     const owners = getWrittenOwnersSince(entry.version);
     if (owners === undefined) {
         for (const record of reads.values()) {
-            if (!record.isUnchanged()) {
+            if (!isReadRecordValid(record)) {
                 return false;
             }
         }
     } else {
         for (const owner of owners) {
             const record = reads.get(owner);
-            if (record !== undefined && !record.isUnchanged()) {
+            if (record !== undefined && !isReadRecordValid(record)) {
                 return false;
             }
         }
     }
     entry.version = version;
     return true;
+}
+
+/**
+ * A node the run read whole may have changed with any write to it; a keyed
+ * record re-reads its cells.
+ */
+function isReadRecordValid(record: NodeReadRecord): boolean {
+    if (record.wholeNodeRead) {
+        return false;
+    }
+    return record.isUnchanged();
 }

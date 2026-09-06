@@ -161,3 +161,24 @@ record or accessor for that owner is the only one validated.
 -   Tracked `useSelect` no longer re-renders when a `@select` getter it read
     re-evaluates to the same value; one React test that expected that
     render now expects none.
+-   Unscoped entries run their key function plainly (2026-09-06). The first
+    cut ran every key under comparisons tracking and stored snapshots and a
+    source map even when the entry could never validate; Neo's 234 keyed
+    memos are all unscoped (`peekInto` cells, derived elements), so each
+    read paid that allocation for nothing and a constructor replay went from
+    405 ms to 1500 ms. An entry's scope is `Unknown` when fresh and after an
+    unscoped recompute, `Scoped` once a tracked run finds every element read,
+    and `Unscoped` otherwise; only `Unknown` runs the key under tracking.
+-   Hidden memo bodies exposed reads the leaks had covered (2026-09-06).
+    A trapped memo's path read `a.b` was dropped once the run read into
+    `b`, so replacing `b` never invalidated it; the read now narrows to
+    `b`'s identity. Replays land in comparison frames too, a replayed
+    managed value the memo did not read into marks a whole-node record,
+    and the `@select` getter cache treats a whole-node record of a written
+    owner as changed. Normalizing a key no longer reads `kind` through a
+    managed element's trap, which had narrowed the key's own read of it.
+    A key element that is a node is covered only by a read of its view; an
+    identity-only read (array slot, narrowed path read) leaves the key
+    unscoped, which also closes a 0.10.0 hole where
+    `@memo((self) => [self.rows[0]])` gated on the slot's identity and
+    missed writes to the row.
