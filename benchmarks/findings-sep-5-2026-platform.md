@@ -266,3 +266,38 @@ the same). It was reverted before merge: a `React.memo` component under a
 never-written container VM would render again on any unrelated parent
 render for every child that changed since, and the gains above come from
 the handler cache, not from the identity rule (spec §5).
+
+## Item 8: key-scoped validation for ReactiveNode writes
+
+Measured first, as planned. Neo's tiny-root cells are the fastest shape
+there is (0.6 ms per 100 bumps with one reader each, 0.5 µs to mint) and
+the fan-out of `nodeChanged` listeners was never the problem. The problem
+was `canSkipTrackedDependencyChange` refusing key scoping for any write
+whose owner is a `ReactiveNode`, so every tracked reader of a view model
+re-validated on every unrelated write, re-running plain getters as it went.
+That is the validation storm the cells were minted to avoid.
+
+Changes: the exclusion is gone. Plain getters were already transparent
+(their backing reads are keys of the reader's record). `@memo` replays now
+contribute their property keys to the record's key set instead of making
+it unscopable. `@select` getter reads record the getter's cache key, and
+the skip check asks the select cache live whether the getter's current run
+read the changed key on the owner.
+
+`s10-cells.ts`: ReactiveNode VM with 50 fields, 500 `Retree.select`
+readers, 100 bumps of an unread `counter`; item 7 bundle vs this branch,
+serial alternating rounds:
+
+| Reader shape | Item 7 | Item 8 |
+| --- | --- | --- |
+| 3 data fields each | 18.7 ms | 9.3 ms |
+| 3 plain getters each | 42 ms | 3.6 ms |
+| 3 `@select` getters each | 24 ms | 11.5 ms |
+| 3 `@memo` getters each | 38 ms | 7.3 ms |
+| plain-object VM, 3 data fields (control) | 7.5 ms | 6.6 ms |
+| 500 tiny root cells, 1 reader each (control) | 0.6 ms | 0.6 ms |
+
+Selector re-run counters in the probe read zero for the unrelated bumps and
+exactly the expected readers for a write to `f0`. A cell or boundary
+primitive is not designed: the remaining cost is subscriber count, which a
+boundary marker would not change (spec §5).

@@ -9,6 +9,7 @@ import {
     collectTrackedSelectionAccesses,
     ITrackedSelectionAccesses,
     ReadCoverage,
+    trackSelectGetterRead,
 } from "./dependency-tracking.js";
 import {
     getCustomProxyHandlerFromMetadata,
@@ -47,6 +48,7 @@ export function collectSelectGetter(
     if (handler === undefined) {
         return collectTrackedSelectionAccesses(body);
     }
+    trackSelectGetterRead(handler, key);
     const unproxied = handler[unproxiedBaseNodeKey];
     let cache = selectGetterCaches.get(unproxied);
     if (cache === undefined) {
@@ -63,6 +65,47 @@ export function collectSelectGetter(
     }
     cache.set(key, { accesses, version: getGlobalWriteVersion() });
     return accesses;
+}
+
+/**
+ * True when a write to `changedKey` on `unproxied` may change one of the
+ * `@select` getters cached under `getterKeys`: the getter's last run read
+ * that key on its owner, read the owner in a way keys cannot scope, or has
+ * not been cached. Reads of other nodes reach readers as forwarded records.
+ */
+export function selectGetterMayReadKey(
+    unproxied: TreeNode,
+    getterKeys: readonly (string | symbol)[],
+    changedKey: string
+): boolean {
+    const cache = selectGetterCaches.get(unproxied);
+    if (cache === undefined) {
+        return true;
+    }
+    for (const getterKey of getterKeys) {
+        const entry = cache.get(getterKey);
+        if (entry === undefined) {
+            return true;
+        }
+        const record = entry.accesses.reads.get(unproxied);
+        if (record === undefined) {
+            continue;
+        }
+        if (record.wholeNodeRead || !record.keyScopable) {
+            return true;
+        }
+        if (record.hasPropertyKey(changedKey)) {
+            return true;
+        }
+        const nested = record.selectGetterKeys;
+        if (
+            nested !== null &&
+            selectGetterMayReadKey(unproxied, nested, changedKey)
+        ) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /**
