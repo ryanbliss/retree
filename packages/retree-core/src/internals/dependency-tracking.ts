@@ -585,11 +585,44 @@ function runDependenciesFrame<T>(callback: () => T): {
     frame: DependencyAccessFrame;
 } {
     const frame = createDependencyAccessFrame(FrameMode.Dependencies);
+    return { value: runFrame(frame, callback), frame };
+}
+
+/**
+ * Runs `callback` with `frame` on top of the stack. A frame tracks its own
+ * reads whatever paused the frames beneath it: a `@select` body or memo key
+ * that runs inside `Retree.untracked` or a memo body still has to see every
+ * read it validates by, or it would cache with none and never invalidate.
+ */
+function runFrame<T>(frame: DependencyAccessFrame, callback: () => T): T {
+    const pausedDepth = pauseDependencyTrackingDepth;
+    pauseDependencyTrackingDepth = 0;
     dependencyAccessStack.push(frame);
     try {
-        return { value: callback(), frame };
+        return callback();
     } finally {
         dependencyAccessStack.pop();
+        pauseDependencyTrackingDepth = pausedDepth;
+    }
+}
+
+/**
+ * Runs a memo body with its reads hidden from the enclosing frame. That frame
+ * validates the memo through the getter read that produced its value, and the
+ * memo validates itself through its key, so the body's reads would only add
+ * records nothing consults; inside a key function's frame they made every
+ * nested recompute pay comparisons bookkeeping per read. This is not a bypass
+ * read, so no frame turns partial, and frames the body opens track normally.
+ */
+export function runMemoBody<T>(fn: () => T): T {
+    if (dependencyAccessStack.length === 0) {
+        return fn();
+    }
+    pauseDependencyTrackingDepth++;
+    try {
+        return fn();
+    } finally {
+        pauseDependencyTrackingDepth--;
     }
 }
 
@@ -696,14 +729,8 @@ export function collectDependencyComparisonAccesses<T>(callback: () => T): {
     coverage: ReadCoverage;
     comparisons: unknown[];
 } {
-    let value: T | undefined;
     const frame = createDependencyAccessFrame(FrameMode.Comparisons);
-    dependencyAccessStack.push(frame);
-    try {
-        value = callback();
-    } finally {
-        dependencyAccessStack.pop();
-    }
+    const value = runFrame(frame, callback);
     const comparisons: unknown[] = [];
     for (const entry of frame.entries) {
         if (entry === undefined) {

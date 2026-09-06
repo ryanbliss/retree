@@ -1963,4 +1963,73 @@ describe("keyed memo keys that read past the traps", () => {
         root.rows[0] = { id: "r1", label: "two" };
         expect(root.label).toBe("two");
     });
+
+    it("gates a key again once a recompute leaves it fully tracked", () => {
+        class Switching extends ReactiveNode {
+            public keyRuns = 0;
+            public tagged = true;
+            public rows: IRow[] = [{ id: "r1", label: "one" }];
+            get dependencies() {
+                return [];
+            }
+            @memo((self) => {
+                self.keyRuns++;
+                const label = self.rows[0].label;
+                return self.tagged ? [label, "tag"] : [label];
+            })
+            get label(): string {
+                return this.rows[0].label;
+            }
+        }
+        const root = trackRoot(Retree.root(new Switching()));
+        expect(root.label).toBe("one");
+        let runs = root.keyRuns;
+        // The literal element leaves the key unscoped: it runs per read.
+        expect(root.label).toBe("one");
+        expect(root.keyRuns).toBe(runs + 1);
+        root.tagged = false;
+        expect(root.label).toBe("one");
+        runs = root.keyRuns;
+        // One tracked run after the recompute finds every element read.
+        expect(root.label).toBe("one");
+        expect(root.keyRuns).toBe(runs + 1);
+        runs = root.keyRuns;
+        expect(root.label).toBe("one");
+        expect(root.keyRuns).toBe(runs);
+        root.rows[0] = { id: "r1", label: "two" };
+        expect(root.label).toBe("two");
+    });
+
+    it("keeps an outer key gated while a nested memo recomputes inside it", () => {
+        let outerKeyRuns = 0;
+        class Nested extends ReactiveNode {
+            public rows: IRow[] = [{ id: "r1", label: "one" }];
+            get dependencies() {
+                return [];
+            }
+            @memo((self) => [self.rows[0].label])
+            get inner(): string {
+                return this.rows[0].label;
+            }
+            @memo((self) => {
+                outerKeyRuns++;
+                return [self.inner];
+            })
+            get outer(): string {
+                return `${this.inner}!`;
+            }
+        }
+        const root = trackRoot(Retree.root(new Nested()));
+        expect(root.outer).toBe("one!");
+        let runs = outerKeyRuns;
+        expect(root.outer).toBe("one!");
+        expect(outerKeyRuns).toBe(runs);
+        // The inner body recomputes inside the outer key's run; its reads
+        // stay out of that frame and the outer key gates again.
+        root.rows[0] = { id: "r1", label: "two" };
+        expect(root.outer).toBe("two!");
+        runs = outerKeyRuns;
+        expect(root.outer).toBe("two!");
+        expect(outerKeyRuns).toBe(runs);
+    });
 });

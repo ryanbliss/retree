@@ -758,6 +758,27 @@ describe("select", () => {
         expect(root.total).toBe(14);
     });
 
+    it("tracks a trapped @select body first read under Retree.untracked", () => {
+        class Board extends ReactiveNode {
+            public rows = [{ id: 1, done: false }];
+
+            @select()
+            get pending() {
+                return this.rows.filter((row) => !row.done).length;
+            }
+            get dependencies() {
+                return [];
+            }
+        }
+        const root = trackRoot(Retree.root(new Board()));
+        // The body's frame tracks its own reads even though the enclosing
+        // scope is paused; otherwise it would cache with none and never
+        // invalidate.
+        expect(Retree.untracked(() => root.pending)).toBe(1);
+        root.rows[0].done = true;
+        expect(root.pending).toBe(0);
+    });
+
     it("caches trapped @select values until a read they made changes", () => {
         let filterRuns = 0;
         class Board extends ReactiveNode {
