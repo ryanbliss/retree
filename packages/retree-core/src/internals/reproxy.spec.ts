@@ -102,6 +102,36 @@ describe("reproxy internals", () => {
         expect(manual.value).toBe(2);
     });
 
+    it("runs write, delete, and define traps on a view once through the base handler", () => {
+        const root = Retree.root({
+            record: { a: 1, b: 2 } as Record<string, number>,
+        });
+        root.record.a = 10;
+        const view = getReproxyNode(getBaseProxy(root.record));
+        expect(view).not.toBe(root.record);
+        const changed = vi.fn();
+        const stop = Retree.on(root.record, "nodeChanged", changed);
+
+        view.c = 3;
+        expect(changed).toHaveBeenCalledTimes(1);
+        expect(Retree.raw(root.record).c).toBe(3);
+
+        delete view.a;
+        expect(changed).toHaveBeenCalledTimes(2);
+        expect("a" in view).toBe(false);
+        expect(Object.keys(view)).toEqual(["b", "c"]);
+
+        Object.defineProperty(view, "d", {
+            value: 4,
+            writable: true,
+            enumerable: true,
+            configurable: true,
+        });
+        expect(changed).toHaveBeenCalledTimes(3);
+        expect(getReproxyNode(root.record).d).toBe(4);
+        stop();
+    });
+
     it("returns stable bound methods from the same reproxy", () => {
         const root = Retree.root(new MethodNode());
         const reproxy = getReproxyNode(root);

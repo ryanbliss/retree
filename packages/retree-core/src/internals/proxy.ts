@@ -241,14 +241,14 @@ function isDateMutatingMethod(prop: string): prop is DateMutatingMethodName {
     return Object.prototype.hasOwnProperty.call(DATE_MUTATING_METHODS, prop);
 }
 
-function getLatestIgnoredValue(value: unknown) {
+export function getLatestIgnoredValue(value: unknown) {
     if (isCustomProxy(value)) {
         return getReproxyNode(value);
     }
     return value;
 }
 
-function getLatestLinkedValue(value: unknown) {
+export function getLatestLinkedValue(value: unknown) {
     if (isCustomProxy(value)) {
         return getReproxyNode(value);
     }
@@ -289,7 +289,7 @@ function assertValidLinkedValue(prop: string | symbol, value: unknown) {
  * literal plus one closure per trap. Materialization of large trees is
  * allocation-bound, so this shape matters.
  */
-class BaseProxyHandler<T extends TreeNode>
+export class BaseProxyHandler<T extends TreeNode>
     implements ProxyHandler<T>, ICustomProxyHandler<T>
 {
     public [unproxiedBaseNodeKey]: T;
@@ -301,13 +301,20 @@ class BaseProxyHandler<T extends TreeNode>
      */
     public snapshotVersionsRecord: ISnapshotVersionRecord | null = null;
     public baseProxy!: TCustomProxy<T>;
+    /**
+     * Latest reproxy view of this node, or null before the first observed
+     * change. `viewDirty` defers the rebuild to the next read of the view
+     * (see reproxy.ts).
+     */
+    public view: TCustomProxy<T> | null = null;
+    public viewDirty = false;
     public readonly emitter: TreeChangeEmitter;
     public readonly reactiveObject: ReactiveNode | undefined;
     private readonly mapObject: Map<any, any> | undefined;
     private readonly setObject: Set<any> | undefined;
     private readonly dateObject: Date | undefined;
-    private readonly arrayObject: (T & unknown[]) | undefined;
-    private readonly hasInternalSlots: boolean;
+    public readonly arrayObject: (T & unknown[]) | undefined;
+    public readonly hasInternalSlots: boolean;
     private isApplyingSet = false;
     private boundFunctionCache: Map<
         string | symbol,
@@ -550,48 +557,53 @@ class BaseProxyHandler<T extends TreeNode>
             typeof value === "object" &&
             prop !== "constructor"
         ) {
-            const storedHandler = getCustomProxyHandlerFromMetadata(value);
-            if (storedHandler !== undefined) {
-                return trackPropertyAccessIfNeeded(
-                    this,
-                    baseProxy,
-                    prop,
-                    this.adoptStoredProxy(
-                        target,
-                        prop,
-                        value,
-                        storedHandler[unproxiedBaseNodeKey]
-                    )
-                );
-            }
-            if (hasLazilyProxiedShape(value)) {
-                const descriptor = Reflect.getOwnPropertyDescriptor(
-                    target,
-                    prop
-                );
-                // Inherited and locked values are served as stored; only an
-                // own, redefinable data property materializes a child.
-                if (
-                    descriptor !== undefined &&
-                    descriptorHasValue(descriptor) &&
-                    !descriptorRequiresExactDefinedValue(descriptor, descriptor)
-                ) {
-                    return trackPropertyAccessIfNeeded(
-                        this,
-                        baseProxy,
-                        prop,
-                        getOrCreateProxiedChild(
-                            this,
-                            prop,
-                            value,
-                            baseProxy,
-                            this.emitter
-                        )
-                    );
-                }
-            }
+            return trackPropertyAccessIfNeeded(
+                this,
+                baseProxy,
+                prop,
+                this.resolveStoredObject(target, prop, value)
+            );
         }
         return trackPropertyAccessIfNeeded(this, baseProxy, prop, value);
+    }
+
+    /**
+     * Serve an object read off the raw target: a stored managed proxy is
+     * adopted, a plain object or array on an own, redefinable data property
+     * materializes a child, and anything else (inherited, locked, or a
+     * class instance the constructor never proxied) is served as stored.
+     */
+    public resolveStoredObject(
+        target: T,
+        prop: string | symbol,
+        value: object
+    ): object {
+        const storedHandler = getCustomProxyHandlerFromMetadata(value);
+        if (storedHandler !== undefined) {
+            return this.adoptStoredProxy(
+                target,
+                prop,
+                value,
+                storedHandler[unproxiedBaseNodeKey]
+            );
+        }
+        if (!hasLazilyProxiedShape(value)) {
+            return value;
+        }
+        const descriptor = Reflect.getOwnPropertyDescriptor(target, prop);
+        if (descriptor === undefined || !descriptorHasValue(descriptor)) {
+            return value;
+        }
+        if (descriptorRequiresExactDefinedValue(descriptor, descriptor)) {
+            return value;
+        }
+        return getOrCreateProxiedChild(
+            this,
+            prop,
+            value,
+            this.baseProxy,
+            this.emitter
+        );
     }
 
     /**
@@ -804,15 +816,8 @@ class BaseProxyHandler<T extends TreeNode>
         if (this.isApplyingSet) {
             return Reflect.defineProperty(target, prop, descriptor);
         }
-        const currentProxyForWrite = isCustomProxy(target)
-            ? target
-            : getManagedProxyForUnproxiedNode(target);
-        const baseProxyForWrite = currentProxyForWrite
-            ? getBaseProxy(currentProxyForWrite)
-            : undefined;
-        if (baseProxyForWrite !== undefined) {
-            trackPropertyWriteIfNeeded(baseProxyForWrite, prop);
-        }
+        const baseProxy = this.baseProxy;
+        trackPropertyWriteIfNeeded(baseProxy, prop);
         if (reactiveObject !== undefined) {
             const propString = String(prop);
             // Check for ignore keys
@@ -826,10 +831,6 @@ class BaseProxyHandler<T extends TreeNode>
                 return Reflect.defineProperty(target, prop, descriptor);
             }
         }
-        const currentProxy = currentProxyForWrite;
-        const baseProxy = currentProxy
-            ? getBaseProxy(currentProxy)
-            : currentProxy;
         const descriptorToDefine: PropertyDescriptor = { ...descriptor };
         const currentDescriptor = Reflect.getOwnPropertyDescriptor(
             target,
@@ -856,10 +857,7 @@ class BaseProxyHandler<T extends TreeNode>
                     currentDescriptor,
                     descriptorToDefine
                 );
-            if (
-                baseProxy &&
-                Reflect.get(baseProxy, prop) !== descriptorToDefine.value
-            ) {
+            if (Reflect.get(baseProxy, prop) !== descriptorToDefine.value) {
                 nodeRemoved = handleNodeRemoved(baseProxy, prop);
             }
             if (shouldKeepRawValue) {
@@ -874,9 +872,7 @@ class BaseProxyHandler<T extends TreeNode>
                 );
             }
         } else if (descriptorHasAccessor(descriptorToDefine)) {
-            if (baseProxy) {
-                nodeRemoved = handleNodeRemoved(baseProxy, prop);
-            }
+            nodeRemoved = handleNodeRemoved(baseProxy, prop);
             deleteProxiedChild(this, prop);
         } else if (currentDescriptorHasValue(currentDescriptor)) {
             // Attribute-only redefinition of a data property: the target
@@ -893,27 +889,21 @@ class BaseProxyHandler<T extends TreeNode>
         if (returnValue && Transactions.skipReproxy)
             bumpGlobalWriteVersion(target);
         if (returnValue && !Transactions.skipReproxy) {
-            if (baseProxy) {
-                const reproxy = updateReproxyNodeForChange(baseProxy);
-                // Still emit here if in a `skipEmit` transaction so that parents get reproxied
-                this.emitter.emit(
-                    "nodeChanged",
+            const reproxy = updateReproxyNodeForChange(baseProxy);
+            // Still emit here if in a `skipEmit` transaction so that parents get reproxied
+            this.emitter.emit(
+                "nodeChanged",
+                this[unproxiedBaseNodeKey],
+                baseProxy,
+                reproxy,
+                createNodeFieldChanges(
                     this[unproxiedBaseNodeKey],
-                    baseProxy,
-                    reproxy,
-                    createNodeFieldChanges(
-                        this[unproxiedBaseNodeKey],
-                        prop,
-                        previousValue,
-                        nextValue,
-                        currentDescriptor === undefined ? "add" : undefined
-                    )
-                );
-            } else {
-                console.warn(
-                    `buildProxy.defineProperty: cannot find baseProxy for target`
-                );
-            }
+                    prop,
+                    previousValue,
+                    nextValue,
+                    currentDescriptor === undefined ? "add" : undefined
+                )
+            );
             // nodeRemoved events do not reproxy parents, so we skip
             if (nodeRemoved && !Transactions.skipEmit) {
                 const removedUnproxied = getUnproxiedNode(nodeRemoved);
@@ -981,15 +971,7 @@ class BaseProxyHandler<T extends TreeNode>
         if (!Object.hasOwn(target, prop)) {
             return Reflect.deleteProperty(target, prop);
         }
-        // Good example of `deleteProperty` is when an item is removed / moved in a list.
-        // `deleteProperty` does not expose the receiver...get the latest reproxy instead.
-        // TODO: should revisit this at some point...
-        const currentProxy = isCustomProxy(target)
-            ? target
-            : getManagedProxyForUnproxiedNode(target);
-        const baseProxy = currentProxy
-            ? getBaseProxy(currentProxy)
-            : currentProxy;
+        const baseProxy = this.baseProxy;
         const nodeRemoved = handleNodeRemoved(baseProxy, prop);
         const previousValue = Reflect.get(target, prop, target);
         const returnValue = Reflect.deleteProperty(target, prop);
@@ -999,27 +981,21 @@ class BaseProxyHandler<T extends TreeNode>
         }
         // If in a skip reproxy transaction, do not reproxy node
         if (!Transactions.skipReproxy) {
-            if (baseProxy) {
-                const reproxy = updateReproxyNodeForChange(baseProxy);
-                // Still emit here if in a `skipEmit` transaction so that parents get reproxied
-                this.emitter.emit(
-                    "nodeChanged",
+            const reproxy = updateReproxyNodeForChange(baseProxy);
+            // Still emit here if in a `skipEmit` transaction so that parents get reproxied
+            this.emitter.emit(
+                "nodeChanged",
+                this[unproxiedBaseNodeKey],
+                baseProxy,
+                reproxy,
+                createNodeFieldChanges(
                     this[unproxiedBaseNodeKey],
-                    baseProxy,
-                    reproxy,
-                    createNodeFieldChanges(
-                        this[unproxiedBaseNodeKey],
-                        prop,
-                        previousValue,
-                        undefined,
-                        "delete"
-                    )
-                );
-            } else {
-                console.warn(
-                    `buildProxy.deleteProperty: cannot find baseProxy for target`
-                );
-            }
+                    prop,
+                    previousValue,
+                    undefined,
+                    "delete"
+                )
+            );
             // nodeRemoved events do not reproxy parents, so we skip
             if (nodeRemoved && !Transactions.skipEmit) {
                 const removedUnproxied = getUnproxiedNode(nodeRemoved);
@@ -1077,7 +1053,7 @@ export function buildProxy<T extends TreeNode = TreeNode>(
     const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
     proxyHandler.baseProxy = proxy;
     const reactiveObject = proxyHandler.reactiveObject;
-    registerBaseProxy(object, proxy);
+    registerBaseProxy(object, proxyHandler);
     if (object instanceof Map) {
         for (const [key, storedValue] of object.entries()) {
             if (storedValue === null || typeof storedValue !== "object") {

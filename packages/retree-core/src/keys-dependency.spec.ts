@@ -276,8 +276,8 @@ describe("keys dependencies (in / Object.keys / iteration shape)", () => {
                 Retree.root({ record: { a: 1 } as Record<string, number> })
             );
             // Reproxy the record so tracked reads resolve through a
-            // ReproxyHandler (whose Proxy target is the base proxy, so
-            // has/ownKeys forward to the base traps).
+            // ReproxyHandler, whose has/ownKeys traps delegate to the base
+            // handler.
             root.record.a = 2;
             const reproxiedRecord = getReproxyNode(getBaseProxy(root.record));
             expect(reproxiedRecord).not.toBe(root.record);

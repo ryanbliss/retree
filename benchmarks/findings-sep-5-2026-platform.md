@@ -57,3 +57,39 @@ Reading once and branching by value type (primitive, function, object) was
 still slower: steady scan via base proxy 13.9 to 14.5 ms and via view 13.6
 to 14.4 ms across two alternating rounds. The trap body is not the cost;
 proxy dispatch and the tracking guard are. Dropped.
+
+## Item 1: views target the raw node (`perf/collapse-reproxy`)
+
+A reproxy was `new Proxy(baseProxy, ReproxyHandler)` with only `get` and
+`set` traps. Every `in`, `Object.keys`, `delete`, `defineProperty`, and every
+`instanceof`/collected-key check inside the view's own get trap dispatched
+through the base proxy a second (and third) time. Views now wrap the raw
+node; the reproxy handler resolves reads itself and calls the base handler's
+traps directly for writes, presence, keys, and deletes. The
+`{ base, handler, view, dirty }` record per node folds into two fields on the
+base handler.
+
+Probe shapes: a `ReactiveNode` with ten scalar fields, a method, and one
+plain child; a plain root with four scalars and a list; the 50k-row document
+above with one row edited so the `values` array has a view. Medians of nine
+runs, two alternating rounds.
+
+| Read | Before | After |
+| --- | --- | --- |
+| 1.8M scalar reads via `ReactiveNode` base | 127 ms | 127 ms |
+| 1.8M scalar reads via `ReactiveNode` view | 525 ms | 128 ms |
+| 200k child reads via view | 51 ms | 18 ms |
+| 200k method reads via view | 55 ms | 15 ms |
+| 200k `in` via view | 8.1 ms | 4.3 ms |
+| 20k `Object.keys` via view | 67 ms | 46 ms |
+| 800k scalar reads via plain view | 95 ms | 22 ms |
+| 200k `list[0]` via plain view | 49 ms | 31 ms |
+| 50k-row scan via `values` view | 30 ms | 16 ms |
+| 20k leaf writes with a listened root (2 views each) | 17 ms | 17 ms |
+
+A view read now costs what a base read costs. `useNode` hands components a
+view, so this is the common React read path.
+
+Materialization of the 50k-row document (single run each): first scan 68 to
+59 ms, heap per node 296 to 269 B. The per-node record was the only
+allocation removed.
