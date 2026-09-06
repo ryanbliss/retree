@@ -1396,6 +1396,45 @@ describe("@fnMemo decorator", () => {
         expect(root.computeCount).toBe(2);
     });
 
+    it("gates a key that lists an argument once the arguments repeat", () => {
+        class Lookup extends ReactiveNode {
+            public rows: Card[] = [{ text: "a" }, { text: "b" }];
+            public keyRuns = 0;
+
+            @fnMemo((self: Lookup, text: string) => {
+                self.keyRuns += 1;
+                return [self.rows, text];
+            })
+            public find(text: string): Card | null {
+                return this.rows.find((card) => card.text === text) ?? null;
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        const root = trackRoot(Retree.root(new Lookup()));
+        // New arguments run the key plainly; the first repeat probes it.
+        expect(root.find("a")?.text).toBe("a");
+        expect(root.keyRuns).toBe(1);
+        expect(root.find("b")?.text).toBe("b");
+        expect(root.keyRuns).toBe(2);
+        expect(root.find("b")?.text).toBe("b");
+        expect(root.keyRuns).toBe(3);
+        // The argument counts as covered, so the probe gates the key.
+        expect(root.find("b")?.text).toBe("b");
+        expect(root.keyRuns).toBe(3);
+        // A write to a key read re-runs the key and stays gated after.
+        root.rows.push({ text: "c" });
+        expect(root.find("b")?.text).toBe("b");
+        expect(root.keyRuns).toBe(4);
+        expect(root.find("b")?.text).toBe("b");
+        expect(root.keyRuns).toBe(4);
+        expect(root.find("c")?.text).toBe("c");
+        expect(root.keyRuns).toBe(5);
+    });
+
     it("compares tree-node arguments by reproxy identity", () => {
         class ListCounter extends ReactiveNode {
             public list: Card[] = [];

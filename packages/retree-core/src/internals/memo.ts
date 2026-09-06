@@ -318,9 +318,12 @@ export function runTrappedMemo<T>(
  * between a refreshed hit and a recompute, exactly as {@link runMemo} does.
  *
  * A key result element that is not one of the key function's tracked reads
- * (a derived value, a literal), or a key run that read past the traps
- * (partial {@link ReadCoverage}), cannot be validated, so such entries run
- * the key function on every read.
+ * or the call's arguments (a derived value, a literal), or a key run that
+ * read past the traps (partial {@link ReadCoverage}), cannot be validated,
+ * so such entries run the key function on every read. An entry for new
+ * arguments runs its key plainly and is probed on the next read with the
+ * same arguments, since a lookup whose arguments never repeat would pay
+ * for tracking nothing validates.
  */
 export function runKeyedMemo<T>(
     instance: ReactiveNode,
@@ -360,6 +363,19 @@ export function runKeyedMemo<T>(
             );
         }
     }
+    // An entry for new arguments runs its key plainly: gating only pays on
+    // a consecutive read with the same arguments, so that read probes.
+    if (args !== undefined && !argsMatch) {
+        return runUnscopedKeyedMemo(
+            unproxied,
+            cache,
+            key,
+            undefined,
+            fn,
+            getComparisons,
+            normalizedArgs
+        );
+    }
     const currentReproxy = getManagedProxyForUnproxiedNode(unproxied);
     const keyRun = collectDependencyComparisonAccesses(getComparisons);
     replayDependencyComparisonAccesses(keyRun.comparisons);
@@ -370,7 +386,7 @@ export function runKeyedMemo<T>(
     const keyReadsScoped =
         keyRun.coverage === ReadCoverage.Complete &&
         keyRun.value !== undefined &&
-        areKeyElementsTrackedReads(keyRun.value, keyRun.comparisons);
+        areKeyElementsTrackedReads(keyRun.value, keyRun.comparisons, args);
     if (!keyReadsScoped) {
         return storeUnscopedKeyedMemo(
             unproxied,
@@ -428,7 +444,7 @@ function runUnscopedKeyedMemo<T>(
     unproxied: ReactiveNode,
     cache: Map<string | symbol, IMemoCacheEntry>,
     key: string | symbol,
-    prev: IMemoCacheEntry,
+    prev: IMemoCacheEntry | undefined,
     fn: () => T,
     getComparisons: () => unknown[] | undefined,
     normalizedArgs: unknown[] | undefined
@@ -494,21 +510,29 @@ function storeUnscopedKeyedMemo<T>(
 
 /**
  * True when every key element is a value one of the key function's tracked
- * reads produced. Managed values compare by raw node so a read that
- * returned a child proxy covers the child listed in the key. A read that
- * compares a node's identity alone (an array slot, a path read the key
- * then read into) does not cover it: the key lists the node for its own
- * version, which only the key function's normalized result compares.
+ * reads produced, or one of the call's arguments, which the entry already
+ * matches before its key is consulted. Managed values compare by raw node
+ * so a read that returned a child proxy covers the child listed in the
+ * key. A read that compares a node's identity alone (an array slot, a path
+ * read the key then read into) does not cover it: the key lists the node
+ * for its own version, which only the key function's normalized result
+ * compares.
  */
 function areKeyElementsTrackedReads(
     elements: unknown[],
-    comparisons: unknown[]
+    comparisons: unknown[],
+    args: unknown[] | undefined
 ): boolean {
     if (elements.length === 0) {
         return false;
     }
+    const argIdentities =
+        args === undefined ? undefined : new Set(args.map(toRawIdentity));
     let readValues: Set<unknown> | undefined;
     for (const element of elements) {
+        if (argIdentities?.has(toRawIdentity(element))) {
+            continue;
+        }
         if (readValues === undefined) {
             readValues = new Set();
             for (const comparison of comparisons) {
