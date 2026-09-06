@@ -54,20 +54,6 @@ export interface ICustomProxyHandler<TNode extends TreeNode = TreeNode> {
      */
     snapshotVersionsRecord: ISnapshotVersionRecord | null;
     /**
-     * Map/Set child proxies keyed by map key / raw member (raw purity: raw
-     * collections store raw values only). Base handlers own this; reproxy
-     * handlers never need it because internal-slot reads delegate to the
-     * base proxy.
-     */
-    collectionProxies?: Map<any, TCustomProxy<TreeNode>> | null;
-    /**
-     * Reproxy-aware wrappers for the intercepted native array mutators,
-     * keyed by method name and allocated lazily on first read. Owned by the
-     * base handler (never by a reproxy handler) so `arr.push === arr.push`
-     * holds across reads on every reproxy generation of the same node.
-     */
-    reproxyArrayMutatorCache?: Map<string | symbol, Function> | null;
-    /**
      * The node's stable base proxy. Base handlers point at their own proxy;
      * reproxy handlers point at the base proxy they wrap. Exposing it here
      * makes base-proxy and raw-node lookups a single sentinel trap read

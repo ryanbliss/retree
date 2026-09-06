@@ -93,3 +93,42 @@ view, so this is the common React read path.
 Materialization of the 50k-row document (single run each): first scan 68 to
 59 ms, heap per node 296 to 269 B. The per-node record was the only
 allocation removed.
+
+## Item 3: handler diet (`perf/handler-diet`)
+
+Per materialized node before this branch: a 19-field handler (176 B), the
+proxy (32 B), a `{ handler, propName }` parent edge (40 B), a WeakMap entry,
+and for every non-leaf node a dictionary-mode `Object.create(null)` children
+cache (184 B with one key). Measured with `%DebugPrint` and a 200k-object
+allocation probe.
+
+Changes: the five kind fields (`mapObject`, `setObject`, `dateObject`,
+`arrayObject`, `hasInternalSlots`) become one `kind` enum; the four lazily
+built caches (`boundFunctionCache`, `arrayMutatorCache`,
+`reproxyArrayMutatorCache`, `collectionProxies`) share one `caches` slot; the
+children cache is `Object.create(childrenCachePrototype)`, a fast-mode object
+whose empty null-prototype parent keeps "constructor" and "__proto__" from
+resolving as phantom children (56 B with one to four keys). The handler is
+now 12 in-object fields, 120 B.
+
+50k-row document, base = item 1 (`f935f97`):
+
+| Probe | Item 1 | Item 3 |
+| --- | --- | --- |
+| Heap per materialized node | 269 B | 189 B |
+| Heap for 150k nodes | 38.5 MB | 27.1 MB |
+| First scan (materialization) | 53 to 57 ms | 52 to 55 ms |
+| Cached scan (single run, `s5` A4) | 17.2 to 17.5 ms | 16.2 to 16.3 ms |
+| Steady scan via base proxy (`s6`, median of 15) | 14.5 to 14.7 ms | 15.1 to 16.1 ms (min 14.5 to 14.6) |
+| View reads (`s8`, every row) | parity | parity |
+| 20k leaf writes with a listened root | 17.8 ms | 17.3 ms |
+
+The two steady-read probes disagree by about the batch-to-batch wobble of
+this laptop (5%); a fast-mode children cache costs a little more on a miss
+and less on a hit than the dictionary did. Against the original baseline the
+per-node heap went 296 to 189 B (36% less).
+
+Not done here: the parent edge object (40 B per node) could flatten into
+two handler fields now that views delegate their parent accessor to the base
+handler, but 20 call sites read it as an object and several mutate it in
+place.

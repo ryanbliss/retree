@@ -7,6 +7,7 @@ import { COLLECTED_KEYS_SYMBOL, LINKED_KEYS_SYMBOL } from "../ReactiveNode.js";
 import { TreeNode } from "../types.js";
 import {
     BaseProxyHandler,
+    NodeKind,
     getCustomProxyHandler,
     FUNCTION_NAMES_BIND_TO_RAW,
     getCachedBoundFunction,
@@ -279,7 +280,8 @@ class ReproxyHandler<T extends TreeNode>
         prop: string | symbol,
         baseMutator: Function
     ): Function {
-        const cache = (this.baseHandler.reproxyArrayMutatorCache ??= new Map());
+        const cache = (this.baseHandler.ensureCaches().reproxyArrayMutators ??=
+            new Map());
         const cached = cache.get(prop);
         if (cached !== undefined) {
             return cached;
@@ -350,11 +352,12 @@ class ReproxyHandler<T extends TreeNode>
         // array mutators must run as one batched write; the base trap owns
         // both wrappers, so ask it directly instead of dispatching through
         // the base proxy.
-        if (base.hasInternalSlots) {
+        const kind = base.kind;
+        if (kind >= NodeKind.Map) {
             return base.get(target, prop, baseProxy);
         }
         if (
-            base.arrayObject !== undefined &&
+            kind === NodeKind.Array &&
             isNativeArrayMutatorAccess(target, prop)
         ) {
             const baseMutator: unknown = base.get(target, prop, baseProxy);

@@ -209,6 +209,45 @@ interface BoundFunctionCacheEntry {
     bound: Function;
 }
 
+/**
+ * Per-node caches only some nodes ever need, allocated together on first use
+ * so a plain data node carries one null field instead of four. Array mutator
+ * wrappers are cached so `arr.push === arr.push` holds across reads and
+ * reproxy generations (tracked selectors reading a mutator would otherwise
+ * re-run forever); collection proxies keep Map/Set children keyed by map key
+ * or raw member since raw collections store raw values only.
+ */
+interface IHandlerCaches {
+    boundFunctions: Map<string | symbol, BoundFunctionCacheEntry> | null;
+    arrayMutators: Map<ArrayMutatingMethodName, Function> | null;
+    reproxyArrayMutators: Map<string | symbol, Function> | null;
+    collectionProxies: Map<any, TCustomProxy<any>> | null;
+}
+
+/**
+ * @internal
+ * What a handler's raw node is, decided once at construction so traps branch
+ * on one field instead of an `instanceof` chain per read. Kinds with internal
+ * slots (Map, Set, Date) sort last so `kind >= NodeKind.Map` gates them.
+ */
+export enum NodeKind {
+    Plain,
+    ReactiveNode,
+    Array,
+    Map,
+    Set,
+    Date,
+}
+
+function getNodeKind(object: object): NodeKind {
+    if (Array.isArray(object)) return NodeKind.Array;
+    if (object instanceof ReactiveNode) return NodeKind.ReactiveNode;
+    if (object instanceof Map) return NodeKind.Map;
+    if (object instanceof Set) return NodeKind.Set;
+    if (object instanceof Date) return NodeKind.Date;
+    return NodeKind.Plain;
+}
+
 export function getCachedBoundFunction<TFunction extends Function>(
     cache: Map<string | symbol, BoundFunctionCacheEntry>,
     prop: string | symbol,
@@ -309,37 +348,11 @@ export class BaseProxyHandler<T extends TreeNode>
     public view: TCustomProxy<T> | null = null;
     public viewDirty = false;
     public readonly emitter: TreeChangeEmitter;
+    public readonly kind: NodeKind;
+    /** The raw node when it is a ReactiveNode; the hot path reads its key sets. */
     public readonly reactiveObject: ReactiveNode | undefined;
-    private readonly mapObject: Map<any, any> | undefined;
-    private readonly setObject: Set<any> | undefined;
-    private readonly dateObject: Date | undefined;
-    public readonly arrayObject: (T & unknown[]) | undefined;
-    public readonly hasInternalSlots: boolean;
     private isApplyingSet = false;
-    private boundFunctionCache: Map<
-        string | symbol,
-        BoundFunctionCacheEntry
-    > | null = null;
-    /**
-     * Batching wrappers for the intercepted native array mutators, keyed by
-     * method name and allocated lazily on first read. Caching keeps
-     * `arr.push === arr.push` true across reads, so tracked selectors that
-     * read a mutator method compare equal instead of re-running forever.
-     */
-    private arrayMutatorCache: Map<ArrayMutatingMethodName, Function> | null =
-        null;
-    /**
-     * Reproxy-aware mutator wrappers; see {@link ICustomProxyHandler}. Owned
-     * here (the base handler) so the cache survives reproxy churn.
-     */
-    public reproxyArrayMutatorCache: Map<string | symbol, Function> | null =
-        null;
-    /**
-     * Raw purity: Map/Set targets store raw values only; their child proxies
-     * live here, keyed by map key (Map) or raw member (Set). Lazily
-     * allocated for collections with object values.
-     */
-    public collectionProxies: Map<any, TCustomProxy<any>> | null = null;
+    public caches: IHandlerCaches | null = null;
 
     constructor(
         object: T,
@@ -351,16 +364,21 @@ export class BaseProxyHandler<T extends TreeNode>
         this[proxiedChildrenKey] = null;
         this[proxiedParentKey] = parent;
         this.emitter = emitter;
+        const kind = getNodeKind(object);
+        this.kind = kind;
         this.reactiveObject =
-            object instanceof ReactiveNode ? object : undefined;
-        this.mapObject = object instanceof Map ? object : undefined;
-        this.setObject = object instanceof Set ? object : undefined;
-        this.dateObject = object instanceof Date ? object : undefined;
-        this.arrayObject = Array.isArray(object) ? object : undefined;
-        this.hasInternalSlots =
-            this.mapObject !== undefined ||
-            this.setObject !== undefined ||
-            this.dateObject !== undefined;
+            kind === NodeKind.ReactiveNode && object instanceof ReactiveNode
+                ? object
+                : undefined;
+    }
+
+    public ensureCaches(): IHandlerCaches {
+        return (this.caches ??= {
+            boundFunctions: null,
+            arrayMutators: null,
+            reproxyArrayMutators: null,
+            collectionProxies: null,
+        });
     }
 
     private getBoundFunction<TFunction extends Function>(
@@ -368,9 +386,9 @@ export class BaseProxyHandler<T extends TreeNode>
         source: TFunction,
         thisArg: unknown
     ): TFunction {
-        this.boundFunctionCache ??= new Map();
+        const caches = this.ensureCaches();
         return getCachedBoundFunction(
-            this.boundFunctionCache,
+            (caches.boundFunctions ??= new Map()),
             prop,
             source,
             thisArg
@@ -381,8 +399,8 @@ export class BaseProxyHandler<T extends TreeNode>
         prop: ArrayMutatingMethodName,
         arrayObject: T & unknown[]
     ): Function {
-        this.arrayMutatorCache ??= new Map();
-        const cached = this.arrayMutatorCache.get(prop);
+        const mutators = (this.ensureCaches().arrayMutators ??= new Map());
+        const cached = mutators.get(prop);
         if (cached !== undefined) {
             return cached;
         }
@@ -393,7 +411,7 @@ export class BaseProxyHandler<T extends TreeNode>
             this.baseProxy,
             this.emitter
         );
-        this.arrayMutatorCache.set(prop, wrapper);
+        mutators.set(prop, wrapper);
         return wrapper;
     }
 
@@ -450,87 +468,32 @@ export class BaseProxyHandler<T extends TreeNode>
                 );
             }
         }
-        if (this.hasInternalSlots) {
+        const kind = this.kind;
+        if (kind >= NodeKind.Map) {
             // Methods on Map/Set must run with the raw target as `this` because they read
             // internal slots that the proxy does not expose.
             const value = Reflect.get(target, prop, target);
             if (typeof value === "function") {
-                const mapObject = this.mapObject;
-                const setObject = this.setObject;
-                const dateObject = this.dateObject;
-                if (
-                    mapObject !== undefined &&
-                    typeof prop === "string" &&
-                    MAP_MUTATING_METHODS.has(prop)
-                ) {
-                    return wrapMapMutation(
-                        this,
-                        prop,
-                        mapObject,
-                        baseProxy,
-                        this.emitter
-                    );
-                }
-                if (mapObject !== undefined) {
-                    return wrapMapRead(
-                        this,
-                        prop,
-                        mapObject,
-                        baseProxy,
-                        this.emitter
-                    );
-                }
-                if (
-                    setObject !== undefined &&
-                    typeof prop === "string" &&
-                    SET_MUTATING_METHODS.has(prop)
-                ) {
-                    return wrapSetMutation(
-                        this,
-                        prop,
-                        setObject,
-                        baseProxy,
-                        this.emitter
-                    );
-                }
-                if (setObject !== undefined) {
-                    return wrapSetRead(
-                        this,
-                        prop,
-                        setObject,
-                        baseProxy,
-                        this.emitter
-                    );
-                }
-                if (
-                    dateObject !== undefined &&
-                    typeof prop === "string" &&
-                    isDateMutatingMethod(prop)
-                ) {
-                    return wrapDateMutation(
-                        prop,
-                        dateObject,
-                        baseProxy,
-                        this.emitter
-                    );
-                }
-                return trackAccessIfNeeded(
-                    this.getBoundFunction(prop, value, target)
+                return this.getInternalSlotMethod(
+                    target,
+                    prop,
+                    value,
+                    baseProxy
                 );
             }
             return trackPropertyAccessIfNeeded(this, baseProxy, prop, value);
         }
-        const arrayObject = this.arrayObject;
         if (
-            arrayObject !== undefined &&
+            kind === NodeKind.Array &&
             typeof prop === "string" &&
             isArrayMutatingMethod(prop) &&
+            Array.isArray(target) &&
             Reflect.get(target, prop, target) === ARRAY_MUTATING_METHODS[prop]
         ) {
             // Same dependency-tracking treatment as any other function read,
             // and a per-(handler, method) cached wrapper so the mutator's
             // identity is stable across reads.
-            return trackAccessIfNeeded(this.getArrayMutator(prop, arrayObject));
+            return trackAccessIfNeeded(this.getArrayMutator(prop, target));
         }
         let value: any;
         if (reactiveObject !== undefined) {
@@ -604,6 +567,46 @@ export class BaseProxyHandler<T extends TreeNode>
             this.baseProxy,
             this.emitter
         );
+    }
+
+    private getInternalSlotMethod(
+        target: T,
+        prop: string | symbol,
+        value: Function,
+        baseProxy: TCustomProxy<T>
+    ): Function {
+        if (target instanceof Map) {
+            if (typeof prop === "string" && MAP_MUTATING_METHODS.has(prop)) {
+                return wrapMapMutation(
+                    this,
+                    prop,
+                    target,
+                    baseProxy,
+                    this.emitter
+                );
+            }
+            return wrapMapRead(this, prop, target, baseProxy, this.emitter);
+        }
+        if (target instanceof Set) {
+            if (typeof prop === "string" && SET_MUTATING_METHODS.has(prop)) {
+                return wrapSetMutation(
+                    this,
+                    prop,
+                    target,
+                    baseProxy,
+                    this.emitter
+                );
+            }
+            return wrapSetRead(this, prop, target, baseProxy, this.emitter);
+        }
+        if (
+            target instanceof Date &&
+            typeof prop === "string" &&
+            isDateMutatingMethod(prop)
+        ) {
+            return wrapDateMutation(prop, target, baseProxy, this.emitter);
+        }
+        return trackAccessIfNeeded(this.getBoundFunction(prop, value, target));
     }
 
     /**
@@ -1201,14 +1204,25 @@ function setProxiedChild(
     prop: string | symbol,
     value: unknown
 ) {
-    // Null prototype: cache lookups must never resolve Object.prototype
-    // members ("constructor", "toString", ...) as phantom children, and
-    // "__proto__" must behave as a normal key.
     (proxyHandler[proxiedChildrenKey] ??= createChildrenCache())[prop] = value;
 }
 
+/**
+ * Prototype of every children cache: no members, so lookups never resolve
+ * Object.prototype members ("constructor", "toString", ...) as phantom
+ * children and "__proto__" behaves as a normal key. A fast-mode object with
+ * an empty prototype costs about a third of the dictionary-mode object
+ * `Object.create(null)` allocates, and most materialized nodes carry one.
+ */
+const childrenCachePrototype: object = Object.freeze(
+    Object.setPrototypeOf({}, null)
+);
+
 function createChildrenCache(): Record<string | symbol, any> {
-    return Object.create(null) as Record<string | symbol, any>;
+    return Object.create(childrenCachePrototype) as Record<
+        string | symbol,
+        any
+    >;
 }
 
 function isReactiveNodeProxy(node: object): node is TCustomProxy<ReactiveNode> {
@@ -1502,11 +1516,11 @@ function unwrapCollectionValue(value: any): any {
 }
 
 function resolveCollectionChildProxy(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     cacheKey: any,
     rawValue: unknown
 ): TCustomProxy<any> | undefined {
-    const cached = handler.collectionProxies?.get(cacheKey);
+    const cached = handler.caches?.collectionProxies?.get(cacheKey);
     if (
         cached !== undefined &&
         getUnproxiedNodeFromProxy(cached) === rawValue
@@ -1520,18 +1534,18 @@ function resolveCollectionChildProxy(
 }
 
 function cacheCollectionChildProxy(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     cacheKey: any,
     childProxy: object
 ): void {
-    (handler.collectionProxies ??= new Map()).set(
+    (handler.ensureCaches().collectionProxies ??= new Map()).set(
         cacheKey,
         getBaseProxy(childProxy as TreeNode)
     );
 }
 
 function wrapMapRead(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     prop: string | symbol,
     target: Map<any, any>,
     baseProxy: TCustomProxy<any>,
@@ -1580,7 +1594,7 @@ function wrapMapRead(
 }
 
 function* mapValuesIterator(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     target: Map<any, any>,
     baseProxy: TCustomProxy<any>,
     emitter: TreeChangeEmitter
@@ -1591,7 +1605,7 @@ function* mapValuesIterator(
 }
 
 function* mapEntriesIterator(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     target: Map<any, any>,
     baseProxy: TCustomProxy<any>,
     emitter: TreeChangeEmitter
@@ -1605,7 +1619,7 @@ function* mapEntriesIterator(
 }
 
 function getOrCreateMapValueProxy(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     key: any,
     value: any,
     baseProxy: TCustomProxy<any>,
@@ -1616,7 +1630,7 @@ function getOrCreateMapValueProxy(
     }
     // Raw purity: the raw map stores raw values; the child proxy lives in
     // the handler's side cache keyed by map key.
-    const cached = handler.collectionProxies?.get(key);
+    const cached = handler.caches?.collectionProxies?.get(key);
     if (cached !== undefined && getUnproxiedNodeFromProxy(cached) === value) {
         return cached;
     }
@@ -1634,7 +1648,7 @@ function getOrCreateMapValueProxy(
 }
 
 function wrapMapMutation(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     prop: string,
     target: Map<any, any>,
     baseProxy: TCustomProxy<any>,
@@ -1688,10 +1702,10 @@ function wrapMapMutation(
                     );
                 } else {
                     // Plain or managed-raw values resolve lazily on read.
-                    handler.collectionProxies?.delete(key);
+                    handler.caches?.collectionProxies?.delete(key);
                 }
             } else {
-                handler.collectionProxies?.delete(key);
+                handler.caches?.collectionProxies?.delete(key);
             }
             Map.prototype.set.call(target, key, rawValue);
             emitCollectionChange(
@@ -1743,7 +1757,7 @@ function wrapMapMutation(
             }
             const result = Map.prototype.delete.call(target, key);
             if (result) {
-                handler.collectionProxies?.delete(key);
+                handler.caches?.collectionProxies?.delete(key);
                 emitCollectionChange(
                     target,
                     baseProxy,
@@ -1803,7 +1817,7 @@ function wrapMapMutation(
                 op: "clear",
             });
             Map.prototype.clear.call(target);
-            handler.collectionProxies?.clear();
+            handler.caches?.collectionProxies?.clear();
             emitCollectionChange(
                 target,
                 baseProxy,
@@ -1820,7 +1834,7 @@ function wrapMapMutation(
 }
 
 function wrapSetRead(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     prop: string | symbol,
     target: Set<any>,
     baseProxy: TCustomProxy<any>,
@@ -1861,7 +1875,7 @@ function wrapSetRead(
 // Raw purity removed the read-time write-backs that used to mutate the set
 // during iteration, so these iterators no longer need an Array.from copy.
 function* setValuesIterator(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     target: Set<any>,
     baseProxy: TCustomProxy<any>,
     emitter: TreeChangeEmitter
@@ -1872,7 +1886,7 @@ function* setValuesIterator(
 }
 
 function* setEntriesIterator(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     target: Set<any>,
     baseProxy: TCustomProxy<any>,
     emitter: TreeChangeEmitter
@@ -1889,7 +1903,7 @@ function* setEntriesIterator(
 }
 
 function getOrCreateSetValueProxy(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     value: any,
     baseProxy: TCustomProxy<any>,
     emitter: TreeChangeEmitter
@@ -1899,7 +1913,7 @@ function getOrCreateSetValueProxy(
     }
     // Raw purity: the raw set stores raw members; the child proxy lives in
     // the handler's side cache keyed by the raw member.
-    const cached = handler.collectionProxies?.get(value);
+    const cached = handler.caches?.collectionProxies?.get(value);
     if (cached !== undefined) {
         return cached;
     }
@@ -1917,7 +1931,7 @@ function getOrCreateSetValueProxy(
 }
 
 function wrapSetMutation(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     prop: string,
     target: Set<any>,
     baseProxy: TCustomProxy<any>,
@@ -1987,7 +2001,7 @@ function wrapSetMutation(
                     ? false
                     : Set.prototype.delete.call(target, valueToDelete);
             if (result) {
-                handler.collectionProxies?.delete(valueToDelete);
+                handler.caches?.collectionProxies?.delete(valueToDelete);
                 emitCollectionChange(
                     target,
                     baseProxy,
@@ -2047,7 +2061,7 @@ function wrapSetMutation(
                 op: "clear",
             });
             Set.prototype.clear.call(target);
-            handler.collectionProxies?.clear();
+            handler.caches?.collectionProxies?.clear();
             emitCollectionChange(
                 target,
                 baseProxy,
@@ -2148,7 +2162,7 @@ function normalizeArrayOffset(
  * raw target should store (raw purity).
  */
 function prepareInsertedArrayValue(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     baseProxy: TCustomProxy<any>,
     emitter: TreeChangeEmitter,
     index: number,
@@ -2196,7 +2210,7 @@ function prepareInsertedArrayValue(
  * primitive as-is.
  */
 function takeRemovedArrayElement(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     target: unknown[],
     index: number,
     baseProxy: TCustomProxy<any>,
@@ -2239,7 +2253,7 @@ function takeRemovedArrayElement(
  * records can be re-keyed after the raw target's indices shift.
  */
 function snapshotArrayChildCache(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     length: number
 ): unknown[] {
     const snapshot = new Array<unknown>(length);
@@ -2262,7 +2276,7 @@ function snapshotArrayChildCache(
  * `cacheSnapshot` so move order never matters.
  */
 function moveArrayChild(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     target: unknown[],
     fromIndex: number,
     toIndex: number,
@@ -2310,7 +2324,7 @@ function moveArrayChild(
 
 function setArrayChildParentIndex(
     childProxy: object,
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     toKey: string
 ): void {
     const childHandler = getCustomProxyHandler(childProxy);
@@ -2329,7 +2343,7 @@ function setArrayChildParentIndex(
  * repoint parent edges.
  */
 function rebuildArrayChildrenAfterReorder(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     target: unknown[],
     baseProxy: TCustomProxy<any>,
     rawBefore: unknown[],
@@ -2392,7 +2406,7 @@ function collectReorderedArrayChanges(
  * for in-place rewrites), instead of one write pipeline per touched index.
  */
 function wrapArrayMutation(
-    handler: ICustomProxyHandler<any>,
+    handler: BaseProxyHandler<any>,
     prop: ArrayMutatingMethodName,
     target: unknown[],
     baseProxy: TCustomProxy<any>,
