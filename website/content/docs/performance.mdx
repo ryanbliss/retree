@@ -198,6 +198,10 @@ paid:
 -   Touched paths are prepared once, on first access.
 -   Loops that repeatedly create and immediately traverse fresh objects still
     pay for those fresh objects.
+-   Data that never changes in place can skip preparation entirely: a frozen
+    object (`Object.freeze`) stored in a tree is an immutable leaf that Retree
+    returns as-is. Freeze read-only server snapshots before storing them and
+    replace them wholesale; reads run at raw speed and allocate no nodes.
 
 If you'd rather pay during a controlled phase (a loading spinner, app boot)
 than on first interaction, warm the proxies explicitly:

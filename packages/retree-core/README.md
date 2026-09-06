@@ -38,6 +38,7 @@ Use this as a quick map before choosing an API:
 -   [`Retree.managed`](#read-fast-with-raw) resolves a raw value back to its managed node. Use it to recover the write surface after a raw scan or from a change payload.
 -   [`Retree.peekInto`](#read-fast-with-raw) runs a read-only query against a node's raw object and resolves the result to its managed node when one exists.
 -   [`Retree.untracked`](#read-fast-with-raw) pauses dependency tracking during a synchronous callback. Use it for bulk reads inside tracked selectors and memo getters.
+-   [Frozen objects](#immutable-leaves) are immutable leaves: stored and returned as-is, never proxied. Use `Object.freeze` for server snapshots, sentinels, and constants that you replace wholesale.
 -   [`Retree.version` and `Retree.treeVersion`](#node-identity-and-versions) return a node's own-field or subtree version as a number. Use them as cache keys instead of holding node identities.
 -   [`Retree.move`](#move-link-or-clone-existing-nodes) transfers an existing node to a new structural parent. Use it when ownership should change.
 -   [`Retree.link` and `@link`](#move-link-or-clone-existing-nodes) store a reactive pointer to a node without reparenting it. Use it for selected items and cross-references.
@@ -410,6 +411,32 @@ project.tasks.push({ done: false }); // writes the array: version advances
     descendant changes, like `treeChanged`, with no listener required.
 -   Both accept a managed node or the raw object behind one, and both stay
     put across `Retree.runSilent(fn)` because silent writes skip reproxying.
+
+### Immutable leaves
+
+A frozen object (`Object.isFrozen`) stored anywhere in a tree is a leaf, like
+a primitive. Retree stores and returns the object itself, never proxies it,
+and treats replacing it as the change. Nothing beneath a frozen object is
+reactive, which was already true: its properties cannot change.
+
+```ts
+const project = Retree.root({
+    settings: Object.freeze({ theme: "dark", limits: { rows: 100 } }),
+    tasks: [] as { title: string }[],
+});
+
+project.settings === Retree.raw(project).settings; // true: no proxy
+Retree.select(
+    () => project.settings.theme,
+    (theme) => render(theme)
+);
+project.settings = Object.freeze({ ...project.settings, theme: "light" }); // ✅ notifies
+```
+
+Freeze data that changes wholesale: a server snapshot, an empty sentinel
+shared across records, a config constant. Reads are raw-speed and the tree
+allocates nothing for the subtree. Freeze before storing; `Retree.root`
+rejects a frozen object because a root must be a node.
 
 ## Reactive dependencies
 
