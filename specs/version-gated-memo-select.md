@@ -182,3 +182,10 @@ record or accessor for that owner is the only one validated.
     unscoped, which also closes a 0.10.0 hole where
     `@memo((self) => [self.rows[0]])` gated on the slot's identity and
     missed writes to the row.
+-   `@fnMemo` entries for new arguments run their key plainly and are probed
+    on the first repeat (2026-09-06). Counting inside Neo Compose's
+    constructor replay showed 22,549 of 23,949 keyed reads were fresh by-id
+    lookups whose tracked key run was discarded as unscoped; the replay was
+    17% over 0.9.0 with every body count identical. A key element that is one
+    of the call's arguments counts as covered, so those lookups gate once an
+    argument repeats.
