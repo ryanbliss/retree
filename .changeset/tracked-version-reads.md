@@ -1,5 +1,0 @@
----
-"@retreejs/core": patch
----
-
-`Retree.version(node)` and `Retree.treeVersion(node)` are tracked reads. A memo key that lists one validates against it, and a tracked selector, effect, or `@select` getter that reads one re-runs when it advances; a tree version read also re-runs the consumer for writes to descendants the run never read, so `@memo((self) => [Retree.treeVersion(self.rows)])` replaces a hand-maintained revision counter. Memo keys now gate on primitives (`?? 0`, `.length`, derived strings) and on managed nodes listed for their identity, which are checked by their own version; only a plain object the key derived, or a read past the traps, leaves a key running on every read. A gated key whose reads moved while its result held runs plainly until its body next recomputes instead of re-tracking on every moved read. A frozen object behind an `@ignore` field is read as a leaf, the same as in a regular field, instead of leaving the run partial. Keys must derive from Retree reads and arguments: a primitive read from outside the tree is compared once and no longer re-read on every access.
