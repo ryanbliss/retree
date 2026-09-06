@@ -40,7 +40,7 @@ Add Retree to an existing project with the interactive installer:
 npm create @retreejs@latest
 ```
 
-It detects React and Convex in your project, preselects the matching integrations, and can install the Retree AI skill for coding agents. `pnpm create @retreejs` and `yarn create @retreejs` work too. Then start with the [Quickstart guide](https://www.retree.dev/docs/quick-start).
+It detects React and Convex in your project, preselects the matching integrations, and can install the Retree AI skill for coding agents. In React + ESLint + TypeScript projects it also offers the Retree observation rule and can update `eslint.config.mjs` for you. `pnpm create @retreejs` and `yarn create @retreejs` work too. Then start with the [Quickstart guide](https://www.retree.dev/docs/quick-start).
 
 ## Decorators are optional
 
@@ -59,6 +59,7 @@ Each decorator has a non-decorator equivalent (`this.memo(...)`, the `dependenci
 -   [`@retreejs/convex`](packages/retree-convex#readme) connects Convex queries, paginated queries, actions, mutations, auth, and connection state to Retree nodes.
 -   [`@retreejs/react-convex`](packages/retree-react-convex#readme) adapts Convex's `ConvexReactClient` for React apps that want one client instance for both Convex React and Retree, plus a Next.js RSC preload helper.
 -   [`@retreejs/devtools`](packages/retree-devtools#readme) bridges Retree to the Redux DevTools Extension and exposes a structured change-log tap.
+-   [`@retreejs/react-eslint-plugin`](packages/retree-react-eslint-plugin#readme) catches React render reads that go beyond the Retree node a component observes.
 
 ## Feature glossary
 
@@ -87,6 +88,7 @@ React:
 -   [`useRaw`](https://www.retree.dev/docs/react/use-raw) subscribes like `useNode` but returns `[raw, toManaged]` for native-speed, proxy-free render reads.
 -   [`RetreeProvider` / `createRetreeContext`](https://www.retree.dev/docs/react) provide per-request roots for SSR apps and per-render roots for tests, instead of module singletons.
 -   [`@retreejs/react/testing`](https://www.retree.dev/docs/testing) ships `createTestRoot` (auto listener cleanup) and `actOnRetree` (act-wrapped writes) for component tests.
+-   [`@retreejs/react-eslint-plugin`](https://www.retree.dev/docs/react/eslint) provides a typed ESLint preset that catches provably unobserved Retree reads in React components.
 
 Data:
 

@@ -13,6 +13,7 @@ import {
     DependencyComparisonAccessor,
     ReadCoverage,
     collectDependencyComparisonAccesses,
+    createNodeVersionRead,
     replayDependencyComparisonAccesses,
     isDependencyTrackingActive,
     runMemoBody,
@@ -20,7 +21,10 @@ import {
 import { getDependencyComparisonValues } from "./dependencies.js";
 import { getUnproxiedNode } from "./proxy.js";
 import { getCustomProxyHandlerFromMetadata } from "./proxy-types.js";
-import { getManagedProxyForUnproxiedNode } from "./reproxy.js";
+import {
+    getBaseHandlerForUnproxiedNode,
+    getManagedProxyForUnproxiedNode,
+} from "./reproxy.js";
 
 /**
  * @internal
@@ -62,13 +66,16 @@ interface IMemoCacheEntry {
 /**
  * How a keyed entry decides whether its key function must run.
  *
- * Every element of a scoped key result was one of the key function's tracked
- * reads, so validating those reads stands in for running it. An unscoped key
- * (a derived element, a literal, a run that read past the traps) runs on
- * every read, so it runs plainly: tracking its reads would only allocate
- * records nothing validates. Scope is unknown for a fresh entry and again
- * after an unscoped entry recomputes, so a key that was unscoped in one
- * state can gate in the next.
+ * Every element of a scoped key result is covered by one of the key
+ * function's tracked reads, so validating those reads stands in for running
+ * it while they hold. A read that moves runs the key under tracking once: a
+ * changed key recomputes and stays scoped, while a key that held is
+ * unscoped from then on, as is a key that cannot be covered (a derived
+ * object, a run that read past the traps). An unscoped key runs plainly on
+ * every read: tracking its reads would only allocate records nothing
+ * validates. Scope is unknown for a fresh entry and again after an unscoped
+ * entry recomputes, so the next read runs the key under tracking once and
+ * gates it if the new state allows.
  */
 enum KeyScope {
     Unknown,
@@ -317,10 +324,10 @@ export function runTrappedMemo<T>(
  * changed does the key function run again, and its normalized result decides
  * between a refreshed hit and a recompute, exactly as {@link runMemo} does.
  *
- * A key result element that is not one of the key function's tracked reads
- * or the call's arguments (a derived value, a literal), or a key run that
- * read past the traps (partial {@link ReadCoverage}), cannot be validated,
- * so such entries run the key function on every read. An entry for new
+ * A key result element the run cannot validate (an object that is neither
+ * a tracked read, an argument nor a managed node), or a key run that read
+ * past the traps (partial {@link ReadCoverage}), leaves the entry unscoped:
+ * such entries run the key function on every read. An entry for new
  * arguments runs its key plainly and is probed on the next read with the
  * same arguments, since a lookup whose arguments never repeat would pay
  * for tracking nothing validates.
@@ -378,16 +385,16 @@ export function runKeyedMemo<T>(
     }
     const currentReproxy = getManagedProxyForUnproxiedNode(unproxied);
     const keyRun = collectDependencyComparisonAccesses(getComparisons);
-    replayDependencyComparisonAccesses(keyRun.comparisons);
+    const accessors =
+        keyRun.coverage === ReadCoverage.Complete && keyRun.value !== undefined
+            ? coverKeyElements(keyRun.value, keyRun.comparisons, args)
+            : undefined;
+    replayDependencyComparisonAccesses(accessors ?? keyRun.comparisons);
     const normalized =
         keyRun.value === undefined
             ? undefined
             : normalizeComparisons(keyRun.value);
-    const keyReadsScoped =
-        keyRun.coverage === ReadCoverage.Complete &&
-        keyRun.value !== undefined &&
-        areKeyElementsTrackedReads(keyRun.value, keyRun.comparisons, args);
-    if (!keyReadsScoped) {
+    if (accessors === undefined) {
         return storeUnscopedKeyedMemo(
             unproxied,
             cache,
@@ -399,7 +406,7 @@ export function runKeyedMemo<T>(
             normalizedArgs
         );
     }
-    const keyReads = normalizeComparisonsWithSnapshots(keyRun.comparisons);
+    const keyReads = normalizeComparisonsWithSnapshots(accessors);
     if (prev !== undefined && argsMatch) {
         const hit =
             normalized === undefined
@@ -407,11 +414,21 @@ export function runKeyedMemo<T>(
                   prev.reproxy === currentReproxy
                 : prev.comparisons !== undefined &&
                   shallowEqualArrays(prev.comparisons, normalized);
+        if (hit && prev.keyScope === KeyScope.Scoped) {
+            // The key held while a read moved. Re-tracking it on every moved
+            // read costs more than the runs it saves, so it runs plainly
+            // until its body recomputes.
+            prev.comparisonAccessors = undefined;
+            prev.comparisonSnapshots = undefined;
+            prev.validation = undefined;
+            prev.keyScope = KeyScope.Unscoped;
+            return prev.value as T;
+        }
         if (hit) {
-            prev.comparisonAccessors = keyRun.comparisons;
+            prev.comparisonAccessors = accessors;
             prev.comparisonSnapshots = keyReads.snapshots;
             prev.validation = createTrappedValidation(
-                keyRun.comparisons,
+                accessors,
                 keyReads.snapshots
             );
             prev.keyScope = KeyScope.Scoped;
@@ -422,12 +439,9 @@ export function runKeyedMemo<T>(
     cache.set(key, {
         value,
         comparisons: normalized,
-        comparisonAccessors: keyRun.comparisons,
+        comparisonAccessors: accessors,
         comparisonSnapshots: keyReads.snapshots,
-        validation: createTrappedValidation(
-            keyRun.comparisons,
-            keyReads.snapshots
-        ),
+        validation: createTrappedValidation(accessors, keyReads.snapshots),
         reproxy: getManagedProxyForUnproxiedNode(unproxied) ?? currentReproxy,
         args: normalizedArgs,
         keyScope: KeyScope.Scoped,
@@ -509,54 +523,68 @@ function storeUnscopedKeyedMemo<T>(
 }
 
 /**
- * True when every key element is a value one of the key function's tracked
- * reads produced, or one of the call's arguments, which the entry already
- * matches before its key is consulted. Managed values compare by raw node
- * so a read that returned a child proxy covers the child listed in the
- * key. A read that compares a node's identity alone (an array slot, a path
- * read the key then read into) does not cover it: the key lists the node
- * for its own version, which only the key function's normalized result
- * compares.
+ * The accessors that validate `elements`, or undefined when one of them has
+ * none. Primitives need none: the key function's normalized result compares
+ * them by value. Arguments need none: the entry is stored per argument
+ * list. An object a read returned whole is validated by that read; a
+ * managed node the run only compared by identity (an array slot, a path
+ * read the key then read into) is listed for its own version, so the run's
+ * reads gain a version read of it. Any other object (a plain object the
+ * key derived, a function) leaves the key unscoped.
  */
-function areKeyElementsTrackedReads(
+function coverKeyElements(
     elements: unknown[],
     comparisons: unknown[],
     args: unknown[] | undefined
-): boolean {
+): unknown[] | undefined {
     if (elements.length === 0) {
-        return false;
+        return undefined;
     }
     const argIdentities =
         args === undefined ? undefined : new Set(args.map(toRawIdentity));
     let readValues: Set<unknown> | undefined;
+    let accessors: unknown[] | undefined;
     for (const element of elements) {
-        if (argIdentities?.has(toRawIdentity(element))) {
+        if (!isObjectValue(element) && typeof element !== "function") {
             continue;
         }
-        if (readValues === undefined) {
-            readValues = new Set();
-            for (const comparison of comparisons) {
-                if (!isDependencyComparisonAccessor(comparison)) {
-                    continue;
-                }
-                const values =
-                    comparison.capturedValues ?? comparison.getValues();
-                for (const value of values) {
-                    if (
-                        comparison.identityOnly === true &&
-                        isObjectValue(value)
-                    ) {
-                        continue;
-                    }
-                    readValues.add(toRawIdentity(value));
-                }
-            }
+        const raw = toRawIdentity(element);
+        if (argIdentities?.has(raw)) {
+            continue;
         }
-        if (!readValues.has(toRawIdentity(element))) {
-            return false;
+        readValues ??= collectWholeReadValues(comparisons);
+        if (readValues.has(raw)) {
+            continue;
+        }
+        if (typeof element === "function") {
+            return undefined;
+        }
+        const handler = getBaseHandlerForUnproxiedNode(raw as TreeNode);
+        if (handler === undefined) {
+            return undefined;
+        }
+        accessors ??= comparisons.slice();
+        accessors.push(createNodeVersionRead(handler));
+    }
+    return accessors ?? comparisons;
+}
+
+/** Raw identities of every value the key run's reads returned whole. */
+function collectWholeReadValues(comparisons: unknown[]): Set<unknown> {
+    const readValues = new Set<unknown>();
+    for (const comparison of comparisons) {
+        if (!isDependencyComparisonAccessor(comparison)) {
+            continue;
+        }
+        if (comparison.identityOnly === true) {
+            continue;
+        }
+        const values = comparison.capturedValues ?? comparison.getValues();
+        for (const value of values) {
+            readValues.add(toRawIdentity(value));
         }
     }
-    return true;
+    return readValues;
 }
 
 function isObjectValue(value: unknown): value is object {

@@ -10,6 +10,9 @@ import { Transactions } from "./internals/transactions.js";
 
 const rootsToCleanup: object[] = [];
 
+/** A plain object no read produced: nothing can validate it in a key. */
+const unscopedTag = { name: "tag" };
+
 function trackRoot<T extends object>(root: T): T {
     rootsToCleanup.push(root);
     return root;
@@ -408,32 +411,51 @@ describe("@memo decorator", () => {
         expect(root.computeCount).toBe(3);
     });
 
-    it("keeps evaluating deps functions whose result is not read from the tree", () => {
-        let clock = 0;
-        const depsRuns = vi.fn((self: Clocked) => [self.a, clock]);
-        class Clocked extends ReactiveNode {
+    it("gates a key whose elements are derived from its tracked reads", () => {
+        const depsRuns = vi.fn((self: Derived) => [
+            self.a > 0 ? "positive" : "negative",
+            self.list.length,
+            self.label ?? "",
+        ]);
+        class Derived extends ReactiveNode {
             public a = 1;
+            public list: number[] = [1];
+            public label: string | null = null;
             public computeCount = 0;
 
             @memo(depsRuns)
-            get value(): number {
+            get value(): string {
                 this.computeCount += 1;
-                return this.a + clock;
+                return `${this.a > 0 ? "+" : "-"}${this.list.length}${
+                    this.label ?? ""
+                }`;
             }
             get dependencies() {
                 return [];
             }
         }
-        const root = trackRoot(Retree.root(new Clocked()));
+        const root = trackRoot(Retree.root(new Derived()));
 
-        expect(root.value).toBe(1);
-        expect(root.value).toBe(1);
+        expect(root.value).toBe("+1");
+        expect(root.value).toBe("+1");
+        expect(root.value).toBe("+1");
+        // Literals and derived primitives compare by value in the key's
+        // result, so the reads alone gate the entry.
+        expect(depsRuns).toHaveBeenCalledTimes(1);
+        expect(root.computeCount).toBe(1);
+
+        root.a = 2;
+        expect(root.value).toBe("+1");
         expect(depsRuns).toHaveBeenCalledTimes(2);
         expect(root.computeCount).toBe(1);
 
-        clock = 10;
-        expect(root.value).toBe(11);
+        root.list.push(2);
+        expect(root.value).toBe("+2");
         expect(root.computeCount).toBe(2);
+
+        root.label = "!";
+        expect(root.value).toBe("+2!");
+        expect(root.computeCount).toBe(3);
     });
 
     it("with no deps function, traps getter reads as comparisons", () => {
@@ -1979,6 +2001,45 @@ describe("keyed memo keys that read past the traps", () => {
         }
     );
 
+    it("gates a key that reads a frozen registry behind an @ignore field", () => {
+        const registry = Object.freeze({
+            cells: new Map<string, { revision: number }>(),
+            cell(id: string): { revision: number } {
+                let cell = this.cells.get(id);
+                if (cell === undefined) {
+                    cell = Retree.root({ revision: 0 });
+                    this.cells.set(id, cell);
+                }
+                return cell;
+            },
+        });
+        class Tracked extends ReactiveNode {
+            public keyRuns = 0;
+            public other = 0;
+            @ignore public readonly registry = registry;
+            get dependencies() {
+                return [];
+            }
+            @memo((self) => {
+                self.keyRuns++;
+                return [self.registry.cell("r1").revision];
+            })
+            get label(): string {
+                return `rev ${this.registry.cell("r1").revision}`;
+            }
+        }
+        const root = trackRoot(Retree.root(new Tracked()));
+        expect(root.label).toBe("rev 0");
+        expect(root.label).toBe("rev 0");
+        root.other++;
+        expect(root.label).toBe("rev 0");
+        // The frozen registry is a leaf, so the cell's own read gates the key.
+        expect(root.keyRuns).toBe(1);
+        registry.cell("r1").revision++;
+        expect(root.label).toBe("rev 1");
+        expect(root.keyRuns).toBe(2);
+    });
+
     it("keeps gating a key whose reads all went through the traps", () => {
         class Tracked extends ReactiveNode {
             public keyRuns = 0;
@@ -2003,6 +2064,42 @@ describe("keyed memo keys that read past the traps", () => {
         expect(root.label).toBe("two");
     });
 
+    it("runs a key plainly once a read moved while the key held", () => {
+        class Held extends ReactiveNode {
+            public keyRuns = 0;
+            public rows: IRow[] = [{ id: "r1", label: "one" }];
+            get dependencies() {
+                return [];
+            }
+            @memo((self) => {
+                self.keyRuns++;
+                return [self.rows[0].label];
+            })
+            get label(): string {
+                return this.rows[0].label;
+            }
+        }
+        const root = trackRoot(Retree.root(new Held()));
+        expect(root.label).toBe("one");
+        expect(root.label).toBe("one");
+        expect(root.keyRuns).toBe(1);
+        // The row read moved but the key held: one tracked run finds that,
+        // and the key runs plainly from then on instead of re-tracking.
+        root.rows[0] = { id: "r2", label: "one" };
+        expect(root.label).toBe("one");
+        expect(root.keyRuns).toBe(2);
+        expect(root.label).toBe("one");
+        expect(root.keyRuns).toBe(3);
+        // A recompute probes the key again and gates it.
+        root.rows[0] = { id: "r2", label: "two" };
+        expect(root.label).toBe("two");
+        expect(root.keyRuns).toBe(4);
+        expect(root.label).toBe("two");
+        expect(root.keyRuns).toBe(5);
+        expect(root.label).toBe("two");
+        expect(root.keyRuns).toBe(5);
+    });
+
     it("gates a key again once a recompute leaves it fully tracked", () => {
         class Switching extends ReactiveNode {
             public keyRuns = 0;
@@ -2014,7 +2111,7 @@ describe("keyed memo keys that read past the traps", () => {
             @memo((self) => {
                 self.keyRuns++;
                 const label = self.rows[0].label;
-                return self.tagged ? [label, "tag"] : [label];
+                return self.tagged ? [label, unscopedTag] : [label];
             })
             get label(): string {
                 return this.rows[0].label;
@@ -2023,7 +2120,7 @@ describe("keyed memo keys that read past the traps", () => {
         const root = trackRoot(Retree.root(new Switching()));
         expect(root.label).toBe("one");
         let runs = root.keyRuns;
-        // The literal element leaves the key unscoped: it runs per read.
+        // The unmanaged object leaves the key unscoped: it runs per read.
         expect(root.label).toBe("one");
         expect(root.keyRuns).toBe(runs + 1);
         root.tagged = false;
@@ -2152,20 +2249,30 @@ describe("reads through memos with hidden bodies", () => {
             name: string;
             modifier: string;
         }
+        let baseKeyRuns = 0;
+        let rowKeyRuns = 0;
         class Editor extends ReactiveNode {
             public base: IBase = { name: "a", modifier: "concrete" };
             public rows: IBase[] = [{ name: "r", modifier: "concrete" }];
+            public other = 0;
             get dependencies() {
                 return [];
             }
             // Reading `name` narrows the `base` read to its identity, which
-            // cannot stand in for the `base` element's own version.
-            @memo((self: Editor) => [self.base, self.base.name])
+            // cannot stand in for the `base` element's own version: the
+            // entry validates on that version instead.
+            @memo((self: Editor) => {
+                baseKeyRuns++;
+                return [self.base, self.base.name];
+            })
             get abstract(): boolean {
                 return this.base.modifier === "abstract";
             }
             // An array slot read compares identity alone as well.
-            @memo((self: Editor) => [self.rows[0]])
+            @memo((self: Editor) => {
+                rowKeyRuns++;
+                return [self.rows[0]];
+            })
             get firstAbstract(): boolean {
                 return this.rows[0].modifier === "abstract";
             }
@@ -2173,12 +2280,20 @@ describe("reads through memos with hidden bodies", () => {
         const root = trackRoot(Retree.root(new Editor()));
         expect(root.abstract).toBe(false);
         expect(root.abstract).toBe(false);
+        root.other++;
+        expect(root.abstract).toBe(false);
+        expect(baseKeyRuns).toBe(1);
         root.base.modifier = "abstract";
         expect(root.abstract).toBe(true);
+        expect(baseKeyRuns).toBe(2);
         expect(root.firstAbstract).toBe(false);
         expect(root.firstAbstract).toBe(false);
+        root.other++;
+        expect(root.firstAbstract).toBe(false);
+        expect(rowKeyRuns).toBe(1);
         root.rows[0].modifier = "abstract";
         expect(root.firstAbstract).toBe(true);
+        expect(rowKeyRuns).toBe(2);
     });
 
     it("re-runs a @select over an unscoped keyed memo when its key node changes", () => {
@@ -2188,9 +2303,9 @@ describe("reads through memos with hidden bodies", () => {
             get dependencies() {
                 return [];
             }
-            // The literal leaves the key unscoped: it runs plainly inside
-            // the select's frame on every read.
-            @memo((self: Store) => [self.rows, self.rowId, "tag"])
+            // The unmanaged object leaves the key unscoped: it runs plainly
+            // inside the select's frame on every read.
+            @memo((self: Store) => [self.rows, self.rowId, unscopedTag])
             get currentRow(): IRow | null {
                 return this.rows.find((row) => row.id === this.rowId) ?? null;
             }

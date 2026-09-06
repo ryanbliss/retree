@@ -24,6 +24,13 @@ export interface IReactiveDependencyCollectionEntry
      * skipped without re-running the getter.
      */
     reads?: ReadonlyMap<TreeNode, NodeReadRecord>;
+    /** Records of `reads` holding a tree version read. */
+    subtreeReads?: readonly NodeReadRecord[];
+    /**
+     * The getter read the dependency node's tree version, so the edge also
+     * listens to the node's subtree.
+     */
+    subtree?: boolean;
 }
 
 /**

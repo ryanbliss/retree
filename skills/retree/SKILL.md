@@ -174,6 +174,14 @@ const unsubscribe = Retree.select(
 
 Use `Retree.parent(node)` for tree-local operations such as deleting yourself from an array. Only call it with Retree-managed nodes.
 
+Use `Retree.version(node)` and `Retree.treeVersion(node)` (Retree 0.10+) instead of hand-rolled revision counters. `version` advances with the node's own fields, the same moments its view identity changes; `treeVersion` advances with any write under the node, like `treeChanged`. Both accept a managed node or the raw object behind one, both stay put across `Retree.runSilent`, and both are tracked reads (0.10.3+): a memo key that lists one validates against it, and a tracked selector, effect, or `@select` getter that reads one re-runs when it advances, including for descendants the run never read.
+
+```ts
+// One cell replaces a manual "rows changed" counter.
+@memo((self: Library) => [Retree.treeVersion(self.books)])
+get tagCount(): number { /* scan this.books */ }
+```
+
 Use `Retree.runTransaction(...)` to batch synchronous writes into one listener flush per changed node:
 
 ```ts
@@ -288,6 +296,8 @@ Use `@ignore` for caches, unsubscribe handles, framework clients, subscriptions,
 
 Use `memo`, `@memo`, and `@fnMemo` to cache computed values. Prefer bare or empty decorator forms for automatic dependency trapping; pass comparison functions only when cache keys need finer control. Memoization does not emit or re-render by itself.
 
+A key function is gated by its reads (0.10+): while every Retree read it made re-reads equal, the key function does not run at all. When a read moves, the key runs once under tracking: a changed key recomputes and stays gated, and a key that held runs plainly until the next recompute. A key stays gated only when every read went through a trap and every object in its result is a whole tracked read, a call argument, or a managed node (a node listed for its identity is checked by its version). Primitives (`?? 0`, `.length`, derived strings) need no read of their own. `Retree.raw`, `Retree.untracked`, `Retree.peekInto`, or reading a mutable object out of an `@ignore` field inside the key makes the run partial, and a plain derived object makes it unscoped: either way the key runs on every read. Resolve ancestors with `Retree.parent` (not `Retree.raw`) inside keys, and freeze registries of cells read through `@ignore` fields so they read as leaves. Keys must derive from Retree reads and arguments; a value read from outside the tree is compared once and never re-read.
+
 Do not start subscriptions, network work, or synchronization inside the `dependencies` getter. Use lifecycle methods such as `onObserved()`, `onUnobserved()`, and `onChanged()` for side effects.
 
 Methods on `ReactiveNode` can read their own data raw via `this.raw()`, run untracked bulk reads via `this.untracked(fn)`, and query raw data while returning managed nodes via `this.peekInto(fn)` — all delegating to the equivalent `Retree` statics.
@@ -377,6 +387,8 @@ Pass the same client into Retree state that extends `ConvexNode`.
 
 -   Do not assign the same Retree-managed object into a second structural parent. Use `move`, `link`, or `clone`.
 -   Do not use `@ignore` as a reactive reference mechanism. Use `@link` or `Retree.link(...)`.
+-   Do not read `Retree.raw`, `Retree.untracked`, or a mutable `@ignore` object inside a memo key or `@select` getter: the run turns partial and the key runs on every read. Use `Retree.parent`, tracked reads, `Retree.version` / `Retree.treeVersion`, or a frozen registry.
+-   Do not hand-roll revision counters for "anything under this node changed"; read `Retree.treeVersion(node)`.
 -   Do not expect link targets to become children of the owner.
 -   Do not call Retree APIs such as `parent`, `on`, `move`, `link`, or `clone` with plain unrooted objects.
 -   Do not use `nodeChanged` when selector logic reads descendant fields. Use `treeChanged` or subscribe to a narrower child node.

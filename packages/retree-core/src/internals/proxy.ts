@@ -291,6 +291,10 @@ export function getLatestIgnoredValue(value: unknown) {
     if (isCustomProxy(value)) {
         return getReproxyNode(value);
     }
+    // A frozen value is a leaf wherever it is stored.
+    if (Object.isFrozen(value)) {
+        return value;
+    }
     // Its interior is read without traps.
     noteUntrackedRead();
     return value;
