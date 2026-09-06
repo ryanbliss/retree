@@ -1087,11 +1087,15 @@ export function replayDependencyComparisonAccesses(
         if (handler === undefined) {
             continue;
         }
-        // Cached trapped memos can already know the current comparison cells
-        // from their validation pass. Reusing those cells keeps nested @select
-        // collection from re-running expensive property accessors a second time.
+        // Cached trapped memos know the current cells from their validation
+        // pass and a fresh run kept the values it read, so a replay never
+        // re-runs the property accessors a second time.
+        const values =
+            comparisonValues?.[index] ??
+            comparison.capturedValues ??
+            comparison.getValues();
         const replayed = new ReplayedRead(dependencyNode, comparison, [
-            ...(comparisonValues?.[index] ?? comparison.getValues()),
+            ...values,
         ]);
         if (currentFrame.mode === FrameMode.Comparisons) {
             currentFrame.entries.push(replayed);
