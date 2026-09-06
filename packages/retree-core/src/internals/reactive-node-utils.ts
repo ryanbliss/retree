@@ -1,6 +1,6 @@
 import { IReactiveDependency, ReactiveNode } from "../ReactiveNode.js";
 import { TreeNode } from "../types.js";
-import type { ITrackedNodeAccessSummary } from "./dependency-tracking.js";
+import type { NodeReadRecord } from "./dependency-tracking.js";
 
 /**
  * One dependency as produced by a collection pass. Records are shared by
@@ -19,11 +19,11 @@ export interface IReactiveDependencyCollectionEntry
     selectGetterName?: string | symbol;
     compareSelectValueBeforeNotify?: boolean;
     /**
-     * Lazily builds per-node read summaries captured while an auto-trapped
-     * `@select` getter collected this dependency, so an unrelated
-     * `nodeChanged` can be skipped without re-running the getter.
+     * Per-node read records captured while an auto-trapped `@select` getter
+     * collected this dependency, so an unrelated `nodeChanged` can be
+     * skipped without re-running the getter.
      */
-    getAccessSummaries?: () => Map<TreeNode, ITrackedNodeAccessSummary>;
+    reads?: ReadonlyMap<TreeNode, NodeReadRecord>;
 }
 
 /**

@@ -9,7 +9,18 @@ import {
     TRetreeChangedEvents,
     TreeNode,
 } from "@retreejs/core";
+import { SUBSCRIBE_SUBTREE_CHANGED_SYMBOL } from "@retreejs/core/internal";
 
+/**
+ * Listener kinds a hook can hold: the public change events plus the internal
+ * subtree subscription tracked `useSelect` uses for its read covers.
+ */
+export type RetreeStoreListenerType = TRetreeChangedEvents | "subtreeChanged";
+
+/**
+ * For `nodeChanged`/`treeChanged` the first argument is the node's reproxy;
+ * for `subtreeChanged` it is the raw node that emitted.
+ */
 type HubListener<T extends TreeNode = TreeNode> = (
     node: T,
     changes?: INodeFieldChanges[]
@@ -27,12 +38,26 @@ interface SubscriptionHubEntry<T extends TreeNode = TreeNode> {
 
 const subscriptionHubs: WeakMap<
     TreeNode,
-    Map<TRetreeChangedEvents, SubscriptionHubEntry>
+    Map<RetreeStoreListenerType, SubscriptionHubEntry>
 > = new WeakMap();
+
+function subscribeRetree<T extends TreeNode>(
+    baseProxy: T,
+    listenerType: RetreeStoreListenerType,
+    notify: (node: T, changes: INodeFieldChanges[]) => void
+): () => void {
+    if (listenerType === "subtreeChanged") {
+        return Retree[SUBSCRIBE_SUBTREE_CHANGED_SYMBOL](
+            baseProxy,
+            (changedRawNode, changes) => notify(changedRawNode as T, changes)
+        );
+    }
+    return Retree.on<T>(baseProxy, listenerType, notify);
+}
 
 export function subscribeToNode<T extends TreeNode = TreeNode>(
     baseProxy: T,
-    listenerType: TRetreeChangedEvents,
+    listenerType: RetreeStoreListenerType,
     listener: HubListener<T>
 ): () => void {
     let nodeHubs = subscriptionHubs.get(baseProxy);
@@ -44,12 +69,12 @@ export function subscribeToNode<T extends TreeNode = TreeNode>(
     let hub = nodeHubs.get(listenerType) as SubscriptionHubEntry<T> | undefined;
     if (!hub) {
         const listeners = new Map<HubListener<T>, number>();
-        const unsubscribeRetree = Retree.on<T>(
+        const unsubscribeRetree = subscribeRetree<T>(
             baseProxy,
             listenerType,
-            (reproxy, changes) => {
+            (node, changes) => {
                 for (const callback of [...listeners.keys()]) {
-                    callback(reproxy, changes);
+                    callback(node, changes);
                 }
             }
         );

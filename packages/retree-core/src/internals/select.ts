@@ -12,10 +12,12 @@ import {
     normalizeDependencyEntry,
 } from "./dependencies.js";
 import {
+    areTrackedReadsEqual,
     collectTrackedSelectionAccesses,
+    DependencySubscriptionKind,
     ITrackedDependencySource,
-    ITrackedNodeAccessSummary,
     ITrackedSelectionAccesses,
+    NodeReadRecord,
     runWithTrackedWriteWarningSuppressed,
 } from "./dependency-tracking.js";
 import { isDevMode } from "./dev.js";
@@ -49,75 +51,107 @@ type SubscribeToNode = <TNode extends TreeNode>(
     listener: SelectionListener<TNode>
 ) => () => void;
 
+/**
+ * Listener for a subtree subscription: `changedRawNode` is the raw node that
+ * emitted `nodeChanged` somewhere in the subscribed node's subtree (the node
+ * itself included), with that emission's change records.
+ */
+export type TSubtreeChangedListener = (
+    changedRawNode: TreeNode,
+    changes: INodeFieldChanges[]
+) => void;
+
+type SubscribeToSubtree = (
+    node: TreeNode,
+    listener: TSubtreeChangedListener
+) => () => void;
+
+/**
+ * Key of the internal `Retree` static that subscribes a subtree listener.
+ * Unlike `treeChanged`, a subtree subscription never refreshes ancestor
+ * identities; it only routes descendant emissions to one listener.
+ */
+export const SUBSCRIBE_SUBTREE_CHANGED_SYMBOL =
+    "RETREE_SUBSCRIBE_SUBTREE_CHANGED_SYMBOL";
+
 export interface TrackedSelection<TSelected> {
     selected: TSelected;
     sources: readonly ITrackedDependencySource[];
-    comparisonValues: readonly unknown[];
-    getAccessSummaries: () => Map<TreeNode, ITrackedNodeAccessSummary>;
+    reads: ReadonlyMap<TreeNode, NodeReadRecord>;
+}
+
+interface DependencySubscription {
+    kind: DependencySubscriptionKind;
+    unsubscribe: () => void;
 }
 
 /**
- * The `nodeChanged` subscriptions a selector or effect holds on the nodes its
- * last run read. `update` diffs against the previous run so unchanged nodes
- * keep their subscription and only added or removed nodes churn.
+ * The subscriptions a selector or effect holds on the covers of its last
+ * run. `update` diffs against the previous run so unchanged covers keep
+ * their subscription and only added, removed or re-kinded covers churn.
  */
 function createDependencySubscriptionSet(
     subscribeToNode: SubscribeToNode,
+    subscribeToSubtree: SubscribeToSubtree | undefined,
     onDependencyChanged: (
         rawNode: TreeNode,
         changes?: INodeFieldChanges[]
     ) => void
 ) {
-    let active = new Map<TreeNode, () => void>();
+    let active = new Map<TreeNode, DependencySubscription>();
+    const subscribe = (
+        source: ITrackedDependencySource
+    ): DependencySubscription => {
+        const rawNode = source.rawNode;
+        if (source.kind === DependencySubscriptionKind.Node) {
+            return {
+                kind: source.kind,
+                unsubscribe: subscribeToNode(
+                    source.baseProxy,
+                    "nodeChanged",
+                    (_node, changes) => onDependencyChanged(rawNode, changes)
+                ),
+            };
+        }
+        if (subscribeToSubtree === undefined) {
+            // @retree-throws
+            throw new Error(
+                "Retree internal invariant failed: a tracked run produced a subtree dependency source but its observer has no subtree subscriber. This is unexpected and likely a Retree bug. Please file an issue with the selector that triggered this."
+            );
+        }
+        return {
+            kind: source.kind,
+            unsubscribe: subscribeToSubtree(
+                source.baseProxy,
+                onDependencyChanged
+            ),
+        };
+    };
     return {
         update(sources: readonly ITrackedDependencySource[]) {
-            const next = new Map<TreeNode, () => void>();
+            const next = new Map<TreeNode, DependencySubscription>();
             for (const source of sources) {
-                const rawNode = source.rawNode;
-                const existing = active.get(rawNode);
-                if (existing !== undefined) {
-                    next.set(rawNode, existing);
+                const existing = active.get(source.rawNode);
+                if (existing !== undefined && existing.kind === source.kind) {
+                    next.set(source.rawNode, existing);
                     continue;
                 }
-                next.set(
-                    rawNode,
-                    subscribeToNode(
-                        source.baseProxy,
-                        "nodeChanged",
-                        (_node, changes) =>
-                            onDependencyChanged(rawNode, changes)
-                    )
-                );
+                next.set(source.rawNode, subscribe(source));
             }
-            for (const [rawNode, unsubscribe] of active) {
-                if (!next.has(rawNode)) {
-                    unsubscribe();
+            for (const [rawNode, subscription] of active) {
+                if (next.get(rawNode) !== subscription) {
+                    subscription.unsubscribe();
                 }
             }
             active = next;
         },
         dispose() {
-            for (const unsubscribe of active.values()) {
-                unsubscribe();
+            for (const subscription of active.values()) {
+                subscription.unsubscribe();
             }
             active = new Map();
         },
     };
-}
-
-export function areTrackedComparisonValuesEqual(
-    previous: readonly unknown[],
-    next: readonly unknown[]
-): boolean {
-    if (previous.length !== next.length) {
-        return false;
-    }
-    for (let index = 0; index < previous.length; index++) {
-        if (!Object.is(previous[index], next[index])) {
-            return false;
-        }
-    }
-    return true;
 }
 
 export function defaultTrackedSelectedChanged<TSelected>(
@@ -236,22 +270,21 @@ export function createRetreeSelectionObserver<
     let dependencyIndicesByRawNode = new Map<TreeNode, number[]>();
     const subscriptions = createDependencySubscriptionSet(
         options.subscribeToNode,
+        undefined,
         (rawNode) => evaluate(rawNode)
     );
     // Dev-only: run the first selector pass under read tracking so descendant
     // reads a nodeChanged listener can never observe are detectable. The
     // tracked run is observation-only; the selector's value and all
     // subscription behavior are identical to the untracked path.
-    let initialAccessSummaries:
-        | Map<TreeNode, ITrackedNodeAccessSummary>
-        | undefined;
+    let initialReads: ReadonlyMap<TreeNode, NodeReadRecord> | undefined;
     let previous: TSelected;
     if (isDevMode() && options.listenerType === "nodeChanged") {
         const trackedInitialRun = collectTrackedSelectionAccesses(() =>
             options.selector(getReproxyNode(baseProxy))
         );
         previous = trackedInitialRun.value;
-        initialAccessSummaries = trackedInitialRun.getAccessSummaries();
+        initialReads = trackedInitialRun.reads;
     } else {
         previous = options.selector(getReproxyNode(baseProxy));
     }
@@ -281,7 +314,11 @@ export function createRetreeSelectionObserver<
                 continue;
             }
             indicesByRawNode.set(rawNode, [index]);
-            sources.push({ rawNode, baseProxy: handler.baseProxy });
+            sources.push({
+                rawNode,
+                baseProxy: handler.baseProxy,
+                kind: DependencySubscriptionKind.Node,
+            });
         }
         dependencyIndicesByRawNode = indicesByRawNode;
         subscriptions.update(sources);
@@ -312,9 +349,9 @@ export function createRetreeSelectionObserver<
     };
 
     updateDependencySubscriptions(previous);
-    if (initialAccessSummaries !== undefined) {
+    if (initialReads !== undefined) {
         warnOnUnsubscribedDescendantReads(
-            initialAccessSummaries,
+            initialReads,
             baseRawNode,
             dependencyIndicesByRawNode
         );
@@ -339,12 +376,12 @@ export function createRetreeSelectionObserver<
  * owned by subscribed nodes. Observation only — no behavior change.
  */
 function warnOnUnsubscribedDescendantReads(
-    accessSummaries: Map<TreeNode, ITrackedNodeAccessSummary>,
+    reads: ReadonlyMap<TreeNode, NodeReadRecord>,
     baseRawNode: TreeNode | undefined,
     subscribedDependencies: ReadonlyMap<TreeNode, unknown>
 ): void {
     const unsubscribedReadNodes: TreeNode[] = [];
-    for (const readNode of accessSummaries.keys()) {
+    for (const readNode of reads.keys()) {
         if (readNode === baseRawNode) {
             continue;
         }
@@ -376,11 +413,13 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
     selector: RetreeTrackedSelectSelector<TSelected>;
     equals?: RetreeSelectEquals<TSelected>;
     subscribeToNode: SubscribeToNode;
+    subscribeToSubtree: SubscribeToSubtree;
     onChange: (next: TSelected, previous: TSelected) => void;
 }): () => void {
     let previous = runTrackedSelection(options.selector);
     const subscriptions = createDependencySubscriptionSet(
         options.subscribeToNode,
+        options.subscribeToSubtree,
         (rawNode, changes) => evaluateForDependency(rawNode, changes)
     );
 
@@ -388,13 +427,13 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
         changedRawNode: TreeNode,
         changes?: INodeFieldChanges[]
     ) => {
-        if (
-            canSkipTrackedDependencyChange(
-                changedRawNode,
-                previous.getAccessSummaries().get(changedRawNode),
-                changes
-            )
-        ) {
+        // Subtree subscriptions deliver every descendant emission; a node
+        // the run never read cannot change what it selected.
+        const record = previous.reads.get(changedRawNode);
+        if (record === undefined) {
+            return;
+        }
+        if (canSkipTrackedDependencyChange(changedRawNode, record, changes)) {
             return;
         }
         evaluate();
@@ -414,16 +453,15 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
                       previous.selected,
                       nextSelected
                   );
-        const dependenciesChanged = !areTrackedComparisonValuesEqual(
-            previous.comparisonValues,
-            next.comparisonValues
+        const dependenciesChanged = !areTrackedReadsEqual(
+            previous.reads,
+            next.reads
         );
         const previousToEmit = previous;
         previous = {
             selected: nextSelected,
             sources: next.sources,
-            comparisonValues: next.comparisonValues,
-            getAccessSummaries: next.getAccessSummaries,
+            reads: next.reads,
         };
         if (!selectedChanged && !dependenciesChanged) {
             return;
@@ -455,6 +493,7 @@ export function createRetreeTrackedEffect(options: {
     effectName: string;
     onError: ((error: unknown) => void) | undefined;
     subscribeToNode: SubscribeToNode;
+    subscribeToSubtree: SubscribeToSubtree;
 }): () => void {
     let previousAccesses: ITrackedSelectionAccesses<void> | undefined;
     let disposed = false;
@@ -498,6 +537,7 @@ export function createRetreeTrackedEffect(options: {
 
     const subscriptions = createDependencySubscriptionSet(
         options.subscribeToNode,
+        options.subscribeToSubtree,
         (rawNode, changes) => handleDependencyChanged(rawNode, changes)
     );
 
@@ -511,15 +551,16 @@ export function createRetreeTrackedEffect(options: {
         // Validation gate: unrelated writes to a tracked node re-read equal
         // and are skipped without re-running the effect, exactly like the
         // tracked Retree.select form.
-        if (
-            previousAccesses !== undefined &&
-            canSkipTrackedDependencyChange(
-                changedRawNode,
-                previousAccesses.getAccessSummaries().get(changedRawNode),
-                changes
-            )
-        ) {
-            return;
+        if (previousAccesses !== undefined) {
+            const record = previousAccesses.reads.get(changedRawNode);
+            if (record === undefined) {
+                return;
+            }
+            if (
+                canSkipTrackedDependencyChange(changedRawNode, record, changes)
+            ) {
+                return;
+            }
         }
         run();
     };
@@ -597,20 +638,9 @@ export function createRetreeTrackedEffect(options: {
 function didWriteInvalidateTrackedReads(
     accesses: ITrackedSelectionAccesses<void>
 ): boolean {
-    for (const validator of accesses.writeInvalidatedReads) {
-        const currentValues = validator.getValues();
-        if (currentValues.length !== validator.capturedValues.length) {
+    for (const read of accesses.writeInvalidatedReads) {
+        if (!read.isUnchanged()) {
             return true;
-        }
-        for (let index = 0; index < currentValues.length; index++) {
-            if (
-                !areDependencyValuesEqual(
-                    validator.capturedValues[index],
-                    currentValues[index]
-                )
-            ) {
-                return true;
-            }
         }
     }
     return false;
@@ -623,8 +653,7 @@ export function runTrackedSelection<TSelected>(
     return {
         selected: accesses.value,
         sources: accesses.sources,
-        comparisonValues: accesses.comparisonValues,
-        getAccessSummaries: accesses.getAccessSummaries,
+        reads: accesses.reads,
     };
 }
 
@@ -650,17 +679,17 @@ export function runTrackedSelection<TSelected>(
  */
 export function canSkipTrackedDependencyChange(
     changedRawNode: TreeNode,
-    summary: ITrackedNodeAccessSummary | undefined,
+    record: NodeReadRecord | undefined,
     changes: INodeFieldChanges[] | undefined
 ): boolean {
-    if (summary === undefined) {
+    if (record === undefined) {
         return false;
     }
-    if (summary.wholeNodeRead) {
+    if (record.wholeNodeRead) {
         return false;
     }
     const keyScopingAllowed =
-        summary.keyScopable &&
+        record.keyScopable &&
         !Array.isArray(changedRawNode) &&
         !(changedRawNode instanceof ReactiveNode) &&
         !isInternalSlotInstance(changedRawNode);
@@ -669,28 +698,12 @@ export function canSkipTrackedDependencyChange(
         changes !== undefined &&
         changes.length > 0 &&
         !changes.some((change) =>
-            isPossiblyRelevantFieldChange(change, changedRawNode, summary)
+            isPossiblyRelevantFieldChange(change, changedRawNode, record)
         )
     ) {
         return true;
     }
-    for (const validator of summary.validators) {
-        const currentValues = validator.getValues();
-        if (currentValues.length !== validator.capturedValues.length) {
-            return false;
-        }
-        for (let index = 0; index < currentValues.length; index++) {
-            if (
-                !areDependencyValuesEqual(
-                    validator.capturedValues[index],
-                    currentValues[index]
-                )
-            ) {
-                return false;
-            }
-        }
-    }
-    return true;
+    return record.isUnchanged();
 }
 
 /**
@@ -703,7 +716,7 @@ export function canSkipTrackedDependencyChange(
 function isPossiblyRelevantFieldChange(
     change: INodeFieldChanges,
     changedRawNode: TreeNode,
-    summary: ITrackedNodeAccessSummary
+    record: NodeReadRecord
 ): boolean {
     if (typeof change.key !== "string") {
         return true;
@@ -711,5 +724,5 @@ function isPossiblyRelevantFieldChange(
     if (change.node !== changedRawNode) {
         return true;
     }
-    return summary.propertyKeys.has(change.key);
+    return record.hasPropertyKey(change.key);
 }

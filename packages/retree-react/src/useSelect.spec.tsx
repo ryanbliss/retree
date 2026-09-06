@@ -489,6 +489,30 @@ describe("useSelect", () => {
         expect(renderCount).toBe(2);
     });
 
+    it("follows a transaction that writes an untracked sibling before the tracked node", () => {
+        const root = trackRoot(
+            Retree.root({
+                selection: { tool: "select" },
+                panel: { open: false },
+            })
+        );
+        const selector = vi.fn(() => root.panel.open);
+        function View() {
+            return (
+                <span data-testid="open">{String(useSelect(selector))}</span>
+            );
+        }
+        render(<View />);
+        act(() => {
+            Retree.runTransaction(() => {
+                root.selection.tool = "animation";
+                root.panel.open = true;
+            });
+        });
+        expect(screen.getByTestId("open").textContent).toBe("true");
+        expect(selector).toHaveBeenCalledTimes(2);
+    });
+
     it("trapped useSelect compares primitive reads even when the selected value is equal", () => {
         const root = trackRoot(
             Retree.root({

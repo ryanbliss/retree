@@ -132,3 +132,51 @@ Not done here: the parent edge object (40 B per node) could flatten into
 two handler fields now that views delegate their parent accessor to the base
 handler, but 20 call sites read it as an object and several mutate it in
 place.
+
+## Item 5: coarse tracked reads (`perf/bulk-read-coarsening`)
+
+Spec: `specs/tracked-read-coarsening.md`. A tracked run used to log one
+entry per property read and subscribe `nodeChanged` once per node it read.
+On the 50k-row scan that was ~300k entries, 150k listeners, a 54 ms
+post-run pass to dedupe sources, and a 46 ms summary rebuild on the first
+emission after any re-run.
+
+Changes: a tracked frame keeps one `NodeReadRecord` per raw node (keys,
+comparison cells, own keys, presence reads, whole-node flag) in first-read
+order, and the record doubles as the validation summary. A record whose
+parent was also read is covered; the run subscribes only at its covers. A
+cover with covered children uses a new internal subtree listener
+(`Retree[SUBSCRIBE_SUBTREE_CHANGED_SYMBOL]`) that delivers
+`(changedRawNode, changes)` for any descendant write without reproxying
+ancestors. Validation re-reads plain, array, Map, Set and Date owners raw
+and `ReactiveNode` owners through the base proxy. Tracked `useSelect` gets
+the changed nodes from the composite store's snapshot and validates only
+their records. Neo's unit lane caught the store keying snapshot staleness on
+the subtree version alone: a transaction that wrote a sibling and then the
+tracked node moved that version once, so the second notification returned
+the first snapshot and the tracked write was lost. Undelivered changes now
+make the snapshot stale as well.
+
+50k-row document, base = item 3 (`4837c9b`), `ONLY=B`, three alternating
+serial rounds:
+
+| Probe | Item 3 | Item 5 |
+| --- | --- | --- |
+| B1 select subscribe (tracked scan of 150k nodes) | 99 to 101 ms | 42 to 45 ms |
+| B2 one related scalar write | 120 to 124 ms | 44 to 46 ms |
+| B3 one unrelated scalar write | 27 to 28 ms | 0.04 ms |
+| B4 one push | 64 ms | 45 to 57 ms |
+| Tracked scan, `s6` median of 15 | 105 to 108 ms | 42 to 43 ms |
+| Steady scan via base proxy (`s6`) | 14.2 ms | 14.1 to 14.4 ms |
+| First scan (materialization) | 51 to 53 ms | 53 to 55 ms |
+
+The subscribe cost is now the scan itself plus per-read tracking:
+`trackDependencyPropertyAccess` 24 ms and `getReadRecord` 17 ms across the
+two tracked scans in the profile, with no subscription, summary, or
+unsubscribe cost left in the top list. B2 is the selector re-run. B3 is one
+parent walk, one map lookup, and no record to validate.
+
+Not done here: the record still allocates two arrays per node; a
+struct-of-arrays layout per frame would trade that for index bookkeeping.
+Whole-node reads still emit a bare node dependency for `@select`, which is
+broader than the record's cells.

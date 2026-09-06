@@ -37,6 +37,32 @@ describe("Retree external-store adapter", () => {
         unsubscribe();
     });
 
+    it("reports every change a transaction delivers under one subtree version", () => {
+        const root = Retree.root({ a: { value: 0 }, b: { value: 0 } });
+        const store = createRetreeCompositeExternalStore([
+            getRetreeExternalStoreSource(root, "subtreeChanged"),
+        ]);
+        const names = new Map<object, string>([
+            [Retree.raw(root.a), "a"],
+            [Retree.raw(root.b), "b"],
+        ]);
+        const changedNodes: string[][] = [];
+        const unsubscribe = store.subscribe(() => {
+            const changes = store.getSnapshot().changes ?? [];
+            changedNodes.push(
+                changes.map((change) => names.get(change.rawNode) ?? "?")
+            );
+        });
+
+        Retree.runTransaction(() => {
+            root.a.value = 1;
+            root.b.value = 1;
+        });
+
+        expect(changedNodes).toEqual([["a"], ["b"]]);
+        unsubscribe();
+    });
+
     it("returns identical snapshot and versions references across calls with no writes", () => {
         const root = Retree.root({ first: { v: 0 }, second: { v: 0 } });
         const store = createRetreeCompositeExternalStore([

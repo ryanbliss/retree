@@ -115,6 +115,13 @@ export function registerBaseProxy<T extends TreeNode = TreeNode>(
     managedHandlers.set(unproxiedNode, handler);
 }
 
+/** Base handler of a managed raw node, without a proxy trap. */
+export function getBaseHandlerForUnproxiedNode(
+    unproxiedNode: TreeNode
+): BaseProxyHandler<TreeNode> | undefined {
+    return managedHandlers.get(unproxiedNode);
+}
+
 export function updateReproxyNode<T extends TreeNode = TreeNode>(
     node: TCustomProxy<T>
 ): TCustomProxy<T> {

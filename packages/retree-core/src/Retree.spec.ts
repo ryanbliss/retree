@@ -1666,6 +1666,37 @@ describe("Retree.raw", () => {
         expect(callback).not.toHaveBeenCalled();
         unsubscribe();
     });
+
+    it("subscribes a tracked scan at its covers and ignores unread descendants", () => {
+        const root = Retree.root({
+            rows: [
+                { value: { a: 1 }, meta: { seen: 0 } },
+                { value: { a: 2 }, meta: { seen: 0 } },
+            ],
+        });
+        const probe = Retree as unknown as {
+            subtreeChangedListenerCount: number;
+        };
+        const before = probe.subtreeChangedListenerCount;
+        const callback = vi.fn();
+        const unsubscribe = Retree.select(
+            () => root.rows.reduce((total, row) => total + row.value.a, 0),
+            callback
+        );
+        // Every read node hangs off the root, so the root is the only cover.
+        expect(probe.subtreeChangedListenerCount).toBe(before + 1);
+
+        root.rows[0].meta.seen = 1;
+        expect(callback).not.toHaveBeenCalled();
+
+        root.rows[1].value.a = 5;
+        expect(callback).toHaveBeenCalledWith(6, 3);
+
+        root.rows.push({ value: { a: 10 }, meta: { seen: 0 } });
+        expect(callback).toHaveBeenLastCalledWith(16, 6);
+        unsubscribe();
+        expect(probe.subtreeChangedListenerCount).toBe(before);
+    });
 });
 
 describe("Retree.untracked", () => {

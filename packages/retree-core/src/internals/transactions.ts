@@ -54,6 +54,8 @@ export function setRetreeListenerFlushWrapper(
  */
 export interface ITransaction {
     emitNodeChanged?: (changes: INodeFieldChanges[]) => void;
+    /** Delivers the node's `nodeChanges` to subtree listeners on its ancestry. */
+    emitSubtreeChanged?: (changes: INodeFieldChanges[]) => void;
     emitTreeChanged?: (changes: INodeFieldChanges[]) => void;
     emitNodeRemoved?: () => void;
     nodeChanges?: INodeFieldChanges[];
@@ -173,6 +175,10 @@ export class Transactions {
         if (upsertTransaction.emitNodeChanged !== undefined) {
             transaction.emitNodeChanged = upsertTransaction.emitNodeChanged;
         }
+        if (upsertTransaction.emitSubtreeChanged !== undefined) {
+            transaction.emitSubtreeChanged =
+                upsertTransaction.emitSubtreeChanged;
+        }
         if (upsertTransaction.emitTreeChanged !== undefined) {
             transaction.emitTreeChanged = upsertTransaction.emitTreeChanged;
         }
@@ -216,9 +222,9 @@ export class Transactions {
                 ] of this.pendingTransactions.entries()) {
                     transactionLifecycleDrain?.();
                     this.processedEmissionNodes.add(node);
-                    transaction.emitNodeChanged?.(
-                        transaction.nodeChanges?.flat() ?? []
-                    );
+                    const nodeChanges = transaction.nodeChanges?.flat() ?? [];
+                    transaction.emitNodeChanged?.(nodeChanges);
+                    transaction.emitSubtreeChanged?.(nodeChanges);
                     transaction.emitTreeChanged?.(
                         transaction.treeChanges?.flat() ?? []
                     );
