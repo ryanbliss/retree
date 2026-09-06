@@ -1,5 +1,15 @@
 # @retreejs/react
 
+## 0.10.0
+
+### Patch Changes
+
+-   fc56bc7: Resolve base proxies and raw nodes in one proxy trap, walk `treeChanged` ancestors over handler metadata without per-level allocations, and refresh retained `ReactiveNode` dependency records in place while sharing one record between the dependency and dependent registries. Reuse a dependent's current dependency collection after its notification reproxy instead of collecting twice per related write, and drain deferred lifecycles with one live iterator.
+
+    Tracked `Retree.select`, `Retree.effect`, and `useSelect` read their subscription sources and comparison cells from the tracking pass itself instead of re-normalizing every dependency through proxy traps on each run.
+
+-   ad1e507: Tracked runs (`Retree.select`, `Retree.effect`, auto-trapped `@select`, and tracked `useSelect`) now keep one read record per node and subscribe only at the roots of what they read. A record whose parent was also read is covered by that parent, and a cover with covered children listens for changes anywhere in its subtree through a new internal subtree listener that does not reproxy ancestors. On a 50k-row document the tracked scan subscribes in 43 ms instead of 99 ms, a related write costs 45 ms instead of 120 ms, and an unrelated write costs 0.04 ms instead of 28 ms. Tracked `useSelect` scopes its re-validation to the nodes that actually changed.
+
 ## 0.9.0
 
 ### Minor Changes
