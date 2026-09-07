@@ -44,7 +44,8 @@
         "benchmark:react": "vitest run --config vitest.perf.config.ts --disable-console-intercept",
         "lint:architecture": "node scripts/lint-architecture.mjs",
         "typecheck:benchmarks": "tsc -p benchmarks/tsconfig.json",
-        "benchmark:maps": "node --expose-gc scripts/run-sdk-scaling.mjs benchmarks/map-reads.mts"
+        "benchmark:maps": "node --expose-gc scripts/run-sdk-scaling.mjs benchmarks/map-reads.mts",
+        "benchmark:method-calls": "RETREE_COMPILER=1 node --expose-gc scripts/run-sdk-scaling.mjs benchmarks/method-calls.mts"
     },
     "author": "Ryan Bliss",
     "license": "MIT",

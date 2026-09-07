@@ -24,6 +24,7 @@ export {
     readObject,
     readPrimitive,
     recoverGetterRead,
+    resolveFunctionReceiver,
     writeField,
 } from "./internals/compiled-node.js";
 export type { CompiledNodeSchema } from "./internals/compiled-node.js";

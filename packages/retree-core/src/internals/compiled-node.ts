@@ -833,15 +833,28 @@ export function readFunction<TFunction extends Function>(
             handler[unproxiedBaseNodeKey]
         );
     }
-    if (!isView) return handler.getBoundFunction(prop, fn, handler.baseProxy);
+    if (!isView)
+        return handler.getBoundFunction(
+            prop,
+            fn,
+            resolveFunctionReceiver(handler, false)
+        );
     // Resolving a new view resets its cache before binding, just like ReproxyHandler.
-    const target = latestIdentityOfHandler(handler);
+    const target = resolveFunctionReceiver(handler, true);
     return getCachedBoundFunction(
         (handler.viewBoundFunctions ??= new Map()),
         prop,
         fn,
         target
     );
+}
+
+/** Shared base/view receiver selection for compiled method calls. */
+export function resolveFunctionReceiver(
+    handler: CompiledProxyHandler,
+    isView: boolean
+): object {
+    return isView ? latestIdentityOfHandler(handler) : handler.baseProxy;
 }
 
 /**

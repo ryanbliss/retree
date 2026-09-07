@@ -52,6 +52,36 @@ async function compileReactiveNodesPlugin() {
                         ["@babel/preset-typescript", { allExtensions: true }],
                     ],
                     plugins: [
+                        ...(["prepared", "inline"].includes(
+                            process.env.RETREE_DIRECT_CALLS
+                        )
+                            ? [
+                                  [
+                                      (
+                                          await import(
+                                              pathToFileURL(
+                                                  join(
+                                                      root,
+                                                      "benchmarks/test-fixtures/method-call-compiler.mjs"
+                                                  )
+                                              ).href
+                                          )
+                                      ).default,
+                                      {
+                                          strategy:
+                                              process.env.RETREE_DIRECT_CALLS,
+                                          runtimeModule: join(
+                                              root,
+                                              "benchmarks/test-fixtures/method-call-runtime.mts"
+                                          ),
+                                          coreModules: [
+                                              "@retreejs/core",
+                                              "../packages/retree-core/src/index.js",
+                                          ],
+                                      },
+                                  ],
+                              ]
+                            : []),
                         [
                             retreeCompiler,
                             {
