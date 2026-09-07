@@ -143,13 +143,18 @@ describe("retree compiler", () => {
             import { ReactiveNode, memo } from "@retreejs/core";
             class Foo extends ReactiveNode {
                 a = 1;
-                @memo((root: Foo) => [root.a])
+                list: number[] = [];
+                map: Record<string, { x: number }> | null = null;
+                @memo((root: Foo) => [root.a, root.list?.[0], root.map?.["k"].x, 2n, null])
                 get "odd-key"() { return this.a; }
             }
         `);
         const fastPath = code.indexOf("c.version === _cwv() && !_dta()");
         expect(fastPath).toBeGreaterThan(-1);
         expect(fastPath).toBeLessThan(code.indexOf("k0 = this.a"));
+        expect(code).toContain(
+            'k1 = this.list?.[0],\n      k2 = this.map?.["k"].x,\n      k3 = 2n,\n      k4 = null'
+        );
         expect(code).toContain('"odd-key$Foo$retreeMemo"() {');
         expect(code).toContain('this["odd-key$Foo$retreeMemo"]()');
         expect(code).not.toContain("_S");

@@ -290,15 +290,6 @@ class ReactiveNodeAccessors {
     declare [H]: BaseProxyHandler<TreeNode>;
     declare [V]: boolean;
 
-    get [COLLECTED_KEYS_SYMBOL]() {
-        return this[R][COLLECTED_KEYS_SYMBOL];
-    }
-    get [LINKED_KEYS_SYMBOL]() {
-        return this[R][LINKED_KEYS_SYMBOL];
-    }
-    get [SELECT_GETTERS_SYMBOL]() {
-        return this[R][SELECT_GETTERS_SYMBOL];
-    }
     get options(): IRetreeNodeOptions {
         const options = this[R].options;
         readIgnored(this[H], "options", options);
@@ -463,6 +454,21 @@ function defineReactiveNodeAccessors(target: object): void {
         "dependencies"
     )?.get;
     copyAccessors(ReactiveNodeAccessors.prototype, target);
+    // Bookkeeping keys pass through to the raw node. Defined here rather than
+    // as computed members above: this module and ReactiveNode form an import
+    // cycle, and a scope-hoisting bundler may evaluate this class first.
+    for (const key of [
+        COLLECTED_KEYS_SYMBOL,
+        LINKED_KEYS_SYMBOL,
+        SELECT_GETTERS_SYMBOL,
+    ]) {
+        Object.defineProperty(target, key, {
+            configurable: true,
+            get(this: ManagedNode) {
+                return Reflect.get(this[R], key);
+            },
+        });
+    }
     // Any member added to ReactiveNode after this class was written still
     // resolves through the reflected path rather than the raw prototype.
     defineReflectedAccessors(ReactiveNode.prototype, target);

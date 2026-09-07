@@ -4,7 +4,7 @@
  */
 
 import type { NodePath } from "@babel/core";
-import template from "@babel/template";
+import { parse } from "@babel/parser";
 import * as t from "@babel/types";
 
 type Scope = NodePath["scope"];
@@ -83,7 +83,7 @@ interface AccessorPlan {
     getter: boolean;
     setter: boolean;
     /** Static memo key expressions (roots rewritten to `this`); absent for plain getters. */
-    memoKeys: t.Expression[] | undefined;
+    memoKeys: string[] | undefined;
 }
 
 interface ClassPlan {
@@ -304,7 +304,7 @@ function resolveFieldRole(
 function resolveMemoKeys(
     member: t.ClassMethod,
     imports: RetreeImportMap
-): t.Expression[] | undefined {
+): string[] | undefined {
     if (!member.decorators) return undefined;
     for (const decorator of member.decorators) {
         const resolved = resolveDecorator(decorator, imports);
@@ -335,11 +335,12 @@ function unwrapTypeSyntax(expression: t.Expression): t.Expression {
 /**
  * Reads the key selector of `@memo(fn)`. Static keys are an array literal
  * whose elements are literals or member chains on the selector's parameter;
- * anything else stays on the runtime memo path.
+ * anything else stays on the runtime memo path. Each key comes back as
+ * source text with the parameter replaced by `this`.
  */
 export function extractStaticKeys(
     selector: t.Expression
-): t.Expression[] | undefined {
+): string[] | undefined {
     const fn = unwrapTypeSyntax(selector);
     if (!t.isArrowFunctionExpression(fn) && !t.isFunctionExpression(fn)) {
         return undefined;
@@ -365,68 +366,64 @@ export function extractStaticKeys(
         array = unwrapTypeSyntax(fn.body);
     }
     if (!t.isArrayExpression(array)) return undefined;
-    const keys: t.Expression[] = [];
+    const keys: string[] = [];
     for (const element of array.elements) {
         if (element === null || t.isSpreadElement(element)) return undefined;
-        const key = convertKeyElement(element, paramName);
+        const key = printKeyElement(element, paramName);
         if (key === undefined) return undefined;
         keys.push(key);
     }
     return keys;
 }
 
-function convertKeyElement(
+function printKeyElement(
     element: t.Expression,
     paramName: string | undefined
-): t.Expression | undefined {
+): string | undefined {
     const expression = unwrapTypeSyntax(element);
-    if (
-        t.isStringLiteral(expression) ||
-        t.isNumericLiteral(expression) ||
-        t.isBooleanLiteral(expression) ||
-        t.isNullLiteral(expression) ||
-        t.isBigIntLiteral(expression)
-    ) {
-        return t.cloneNode(expression);
-    }
+    if (t.isStringLiteral(expression)) return JSON.stringify(expression.value);
+    if (t.isNumericLiteral(expression)) return String(expression.value);
+    if (t.isBooleanLiteral(expression)) return String(expression.value);
+    if (t.isNullLiteral(expression)) return "null";
+    if (t.isBigIntLiteral(expression)) return `${expression.value}n`;
     if (t.isIdentifier(expression) && expression.name === "undefined") {
-        return t.identifier("undefined");
+        return "undefined";
     }
     if (
-        t.isMemberExpression(expression) ||
-        t.isOptionalMemberExpression(expression)
+        !t.isMemberExpression(expression) &&
+        !t.isOptionalMemberExpression(expression)
     ) {
-        const property = expression.property;
-        if (expression.computed) {
-            if (!t.isStringLiteral(property) && !t.isNumericLiteral(property)) {
-                return undefined;
-            }
-        } else if (!t.isIdentifier(property)) {
+        return undefined;
+    }
+    const property = expression.property;
+    let access: string;
+    if (expression.computed) {
+        if (t.isStringLiteral(property)) {
+            access = `[${JSON.stringify(property.value)}]`;
+        } else if (t.isNumericLiteral(property)) {
+            access = `[${property.value}]`;
+        } else {
             return undefined;
         }
-        const object = unwrapTypeSyntax(expression.object);
-        let convertedObject: t.Expression | undefined;
-        if (t.isIdentifier(object) && object.name === paramName) {
-            convertedObject = t.thisExpression();
-        } else {
-            convertedObject = convertKeyElement(object, paramName);
-        }
-        if (convertedObject === undefined) return undefined;
-        if (t.isOptionalMemberExpression(expression)) {
-            return t.optionalMemberExpression(
-                convertedObject,
-                t.cloneNode(property),
-                expression.computed,
-                expression.optional
-            );
-        }
-        return t.memberExpression(
-            convertedObject,
-            t.cloneNode(property),
-            expression.computed
-        );
+    } else if (t.isIdentifier(property)) {
+        access = `.${property.name}`;
+    } else {
+        return undefined;
     }
-    return undefined;
+    const object = unwrapTypeSyntax(expression.object);
+    let printedObject: string | undefined;
+    if (t.isIdentifier(object) && object.name === paramName) {
+        printedObject = "this";
+    } else {
+        printedObject = printKeyElement(object, paramName);
+    }
+    if (printedObject === undefined) return undefined;
+    const optional =
+        t.isOptionalMemberExpression(expression) && expression.optional;
+    if (!optional) return `${printedObject}${access}`;
+    return expression.computed
+        ? `${printedObject}?.${access}`
+        : `${printedObject}?${access}`;
 }
 
 function isIdentifierName(key: string): boolean {
@@ -496,21 +493,14 @@ set ${name}(v) { ${n.wf}(this[${n.H}], ${quoted}, this[${n.R}]${access}, v); }`;
 function emitAccessor(
     accessor: AccessorPlan,
     className: string,
-    n: RuntimeNames,
-    placeholders: Map<string, t.Expression>
+    n: RuntimeNames
 ): string {
     const name = memberName(accessor.key);
     const access = memberAccess(accessor.key);
     const key = JSON.stringify(accessor.key);
     let code = "";
     if (accessor.getter && accessor.memoKeys !== undefined) {
-        code += emitMemoGetter(
-            accessor,
-            className,
-            accessor.memoKeys,
-            n,
-            placeholders
-        );
+        code += emitMemoGetter(accessor, className, accessor.memoKeys, n);
     } else if (accessor.getter) {
         code += `
 get ${name}() {
@@ -532,9 +522,8 @@ set ${name}(v) { super${access} = v; }`;
 function emitMemoGetter(
     accessor: AccessorPlan,
     className: string,
-    keys: t.Expression[],
-    n: RuntimeNames,
-    placeholders: Map<string, t.Expression>
+    keys: string[],
+    n: RuntimeNames
 ): string {
     const name = memberName(accessor.key);
     const access = memberAccess(accessor.key);
@@ -542,14 +531,11 @@ function emitMemoGetter(
     const bodyAccess = memberAccess(
         memoBodyMethodName(accessor.key, className)
     );
-    const prefix = `k${placeholders.size}_`;
     const reads: string[] = [];
     const compares: string[] = [];
     const stores: string[] = [];
     keys.forEach((expression, index) => {
-        const placeholder = `${prefix}${index}`;
-        placeholders.set(placeholder, expression);
-        reads.push(`k${index} = %%${placeholder}%%`);
+        reads.push(`k${index} = ${expression}`);
         compares.push(`${n.sk}(c.k${index}, k${index})`);
         stores.push(`k${index}: ${n.nk}(k${index})`);
     });
@@ -601,27 +587,26 @@ export function buildDefineStatement(
     plan: ClassPlan,
     names: RuntimeNames
 ): t.Statement {
-    const placeholders = new Map<string, t.Expression>();
     const members: string[] = [
         `constructor(r, h) { this[${names.R}] = r; this[${names.H}] = h; }`,
     ];
     for (const field of plan.fields) members.push(emitField(field, names));
     for (const method of plan.methods) members.push(emitMethod(method, names));
     for (const accessor of plan.accessors) {
-        members.push(emitAccessor(accessor, className, names, placeholders));
+        members.push(emitAccessor(accessor, className, names));
     }
     const code = `${names.define}(${className}, ${emitSchema(
         plan
     )}, class {${members.join("\n")}\n});`;
-    const build = template.statement(code, {
-        syntacticPlaceholders: true,
-        preserveComments: false,
-    });
-    const replacements: Record<string, t.Expression> = {};
-    for (const [placeholder, expression] of placeholders) {
-        replacements[placeholder] = expression;
+    // Parsed directly: every name is already substituted, so the template
+    // machinery (clone, placeholder walk, location scrub) has nothing to do.
+    const statement = parse(code, { sourceType: "module" }).program.body[0];
+    if (statement === undefined) {
+        throw new Error(
+            `Retree compiler: the managed class for ${className} produced no statement.`
+        );
     }
-    return build(replacements);
+    return statement;
 }
 
 /**

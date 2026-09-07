@@ -14,7 +14,7 @@
         "prepack": "node ../../scripts/sync-package-docs.mjs ."
     },
     "dependencies": {
-        "@babel/template": "^7.27.0",
+        "@babel/parser": "^7.27.0",
         "@babel/types": "^7.27.0"
     },
     "devDependencies": {
@@ -23,13 +23,12 @@
         "@babel/plugin-syntax-decorators": "^7.27.0",
         "@babel/preset-typescript": "^7.27.0",
         "@types/babel__core": "^7.20.5",
-        "@types/babel__template": "^7.4.4",
         "@types/node": "^22.10.0",
         "typescript": "^6.0.2"
     },
     "peerDependencies": {
         "@babel/core": "^7.0.0",
-        "@retreejs/core": ">=0.11.0"
+        "@retreejs/core": "0.10.4"
     },
     "repository": {
         "directory": "packages/retree-babel-plugin-compiler",
