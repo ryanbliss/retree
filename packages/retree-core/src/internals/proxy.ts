@@ -1164,9 +1164,7 @@ function buildProxyHandler<T extends TreeNode = TreeNode>(
         return existing as BaseProxyHandler<T>;
     }
     const proxyHandler =
-        (object instanceof ReactiveNode
-            ? createRegisteredHandler(object, emitter, parent ?? null)
-            : undefined) ??
+        createRegisteredHandler(object, emitter, parent ?? null) ??
         new BaseProxyHandler<T>(object, emitter, parent ?? null);
     const proxy = proxyHandler.createBaseProxy();
     const reactiveFields = proxyHandler.reactiveFields;

@@ -17,5 +17,5 @@
         "forceConsistentCasingInFileNames": true
     },
     "include": ["src/**/*.ts"],
-    "exclude": ["**/*.spec.ts", "**/mock/*.ts"]
+    "exclude": ["**/*.spec.ts", "**/mock/*.ts", "**/test-fixtures/**"]
 }

@@ -791,7 +791,7 @@ function warnDynamicKeys(info: CompiledClassInfo, base: object): void {
 //   }
 
 export function readPrimitive<T>(
-    handler: CompiledProxyHandler,
+    handler: BaseProxyHandler<TreeNode>,
     prop: string,
     value: T
 ): T {
@@ -799,7 +799,7 @@ export function readPrimitive<T>(
 }
 
 export function readObject(
-    handler: CompiledProxyHandler,
+    handler: BaseProxyHandler<TreeNode>,
     prop: string,
     value: object,
     child: BaseProxyHandler<TreeNode> | undefined,
