@@ -6,6 +6,7 @@ import { summarizeDurations } from "../packages/retree-benchmark-cli/src/stats.j
 
 const operations = 200_000;
 class Model extends ReactiveNode {
+    revision = 0;
     values = new Map([["value", 1]]);
     objects = new Map([["value", { count: 1 }]]);
 }
@@ -26,6 +27,8 @@ const raw = new Model();
 const base = Retree.root(raw);
 base.values.set("seed", 0);
 base.objects.set("seed", { count: 0 });
+// Advance the parent independently of its collection children.
+base.revision++;
 const view = getReproxyNode(base);
 assert.notEqual(view, base);
 assert.notEqual(view.values, base.values);
