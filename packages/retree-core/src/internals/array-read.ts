@@ -20,13 +20,20 @@ import { latestIdentity, latestIdentityOfHandler } from "./reproxy.js";
  * without the per-element dispatch.
  */
 const ARRAY_READ_METHODS = {
+    at: Array.prototype.at,
+    entries: Array.prototype.entries,
     every: Array.prototype.every,
     filter: Array.prototype.filter,
     find: Array.prototype.find,
     findIndex: Array.prototype.findIndex,
+    flatMap: Array.prototype.flatMap,
     forEach: Array.prototype.forEach,
+    includes: Array.prototype.includes,
+    indexOf: Array.prototype.indexOf,
+    keys: Array.prototype.keys,
     map: Array.prototype.map,
     reduce: Array.prototype.reduce,
+    slice: Array.prototype.slice,
     some: Array.prototype.some,
     values: Array.prototype.values,
     [Symbol.iterator]: Array.prototype[Symbol.iterator],
@@ -128,21 +135,26 @@ type ArrayReadCallback = (
  * Walk the raw array like the native callback methods do: the length is
  * read once up front, holes are skipped, and elements are read live so a
  * callback that writes to the array observes its own writes. `visit`
- * returns true to stop early.
+ * returns true to stop early. Walks in `[from, to)`.
  */
 function walkArray(
     handler: BaseProxyHandler<TreeNode>,
     target: unknown[],
     asView: boolean,
-    visit: (element: unknown, index: number) => boolean
+    visit: (element: unknown, index: number) => boolean,
+    from = 0,
+    to = target.length
 ): void {
     const tracking = isDependencyTrackingActive();
-    const length = target.length;
     if (tracking) {
-        trackLengthRead(handler, length);
+        trackLengthRead(handler, target.length);
     }
-    for (let index = 0; index < length; index++) {
+    for (let index = from; index < to; index++) {
         if (!(index in target)) {
+            if (tracking) {
+                // A filled hole changes this read, so record it.
+                trackElementRead(handler, index, undefined);
+            }
             continue;
         }
         const element = readArrayElement(handler, target, index, asView);
@@ -155,15 +167,112 @@ function walkArray(
     }
 }
 
+/** `ToIntegerOrInfinity` from the spec: the integer an index argument means. */
+function toIntegerOrInfinity(value: unknown): number {
+    const integer = Math.trunc(Number(value));
+    return Number.isNaN(integer) ? 0 : integer;
+}
+
+/** A relative index clamped into `[0, length]`; negative counts from the end. */
+function clampRelativeIndex(relative: number, length: number): number {
+    if (relative < 0) {
+        return Math.max(length + relative, 0);
+    }
+    return Math.min(relative, length);
+}
+
 /**
- * An iterator over the raw array's elements resolved like the get trap.
- * Mirrors the native array iterator: the length is re-read on every step
- * and holes yield `undefined`.
+ * Whether element `index` matches `search` the way `indexOf` (strict
+ * equality) or `includes` (SameValueZero) sees it through the proxy. A
+ * primitive slot compares raw. An object slot can only match an object,
+ * through the identity the read path serves, so it is resolved only when
+ * `search` is an object or the read is being tracked.
+ */
+function elementMatches(
+    handler: BaseProxyHandler<TreeNode>,
+    target: unknown[],
+    index: number,
+    asView: boolean,
+    search: unknown,
+    sameValueZero: boolean,
+    tracking: boolean
+): boolean {
+    const raw = target[index];
+    if (raw === null || typeof raw !== "object") {
+        if (tracking) {
+            trackElementRead(handler, index, raw);
+        }
+        if (raw === search) {
+            return true;
+        }
+        return sameValueZero && raw !== raw && search !== search;
+    }
+    const searchIsObject = search !== null && typeof search === "object";
+    if (!tracking && !searchIsObject) {
+        return false;
+    }
+    const element = readArrayElement(handler, target, index, asView);
+    if (tracking) {
+        trackElementRead(handler, index, element);
+    }
+    return element === search;
+}
+
+/**
+ * The first index at or after `from` whose element matches `search`, or
+ * -1. `indexOf` skips holes; `includes` reads them as `undefined`.
+ */
+function searchArray(
+    handler: BaseProxyHandler<TreeNode>,
+    target: unknown[],
+    asView: boolean,
+    search: unknown,
+    fromIndex: unknown,
+    sameValueZero: boolean
+): number {
+    const tracking = isDependencyTrackingActive();
+    const length = target.length;
+    if (tracking) {
+        trackLengthRead(handler, length);
+    }
+    const from = clampRelativeIndex(toIntegerOrInfinity(fromIndex), length);
+    for (let index = from; index < length; index++) {
+        if (!sameValueZero && !(index in target)) {
+            continue;
+        }
+        if (
+            elementMatches(
+                handler,
+                target,
+                index,
+                asView,
+                search,
+                sameValueZero,
+                tracking
+            )
+        ) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+const enum ArrayIteratorKind {
+    Keys,
+    Values,
+    Entries,
+}
+
+/**
+ * An iterator over the raw array resolved like the get trap. Mirrors the
+ * native array iterator: the length is re-read on every step and holes
+ * yield `undefined`.
  */
 function createArrayReadIterator(
     handler: BaseProxyHandler<TreeNode>,
     target: unknown[],
-    asView: boolean
+    asView: boolean,
+    kind: ArrayIteratorKind
 ): IterableIterator<unknown> {
     let index = 0;
     return {
@@ -175,11 +284,17 @@ function createArrayReadIterator(
             if (index >= target.length) {
                 return { value: undefined, done: true };
             }
-            const element = readArrayElement(handler, target, index, asView);
-            if (tracking) {
-                trackElementRead(handler, index, element);
+            const current = index++;
+            if (kind === ArrayIteratorKind.Keys) {
+                return { value: current, done: false };
             }
-            index++;
+            const element = readArrayElement(handler, target, current, asView);
+            if (tracking) {
+                trackElementRead(handler, current, element);
+            }
+            if (kind === ArrayIteratorKind.Entries) {
+                return { value: [current, element], done: false };
+            }
             return { value: element, done: false };
         },
         [Symbol.iterator]() {
@@ -346,10 +461,138 @@ export function wrapArrayRead(
                 }
                 return accumulator;
             };
+        case "flatMap":
+            return function flatMapWrapper(
+                callback: ArrayReadCallback,
+                thisArg?: unknown
+            ): unknown[] {
+                assertCallable(prop, callback);
+                const result: unknown[] = [];
+                walkArray(handler, target, asView, (element, index) => {
+                    const mapped = callback.call(thisArg, element, index, self);
+                    if (!Array.isArray(mapped)) {
+                        result.push(mapped);
+                        return false;
+                    }
+                    // One level, like the native: present inner elements
+                    // are read through whatever `mapped` is.
+                    for (let inner = 0; inner < mapped.length; inner++) {
+                        if (inner in mapped) {
+                            result.push(mapped[inner]);
+                        }
+                    }
+                    return false;
+                });
+                return result;
+            };
+        case "indexOf":
+            return function indexOfWrapper(
+                search: unknown,
+                fromIndex?: unknown
+            ): number {
+                return searchArray(
+                    handler,
+                    target,
+                    asView,
+                    search,
+                    fromIndex,
+                    false
+                );
+            };
+        case "includes":
+            return function includesWrapper(
+                search: unknown,
+                fromIndex?: unknown
+            ): boolean {
+                return (
+                    searchArray(
+                        handler,
+                        target,
+                        asView,
+                        search,
+                        fromIndex,
+                        true
+                    ) !== -1
+                );
+            };
+        case "at":
+            return function atWrapper(index: unknown): unknown {
+                const tracking = isDependencyTrackingActive();
+                const length = target.length;
+                if (tracking) {
+                    trackLengthRead(handler, length);
+                }
+                const relative = toIntegerOrInfinity(index);
+                const resolved = relative < 0 ? length + relative : relative;
+                if (resolved < 0 || resolved >= length) {
+                    return undefined;
+                }
+                const element = readArrayElement(
+                    handler,
+                    target,
+                    resolved,
+                    asView
+                );
+                if (tracking) {
+                    trackElementRead(handler, resolved, element);
+                }
+                return element;
+            };
+        case "slice":
+            return function sliceWrapper(
+                start?: unknown,
+                end?: unknown
+            ): unknown[] {
+                const length = target.length;
+                const from = clampRelativeIndex(
+                    toIntegerOrInfinity(start),
+                    length
+                );
+                const to =
+                    end === undefined
+                        ? length
+                        : clampRelativeIndex(toIntegerOrInfinity(end), length);
+                const result: unknown[] = new Array(Math.max(to - from, 0));
+                walkArray(
+                    handler,
+                    target,
+                    asView,
+                    (element, index) => {
+                        result[index - from] = element;
+                        return false;
+                    },
+                    from,
+                    to
+                );
+                return result;
+            };
+        case "keys":
+            return function keysWrapper(): IterableIterator<unknown> {
+                return createArrayReadIterator(
+                    handler,
+                    target,
+                    asView,
+                    ArrayIteratorKind.Keys
+                );
+            };
+        case "entries":
+            return function entriesWrapper(): IterableIterator<unknown> {
+                return createArrayReadIterator(
+                    handler,
+                    target,
+                    asView,
+                    ArrayIteratorKind.Entries
+                );
+            };
         case "values":
         case Symbol.iterator:
             return function valuesWrapper(): IterableIterator<unknown> {
-                return createArrayReadIterator(handler, target, asView);
+                return createArrayReadIterator(
+                    handler,
+                    target,
+                    asView,
+                    ArrayIteratorKind.Values
+                );
             };
     }
 }
