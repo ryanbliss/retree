@@ -22,6 +22,11 @@ import {
 } from "./dependency-tracking.js";
 import { readReactiveNodeProperty } from "./memo.js";
 import {
+    ArrayReadMethodName,
+    isNativeArrayReadAccess,
+    wrapArrayRead,
+} from "./array-read.js";
+import {
     ICustomProxyHandler,
     IProxyParent,
     ISnapshotVersionRecord,
@@ -77,7 +82,7 @@ export function resolveBaseHandler<T extends TreeNode>(
  * The latest identity of a value read off a raw node: the current view of a
  * managed node, or the value itself when it is not managed.
  */
-function latestIdentity<T>(value: T): T {
+export function latestIdentity<T>(value: T): T {
     const handler = getCustomProxyHandlerFromMetadata(value);
     if (handler === undefined) {
         return value;
@@ -243,6 +248,7 @@ class ReproxyHandler<T extends TreeNode>
         string | symbol,
         { source: Function; bound: Function }
     > | null = null;
+    private arrayReaders: Map<ArrayReadMethodName, Function> | null = null;
 
     constructor(baseHandler: BaseProxyHandler<T>) {
         this[unproxiedBaseNodeKey] = baseHandler[unproxiedBaseNodeKey];
@@ -325,6 +331,31 @@ class ReproxyHandler<T extends TreeNode>
         return reproxyAwareMutator;
     }
 
+    /**
+     * Element identities come back as latest views here, and the callback's
+     * array argument is the latest view, matching the bound-native path.
+     */
+    private getArrayReader(
+        prop: ArrayReadMethodName,
+        arrayObject: T & unknown[]
+    ): Function {
+        this.arrayReaders ??= new Map();
+        const cached = this.arrayReaders.get(prop);
+        if (cached !== undefined) {
+            return cached;
+        }
+        const base = this.baseHandler;
+        const wrapper = wrapArrayRead(
+            base,
+            prop,
+            arrayObject,
+            currentView(base) ?? base.baseProxy,
+            true
+        );
+        this.arrayReaders.set(prop, wrapper);
+        return wrapper;
+    }
+
     public get(target: T, prop: string | symbol, receiver: any): any {
         if (prop === proxyHandlerSentinel) {
             return this;
@@ -397,6 +428,13 @@ class ReproxyHandler<T extends TreeNode>
                 );
             }
             return this.getReproxyAwareArrayMutator(prop, baseMutator);
+        }
+        if (
+            kind === NodeKind.Array &&
+            isNativeArrayReadAccess(target, prop) &&
+            Array.isArray(target)
+        ) {
+            return trackAccessIfNeeded(this.getArrayReader(prop, target));
         }
         let value: any;
         if (reactiveObject !== undefined) {
