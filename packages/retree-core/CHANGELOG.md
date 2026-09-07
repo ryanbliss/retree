@@ -1,5 +1,13 @@
 # @retreejs/core
 
+## 0.10.4
+
+### Patch Changes
+
+-   5ec3040: Native array read methods on a managed list (`forEach`, `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `values`, `for...of`, spread) walk the raw array instead of dispatching a `has` and a `get` trap per element. Callbacks still receive base proxies from the base proxy and latest views from a view, untouched elements still materialize on first read, and array subclasses or overridden methods keep the bound native. At 50k rows `map` and `filter` run about 2x faster and `for...of` about 2.5x; a tracked `map` under `Retree.select` about 2x. Tracked reads record the list's `length` and each element once, without a separate key-presence read per element.
+-   5ec3040: `indexOf`, `includes`, `slice`, `at`, `flatMap`, `entries`, and `keys` on a managed list also walk the raw array. A primitive search compares raw slots; an object search compares the identity the read path serves (base proxy from the base, latest view from a view), exactly what the trapped native saw. `includes` uses SameValueZero and reads holes as `undefined`; `indexOf` skips holes. At 50k elements a primitive `indexOf` or `includes` is about 50x faster, `slice` 5x, `at` 2x, `entries` and `keys` about 2x. A tracked walk now records a hole as an `undefined` read at its index, so filling it re-runs a selector that skipped it.
+-   5ec3040: Field reads on a `ReactiveNode` do one lookup in a per-class map of key roles (`@ignore`, `@link`, getter), resolved when the node is managed and shared by every instance of the class, instead of two key-set checks plus memo-getter bookkeeping on every read. Only getters enter the memo-getter reader. ReactiveNode field reads through the base proxy or a view are about 23% faster (48 to 37 ns per read); plain node reads are unchanged.
+
 ## 0.10.3
 
 ### Patch Changes
