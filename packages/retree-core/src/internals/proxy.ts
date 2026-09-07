@@ -28,7 +28,11 @@ import {
     TCustomProxy,
     unproxiedBaseNodeKey,
 } from "./proxy-types.js";
-import { readReactiveNodeProperty } from "./memo.js";
+import {
+    buildReactiveKeyRoles,
+    ReactiveKeyRole,
+    readReactiveNodeGetter,
+} from "./memo.js";
 import {
     ArrayReadMethodName,
     isNativeArrayReadAccess,
@@ -370,6 +374,11 @@ export class BaseProxyHandler<T extends TreeNode>
     public readonly kind: NodeKind;
     /** The raw node when it is a ReactiveNode; the hot path reads its key sets. */
     public readonly reactiveObject: ReactiveNode | undefined;
+    /** Keys the get traps cannot serve as plain reads; null unless a ReactiveNode. */
+    public readonly reactiveKeyRoles: ReadonlyMap<
+        string | symbol,
+        ReactiveKeyRole
+    > | null;
     private isApplyingSet = false;
     public caches: IHandlerCaches | null = null;
 
@@ -385,10 +394,15 @@ export class BaseProxyHandler<T extends TreeNode>
         this.emitter = emitter;
         const kind = getNodeKind(object);
         this.kind = kind;
-        this.reactiveObject =
+        const reactiveObject =
             kind === NodeKind.ReactiveNode && object instanceof ReactiveNode
                 ? object
                 : undefined;
+        this.reactiveObject = reactiveObject;
+        this.reactiveKeyRoles =
+            reactiveObject === undefined
+                ? null
+                : buildReactiveKeyRoles(reactiveObject);
     }
 
     public ensureCaches(): IHandlerCaches {
@@ -465,25 +479,23 @@ export class BaseProxyHandler<T extends TreeNode>
         if (prop === "[[Target]]") {
             return this[unproxiedBaseNodeKey];
         }
-        const reactiveObject = this.reactiveObject;
+        const keyRoles = this.reactiveKeyRoles;
         const baseProxy = this.baseProxy;
-        if (reactiveObject !== undefined) {
-            // Collected/ignore keys are always strings; symbol props skip
-            // these checks without paying a String(prop) allocation.
-            if (typeof prop === "string") {
-                if (prop.startsWith("RETREE_")) {
-                    return Reflect.get(target, prop, target);
-                }
-                if (reactiveObject[COLLECTED_KEYS_SYMBOL].has(prop)) {
-                    return trackPropertyAccessIfNeeded(
-                        this,
-                        baseProxy,
-                        prop,
-                        getLatestIgnoredValue(Reflect.get(target, prop, target))
-                    );
-                }
+        let role: ReactiveKeyRole | undefined;
+        if (keyRoles !== null) {
+            if (typeof prop === "string" && prop.startsWith("RETREE_")) {
+                return Reflect.get(target, prop, target);
             }
-            if (reactiveObject[LINKED_KEYS_SYMBOL].has(prop)) {
+            role = keyRoles.get(prop);
+            if (role === ReactiveKeyRole.Collected) {
+                return trackPropertyAccessIfNeeded(
+                    this,
+                    baseProxy,
+                    prop,
+                    getLatestIgnoredValue(Reflect.get(target, prop, target))
+                );
+            }
+            if (role === ReactiveKeyRole.Linked) {
                 return trackPropertyAccessIfNeeded(
                     this,
                     baseProxy,
@@ -539,12 +551,14 @@ export class BaseProxyHandler<T extends TreeNode>
             return trackAccessIfNeeded(this.getArrayReader(prop, target));
         }
         let value: any;
-        if (reactiveObject !== undefined) {
-            // ReactiveNode getter reads may need a memo-getter frame so a
-            // keyless `this.memo(fn, deps)` inside the getter can derive its
-            // cache key from `prop`; classes that never use keyless memo skip
-            // the frame bookkeeping entirely.
-            value = readReactiveNodeProperty(reactiveObject, prop, receiver);
+        if (
+            role === ReactiveKeyRole.Getter &&
+            this.reactiveObject !== undefined
+        ) {
+            // A getter may need a memo-getter frame so a keyless
+            // `this.memo(fn, deps)` inside it can derive its cache key from
+            // `prop`; classes that never use keyless memo skip the frame.
+            value = readReactiveNodeGetter(this.reactiveObject, prop, receiver);
         } else {
             value = Reflect.get(target, prop, receiver);
         }

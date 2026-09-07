@@ -10,5 +10,5 @@
         "noEmit": true,
         "esModuleInterop": true
     },
-    "include": ["sdk-scaling.mts"]
+    "include": ["sdk-scaling.mts", "node-reads.mts"]
 }

@@ -6,11 +6,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const directory = await mkdtemp(join(tmpdir(), "retree-sdk-scaling-"));
+const entry = process.argv[2] ?? "benchmarks/sdk-scaling.mts";
+const directory = await mkdtemp(join(tmpdir(), "retree-benchmark-"));
 try {
     const outfile = join(directory, "benchmark.mjs");
     await build({
-        entryPoints: [join(root, "benchmarks/sdk-scaling.mts")],
+        entryPoints: [join(root, entry)],
         outfile,
         bundle: true,
         platform: "node",
