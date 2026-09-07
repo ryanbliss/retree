@@ -1,5 +1,7 @@
 # Plain-object materialization experiment, September 7, 2026
 
+Historical facade experiment at `fc39578`. Its runtime fixture and optional SDK routing changes were subsequently removed. Reproduce the commands below from that commit. The later ancestry optimization uses a separate report and raw artifact.
+
 This fixed-shape accessor facade fails the cold-materialization target. Keep this PR in draft. It is stacked on #103 at `93ba2bfbc15d7d68389b1493756c72d44f488710`. It does not change the conclusions or measurements in #100, #101, or #103.
 
 ## What was tested

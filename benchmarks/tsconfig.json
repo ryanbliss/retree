@@ -13,8 +13,6 @@
     "include": [
         "sdk-scaling.mts",
         "plain-materialization.mts",
-        "plain-object-parity.mts",
-        "plain-object-heap.mts",
         "node-reads.mts",
         "array-reads.mts",
         "compiled-node-shapes.mts"

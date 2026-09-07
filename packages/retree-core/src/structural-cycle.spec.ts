@@ -34,6 +34,25 @@ describe("structural cycles", () => {
         expect(() => root.nested).toThrow(CYCLE);
     });
 
+    it("rejects a closing edge after materializing a long unmanaged chain", () => {
+        interface Chain {
+            next: Chain | null;
+        }
+        const input: Chain = { next: null };
+        let tail = input;
+        for (let i = 0; i < 512; i++) {
+            tail.next = { next: null };
+            tail = tail.next;
+        }
+        tail.next = input;
+        const root = Retree.root(input);
+        expect(() => {
+            let current = root;
+            for (let i = 0; i < 513; i++) current = current.next!;
+        }).toThrow(CYCLE);
+        Retree.clearListeners(root);
+    });
+
     it("rejects a class-instance cycle at root() because class fields are eager", () => {
         class Node extends ReactiveNode {
             public self: Node | null = null;

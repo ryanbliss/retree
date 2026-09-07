@@ -1148,7 +1148,9 @@ function buildProxyHandler<T extends TreeNode = TreeNode>(
     const objectHandler = knownUnmanaged
         ? undefined
         : getCustomProxyHandlerFromMetadata<T>(object);
-    if (parent !== undefined) {
+    // Every ancestor already has a registered handler. A raw child proven
+    // unmanaged cannot be an ancestor, so no ancestry walk is needed.
+    if (parent !== undefined && !knownUnmanaged) {
         assertNoStructuralCycle(
             objectHandler === undefined
                 ? object
@@ -1164,7 +1166,9 @@ function buildProxyHandler<T extends TreeNode = TreeNode>(
         return existing as BaseProxyHandler<T>;
     }
     const proxyHandler =
-        createRegisteredHandler(object, emitter, parent ?? null) ??
+        (object instanceof ReactiveNode
+            ? createRegisteredHandler(object, emitter, parent ?? null)
+            : undefined) ??
         new BaseProxyHandler<T>(object, emitter, parent ?? null);
     const proxy = proxyHandler.createBaseProxy();
     const reactiveFields = proxyHandler.reactiveFields;
@@ -1519,9 +1523,9 @@ function getOrCreateProxiedChildHandler(
 }
 
 /**
- * A node may not own itself through any chain of children. Checked where an
- * edge is materialized (a child proxy is built, shared, or reparented), so
- * the cost is one hop per ancestor instead of a pass over all raw input.
+ * A node may not own itself through any chain of children. Checked where
+ * an existing node is attached, shared, or reparented. Proven-unmanaged
+ * children cannot be ancestors and skip this walk.
  */
 function assertNoStructuralCycle(
     childRaw: object,

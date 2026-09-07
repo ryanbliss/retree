@@ -8,12 +8,13 @@ if (!baseline || !output)
         "Usage: node scripts/compare-plain-materialization.mjs BASELINE_DIRECTORY OUTPUT_JSON"
     );
 const variants = [
-    ["103", baseline, "0"],
-    ["routing-only", repo, "0"],
-    ["facade", repo, "1"],
+    ["103-off", baseline, "0"],
+    ["103-on", baseline, "1"],
+    ["ancestry-off", repo, "0"],
+    ["ancestry-on", repo, "1"],
 ];
 const runs = [];
-for (let block = 0; block < 6; block++) {
+for (let block = 0; block < 8; block++) {
     const order = block % 2 ? [...variants].reverse() : variants;
     for (const [variant, cwd, enabled] of order) {
         const start = performance.now();
@@ -28,8 +29,7 @@ for (let block = 0; block < 6; block++) {
                 cwd,
                 env: {
                     ...process.env,
-                    RETREE_COMPILER: "1",
-                    RETREE_PLAIN_FACADES: enabled,
+                    RETREE_COMPILER: enabled,
                 },
                 encoding: "utf8",
             }
