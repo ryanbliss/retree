@@ -3,7 +3,11 @@
  * Licensed under the MIT License.
  */
 
-import { ReactiveNode } from "../ReactiveNode.js";
+import {
+    COLLECTED_KEYS_SYMBOL,
+    LINKED_KEYS_SYMBOL,
+    ReactiveNode,
+} from "../ReactiveNode.js";
 import { TreeNode } from "../types.js";
 import {
     getGlobalWriteVersion,
@@ -851,24 +855,67 @@ function isKeylessMemoFrameRequestFor(
 
 /**
  * @internal
- * Read a property of a raw ReactiveNode on behalf of a proxy get trap,
- * pushing a memo-getter frame around getter invocations only when the
+ * How a proxy get trap must serve a key of a managed ReactiveNode. Keys
+ * without a role are plain reads.
+ */
+export enum ReactiveKeyRole {
+    /** An `@ignore` key: served raw, never proxied. */
+    Collected,
+    /** An `@link` key: served as the link's latest node. */
+    Linked,
+    /** A prototype getter: may need a memo-getter frame. */
+    Getter,
+}
+
+/**
+ * @internal
+ * The keys of a ReactiveNode the get traps cannot serve as plain reads.
+ * Built once when the node is managed: decorators fill the collected and
+ * linked key sets while the instance constructs, and the getters are the
+ * prototype's. A collected key wins over a linked or getter one, matching
+ * the order the traps checked before this map existed.
+ */
+export function buildReactiveKeyRoles(
+    instance: ReactiveNode
+): ReadonlyMap<string | symbol, ReactiveKeyRole> {
+    const roles = new Map<string | symbol, ReactiveKeyRole>();
+    const prototype = Object.getPrototypeOf(instance);
+    if (prototype !== null) {
+        for (const key of getReactiveNodePrototypeGetterNames(prototype)) {
+            roles.set(key, ReactiveKeyRole.Getter);
+        }
+    }
+    for (const key of instance[LINKED_KEYS_SYMBOL]) {
+        roles.set(key, ReactiveKeyRole.Linked);
+    }
+    for (const key of instance[COLLECTED_KEYS_SYMBOL]) {
+        roles.set(key, ReactiveKeyRole.Collected);
+    }
+    return roles;
+}
+
+/**
+ * @internal
+ * Read a getter of a raw ReactiveNode on behalf of a proxy get trap,
+ * pushing a memo-getter frame around the invocation only when the
  * instance's class is known to use the keyless `this.memo(...)` form.
+ * Callers gate on {@link ReactiveKeyRole.Getter}; data fields and methods
+ * never need a frame and are read directly.
  *
- * Fast path (class never marked): one WeakSet lookup, no getter detection,
- * no frame allocation. The first keyless memo call on such a class throws
+ * Fast path (class never marked): one WeakSet lookup, no frame allocation.
+ * The first keyless memo call on such a class throws
  * {@link KeylessMemoFrameRequest} from `consumeCurrentMemoGetter`, which is
  * caught here and answered by re-running the getter with a frame — so keyless
  * memo still works on its first-ever call.
  */
-export function readReactiveNodeProperty(
+export function readReactiveNodeGetter(
     instance: ReactiveNode,
     prop: string | symbol,
     receiver: unknown
 ): unknown {
-    const owner = resolveStackOwner(instance);
-    const prototype = Object.getPrototypeOf(owner);
+    const prototype = Object.getPrototypeOf(instance);
     if (prototype !== null && keylessMemoPrototypes.has(prototype)) {
+        // An own data property can shadow the prototype getter.
         if (getReactiveNodeGetter(instance, prop)) {
             pushMemoGetter(instance, prop);
             try {
@@ -882,7 +929,7 @@ export function readReactiveNodeProperty(
     try {
         return Reflect.get(instance, prop, receiver);
     } catch (error) {
-        if (!isKeylessMemoFrameRequestFor(error, owner)) {
+        if (!isKeylessMemoFrameRequestFor(error, instance)) {
             throw error;
         }
         // consumeCurrentMemoGetter marked the prototype before throwing;

@@ -3,7 +3,6 @@
  * Licensed under the MIT License.
  */
 
-import { COLLECTED_KEYS_SYMBOL, LINKED_KEYS_SYMBOL } from "../ReactiveNode.js";
 import { TreeNode } from "../types.js";
 import {
     BaseProxyHandler,
@@ -20,7 +19,7 @@ import {
     trackDependencyAccess,
     trackDependencyPropertyAccess,
 } from "./dependency-tracking.js";
-import { readReactiveNodeProperty } from "./memo.js";
+import { ReactiveKeyRole, readReactiveNodeGetter } from "./memo.js";
 import {
     ArrayReadMethodName,
     isNativeArrayReadAccess,
@@ -368,22 +367,22 @@ class ReproxyHandler<T extends TreeNode>
         }
         const base = this.baseHandler;
         const baseProxy = base.baseProxy;
-        const reactiveObject = base.reactiveObject;
-        if (reactiveObject !== undefined) {
-            if (typeof prop === "string") {
-                if (prop.startsWith("RETREE_")) {
-                    return Reflect.get(target, prop, target);
-                }
-                if (reactiveObject[COLLECTED_KEYS_SYMBOL].has(prop)) {
-                    return trackPropertyAccessIfNeeded(
-                        base,
-                        baseProxy,
-                        prop,
-                        getLatestIgnoredValue(Reflect.get(target, prop, target))
-                    );
-                }
+        const keyRoles = base.reactiveKeyRoles;
+        let role: ReactiveKeyRole | undefined;
+        if (keyRoles !== null) {
+            if (typeof prop === "string" && prop.startsWith("RETREE_")) {
+                return Reflect.get(target, prop, target);
             }
-            if (reactiveObject[LINKED_KEYS_SYMBOL].has(prop)) {
+            role = keyRoles.get(prop);
+            if (role === ReactiveKeyRole.Collected) {
+                return trackPropertyAccessIfNeeded(
+                    base,
+                    baseProxy,
+                    prop,
+                    getLatestIgnoredValue(Reflect.get(target, prop, target))
+                );
+            }
+            if (role === ReactiveKeyRole.Linked) {
                 return trackPropertyAccessIfNeeded(
                     base,
                     baseProxy,
@@ -437,10 +436,12 @@ class ReproxyHandler<T extends TreeNode>
             return trackAccessIfNeeded(this.getArrayReader(prop, target));
         }
         let value: any;
-        if (reactiveObject !== undefined) {
-            // Mirror proxy.ts: track the active getter for keyless
-            // `this.memo(...)` only on classes known to use it.
-            value = readReactiveNodeProperty(reactiveObject, prop, receiver);
+        if (
+            role === ReactiveKeyRole.Getter &&
+            base.reactiveObject !== undefined
+        ) {
+            // Mirror proxy.ts: a getter may need a memo-getter frame.
+            value = readReactiveNodeGetter(base.reactiveObject, prop, receiver);
         } else {
             value = Reflect.get(target, prop, receiver);
         }
