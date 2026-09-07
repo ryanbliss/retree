@@ -49,11 +49,18 @@ describe("reactive key roles", () => {
         expect(roles.has("bump")).toBe(false);
     });
 
-    it("lets a collected key win over a getter of the same name", () => {
-        const instance = new Child();
-        instance[COLLECTED_KEYS_SYMBOL].add("doubled");
-        expect(buildReactiveKeyRoles(instance).get("doubled")).toBe(
-            ReactiveKeyRole.Collected
+    it("shares one map across instances of a class and none with an instance whose keys differ", () => {
+        const shared = buildReactiveKeyRoles(new Child());
+        expect(buildReactiveKeyRoles(new Child())).toBe(shared);
+        const odd = new Child();
+        odd[COLLECTED_KEYS_SYMBOL].add("doubled");
+        const own = buildReactiveKeyRoles(odd);
+        expect(own).not.toBe(shared);
+        expect(own.get("doubled")).toBe(ReactiveKeyRole.Collected);
+        expect(shared.get("doubled")).toBe(ReactiveKeyRole.Getter);
+        // A later plain instance does not inherit the odd one's map.
+        expect(buildReactiveKeyRoles(new Child()).get("doubled")).toBe(
+            ReactiveKeyRole.Getter
         );
     });
 });
