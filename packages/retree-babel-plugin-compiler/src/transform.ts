@@ -45,7 +45,6 @@ const RUNTIME_IMPORTS = {
     H: "H",
     V: "V",
     C: "C",
-    S: "S",
     define: "defineCompiledNode",
     rp: "readPrimitive",
     ro: "readObject",
@@ -60,6 +59,8 @@ const RUNTIME_IMPORTS = {
     wl: "writeLinked",
     cwv: "currentWriteVersion",
     nk: "normalizeKey",
+    dta: "isDependencyTrackingActive",
+    ft: "fieldTrampoline",
     sk: "sameKey",
     mb: "runCompiledMemoBody",
 } as const;
@@ -463,6 +464,7 @@ set ${name}(v) { ${n.wl}(this[${n.H}], ${key}, v); }`;
     }
     return `
 get ${name}() {
+    if (this === undefined) return ${n.ft}(${key});
     const v = this[${n.R}]${access};
     if (v === null || typeof v !== "object") {
         return typeof v === "function"
@@ -551,8 +553,16 @@ function emitMemoGetter(
         compares.push(`${n.sk}(c.k${index}, k${index})`);
         stores.push(`k${index}: ${n.nk}(k${index})`);
     });
-    const declare = reads.length === 0 ? "" : `, ${reads.join(", ")}`;
     const hit = `return ${n.rg}(h, this, ${key}, c.value, this[${n.V}]);`;
+    // Untracked reads on an unchanged tree skip the key reads entirely;
+    // tracked reads still replay them so the selector records the keys.
+    const readKeys =
+        reads.length === 0
+            ? ""
+            : `if (c !== undefined && c.version === ${n.cwv}() && !${
+                  n.dta
+              }()) ${hit}
+    const ${reads.join(", ")};`;
     const revalidate =
         compares.length === 0
             ? hit
@@ -561,7 +571,8 @@ function emitMemoGetter(
     const cell = ["value", `version: ${n.cwv}()`, ...stores].join(", ");
     return `
 get ${name}() {
-    const h = this[${n.H}], c = h.cells${access}${declare};
+    const h = this[${n.H}], c = h.cells${access};
+    ${readKeys}
     if (c !== undefined) {
         ${revalidate}
     }
@@ -593,7 +604,6 @@ export function buildDefineStatement(
     const placeholders = new Map<string, t.Expression>();
     const members: string[] = [
         `constructor(r, h) { this[${names.R}] = r; this[${names.H}] = h; }`,
-        `get [${names.S}]() { return this[${names.H}]; }`,
     ];
     for (const field of plan.fields) members.push(emitField(field, names));
     for (const method of plan.methods) members.push(emitMethod(method, names));
@@ -637,21 +647,17 @@ export function hoistMemoBodies(
         const key = memberKeyName(member.key, member.computed);
         if (key === undefined || !memoKeys.has(key)) continue;
         const bodyName = memoBodyMethodName(key, className);
-        const method = t.classMethod(
-            "method",
-            t.identifier(bodyName),
-            [],
-            member.body
-        );
+        const plain = isIdentifierName(bodyName);
+        const bodyKey = plain
+            ? t.identifier(bodyName)
+            : t.stringLiteral(bodyName);
+        const method = t.classMethod("method", bodyKey, [], member.body);
         method.returnType = member.returnType;
         added.push(method);
         member.body = t.blockStatement([
             t.returnStatement(
                 t.callExpression(
-                    t.memberExpression(
-                        t.thisExpression(),
-                        t.identifier(bodyName)
-                    ),
+                    t.memberExpression(t.thisExpression(), bodyKey, !plain),
                     []
                 )
             ),

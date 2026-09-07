@@ -230,26 +230,28 @@ interface BoundFunctionCacheEntry {
     bound: Function;
 }
 
-/**
- * Per-node caches only some nodes ever need, allocated together on first use
- * so a plain data node carries one null field instead of four. Array mutator
- * wrappers are cached so `arr.push === arr.push` holds across reads and
- * reproxy generations (tracked selectors reading a mutator would otherwise
- * re-run forever); collection proxies keep Map/Set children keyed by map key
- * or raw member since raw collections store raw values only.
- */
 export interface IViewBoundFunction {
     source: Function;
     bound: Function;
     target: object;
 }
 
+/**
+ * Per-node caches only some nodes ever need, allocated together on first use
+ * so a plain data node carries one null field instead of six. Array mutator
+ * wrappers are cached so `arr.push === arr.push` holds across reads and
+ * reproxy generations (tracked selectors reading a mutator would otherwise
+ * re-run forever); collection proxies keep Map/Set children keyed by map key
+ * or raw member since raw collections store raw values only; view-bound
+ * functions serve compiled views, bound to the view current at read time.
+ */
 interface IHandlerCaches {
     boundFunctions: Map<string | symbol, BoundFunctionCacheEntry> | null;
     arrayMutators: Map<ArrayMutatingMethodName, Function> | null;
     arrayReaders: Map<ArrayReadMethodName, Function> | null;
     reproxyArrayMutators: Map<string | symbol, Function> | null;
     collectionProxies: Map<any, TCustomProxy<any>> | null;
+    viewBoundFunctions: Map<string, IViewBoundFunction> | null;
 }
 
 /**
@@ -401,8 +403,6 @@ export class BaseProxyHandler<T extends TreeNode>
     public readonly cells: Record<string, CompiledMemoCell | undefined> | null;
     /** Compiled getter reads push a memo frame once a keyless memo was seen. */
     public keyless = false;
-    /** Functions read through compiled views, bound to the view current at read time. */
-    public viewBoundFunctions: Map<string, IViewBoundFunction> | null = null;
 
     constructor(
         object: T,
@@ -440,6 +440,7 @@ export class BaseProxyHandler<T extends TreeNode>
             arrayReaders: null,
             reproxyArrayMutators: null,
             collectionProxies: null,
+            viewBoundFunctions: null,
         });
     }
 
@@ -1237,14 +1238,14 @@ export function writeLinked(
     );
 }
 
-/** Mirrors the deleteProperty trap for a compiled node; used by undo. */
-export function deleteCompiledField(
+/** Mirrors the deleteProperty trap for a compiled node; used by undo and Retree.move. */
+function deleteCompiledField(
     handler: BaseProxyHandler<TreeNode>,
+    info: CompiledClassInfo,
     prop: string
 ): boolean {
     const target = handler[unproxiedBaseNodeKey];
-    const info = handler.compiled;
-    if (info !== null && info.roles.get(prop) === CompiledFieldRole.Ignore) {
+    if (info.roles.get(prop) === CompiledFieldRole.Ignore) {
         bumpGlobalWriteVersion(target);
         return Reflect.deleteProperty(target, prop);
     }
@@ -1294,10 +1295,37 @@ export function deleteManagedKey(node: object, key: PropertyKey): void {
         handler.compiled !== null &&
         typeof key === "string"
     ) {
-        deleteCompiledField(handler, key);
+        deleteCompiledField(handler, handler.compiled, key);
         return;
     }
     delete (node as Record<PropertyKey, unknown>)[key];
+}
+
+/**
+ * Assigns a key on a managed node. A compiled node has no trap to catch a
+ * key its class never declared, so that case fails here instead of leaving
+ * the value on the managed object where the raw node cannot see it.
+ */
+export function setManagedKey(
+    node: object,
+    key: string | symbol,
+    value: unknown,
+    apiName: string
+): void {
+    const handler = getCustomProxyHandlerFromMetadata(node);
+    if (
+        handler instanceof BaseProxyHandler &&
+        handler.compiled !== null &&
+        typeof key === "string" &&
+        !handler.compiled.knownKeys.has(key) &&
+        !(key in node)
+    ) {
+        // @retree-throws
+        throw new Error(
+            `${apiName}: the destination is a compiled ${node.constructor.name} and has no field "${key}". Declare the field on the class so the compiler emits it, or move into a plain object.`
+        );
+    }
+    (node as Record<string | symbol, unknown>)[key] = value;
 }
 
 export function buildProxy<T extends TreeNode = TreeNode>(
@@ -1515,7 +1543,10 @@ function deleteProxiedChild(
     }
     // A compiled children record keeps its shape: clear the slot instead of
     // deleting it, which would push the record into dictionary mode.
-    if (proxyHandler instanceof BaseProxyHandler && proxyHandler.compiled) {
+    if (
+        proxyHandler instanceof BaseProxyHandler &&
+        proxyHandler.compiled !== null
+    ) {
         (children as Record<string | symbol, unknown>)[prop] = undefined;
         return;
     }
@@ -1554,7 +1585,7 @@ const childrenCachePrototype: object = Object.freeze(
     Object.setPrototypeOf({}, null)
 );
 
-function createChildrenCache(): Record<string | symbol, any> {
+export function createChildrenCache(): Record<string | symbol, any> {
     return Object.create(childrenCachePrototype) as Record<
         string | symbol,
         any

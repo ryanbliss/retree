@@ -15,8 +15,8 @@ export interface CliFlags {
 
 export const FLAG_HELP_LINES = [
     "  --yes, -y        Accept detected defaults without prompting (React/Convex",
-    "                   integrations, compatible ESLint rule, compiler when",
-    "                   a Babel config exists, AI skill on).",
+    "                   integrations, compatible ESLint rule, AI skill on;",
+    "                   the compiler stays off unless --compiler is passed).",
     "  --react          Install @retreejs/react.",
     "  --convex         Install @retreejs/convex (adds the convex peer if missing).",
     "  --eslint         Install and configure the React ESLint rule when compatible.",

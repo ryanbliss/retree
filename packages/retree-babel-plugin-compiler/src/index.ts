@@ -62,6 +62,7 @@ export default function retreeCompiler(
             },
             ClassDeclaration(path) {
                 if (compiled.has(path.node)) return;
+                if (path.node.declare) return;
                 const program = path.findParent((parent) => parent.isProgram());
                 if (program === null || !program.isProgram()) return;
                 const state = states.get(program.node);

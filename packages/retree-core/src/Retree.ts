@@ -22,6 +22,7 @@ import {
     TCustomProxy,
     unproxiedBaseNodeKey,
 } from "./internals/proxy-types.js";
+import { deleteManagedKey, setManagedKey } from "./internals/proxy.js";
 import { getStructureVersion } from "./internals/snapshot-version.js";
 import {
     deleteReactiveDependencies,
@@ -2218,7 +2219,7 @@ export class Retree {
                 )} no longer points to the node being moved. Call Retree.move(...) before deleting or overwriting the old property.`
             );
         }
-        delete (parent as any)[parentInfo.propName];
+        deleteManagedKey(parent, parentInfo.propName);
     }
 
     private static insertNodeIntoDestination(
@@ -2263,7 +2264,7 @@ export class Retree {
                 "Retree.move: object destinations require a string or symbol key. Pass the destination property name as the third argument."
             );
         }
-        (destination as any)[key] = node;
+        setManagedKey(destination, key, node, "Retree.move");
     }
 
     private static findArrayChildIndex(parent: TreeNode[], node: TreeNode) {

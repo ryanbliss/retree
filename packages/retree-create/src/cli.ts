@@ -97,11 +97,12 @@ export async function main(
         )}`
     );
 
+    // The compiler changes build output, so it is opt-in even under --yes.
     const flagSelections = resolveSelectionsFromFlags(flags, {
         react: target.hasReact,
         convex: target.hasConvex,
         eslint: eslintAvailable,
-        compiler: compilerAvailable,
+        compiler: false,
     });
     let selections: InstallSelections;
     if (flagSelections !== undefined) {
@@ -112,7 +113,7 @@ export async function main(
             convex: target.hasConvex,
             eslint: eslintAvailable,
             eslintAvailable,
-            compiler: compilerAvailable,
+            compiler: false,
             compilerAvailable,
         });
         selections = { ...prompted, skill: flags.skill ?? prompted.skill };

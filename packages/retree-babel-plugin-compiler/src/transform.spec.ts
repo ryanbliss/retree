@@ -138,6 +138,33 @@ describe("retree compiler", () => {
         expect(code).toContain('"a": 1');
     });
 
+    it("checks the memo version before reading any key", () => {
+        const code = compile(`
+            import { ReactiveNode, memo } from "@retreejs/core";
+            class Foo extends ReactiveNode {
+                a = 1;
+                @memo((root: Foo) => [root.a])
+                get "odd-key"() { return this.a; }
+            }
+        `);
+        const fastPath = code.indexOf("c.version === _cwv() && !_dta()");
+        expect(fastPath).toBeGreaterThan(-1);
+        expect(fastPath).toBeLessThan(code.indexOf("k0 = this.a"));
+        expect(code).toContain('"odd-key$Foo$retreeMemo"() {');
+        expect(code).toContain('this["odd-key$Foo$retreeMemo"]()');
+        expect(code).not.toContain("_S");
+    });
+
+    it("skips ambient class declarations", () => {
+        const code = compile(`
+            import { ReactiveNode } from "@retreejs/core";
+            declare class Ambient extends ReactiveNode { a: number; }
+            export class Foo extends ReactiveNode { a = 1; }
+        `);
+        expect(code).not.toContain("_define(Ambient");
+        expect(code).toContain("_define(Foo, {");
+    });
+
     it("does not touch files without Retree classes", () => {
         const source = "class Plain {\n  a = 1;\n}";
         expect(compile(source)).toBe(source);

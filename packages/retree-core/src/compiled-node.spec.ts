@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode.js";
 import { Retree } from "./Retree.js";
 import { ignore, memo } from "./decorators.js";
+import { CompiledFieldRole } from "./internals/compiled-node.js";
 import { BaseProxyHandler, getCustomProxyHandler } from "./internals/proxy.js";
 
 // Runs under the proxy project and the compiled project (see the root
@@ -44,6 +45,12 @@ class Derived extends UncompiledBase {
         this.assigned.value += 1;
         return this.assigned.value;
     }
+}
+
+class Slot extends ReactiveNode {
+    item: Derived | null = null;
+    other: Derived | null = null;
+    onPick = (value: number): number => value * 2;
 }
 
 class Base extends ReactiveNode {
@@ -117,6 +124,72 @@ describe("compiled nodes", () => {
 
         spy.mockRestore();
         expect(root.bump()).toBe(3);
+    });
+
+    it("moves a node out of and into compiled parents", () => {
+        const root = Retree.root(new Slot());
+        root.item = new Derived();
+        const moved = Retree.move(root.item, root, "other");
+        expect(root.item).toBeUndefined();
+        expect(root.other).toBe(moved);
+        expect(Retree.parent(moved)).toBe(root);
+        if (!expectCompiled) return;
+        const destination: { item: Derived | null; missing?: Derived } = root;
+        expect(() => Retree.move(moved, destination, "missing")).toThrow(
+            'Retree.move: the destination is a compiled Slot and has no field "missing".'
+        );
+    });
+
+    it("falls back to the proxy path when a later instance adds an own key", () => {
+        const warn = spyOnWarn();
+        Retree.root(new Derived());
+        const second = new Derived();
+        Reflect.set(second, "surprise", 1);
+        const root = Retree.root(second);
+        const handler = getCustomProxyHandler(root);
+        expect(handler instanceof BaseProxyHandler && handler.compiled).toBe(
+            null
+        );
+        expect(warn).toHaveBeenCalledTimes(expectCompiled ? 1 : 0);
+        if (expectCompiled) {
+            expect(warn.mock.calls[0][0]).toContain("Derived");
+        }
+    });
+
+    it("serializes the same keys through JSON.stringify as the proxy path", () => {
+        const root = Retree.root(new Slot());
+        root.item = new Derived();
+        const bookkeeping = {
+            RETREE_COLLECTED_KEYS_SYMBOL: {},
+            RETREE_LINKED_KEYS_SYMBOL: {},
+            RETREE_SELECT_GETTERS_SYMBOL: {},
+        };
+        expect(JSON.parse(JSON.stringify(root))).toEqual({
+            ...bookkeeping,
+            options: {},
+            item: {
+                ...bookkeeping,
+                options: {},
+                cache: { hits: 0 },
+                assigned: { value: 1 },
+                label: "derived",
+            },
+            other: null,
+        });
+    });
+
+    it("lets spies wrap an arrow-function field", () => {
+        const root = Retree.root(new Slot());
+        const spy = vi.spyOn(root, "onPick").mockReturnValue(7);
+        expect(root.onPick(1)).toBe(7);
+        spy.mockRestore();
+        expect(root.onPick(2)).toBe(4);
+    });
+
+    it("pins the field role values the emitted schema uses", () => {
+        expect(CompiledFieldRole.Reactive).toBe(0);
+        expect(CompiledFieldRole.Ignore).toBe(1);
+        expect(CompiledFieldRole.Link).toBe(2);
     });
 
     it("lets an assigned function shadow a prototype method", () => {

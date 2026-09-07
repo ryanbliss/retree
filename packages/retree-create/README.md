@@ -24,7 +24,7 @@ bunx @retreejs/create
 -   Detects `react`, `convex`, `eslint`, and `typescript` in your project (`dependencies`, `devDependencies`, and `peerDependencies`, with module resolution as a fallback for monorepos that hoist to the workspace root) and preselects the matching integrations in a checklist.
 -   Automatically includes `@retreejs/react-convex` when both React and Convex are selected, and adds the `convex` peer dependency if it is missing.
 -   Offers `@retreejs/react-eslint-plugin` by default when React, ESLint, and TypeScript are all present. It installs the plugin as a development dependency and adds `...retree` from `@retreejs/react-eslint-plugin/typescript` to a recognizable `eslint.config.mjs`. Custom or ambiguous JavaScript configs are left unchanged with a warning and manual setup instructions.
--   Offers `@retreejs/babel-plugin-compiler` when a Babel config is present. It installs the plugin as a development dependency and inserts it ahead of `@babel/plugin-proposal-decorators` in a JSON config (`.babelrc`, `.babelrc.json`, or `babel.config.json`). JavaScript configs are left unchanged with a warning and the manual step.
+-   Offers `@retreejs/babel-plugin-compiler` as an opt-in when a Babel config is present (unchecked by default, off under `--yes` unless `--compiler` is passed). It installs the plugin as a development dependency and inserts it ahead of `@babel/plugin-proposal-decorators` in a JSON config (`.babelrc`, `.babelrc.json`, or `babel.config.json`). JavaScript configs are left unchanged with a warning and the manual step.
 -   Optionally installs the Retree AI skill for coding agents (via `npx` / `pnpm dlx` / `yarn dlx` / `bunx`, matching your package manager).
 -   Uses your package manager (npm, pnpm, yarn, or bun — detected from how you invoked it, falling back to lockfiles and workspace markers found walking up to your repo root) and shows the exact command before running anything.
 -   Checks for decorator-authoring conflicts (`experimentalDecorators: true`, TypeScript below 5, or a Babel config without `@babel/plugin-proposal-decorators`). Retree works without decorators, so this is purely informational — in interactive runs it can flip `experimentalDecorators` to `false` for you, but only after you explicitly confirm. See [setup and decorators](https://www.retree.dev/docs/setup-and-decorators).
@@ -52,7 +52,7 @@ npm create @retreejs@latest -- --core-only --skill
 | `--eslint`      | Install and configure the React ESLint rule when its prerequisites are present.         |
 | `--no-eslint`   | Skip the React ESLint rule even when it was detected.                                   |
 | `--compiler`    | Install the ReactiveNode compiler Babel plugin and add it to a JSON Babel config.       |
-| `--no-compiler` | Skip the compiler even when a Babel config was detected.                                |
+| `--no-compiler` | Skip the compiler (the default; useful to silence the prompt).                          |
 | `--core-only`   | Install only `@retreejs/core`.                                                          |
 | `--skill`       | Install the Retree AI skill for coding agents.                                          |
 | `--no-skill`    | Skip the Retree AI skill.                                                               |

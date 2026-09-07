@@ -5,6 +5,7 @@
 
 import {
     COLLECTED_KEYS_SYMBOL,
+    IRetreeNodeOptions,
     LINKED_KEYS_SYMBOL,
     ReactiveNode,
     SELECT_GETTERS_SYMBOL,
@@ -25,6 +26,7 @@ import {
 import {
     BaseProxyHandler,
     FUNCTION_NAMES_BIND_TO_RAW,
+    createChildrenCache,
     getLatestIgnoredValue,
     getLatestLinkedValue,
     writeField,
@@ -99,15 +101,19 @@ export interface CompiledClassInfo {
     validated: boolean;
 }
 
+/** One compiled memo cache entry; the emitted code adds a `k0..kn` slot per selector key. */
 export interface CompiledMemoCell {
     value: unknown;
     version: number;
+    [slot: `k${number}`]: unknown;
 }
 
 type ManagedNode = { [R]: TreeNode; [H]: BaseProxyHandler<TreeNode> };
 
 const compiledPrototypes = new WeakMap<object, CompiledClassInfo>();
 let reactiveNodeOwnKeys: readonly string[] | undefined;
+/** Collected keys the ReactiveNode constructor adds: "options" and the two bookkeeping symbols. */
+const REACTIVE_NODE_COLLECTED_KEYS = 3;
 
 /** Own keys every ReactiveNode instance carries; resolved lazily because ReactiveNode.ts imports this module. */
 function getReactiveNodeOwnKeys(): readonly string[] {
@@ -187,7 +193,7 @@ export function defineCompiledNode(
         if (!memos.includes(memo)) memos.push(memo);
     }
     const knownKeys = new Set<string>(getReactiveNodeOwnKeys());
-    let collectedSize = 3;
+    let collectedSize = REACTIVE_NODE_COLLECTED_KEYS;
     let linkedSize = 0;
     for (const [key, role] of roles) {
         knownKeys.add(key);
@@ -215,6 +221,13 @@ export function defineCompiledNode(
             return this[R];
         },
     });
+    if (!("toJSON" in prototype)) {
+        Object.defineProperty(managedPrototype, "toJSON", {
+            configurable: true,
+            writable: true,
+            value: toJSON,
+        });
+    }
     Object.setPrototypeOf(managedPrototype, prototype);
     const view = class extends managed {};
     Object.defineProperty(view.prototype, V, { value: true });
@@ -268,28 +281,219 @@ function defineRawPassthrough(target: object, key: string): void {
 }
 
 /**
- * ReactiveNode's own members: its bookkeeping fields pass straight through,
- * `options` reads as an ignored field, and its methods bind like any method.
+ * ReactiveNode's own members as literal accessors. Each member gets its own
+ * code so its read site stays monomorphic; one closure shared across keys
+ * would serve every member from a single keyed-load site.
  */
+class ReactiveNodeAccessors {
+    declare [R]: ReactiveNode;
+    declare [H]: BaseProxyHandler<TreeNode>;
+    declare [V]: boolean;
+
+    get [COLLECTED_KEYS_SYMBOL]() {
+        return this[R][COLLECTED_KEYS_SYMBOL];
+    }
+    get [LINKED_KEYS_SYMBOL]() {
+        return this[R][LINKED_KEYS_SYMBOL];
+    }
+    get [SELECT_GETTERS_SYMBOL]() {
+        return this[R][SELECT_GETTERS_SYMBOL];
+    }
+    get options(): IRetreeNodeOptions {
+        const options = this[R].options;
+        readIgnored(this[H], "options", options);
+        return options;
+    }
+    set options(value: IRetreeNodeOptions) {
+        writeIgnored(this[H], "options");
+        this[R].options = value;
+    }
+    get dependencies() {
+        return readPrototypeGetter(this, "dependencies", dependenciesGetter);
+    }
+    get moveTo() {
+        if (this === undefined || this[R] === undefined) {
+            return ReactiveNode.prototype.moveTo;
+        }
+        return readFunction(this[H], this, "moveTo", this[R].moveTo, this[V]);
+    }
+    set moveTo(value: unknown) {
+        writeField(this[H], "moveTo", this[R].moveTo, value);
+    }
+    get link() {
+        if (this === undefined || this[R] === undefined) {
+            return ReactiveNode.prototype.link;
+        }
+        return readFunction(this[H], this, "link", this[R].link, this[V]);
+    }
+    set link(value: unknown) {
+        writeField(this[H], "link", this[R].link, value);
+    }
+    get raw() {
+        if (this === undefined || this[R] === undefined) {
+            return ReactiveNode.prototype.raw;
+        }
+        return readFunction(this[H], this, "raw", this[R].raw, this[V]);
+    }
+    set raw(value: unknown) {
+        writeField(this[H], "raw", this[R].raw, value);
+    }
+    get untracked() {
+        if (this === undefined || this[R] === undefined) {
+            return ReactiveNode.prototype.untracked;
+        }
+        return readFunction(
+            this[H],
+            this,
+            "untracked",
+            this[R].untracked,
+            this[V]
+        );
+    }
+    set untracked(value: unknown) {
+        writeField(this[H], "untracked", this[R].untracked, value);
+    }
+    get peekInto() {
+        if (this === undefined || this[R] === undefined) {
+            return ReactiveNode.prototype.peekInto;
+        }
+        return readFunction(
+            this[H],
+            this,
+            "peekInto",
+            this[R].peekInto,
+            this[V]
+        );
+    }
+    set peekInto(value: unknown) {
+        writeField(this[H], "peekInto", this[R].peekInto, value);
+    }
+    get onObserved() {
+        if (this === undefined || this[R] === undefined) {
+            return ReactiveNode.prototype["onObserved"];
+        }
+        return readFunction(
+            this[H],
+            this,
+            "onObserved",
+            this[R]["onObserved"],
+            this[V]
+        );
+    }
+    set onObserved(value: unknown) {
+        writeField(this[H], "onObserved", this[R]["onObserved"], value);
+    }
+    get onUnobserved() {
+        if (this === undefined || this[R] === undefined) {
+            return ReactiveNode.prototype["onUnobserved"];
+        }
+        return readFunction(
+            this[H],
+            this,
+            "onUnobserved",
+            this[R]["onUnobserved"],
+            this[V]
+        );
+    }
+    set onUnobserved(value: unknown) {
+        writeField(this[H], "onUnobserved", this[R]["onUnobserved"], value);
+    }
+    get onChanged() {
+        if (this === undefined || this[R] === undefined) {
+            return ReactiveNode.prototype["onChanged"];
+        }
+        return readFunction(
+            this[H],
+            this,
+            "onChanged",
+            this[R]["onChanged"],
+            this[V]
+        );
+    }
+    set onChanged(value: unknown) {
+        writeField(this[H], "onChanged", this[R]["onChanged"], value);
+    }
+    get dependency() {
+        if (this === undefined || this[R] === undefined) {
+            return ReactiveNode.prototype.dependency;
+        }
+        return readFunction(
+            this[H],
+            this,
+            "dependency",
+            this[R].dependency,
+            this[V]
+        );
+    }
+    set dependency(value: unknown) {
+        writeField(this[H], "dependency", this[R].dependency, value);
+    }
+    get prepareTree() {
+        if (this === undefined || this[R] === undefined) {
+            return ReactiveNode.prototype.prepareTree;
+        }
+        return readFunction(
+            this[H],
+            this,
+            "prepareTree",
+            this[R].prepareTree,
+            this[V]
+        );
+    }
+    set prepareTree(value: unknown) {
+        writeField(this[H], "prepareTree", this[R].prepareTree, value);
+    }
+    get memo() {
+        if (this === undefined || this[R] === undefined) {
+            return ReactiveNode.prototype["memo"];
+        }
+        return readFunction(this[H], this, "memo", this[R]["memo"], this[V]);
+    }
+    set memo(value: unknown) {
+        writeField(this[H], "memo", this[R]["memo"], value);
+    }
+}
+
+// Resolved on first use: this module loads before ReactiveNode finishes.
+let dependenciesGetter: (() => unknown) | undefined;
+
 function defineReactiveNodeAccessors(target: object): void {
-    defineRawPassthrough(target, COLLECTED_KEYS_SYMBOL);
-    defineRawPassthrough(target, LINKED_KEYS_SYMBOL);
-    defineRawPassthrough(target, SELECT_GETTERS_SYMBOL);
-    Object.defineProperty(target, "options", {
-        configurable: true,
-        get(this: ManagedNode) {
-            return readIgnored(
-                this[H],
-                "options",
-                Reflect.get(this[R], "options")
-            );
-        },
-        set(this: ManagedNode, value: unknown) {
-            writeIgnored(this[H], "options");
-            Reflect.set(this[R], "options", value);
-        },
-    });
+    dependenciesGetter ??= Object.getOwnPropertyDescriptor(
+        ReactiveNode.prototype,
+        "dependencies"
+    )?.get;
+    copyAccessors(ReactiveNodeAccessors.prototype, target);
+    // Any member added to ReactiveNode after this class was written still
+    // resolves through the reflected path rather than the raw prototype.
     defineReflectedAccessors(ReactiveNode.prototype, target);
+}
+
+/** Prototype getter read with the managed receiver; mirrors the emitted getter accessor. */
+function readPrototypeGetter(
+    self: ManagedNode & { [V]: boolean },
+    key: string,
+    getter: (() => unknown) | undefined
+): unknown {
+    const handler = self[H];
+    if (handler.keyless) {
+        return readGetterWithFrame(handler, self, key, self[V]);
+    }
+    let value: unknown;
+    try {
+        value = getter === undefined ? undefined : getter.call(self);
+    } catch (error) {
+        return recoverGetterRead(handler, self, key, error, self[V]);
+    }
+    return readGetterValue(handler, self, key, value, self[V]);
+}
+
+/** Default `toJSON` for compiled classes: a plain snapshot read through the accessors. */
+function toJSON(this: ManagedNode): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const key of this[H].compiled?.knownKeys ?? []) {
+        out[key] = Reflect.get(this, key);
+    }
+    return out;
 }
 
 /**
@@ -334,34 +538,7 @@ function defineReflectedAccessors(source: object, target: object): void {
                 getter === undefined
                     ? undefined
                     : function (this: ManagedNode & { [V]: boolean }) {
-                          const handler = this[H];
-                          if (handler.keyless) {
-                              return readGetterWithFrame(
-                                  handler,
-                                  this,
-                                  key,
-                                  this[V]
-                              );
-                          }
-                          let value: unknown;
-                          try {
-                              value = getter.call(this);
-                          } catch (error) {
-                              return recoverGetterRead(
-                                  handler,
-                                  this,
-                                  key,
-                                  error,
-                                  this[V]
-                              );
-                          }
-                          return readGetterValue(
-                              handler,
-                              this,
-                              key,
-                              value,
-                              this[V]
-                          );
+                          return readPrototypeGetter(this, key, getter);
                       },
             set:
                 setter === undefined
@@ -400,8 +577,10 @@ export function resolveCompiledNode(
         warnCompiledFallback(
             node,
             `its @ignore keys (${
-                collected.size - 3
-            }) differ from the compiled schema (${info.collectedSize - 3})`
+                collected.size - REACTIVE_NODE_COLLECTED_KEYS
+            }) differ from the compiled schema (${
+                info.collectedSize - REACTIVE_NODE_COLLECTED_KEYS
+            })`
         );
         return undefined;
     }
@@ -574,7 +753,7 @@ export function createCompiledView(
 function warnDynamicKeys(info: CompiledClassInfo, base: object): void {
     const prototype = info.managed.prototype;
     if (warnedDynamicKeys.has(prototype)) return;
-    for (const key in base) {
+    for (const key of Object.keys(base)) {
         warnedDynamicKeys.add(prototype);
         console.warn(
             `Retree compiler: "${key}" was assigned to a compiled ${
@@ -583,12 +762,6 @@ function warnDynamicKeys(info: CompiledClassInfo, base: object): void {
         );
         return;
     }
-}
-
-export function isCompiledNodeInfo(
-    value: CompiledClassInfo | null
-): value is CompiledClassInfo {
-    return value !== null;
 }
 
 /** Reactive fields of a compiled managed node, for walks that must not touch its slots. */
@@ -604,11 +777,14 @@ export function getCompiledReactiveFields(
 
 export { writeField, writeLinked };
 
+// Both records start from the fast-mode children cache shape and add their
+// keys in schema order, so every instance of a class shares one hidden class
+// and the emitted `h[C].a` / `h.cells.a` reads stay monomorphic.
+
 export function createCompiledChildren(
     info: CompiledClassInfo
 ): Record<string | symbol, BaseProxyHandler<TreeNode> | undefined> {
-    const children: Record<string, BaseProxyHandler<TreeNode> | undefined> =
-        Object.create(null);
+    const children = createChildrenCache();
     for (const key of info.reactiveFields) children[key] = undefined;
     return children;
 }
@@ -617,8 +793,7 @@ export function createCompiledCells(
     info: CompiledClassInfo
 ): Record<string, CompiledMemoCell | undefined> | null {
     if (info.memos.length === 0) return null;
-    const cells: Record<string, CompiledMemoCell | undefined> =
-        Object.create(null);
+    const cells = createChildrenCache();
     for (const key of info.memos) cells[key] = undefined;
     return cells;
 }
@@ -687,7 +862,7 @@ export function readFunction<TFunction extends Function>(
     if (!isView) return handler.getBoundFunction(prop, fn, handler.baseProxy);
     // Bound to the view current at read time, like reproxy reads; the cache
     // entry is reused until the view or the source function changes.
-    const cache = (handler.viewBoundFunctions ??= new Map());
+    const cache = (handler.ensureCaches().viewBoundFunctions ??= new Map());
     const target = latestIdentityOfHandler(handler);
     const cached = cache.get(prop);
     if (
@@ -701,6 +876,25 @@ export function readFunction<TFunction extends Function>(
     cache.set(prop, { source: fn, bound, target });
     return bound;
 }
+
+/**
+ * What a reactive field accessor returns to a receiver-less read (a test spy
+ * reading the prototype descriptor): a function that resolves the field on
+ * whichever instance it is later called on.
+ */
+export function fieldTrampoline(key: string): Function {
+    return function (this: ManagedNode, ...args: unknown[]) {
+        const value: unknown = Reflect.get(this[R], key);
+        if (typeof value !== "function") {
+            throw new Error(
+                `Retree compiler: "${key}" was read without an instance and later called, but it is not a function on the instance it was called on.`
+            );
+        }
+        return value.apply(this, args);
+    };
+}
+
+export { isDependencyTrackingActive };
 
 // Emitted @ignore / @link field accessors:
 //   get cache() { return readIgnored(this[H], "cache", this[R].cache); }

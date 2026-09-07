@@ -399,7 +399,7 @@ describe("main", () => {
         );
     });
 
-    it("installs the compiler with --yes when a Babel config exists and adds it before the decorators plugin", async () => {
+    it("installs the compiler with --compiler and adds it before the decorators plugin", async () => {
         writePackageJson({ name: "babel-app" });
         const babelrcPath = join(projectDir, ".babelrc");
         writeFileSync(
@@ -413,9 +413,17 @@ describe("main", () => {
             promptAdapter: createUnusablePromptAdapter(),
             runCommand: createRecordingRunner(ranCommands),
         });
+        expect(ranCommands).toHaveLength(1);
 
-        expect(ranCommands).toHaveLength(2);
-        expect(ranCommands[1].plannedCommand.args).toEqual([
+        await main(["--yes", "--compiler", "--no-skill", "--pm", "npm"], {
+            cwd: projectDir,
+            isTTY: false,
+            promptAdapter: createUnusablePromptAdapter(),
+            runCommand: createRecordingRunner(ranCommands),
+        });
+
+        expect(ranCommands).toHaveLength(3);
+        expect(ranCommands[2].plannedCommand.args).toEqual([
             "install",
             "--save-dev",
             "@retreejs/babel-plugin-compiler@latest",

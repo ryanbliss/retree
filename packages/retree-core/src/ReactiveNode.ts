@@ -813,7 +813,10 @@ function prepareObject(
     }
     seen.add(object);
 
-    const compiledFields = getCompiledReactiveFields(object);
+    const compiledFields =
+        object instanceof ReactiveNode
+            ? getCompiledReactiveFields(object)
+            : undefined;
     if (compiledFields !== undefined) {
         for (const key of compiledFields) {
             prepareValue(Reflect.get(object, key), remainingDepth - 1, seen);
