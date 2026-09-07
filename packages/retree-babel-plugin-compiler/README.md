@@ -44,15 +44,15 @@ emits a managed class with:
     call the same runtime paths the Proxy traps use;
 -   methods bound to the managed node, and prototype getters that run under
     the same dependency tracking;
--   `@memo(fn)` getters whose selector is an array of literals or member
-    chains on the parameter, compiled to inline key reads with a
-    write-version fast path (other selectors stay on the runtime decorator).
+-   memo getters served by the existing runtime decorators, preserving key
+    tracking, other getter decorators, and live prototype replacements.
 
 Classes with `#private` members, `accessor` fields, or computed keys stay on
 the Proxy path. The first instance of a compiled class completes its schema
 at runtime: fields of an uncompiled base class (one from another package)
 and properties assigned in a constructor get accessors too. Later instances
-whose decorator keys or own keys differ from that first instance fall back
+with symbol-keyed own properties, or whose decorator keys or own keys differ
+from that first instance, fall back
 to the Proxy path with a dev warning.
 
 ## Options

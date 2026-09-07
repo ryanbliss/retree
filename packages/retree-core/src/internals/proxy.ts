@@ -61,8 +61,6 @@ import { Transactions } from "./transactions.js";
 import {
     CompiledClassInfo,
     CompiledFieldRole,
-    CompiledMemoCell,
-    createCompiledCells,
     createCompiledChildren,
     resolveCompiledNode,
 } from "./compiled-node.js";
@@ -399,8 +397,6 @@ export class BaseProxyHandler<T extends TreeNode>
     public caches: IHandlerCaches | null = null;
     /** Compiled class info when the base proxy is a managed instance. */
     public readonly compiled: CompiledClassInfo | null;
-    /** Compiled memo cells keyed by getter name; null without compiled memos. */
-    public readonly cells: Record<string, CompiledMemoCell | undefined> | null;
     /** Compiled getter reads push a memo frame once a keyless memo was seen. */
     public keyless = false;
 
@@ -425,7 +421,6 @@ export class BaseProxyHandler<T extends TreeNode>
                 : undefined;
         this.reactiveObject = reactiveObject;
         this.compiled = compiled;
-        this.cells = compiled === null ? null : createCompiledCells(compiled);
         this.keyless = compiled === null ? false : compiled.keyless;
         this.reactiveKeyRoles =
             reactiveObject === undefined || compiled !== null
@@ -1302,14 +1297,13 @@ export function deleteManagedKey(node: object, key: PropertyKey): void {
 }
 
 /**
- * Assigns a key on a managed node. A compiled node has no trap to catch a
+ * Validates a destination key before mutation. A compiled node has no trap to catch a
  * key its class never declared, so that case fails here instead of leaving
  * the value on the managed object where the raw node cannot see it.
  */
-export function setManagedKey(
+export function assertManagedKey(
     node: object,
     key: string | symbol,
-    value: unknown,
     apiName: string
 ): void {
     const handler = getCustomProxyHandlerFromMetadata(node);
@@ -1325,6 +1319,15 @@ export function setManagedKey(
             `${apiName}: the destination is a compiled ${node.constructor.name} and has no field "${key}". Declare the field on the class so the compiler emits it, or move into a plain object.`
         );
     }
+}
+
+export function setManagedKey(
+    node: object,
+    key: string | symbol,
+    value: unknown,
+    apiName: string
+): void {
+    assertManagedKey(node, key, apiName);
     (node as Record<string | symbol, unknown>)[key] = value;
 }
 

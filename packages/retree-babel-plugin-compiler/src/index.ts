@@ -13,7 +13,6 @@ import {
     createRuntimeNames,
     DEFAULT_CORE_MODULES,
     DEFAULT_RUNTIME_MODULE,
-    hoistMemoBodies,
     planClass,
     type RetreeCompilerOptions,
     type RetreeImportMap,
@@ -75,7 +74,6 @@ export default function retreeCompiler(
                     state.names = createRuntimeNames(program.scope);
                 }
                 const className = ensureClassName(path);
-                hoistMemoBodies(path.node, className, plan);
                 const statementPath = resolveStatement(path);
                 statementPath.insertAfter(
                     buildDefineStatement(className, plan, state.names)

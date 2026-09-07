@@ -22,7 +22,11 @@ import {
     TCustomProxy,
     unproxiedBaseNodeKey,
 } from "./internals/proxy-types.js";
-import { deleteManagedKey, setManagedKey } from "./internals/proxy.js";
+import {
+    assertManagedKey,
+    deleteManagedKey,
+    setManagedKey,
+} from "./internals/proxy.js";
 import { getStructureVersion } from "./internals/snapshot-version.js";
 import {
     deleteReactiveDependencies,
@@ -614,6 +618,9 @@ export class Retree {
             );
         }
 
+        if (typeof key === "string" || typeof key === "symbol") {
+            assertManagedKey(destination, key, "Retree.move");
+        }
         const nodeToMove = getBaseProxy(node);
         Retree.runTransaction(() => {
             this.removeNodeFromParent(nodeToMove, parent.proxyNode);

@@ -13,7 +13,6 @@ import {
 import { TreeNode } from "../types.js";
 import {
     isDependencyTrackingActive,
-    runMemoBody,
     trackDependencyPropertyAccess,
     trackDependencyPropertyWrite,
 } from "./dependency-tracking.js";
@@ -72,7 +71,6 @@ export enum CompiledFieldRole {
 
 export interface CompiledNodeSchema {
     fields: Record<string, CompiledFieldRole>;
-    memos?: string[];
 }
 
 export interface ManagedNodeConstructor {
@@ -88,8 +86,6 @@ export interface CompiledClassInfo {
     view: ManagedNodeConstructor;
     /** Reactive fields in declaration order across the class chain, then any learned from the first instance. */
     reactiveFields: string[];
-    /** Compiled memo getters across the class chain. */
-    memos: readonly string[];
     /** Every own key an instance may carry: fields plus ReactiveNode's own. */
     knownKeys: Set<string>;
     roles: Map<string, CompiledFieldRole>;
@@ -99,13 +95,6 @@ export interface CompiledClassInfo {
     keyless: boolean;
     /** Set once the first instance has been checked against (and folded into) the schema. */
     validated: boolean;
-}
-
-/** One compiled memo cache entry; the emitted code adds a `k0..kn` slot per selector key. */
-export interface CompiledMemoCell {
-    value: unknown;
-    version: number;
-    [slot: `k${number}`]: unknown;
 }
 
 type ManagedNode = { [R]: TreeNode; [H]: BaseProxyHandler<TreeNode> };
@@ -159,7 +148,6 @@ export function defineCompiledNode(
     const managedPrototype = managed.prototype;
     const roles = new Map<string, CompiledFieldRole>();
     const reactiveFields: string[] = [];
-    const memos: string[] = [];
     // Nearest base first: an accessor already on the managed prototype
     // wins, so the subclass overrides its bases and each base its own.
     const chain = collectChain(prototype);
@@ -179,18 +167,12 @@ export function defineCompiledNode(
         const baseInfo = compiledPrototypes.get(chain[index]);
         if (baseInfo === undefined) continue;
         for (const [key, role] of baseInfo.roles) roles.set(key, role);
-        for (const memo of baseInfo.memos) {
-            if (!memos.includes(memo)) memos.push(memo);
-        }
     }
     for (const key of Object.keys(schema.fields)) {
         roles.set(key, schema.fields[key]);
     }
     for (const [key, role] of roles) {
         if (role === CompiledFieldRole.Reactive) reactiveFields.push(key);
-    }
-    for (const memo of schema.memos ?? []) {
-        if (!memos.includes(memo)) memos.push(memo);
     }
     const knownKeys = new Set<string>(getReactiveNodeOwnKeys());
     let collectedSize = REACTIVE_NODE_COLLECTED_KEYS;
@@ -235,7 +217,6 @@ export function defineCompiledNode(
         managed,
         view,
         reactiveFields,
-        memos,
         knownKeys,
         roles,
         collectedSize,
@@ -576,6 +557,10 @@ export function resolveCompiledNode(
 ): CompiledClassInfo | undefined {
     const info = compiledPrototypes.get(Object.getPrototypeOf(node));
     if (info === undefined) return undefined;
+    if (Object.getOwnPropertySymbols(node).length > 0) {
+        warnCompiledFallback(node, "it has symbol-keyed own properties");
+        return undefined;
+    }
     if (!info.validated) return learnInstanceShape(node, info);
     const collected = node[COLLECTED_KEYS_SYMBOL];
     const linked = node[LINKED_KEYS_SYMBOL];
@@ -783,9 +768,7 @@ export function getCompiledReactiveFields(
 
 export { writeField, writeLinked };
 
-// Both records start from the fast-mode children cache shape and add their
-// keys in schema order, so every instance of a class shares one hidden class
-// and the emitted `h[C].a` / `h.cells.a` reads stay monomorphic.
+// Add child slots in schema order so instances of a class share one shape.
 
 export function createCompiledChildren(
     info: CompiledClassInfo
@@ -793,15 +776,6 @@ export function createCompiledChildren(
     const children = createChildrenCache();
     for (const key of info.reactiveFields) children[key] = undefined;
     return children;
-}
-
-export function createCompiledCells(
-    info: CompiledClassInfo
-): Record<string, CompiledMemoCell | undefined> | null {
-    if (info.memos.length === 0) return null;
-    const cells = createChildrenCache();
-    for (const key of info.memos) cells[key] = undefined;
-    return cells;
 }
 
 // ------------------------------------------------------------------ reads
@@ -899,8 +873,6 @@ export function fieldTrampoline(key: string): Function {
         return value.apply(this, args);
     };
 }
-
-export { isDependencyTrackingActive };
 
 // Emitted @ignore / @link field accessors:
 //   get cache() { return readIgnored(this[H], "cache", this[R].cache); }
@@ -1003,46 +975,4 @@ export function writeIgnored(
         trackDependencyPropertyWrite(handler.baseProxy, prop);
     }
     bumpGlobalWriteVersion(handler[unproxiedBaseNodeKey]);
-}
-
-// ------------------------------------------------------------------ memo
-//
-// Emitted accessor for `@memo((s) => [s.a, s.list]) get expensive()` whose
-// body the compiler hoisted to `expensive$retreeMemo()`:
-//   get expensive() {
-//       const h = this[H], c = h.cells.expensive, k0 = this.a, k1 = this.list;
-//       if (c !== undefined) {
-//           if (c.version === currentWriteVersion()) return readGetterValue(...c.value);
-//           if (sameKey(c.k0, k0) && sameKey(c.k1, k1)) {
-//               c.version = currentWriteVersion();
-//               return readGetterValue(h, this, "expensive", c.value, this[V]);
-//           }
-//       }
-//       const value = runCompiledMemoBody(this, this[R].expensive$retreeMemo);
-//       h.cells.expensive = { value, version: currentWriteVersion(), k0: normalizeKey(k0), k1: normalizeKey(k1) };
-//       return readGetterValue(h, this, "expensive", value, this[V]);
-//   }
-
-export { getGlobalWriteVersion as currentWriteVersion } from "./write-version.js";
-
-/** Key cells compare by latest managed identity, like runtime memo keys. */
-export function normalizeKey<T>(value: T): T {
-    if (value === null || typeof value !== "object") return value;
-    return latestIdentity(value);
-}
-
-/**
- * A stored key matches when the next read resolves to the same latest
- * identity. A base proxy read is normalized every time: it is the same
- * object before and after a change, so identity alone cannot answer.
- */
-export function sameKey(previous: unknown, next: unknown): boolean {
-    if (next === null || typeof next !== "object") {
-        return Object.is(previous, next);
-    }
-    return latestIdentity(next) === previous;
-}
-
-export function runCompiledMemoBody<T>(self: object, body: () => T): T {
-    return runMemoBody(() => body.call(self));
 }

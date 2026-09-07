@@ -40,7 +40,7 @@ describe("retree compiler", () => {
         `);
         expect(code).toContain(RUNTIME_IMPORT);
         expect(code).toContain(
-            'fields: {\n    "a": 0,\n    "cache": 1,\n    "other": 2,\n    "label": 0\n  },\n  memos: ["expensive"]'
+            'fields: {\n    "a": 0,\n    "cache": 1,\n    "other": 2,\n    "label": 0\n  }'
         );
         expect(code).toContain("_define(Foo, {");
         expect(code).toContain(
@@ -48,16 +48,8 @@ describe("retree compiler", () => {
         );
         expect(code).toContain("v = super.plain;");
         expect(code).toContain("set plain(v) {\n    super.plain = v;\n  }");
-        expect(code).toContain(
-            "expensive$Foo$retreeMemo() {\n    return this.a + 1;\n  }"
-        );
-        expect(code).toContain("return this.expensive$Foo$retreeMemo();");
-        expect(code).toContain(
-            'k0 = this.a,\n      k1 = this.other?.label,\n      k2 = "x"'
-        );
-        expect(code).toContain(
-            "_sk(c.k0, k0) && _sk(c.k1, k1) && _sk(c.k2, k2)"
-        );
+        expect(code).toContain("v = super.expensive;");
+        expect(code).not.toContain("retreeMemo");
         expect(code).not.toContain("get count()");
     });
 
@@ -70,7 +62,6 @@ describe("retree compiler", () => {
                 get total() { return 0; }
             }
         `);
-        expect(code).toContain("memos: []");
         expect(code).toContain("v = super.total;");
         expect(code).not.toContain("total$retreeMemo");
     });
@@ -138,7 +129,7 @@ describe("retree compiler", () => {
         expect(code).toContain('"a": 1');
     });
 
-    it("checks the memo version before reading any key", () => {
+    it("preserves static selectors and string-literal memo getters", () => {
         const code = compile(`
             import { ReactiveNode, memo } from "@retreejs/core";
             class Foo extends ReactiveNode {
@@ -149,14 +140,8 @@ describe("retree compiler", () => {
                 get "odd-key"() { return this.a; }
             }
         `);
-        const fastPath = code.indexOf("c.version === _cwv() && !_dta()");
-        expect(fastPath).toBeGreaterThan(-1);
-        expect(fastPath).toBeLessThan(code.indexOf("k0 = this.a"));
-        expect(code).toContain(
-            'k1 = this.list?.[0],\n      k2 = this.map?.["k"].x,\n      k3 = 2n,\n      k4 = null'
-        );
-        expect(code).toContain('"odd-key$Foo$retreeMemo"() {');
-        expect(code).toContain('this["odd-key$Foo$retreeMemo"]()');
+        expect(code).toContain('v = super["odd-key"];');
+        expect(code).not.toContain("retreeMemo");
         expect(code).not.toContain("_S");
     });
 

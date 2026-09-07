@@ -57,12 +57,7 @@ const RUNTIME_IMPORTS = {
     wf: "writeField",
     wi: "writeIgnored",
     wl: "writeLinked",
-    cwv: "currentWriteVersion",
-    nk: "normalizeKey",
-    dta: "isDependencyTrackingActive",
     ft: "fieldTrampoline",
-    sk: "sameKey",
-    mb: "runCompiledMemoBody",
 } as const;
 type RuntimeAlias = keyof typeof RUNTIME_IMPORTS;
 type RuntimeNames = Record<RuntimeAlias, string>;
@@ -82,8 +77,6 @@ interface AccessorPlan {
     key: string;
     getter: boolean;
     setter: boolean;
-    /** Static memo key expressions (roots rewritten to `this`); absent for plain getters. */
-    memoKeys: string[] | undefined;
 }
 
 interface ClassPlan {
@@ -270,13 +263,11 @@ export function planClass(
                 key,
                 getter: false,
                 setter: false,
-                memoKeys: undefined,
             };
             accessors.set(key, accessor);
         }
         if (member.kind === "get") {
             accessor.getter = true;
-            accessor.memoKeys = resolveMemoKeys(member, imports);
         } else {
             accessor.setter = true;
         }
@@ -301,131 +292,6 @@ function resolveFieldRole(
     return FieldRole.Reactive;
 }
 
-function resolveMemoKeys(
-    member: t.ClassMethod,
-    imports: RetreeImportMap
-): string[] | undefined {
-    if (!member.decorators) return undefined;
-    for (const decorator of member.decorators) {
-        const resolved = resolveDecorator(decorator, imports);
-        if (resolved?.name !== "memo") continue;
-        if (resolved.argument === undefined) return undefined;
-        return extractStaticKeys(resolved.argument);
-    }
-    return undefined;
-}
-
-function unwrapTypeSyntax(expression: t.Expression): t.Expression {
-    let current = expression;
-    for (;;) {
-        if (
-            t.isTSAsExpression(current) ||
-            t.isTSSatisfiesExpression(current) ||
-            t.isTSNonNullExpression(current) ||
-            t.isTSTypeAssertion(current) ||
-            t.isParenthesizedExpression(current)
-        ) {
-            current = current.expression;
-            continue;
-        }
-        return current;
-    }
-}
-
-/**
- * Reads the key selector of `@memo(fn)`. Static keys are an array literal
- * whose elements are literals or member chains on the selector's parameter;
- * anything else stays on the runtime memo path. Each key comes back as
- * source text with the parameter replaced by `this`.
- */
-export function extractStaticKeys(
-    selector: t.Expression
-): string[] | undefined {
-    const fn = unwrapTypeSyntax(selector);
-    if (!t.isArrowFunctionExpression(fn) && !t.isFunctionExpression(fn)) {
-        return undefined;
-    }
-    if (fn.async || fn.generator) return undefined;
-    if (fn.params.length > 1) return undefined;
-    const param = fn.params[0];
-    let paramName: string | undefined;
-    if (param !== undefined) {
-        if (!t.isIdentifier(param)) return undefined;
-        paramName = param.name;
-    }
-    let array: t.Expression;
-    if (t.isBlockStatement(fn.body)) {
-        if (fn.body.body.length !== 1) return undefined;
-        const statement = fn.body.body[0];
-        if (!t.isReturnStatement(statement)) return undefined;
-        if (statement.argument === null || statement.argument === undefined) {
-            return undefined;
-        }
-        array = unwrapTypeSyntax(statement.argument);
-    } else {
-        array = unwrapTypeSyntax(fn.body);
-    }
-    if (!t.isArrayExpression(array)) return undefined;
-    const keys: string[] = [];
-    for (const element of array.elements) {
-        if (element === null || t.isSpreadElement(element)) return undefined;
-        const key = printKeyElement(element, paramName);
-        if (key === undefined) return undefined;
-        keys.push(key);
-    }
-    return keys;
-}
-
-function printKeyElement(
-    element: t.Expression,
-    paramName: string | undefined
-): string | undefined {
-    const expression = unwrapTypeSyntax(element);
-    if (t.isStringLiteral(expression)) return JSON.stringify(expression.value);
-    if (t.isNumericLiteral(expression)) return String(expression.value);
-    if (t.isBooleanLiteral(expression)) return String(expression.value);
-    if (t.isNullLiteral(expression)) return "null";
-    if (t.isBigIntLiteral(expression)) return `${expression.value}n`;
-    if (t.isIdentifier(expression) && expression.name === "undefined") {
-        return "undefined";
-    }
-    if (
-        !t.isMemberExpression(expression) &&
-        !t.isOptionalMemberExpression(expression)
-    ) {
-        return undefined;
-    }
-    const property = expression.property;
-    let access: string;
-    if (expression.computed) {
-        if (t.isStringLiteral(property)) {
-            access = `[${JSON.stringify(property.value)}]`;
-        } else if (t.isNumericLiteral(property)) {
-            access = `[${property.value}]`;
-        } else {
-            return undefined;
-        }
-    } else if (t.isIdentifier(property)) {
-        access = `.${property.name}`;
-    } else {
-        return undefined;
-    }
-    const object = unwrapTypeSyntax(expression.object);
-    let printedObject: string | undefined;
-    if (t.isIdentifier(object) && object.name === paramName) {
-        printedObject = "this";
-    } else {
-        printedObject = printKeyElement(object, paramName);
-    }
-    if (printedObject === undefined) return undefined;
-    const optional =
-        t.isOptionalMemberExpression(expression) && expression.optional;
-    if (!optional) return `${printedObject}${access}`;
-    return expression.computed
-        ? `${printedObject}?.${access}`
-        : `${printedObject}?${access}`;
-}
-
 function isIdentifierName(key: string): boolean {
     return t.isValidIdentifier(key, false);
 }
@@ -438,11 +304,6 @@ function memberAccess(key: string): string {
 /** A class member name: bare identifier or quoted string. */
 function memberName(key: string): string {
     return isIdentifierName(key) ? key : JSON.stringify(key);
-}
-
-/** Per-class name so a subclass memo body never shadows its base's body. */
-export function memoBodyMethodName(key: string, className: string): string {
-    return `${key}$${className}$retreeMemo`;
 }
 
 function emitField(field: FieldPlan, n: RuntimeNames): string {
@@ -490,18 +351,12 @@ get ${name}() {
 set ${name}(v) { ${n.wf}(this[${n.H}], ${quoted}, this[${n.R}]${access}, v); }`;
 }
 
-function emitAccessor(
-    accessor: AccessorPlan,
-    className: string,
-    n: RuntimeNames
-): string {
+function emitAccessor(accessor: AccessorPlan, n: RuntimeNames): string {
     const name = memberName(accessor.key);
     const access = memberAccess(accessor.key);
     const key = JSON.stringify(accessor.key);
     let code = "";
-    if (accessor.getter && accessor.memoKeys !== undefined) {
-        code += emitMemoGetter(accessor, className, accessor.memoKeys, n);
-    } else if (accessor.getter) {
+    if (accessor.getter) {
         code += `
 get ${name}() {
     const h = this[${n.H}];
@@ -519,64 +374,11 @@ set ${name}(v) { super${access} = v; }`;
     return code;
 }
 
-function emitMemoGetter(
-    accessor: AccessorPlan,
-    className: string,
-    keys: string[],
-    n: RuntimeNames
-): string {
-    const name = memberName(accessor.key);
-    const access = memberAccess(accessor.key);
-    const key = JSON.stringify(accessor.key);
-    const bodyAccess = memberAccess(
-        memoBodyMethodName(accessor.key, className)
-    );
-    const reads: string[] = [];
-    const compares: string[] = [];
-    const stores: string[] = [];
-    keys.forEach((expression, index) => {
-        reads.push(`k${index} = ${expression}`);
-        compares.push(`${n.sk}(c.k${index}, k${index})`);
-        stores.push(`k${index}: ${n.nk}(k${index})`);
-    });
-    const hit = `return ${n.rg}(h, this, ${key}, c.value, this[${n.V}]);`;
-    // Untracked reads on an unchanged tree skip the key reads entirely;
-    // tracked reads still replay them so the selector records the keys.
-    const readKeys =
-        reads.length === 0
-            ? ""
-            : `if (c !== undefined && c.version === ${n.cwv}() && !${
-                  n.dta
-              }()) ${hit}
-    const ${reads.join(", ")};`;
-    const revalidate =
-        compares.length === 0
-            ? hit
-            : `if (c.version === ${n.cwv}()) ${hit}
-        if (${compares.join(" && ")}) { c.version = ${n.cwv}(); ${hit} }`;
-    const cell = ["value", `version: ${n.cwv}()`, ...stores].join(", ");
-    return `
-get ${name}() {
-    const h = this[${n.H}], c = h.cells${access};
-    ${readKeys}
-    if (c !== undefined) {
-        ${revalidate}
-    }
-    const value = ${n.mb}(this, this[${n.R}]${bodyAccess});
-    h.cells${access} = { ${cell} };
-    return ${n.rg}(h, this, ${key}, value, this[${n.V}]);
-}`;
-}
-
 function emitSchema(plan: ClassPlan): string {
     const fields = plan.fields
         .map((field) => `${JSON.stringify(field.key)}: ${field.role}`)
         .join(", ");
-    const memos = plan.accessors
-        .filter((accessor) => accessor.memoKeys !== undefined)
-        .map((accessor) => JSON.stringify(accessor.key))
-        .join(", ");
-    return `{ fields: { ${fields} }, memos: [${memos}] }`;
+    return `{ fields: { ${fields} } }`;
 }
 
 /**
@@ -593,7 +395,7 @@ export function buildDefineStatement(
     for (const field of plan.fields) members.push(emitField(field, names));
     for (const method of plan.methods) members.push(emitMethod(method, names));
     for (const accessor of plan.accessors) {
-        members.push(emitAccessor(accessor, className, names));
+        members.push(emitAccessor(accessor, names));
     }
     const code = `${names.define}(${className}, ${emitSchema(
         plan
@@ -607,48 +409,6 @@ export function buildDefineStatement(
         );
     }
     return statement;
-}
-
-/**
- * Moves the body of a compiled memo getter into a sibling method so the
- * managed accessor can run it under the memo body guard, and leaves the
- * decorated getter delegating to it for raw instances.
- */
-export function hoistMemoBodies(
-    node: t.ClassDeclaration,
-    className: string,
-    plan: ClassPlan
-): void {
-    const memoKeys = new Set(
-        plan.accessors
-            .filter((accessor) => accessor.memoKeys !== undefined)
-            .map((accessor) => accessor.key)
-    );
-    if (memoKeys.size === 0) return;
-    const added: t.ClassMethod[] = [];
-    for (const member of node.body.body) {
-        if (!t.isClassMethod(member) || member.kind !== "get") continue;
-        if (member.static) continue;
-        const key = memberKeyName(member.key, member.computed);
-        if (key === undefined || !memoKeys.has(key)) continue;
-        const bodyName = memoBodyMethodName(key, className);
-        const plain = isIdentifierName(bodyName);
-        const bodyKey = plain
-            ? t.identifier(bodyName)
-            : t.stringLiteral(bodyName);
-        const method = t.classMethod("method", bodyKey, [], member.body);
-        method.returnType = member.returnType;
-        added.push(method);
-        member.body = t.blockStatement([
-            t.returnStatement(
-                t.callExpression(
-                    t.memberExpression(t.thisExpression(), bodyKey, !plain),
-                    []
-                )
-            ),
-        ]);
-    }
-    node.body.body.push(...added);
 }
 
 export function createRuntimeNames(scope: Scope): RuntimeNames {
