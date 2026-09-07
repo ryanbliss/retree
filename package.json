@@ -38,6 +38,7 @@
         "benchmark:sdk": "node --expose-gc scripts/run-sdk-scaling.mjs",
         "benchmark:node-reads": "node --expose-gc scripts/run-sdk-scaling.mjs benchmarks/node-reads.mts",
         "benchmark:array-reads": "node --expose-gc scripts/run-sdk-scaling.mjs benchmarks/array-reads.mts",
+        "benchmark:compiled-shapes": "node --expose-gc scripts/run-sdk-scaling.mjs benchmarks/compiled-node-shapes.mts",
         "benchmark:materialization": "npm run build --workspace @retreejs/core && node scripts/benchmark-materialization.mjs",
         "benchmark:react": "vitest run --config vitest.perf.config.ts --disable-console-intercept",
         "lint:architecture": "node scripts/lint-architecture.mjs",

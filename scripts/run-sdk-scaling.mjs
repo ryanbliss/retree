@@ -16,6 +16,8 @@ try {
         bundle: true,
         platform: "node",
         format: "esm",
+        // A concrete target makes esbuild lower standard decorators.
+        target: "node22",
         define: { "process.env.NODE_ENV": '"production"' },
         alias: {
             "@retreejs/core/internal": join(
