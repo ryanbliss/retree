@@ -113,3 +113,18 @@ it("preserves other decorators on a compiled memo getter", () => {
     }
     expect(Retree.root(new Model()).result).toBe(6);
 });
+
+it("clears descendant listeners through compiled fields", () => {
+    class Child extends ReactiveNode {
+        value = 0;
+    }
+    class Parent extends ReactiveNode {
+        child = new Child();
+    }
+    const root = Retree.root(new Parent());
+    let changes = 0;
+    Retree.on(root.child, "nodeChanged", () => changes++);
+    Retree.clearListeners(root, false);
+    root.child.value++;
+    expect(changes).toBe(0);
+});

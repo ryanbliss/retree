@@ -1637,7 +1637,8 @@ export class Retree {
         } else if (node instanceof Set) {
             children = [...node.values()];
         } else {
-            children = Object.values(node);
+            const raw = getUnproxiedNode(node) ?? node;
+            children = Object.keys(raw).map((key) => Reflect.get(node, key));
         }
         children.forEach((child) => {
             if (child === null || typeof child !== "object") {
@@ -2463,7 +2464,14 @@ export class Retree {
             );
             return;
         }
-        this.handleReactiveNode(proxiedDependentNode, unproxiedDependentNode);
+        // A newly observed dependency can emit synchronously. Install all
+        // edges before delivering those writes so later edges cannot miss them.
+        this.runTransaction(() =>
+            this.handleReactiveNode(
+                proxiedDependentNode,
+                unproxiedDependentNode
+            )
+        );
     }
 
     /**

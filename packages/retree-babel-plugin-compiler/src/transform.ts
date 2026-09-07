@@ -55,8 +55,6 @@ const RUNTIME_IMPORTS = {
     rgf: "readGetterWithFrame",
     rgr: "recoverGetterRead",
     wf: "writeField",
-    wi: "writeIgnored",
-    wl: "writeLinked",
     ft: "fieldTrampoline",
 } as const;
 type RuntimeAlias = keyof typeof RUNTIME_IMPORTS;
@@ -313,12 +311,12 @@ function emitField(field: FieldPlan, n: RuntimeNames): string {
     if (field.role === FieldRole.Ignore) {
         return `
 get ${name}() { return ${n.ri}(this[${n.H}], ${key}, this[${n.R}]${access}); }
-set ${name}(v) { ${n.wi}(this[${n.H}], ${key}); this[${n.R}]${access} = v; }`;
+set ${name}(v) { ${n.wf}(this[${n.H}], ${key}, v); }`;
     }
     if (field.role === FieldRole.Link) {
         return `
 get ${name}() { return ${n.rl}(this[${n.H}], ${key}, this[${n.R}]${access}); }
-set ${name}(v) { ${n.wl}(this[${n.H}], ${key}, v); }`;
+set ${name}(v) { ${n.wf}(this[${n.H}], ${key}, v); }`;
     }
     return `
 get ${name}() {
@@ -331,7 +329,7 @@ get ${name}() {
     }
     return ${n.ro}(this[${n.H}], ${key}, v, this[${n.H}][${n.C}]${access}, this[${n.V}]);
 }
-set ${name}(v) { ${n.wf}(this[${n.H}], ${key}, this[${n.R}]${access}, v); }`;
+set ${name}(v) { ${n.wf}(this[${n.H}], ${key}, v); }`;
 }
 
 /**
@@ -348,7 +346,7 @@ get ${name}() {
     if (this === undefined || this[${n.R}] === undefined) return super${access};
     return ${n.rf}(this[${n.H}], this, ${quoted}, this[${n.R}]${access}, this[${n.V}]);
 }
-set ${name}(v) { ${n.wf}(this[${n.H}], ${quoted}, this[${n.R}]${access}, v); }`;
+set ${name}(v) { ${n.wf}(this[${n.H}], ${quoted}, v); }`;
 }
 
 function emitAccessor(accessor: AccessorPlan, n: RuntimeNames): string {

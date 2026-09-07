@@ -16,8 +16,8 @@ import {
 } from "./proxy.js";
 import {
     isDependencyTrackingActive,
-    trackDependencyAccess,
-    trackDependencyPropertyAccess,
+    trackAccessIfNeeded,
+    trackPropertyAccessIfNeeded,
 } from "./dependency-tracking.js";
 import { ReactiveKeyRole, readReactiveNodeGetter } from "./memo.js";
 import {
@@ -37,7 +37,6 @@ import {
     TCustomProxy,
     TProxiedChildren,
 } from "./proxy-types.js";
-import { createCompiledView } from "./compiled-node.js";
 import { advanceSnapshotVersions } from "./snapshot-version.js";
 import { bumpGlobalWriteVersion } from "./write-version.js";
 
@@ -109,30 +108,6 @@ export function getBaseHandlerOfProxy(
         );
     }
     return resolveBaseHandler(handler);
-}
-
-function trackAccessIfNeeded<T>(value: T): T {
-    if (!isDependencyTrackingActive()) {
-        return value;
-    }
-    return trackDependencyAccess(value);
-}
-
-function trackPropertyAccessIfNeeded<T>(
-    ownerHandler: ICustomProxyHandler<TreeNode>,
-    owner: TCustomProxy<TreeNode>,
-    propertyKey: string | symbol,
-    value: T
-): T {
-    if (!isDependencyTrackingActive()) {
-        return value;
-    }
-    return trackDependencyPropertyAccess(
-        ownerHandler,
-        owner,
-        propertyKey,
-        value
-    );
 }
 
 export function registerBaseProxy<T extends TreeNode = TreeNode>(
@@ -508,13 +483,8 @@ class ReproxyHandler<T extends TreeNode>
 function buildReproxy<T extends TreeNode>(
     handler: BaseProxyHandler<T>
 ): TCustomProxy<T> {
-    const compiled = handler.compiled;
-    if (compiled !== null) {
-        return createCompiledView(
-            compiled,
-            handler as BaseProxyHandler<TreeNode>
-        ) as TCustomProxy<T>;
-    }
+    const view = handler.createView();
+    if (view !== undefined) return view;
     return new Proxy(
         handler[unproxiedBaseNodeKey],
         new ReproxyHandler<T>(handler)

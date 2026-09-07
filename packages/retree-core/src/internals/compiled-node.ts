@@ -11,11 +11,7 @@ import {
     SELECT_GETTERS_SYMBOL,
 } from "../ReactiveNode.js";
 import { TreeNode } from "../types.js";
-import {
-    isDependencyTrackingActive,
-    trackDependencyPropertyAccess,
-    trackDependencyPropertyWrite,
-} from "./dependency-tracking.js";
+import { trackPropertyAccessIfNeeded } from "./dependency-tracking.js";
 import { isDevMode } from "./dev.js";
 import {
     isKeylessMemoFrameRequestFor,
@@ -25,20 +21,20 @@ import {
 import {
     BaseProxyHandler,
     FUNCTION_NAMES_BIND_TO_RAW,
-    createChildrenCache,
+    getCachedBoundFunction,
     getLatestIgnoredValue,
     getLatestLinkedValue,
-    writeField,
-    writeLinked,
 } from "./proxy.js";
 import {
+    IProxyParent,
     proxiedChildrenKey,
     proxyHandlerSentinel,
     TCustomProxy,
     unproxiedBaseNodeKey,
 } from "./proxy-types.js";
 import { latestIdentity, latestIdentityOfHandler } from "./reproxy.js";
-import { bumpGlobalWriteVersion } from "./write-version.js";
+import { TreeChangeEmitter } from "./NodeChangeEmitter.js";
+import { registerHandlerFactory } from "./handler-factories.js";
 
 /**
  * Runtime half of the Retree compiler. The compiler rewrites every
@@ -74,10 +70,7 @@ export interface CompiledNodeSchema {
 }
 
 export interface ManagedNodeConstructor {
-    new (
-        raw: TreeNode,
-        handler: BaseProxyHandler<TreeNode>
-    ): TCustomProxy<TreeNode>;
+    new (raw: TreeNode, handler: CompiledProxyHandler): TCustomProxy<TreeNode>;
     prototype: object;
 }
 
@@ -97,14 +90,66 @@ export interface CompiledClassInfo {
     validated: boolean;
 }
 
-type ManagedNode = { [R]: TreeNode; [H]: BaseProxyHandler<TreeNode> };
+export class CompiledProxyHandler extends BaseProxyHandler<TreeNode> {
+    public keyless: boolean;
+    public viewBoundFunctions: Map<
+        string | symbol,
+        { source: Function; bound: Function }
+    > | null = null;
+
+    constructor(
+        node: TreeNode,
+        emitter: TreeChangeEmitter,
+        parent: IProxyParent | null,
+        public readonly compiled: CompiledClassInfo
+    ) {
+        super(node, emitter, parent, compiled.reactiveFields);
+        this.keyless = compiled.keyless;
+    }
+
+    public override get reactiveFields(): readonly string[] {
+        return this.compiled.reactiveFields;
+    }
+
+    public override createBaseProxy(): TCustomProxy<TreeNode> {
+        return new this.compiled.managed(this[unproxiedBaseNodeKey], this);
+    }
+
+    public override createView(): TCustomProxy<TreeNode> {
+        if (isDevMode()) warnDynamicKeys(this.compiled, this.baseProxy);
+        this.viewBoundFunctions = null;
+        return new this.compiled.view(this[unproxiedBaseNodeKey], this);
+    }
+
+    public override clearChild(prop: string | symbol): void {
+        const children = this[proxiedChildrenKey];
+        if (children !== null) children[prop] = undefined;
+    }
+
+    public override assertWritableKey(
+        key: string | symbol,
+        apiName: string
+    ): void {
+        if (typeof key === "string" && this.compiled.knownKeys.has(key)) return;
+        if (key in this.baseProxy) return;
+        throw new Error(
+            `${apiName}: the destination is a compiled ${
+                this.baseProxy.constructor.name
+            } and has no field "${String(
+                key
+            )}". Declare the field on the class so the compiler emits it, or move into a plain object.`
+        );
+    }
+}
+
+type ManagedNode = { [R]: TreeNode; [H]: CompiledProxyHandler };
 
 const compiledPrototypes = new WeakMap<object, CompiledClassInfo>();
 let reactiveNodeOwnKeys: readonly string[] | undefined;
 /** Collected keys the ReactiveNode constructor adds: "options" and the two bookkeeping symbols. */
 const REACTIVE_NODE_COLLECTED_KEYS = 3;
 
-/** Own keys every ReactiveNode instance carries; resolved lazily because ReactiveNode.ts imports this module. */
+/** Own keys every ReactiveNode instance carries. */
 function getReactiveNodeOwnKeys(): readonly string[] {
     return (reactiveNodeOwnKeys ??= [
         "options",
@@ -224,6 +269,13 @@ export function defineCompiledNode(
         keyless: false,
         validated: false,
     });
+    registerHandlerFactory(prototype, (node, emitter, parent) => {
+        if (!(node instanceof ReactiveNode)) return undefined;
+        const info = resolveCompiledNode(node);
+        return info === undefined
+            ? undefined
+            : new CompiledProxyHandler(node, emitter, parent, info);
+    });
 }
 
 /** Prototype chain from the nearest base up to (and including) ReactiveNode. */
@@ -249,18 +301,6 @@ function copyAccessors(source: object, target: object): void {
     }
 }
 
-function defineRawPassthrough(target: object, key: string): void {
-    Object.defineProperty(target, key, {
-        configurable: true,
-        get(this: ManagedNode) {
-            return Reflect.get(this[R], key);
-        },
-        set(this: ManagedNode, value: unknown) {
-            Reflect.set(this[R], key, value);
-        },
-    });
-}
-
 /**
  * ReactiveNode's own members as literal accessors. Each member gets its own
  * code so its read site stays monomorphic; one closure shared across keys
@@ -268,7 +308,7 @@ function defineRawPassthrough(target: object, key: string): void {
  */
 class ReactiveNodeAccessors {
     declare [R]: ReactiveNode;
-    declare [H]: BaseProxyHandler<TreeNode>;
+    declare [H]: CompiledProxyHandler;
     declare [V]: boolean;
 
     get options(): IRetreeNodeOptions {
@@ -277,8 +317,7 @@ class ReactiveNodeAccessors {
         return options;
     }
     set options(value: IRetreeNodeOptions) {
-        writeIgnored(this[H], "options");
-        this[R].options = value;
+        writeField(this[H], "options", value);
     }
     get dependencies() {
         return readPrototypeGetter(this, "dependencies", dependenciesGetter);
@@ -290,7 +329,7 @@ class ReactiveNodeAccessors {
         return readFunction(this[H], this, "moveTo", this[R].moveTo, this[V]);
     }
     set moveTo(value: unknown) {
-        writeField(this[H], "moveTo", this[R].moveTo, value);
+        writeField(this[H], "moveTo", value);
     }
     get link() {
         if (this === undefined || this[R] === undefined) {
@@ -299,7 +338,7 @@ class ReactiveNodeAccessors {
         return readFunction(this[H], this, "link", this[R].link, this[V]);
     }
     set link(value: unknown) {
-        writeField(this[H], "link", this[R].link, value);
+        writeField(this[H], "link", value);
     }
     get raw() {
         if (this === undefined || this[R] === undefined) {
@@ -308,7 +347,7 @@ class ReactiveNodeAccessors {
         return readFunction(this[H], this, "raw", this[R].raw, this[V]);
     }
     set raw(value: unknown) {
-        writeField(this[H], "raw", this[R].raw, value);
+        writeField(this[H], "raw", value);
     }
     get untracked() {
         if (this === undefined || this[R] === undefined) {
@@ -323,7 +362,7 @@ class ReactiveNodeAccessors {
         );
     }
     set untracked(value: unknown) {
-        writeField(this[H], "untracked", this[R].untracked, value);
+        writeField(this[H], "untracked", value);
     }
     get peekInto() {
         if (this === undefined || this[R] === undefined) {
@@ -338,7 +377,7 @@ class ReactiveNodeAccessors {
         );
     }
     set peekInto(value: unknown) {
-        writeField(this[H], "peekInto", this[R].peekInto, value);
+        writeField(this[H], "peekInto", value);
     }
     get onObserved() {
         if (this === undefined || this[R] === undefined) {
@@ -353,7 +392,7 @@ class ReactiveNodeAccessors {
         );
     }
     set onObserved(value: unknown) {
-        writeField(this[H], "onObserved", this[R]["onObserved"], value);
+        writeField(this[H], "onObserved", value);
     }
     get onUnobserved() {
         if (this === undefined || this[R] === undefined) {
@@ -368,7 +407,7 @@ class ReactiveNodeAccessors {
         );
     }
     set onUnobserved(value: unknown) {
-        writeField(this[H], "onUnobserved", this[R]["onUnobserved"], value);
+        writeField(this[H], "onUnobserved", value);
     }
     get onChanged() {
         if (this === undefined || this[R] === undefined) {
@@ -383,7 +422,7 @@ class ReactiveNodeAccessors {
         );
     }
     set onChanged(value: unknown) {
-        writeField(this[H], "onChanged", this[R]["onChanged"], value);
+        writeField(this[H], "onChanged", value);
     }
     get dependency() {
         if (this === undefined || this[R] === undefined) {
@@ -398,7 +437,7 @@ class ReactiveNodeAccessors {
         );
     }
     set dependency(value: unknown) {
-        writeField(this[H], "dependency", this[R].dependency, value);
+        writeField(this[H], "dependency", value);
     }
     get prepareTree() {
         if (this === undefined || this[R] === undefined) {
@@ -413,7 +452,7 @@ class ReactiveNodeAccessors {
         );
     }
     set prepareTree(value: unknown) {
-        writeField(this[H], "prepareTree", this[R].prepareTree, value);
+        writeField(this[H], "prepareTree", value);
     }
     get memo() {
         if (this === undefined || this[R] === undefined) {
@@ -422,11 +461,11 @@ class ReactiveNodeAccessors {
         return readFunction(this[H], this, "memo", this[R]["memo"], this[V]);
     }
     set memo(value: unknown) {
-        writeField(this[H], "memo", this[R]["memo"], value);
+        writeField(this[H], "memo", value);
     }
 }
 
-// Resolved on first use: this module loads before ReactiveNode finishes.
+// Shared by the literal accessor for ReactiveNode.dependencies.
 let dependenciesGetter: (() => unknown) | undefined;
 
 function defineReactiveNodeAccessors(target: object): void {
@@ -435,9 +474,7 @@ function defineReactiveNodeAccessors(target: object): void {
         "dependencies"
     )?.get;
     copyAccessors(ReactiveNodeAccessors.prototype, target);
-    // Bookkeeping keys pass through to the raw node. Defined here rather than
-    // as computed members above: this module and ReactiveNode form an import
-    // cycle, and a scope-hoisting bundler may evaluate this class first.
+    // Bookkeeping keys pass through to the raw node.
     for (const key of [
         COLLECTED_KEYS_SYMBOL,
         LINKED_KEYS_SYMBOL,
@@ -477,7 +514,7 @@ function readPrototypeGetter(
 /** Default `toJSON` for compiled classes: a plain snapshot read through the accessors. */
 function toJSON(this: ManagedNode): Record<string, unknown> {
     const out: Record<string, unknown> = {};
-    for (const key of this[H].compiled?.knownKeys ?? []) {
+    for (const key of this[H].compiled.knownKeys) {
         out[key] = Reflect.get(this, key);
     }
     return out;
@@ -511,7 +548,7 @@ function defineReflectedAccessors(source: object, target: object): void {
                     );
                 },
                 set(this: ManagedNode, value: unknown) {
-                    writeField(this[H], key, Reflect.get(this[R], key), value);
+                    writeField(this[H], key, value);
                 },
             });
             continue;
@@ -683,8 +720,7 @@ function defineLearnedAccessor(
                 return readIgnored(this[H], key, Reflect.get(this[R], key));
             },
             set(this: ManagedNode, value: unknown) {
-                writeIgnored(this[H], key);
-                Reflect.set(this[R], key, value);
+                writeField(this[H], key, value);
             },
         });
         return;
@@ -696,7 +732,7 @@ function defineLearnedAccessor(
                 return readLinked(this[H], key, Reflect.get(this[R], key));
             },
             set(this: ManagedNode, value: unknown) {
-                writeLinked(this[H], key, value);
+                writeField(this[H], key, value);
             },
         });
         return;
@@ -721,25 +757,12 @@ function defineLearnedAccessor(
             );
         },
         set(this: ManagedNode, value: unknown) {
-            writeField(this[H], key, Reflect.get(this[R], key), value);
+            writeField(this[H], key, value);
         },
     });
 }
 
 const warnedDynamicKeys = new WeakSet<object>();
-
-/**
- * Builds the view for a compiled handler. In dev mode the first view of a
- * class flags own keys assigned to the base managed instance: without a
- * trap they never reach the raw node, so views and serialization miss them.
- */
-export function createCompiledView(
-    info: CompiledClassInfo,
-    handler: BaseProxyHandler<TreeNode>
-): TCustomProxy<TreeNode> {
-    if (isDevMode()) warnDynamicKeys(info, handler.baseProxy);
-    return new info.view(handler[unproxiedBaseNodeKey], handler);
-}
 
 function warnDynamicKeys(info: CompiledClassInfo, base: object): void {
     const prototype = info.managed.prototype;
@@ -755,29 +778,6 @@ function warnDynamicKeys(info: CompiledClassInfo, base: object): void {
     }
 }
 
-/** Reactive fields of a compiled managed node, for walks that must not touch its slots. */
-export function getCompiledReactiveFields(
-    node: object
-): readonly string[] | undefined {
-    const handler = Reflect.get(node, S);
-    if (!(handler instanceof BaseProxyHandler)) return undefined;
-    const info = handler.compiled;
-    if (info === null) return undefined;
-    return info.reactiveFields;
-}
-
-export { writeField, writeLinked };
-
-// Add child slots in schema order so instances of a class share one shape.
-
-export function createCompiledChildren(
-    info: CompiledClassInfo
-): Record<string | symbol, BaseProxyHandler<TreeNode> | undefined> {
-    const children = createChildrenCache();
-    for (const key of info.reactiveFields) children[key] = undefined;
-    return children;
-}
-
 // ------------------------------------------------------------------ reads
 //
 // Emitted reactive field accessor:
@@ -791,21 +791,15 @@ export function createCompiledChildren(
 //   }
 
 export function readPrimitive<T>(
-    handler: BaseProxyHandler<TreeNode>,
+    handler: CompiledProxyHandler,
     prop: string,
     value: T
 ): T {
-    if (!isDependencyTrackingActive()) return value;
-    return trackDependencyPropertyAccess(
-        handler,
-        handler.baseProxy,
-        prop,
-        value
-    );
+    return trackPropertyAccessIfNeeded(handler, handler.baseProxy, prop, value);
 }
 
 export function readObject(
-    handler: BaseProxyHandler<TreeNode>,
+    handler: CompiledProxyHandler,
     prop: string,
     value: object,
     child: BaseProxyHandler<TreeNode> | undefined,
@@ -826,7 +820,7 @@ export function readObject(
 }
 
 export function readFunction<TFunction extends Function>(
-    handler: BaseProxyHandler<TreeNode>,
+    handler: CompiledProxyHandler,
     self: object,
     prop: string,
     fn: TFunction,
@@ -840,21 +834,14 @@ export function readFunction<TFunction extends Function>(
         );
     }
     if (!isView) return handler.getBoundFunction(prop, fn, handler.baseProxy);
-    // Bound to the view current at read time, like reproxy reads; the cache
-    // entry is reused until the view or the source function changes.
-    const cache = (handler.ensureCaches().viewBoundFunctions ??= new Map());
+    // Resolving a new view resets its cache before binding, just like ReproxyHandler.
     const target = latestIdentityOfHandler(handler);
-    const cached = cache.get(prop);
-    if (
-        cached !== undefined &&
-        cached.source === fn &&
-        cached.target === target
-    ) {
-        return cached.bound as TFunction;
-    }
-    const bound = fn.bind(target) as TFunction;
-    cache.set(prop, { source: fn, bound, target });
-    return bound;
+    return getCachedBoundFunction(
+        (handler.viewBoundFunctions ??= new Map()),
+        prop,
+        fn,
+        target
+    );
 }
 
 /**
@@ -876,12 +863,12 @@ export function fieldTrampoline(key: string): Function {
 
 // Emitted @ignore / @link field accessors:
 //   get cache() { return readIgnored(this[H], "cache", this[R].cache); }
-//   set cache(v) { writeIgnored(this[H], "cache"); this[R].cache = v; }
+//   set cache(v) { writeField(this[H], "cache", v); }
 //   get other() { return readLinked(this[H], "other", this[R].other); }
-//   set other(v) { writeLinked(this[H], "other", v); }
+//   set other(v) { writeField(this[H], "other", v); }
 
 export function readIgnored(
-    handler: BaseProxyHandler<TreeNode>,
+    handler: CompiledProxyHandler,
     prop: string,
     value: unknown
 ): unknown {
@@ -889,7 +876,7 @@ export function readIgnored(
 }
 
 export function readLinked(
-    handler: BaseProxyHandler<TreeNode>,
+    handler: CompiledProxyHandler,
     prop: string,
     value: unknown
 ): unknown {
@@ -908,7 +895,7 @@ export function readLinked(
 //   }
 
 export function readGetterValue(
-    handler: BaseProxyHandler<TreeNode>,
+    handler: CompiledProxyHandler,
     self: object,
     prop: string,
     value: unknown,
@@ -924,7 +911,7 @@ export function readGetterValue(
 }
 
 export function readGetterWithFrame(
-    handler: BaseProxyHandler<TreeNode>,
+    handler: CompiledProxyHandler,
     self: object,
     prop: string,
     isView: boolean
@@ -946,7 +933,7 @@ export function readGetterWithFrame(
 }
 
 export function recoverGetterRead(
-    handler: BaseProxyHandler<TreeNode>,
+    handler: CompiledProxyHandler,
     self: object,
     prop: string,
     error: unknown,
@@ -956,23 +943,23 @@ export function recoverGetterRead(
     if (!(raw instanceof ReactiveNode)) throw error;
     if (!isKeylessMemoFrameRequestFor(error, raw)) throw error;
     handler.keyless = true;
-    const info = handler.compiled;
-    if (info !== null) info.keyless = true;
+    handler.compiled.keyless = true;
     return readGetterWithFrame(handler, self, prop, isView);
 }
 
 // ------------------------------------------------------------------ writes
 //
 // Emitted reactive field setter:
-//   set a(v) { writeField(this[H], "a", this[R].a, v); }
-// The heavy lifting lives in proxy.ts next to the set trap it mirrors.
+//   set a(v) { writeField(this[H], "a", v); }
+// Proxies and compiled accessors both call BaseProxyHandler.set.
 
-export function writeIgnored(
-    handler: BaseProxyHandler<TreeNode>,
-    prop: string
+export function writeField(
+    handler: CompiledProxyHandler,
+    prop: string,
+    value: unknown
 ): void {
-    if (isDependencyTrackingActive()) {
-        trackDependencyPropertyWrite(handler.baseProxy, prop);
+    const raw = handler[unproxiedBaseNodeKey];
+    if (!handler.set(raw, prop, value, raw)) {
+        throw new TypeError(`Retree: could not assign property "${prop}".`);
     }
-    bumpGlobalWriteVersion(handler[unproxiedBaseNodeKey]);
 }

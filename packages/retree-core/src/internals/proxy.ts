@@ -51,19 +51,14 @@ import {
 import {
     isDependencyTrackingActive,
     noteUntrackedRead,
-    trackDependencyAccess,
+    trackAccessIfNeeded,
     trackDependencyKeyPresenceAccess,
     trackDependencyKeysAccess,
-    trackDependencyPropertyAccess,
+    trackPropertyAccessIfNeeded,
     trackDependencyPropertyWrite,
 } from "./dependency-tracking.js";
 import { Transactions } from "./transactions.js";
-import {
-    CompiledClassInfo,
-    CompiledFieldRole,
-    createCompiledChildren,
-    resolveCompiledNode,
-} from "./compiled-node.js";
+import { createRegisteredHandler } from "./handler-factories.js";
 import { bumpGlobalWriteVersion } from "./write-version.js";
 import { prepareSnapshotParentChange } from "./snapshot-version.js";
 
@@ -128,30 +123,6 @@ export function isNativeArrayMutatorAccess(
         return false;
     }
     return Reflect.get(node, prop, node) === ARRAY_MUTATING_METHODS[prop];
-}
-
-function trackAccessIfNeeded<T>(value: T): T {
-    if (!isDependencyTrackingActive()) {
-        return value;
-    }
-    return trackDependencyAccess(value);
-}
-
-function trackPropertyAccessIfNeeded<T>(
-    ownerHandler: ICustomProxyHandler<TreeNode>,
-    owner: TCustomProxy<TreeNode>,
-    propertyKey: string | symbol,
-    value: T
-): T {
-    if (!isDependencyTrackingActive()) {
-        return value;
-    }
-    return trackDependencyPropertyAccess(
-        ownerHandler,
-        owner,
-        propertyKey,
-        value
-    );
 }
 
 function trackPropertyWriteIfNeeded(
@@ -228,20 +199,13 @@ interface BoundFunctionCacheEntry {
     bound: Function;
 }
 
-export interface IViewBoundFunction {
-    source: Function;
-    bound: Function;
-    target: object;
-}
-
 /**
  * Per-node caches only some nodes ever need, allocated together on first use
- * so a plain data node carries one null field instead of six. Array mutator
+ * so a plain data node carries one null field instead of five. Array mutator
  * wrappers are cached so `arr.push === arr.push` holds across reads and
  * reproxy generations (tracked selectors reading a mutator would otherwise
  * re-run forever); collection proxies keep Map/Set children keyed by map key
- * or raw member since raw collections store raw values only; view-bound
- * functions serve compiled views, bound to the view current at read time.
+ * or raw member since raw collections store raw values only.
  */
 interface IHandlerCaches {
     boundFunctions: Map<string | symbol, BoundFunctionCacheEntry> | null;
@@ -249,7 +213,6 @@ interface IHandlerCaches {
     arrayReaders: Map<ArrayReadMethodName, Function> | null;
     reproxyArrayMutators: Map<string | symbol, Function> | null;
     collectionProxies: Map<any, TCustomProxy<any>> | null;
-    viewBoundFunctions: Map<string, IViewBoundFunction> | null;
 }
 
 /**
@@ -395,22 +358,20 @@ export class BaseProxyHandler<T extends TreeNode>
     > | null;
     private isApplyingSet = false;
     public caches: IHandlerCaches | null = null;
-    /** Compiled class info when the base proxy is a managed instance. */
-    public readonly compiled: CompiledClassInfo | null;
-    /** Compiled getter reads push a memo frame once a keyless memo was seen. */
-    public keyless = false;
 
     constructor(
         object: T,
         emitter: TreeChangeEmitter,
         parent: IProxyParent<any> | null,
-        compiled: CompiledClassInfo | null = null
+        reactiveFields?: readonly string[]
     ) {
         this[unproxiedBaseNodeKey] = object;
-        // Lazily allocated: leaf nodes never cache children. Compiled nodes
-        // preallocate every reactive field so the record keeps one shape.
-        this[proxiedChildrenKey] =
-            compiled === null ? null : createCompiledChildren(compiled);
+        this[proxiedChildrenKey] = null;
+        if (reactiveFields !== undefined) {
+            const children = createChildrenCache();
+            for (const key of reactiveFields) children[key] = undefined;
+            this[proxiedChildrenKey] = children;
+        }
         this[proxiedParentKey] = parent;
         this.emitter = emitter;
         const kind = getNodeKind(object);
@@ -420,12 +381,29 @@ export class BaseProxyHandler<T extends TreeNode>
                 ? object
                 : undefined;
         this.reactiveObject = reactiveObject;
-        this.compiled = compiled;
-        this.keyless = compiled === null ? false : compiled.keyless;
         this.reactiveKeyRoles =
-            reactiveObject === undefined || compiled !== null
+            reactiveObject === undefined || reactiveFields !== undefined
                 ? null
                 : buildReactiveKeyRoles(reactiveObject);
+    }
+
+    public get reactiveFields(): readonly string[] | undefined {
+        return undefined;
+    }
+
+    public createBaseProxy(): TCustomProxy<T> {
+        return new Proxy(this[unproxiedBaseNodeKey], this) as TCustomProxy<T>;
+    }
+
+    public createView(): TCustomProxy<T> | undefined {
+        return undefined;
+    }
+
+    public assertWritableKey(_key: string | symbol, _apiName: string): void {}
+
+    public clearChild(prop: string | symbol): void {
+        const children = this[proxiedChildrenKey];
+        if (children !== null) Reflect.deleteProperty(children, prop);
     }
 
     public ensureCaches(): IHandlerCaches {
@@ -435,7 +413,6 @@ export class BaseProxyHandler<T extends TreeNode>
             arrayReaders: null,
             reproxyArrayMutators: null,
             collectionProxies: null,
-            viewBoundFunctions: null,
         });
     }
 
@@ -1095,230 +1072,31 @@ export class BaseProxyHandler<T extends TreeNode>
     }
 }
 
-/**
- * @internal
- * Builds a proxied object that emits changes when any value changes.
- * Also ensures `this` references are bound properly to functions, among other things.
- *
- * @param object base object to proxy
- * @param emitter event emitter to emit changes through
- * @param parent Optional. The parent of the object
- * @returns the proxied version of the object provided.
- */
-// ------------------------------------------------------------ compiled writes
-//
-// Compiled managed classes route field writes here (see compiled-node.ts).
-// Each mirrors the matching branch of BaseProxyHandler.set/deleteProperty
-// for a raw node the accessor already read; the store lands on the raw
-// object directly since no trap sits between.
-
-/** Emitted reactive field setter body: `writeField(this[H], "a", this[R].a, v)`. */
-export function writeField(
-    handler: BaseProxyHandler<TreeNode>,
-    prop: string,
-    prev: unknown,
-    newValue: unknown
-): void {
-    const baseProxy = handler.baseProxy;
-    const target = handler[unproxiedBaseNodeKey];
-    trackPropertyWriteIfNeeded(baseProxy, prop);
-    const rawNewValue =
-        newValue !== null && typeof newValue === "object"
-            ? getUnproxiedNode(newValue) ?? newValue
-            : newValue;
-    if (Object.is(prev, rawNewValue)) {
-        return;
-    }
-    const createsKey = prev === undefined && !Object.hasOwn(target, prop);
-    if (Transactions.skipReproxy) bumpGlobalWriteVersion(target);
-    const nodeRemoved =
-        prev !== null && typeof prev === "object"
-            ? handleNodeRemoved(baseProxy, prop)
-            : undefined;
-    if (newValue !== null && typeof newValue === "object") {
-        const parentToSet: IProxyParent<any> = {
-            handler,
-            propName: prop,
-        };
-        if (isCustomProxy(newValue)) {
-            setProxiedChild(
-                handler,
-                prop,
-                reparentProxy(newValue, parentToSet)
-            );
-        } else if (Object.isFrozen(newValue)) {
-            deleteProxiedChild(handler, prop);
-        } else if (getManagedProxyForUnproxiedNode(newValue) !== undefined) {
-            setProxiedChild(
-                handler,
-                prop,
-                createStructuralProxyForValue(
-                    newValue,
-                    parentToSet,
-                    handler.emitter
-                )
-            );
-        } else if (shouldCreatePlainObjectProxyLazily(newValue)) {
-            deleteProxiedChild(handler, prop);
-        } else {
-            setProxiedChild(
-                handler,
-                prop,
-                createStructuralProxyForValue(
-                    newValue,
-                    parentToSet,
-                    handler.emitter
-                )
-            );
-        }
-    } else {
-        deleteProxiedChild(handler, prop);
-    }
-    (target as Record<string, unknown>)[prop] = rawNewValue;
-    if (Transactions.skipReproxy) return;
-    const reproxy = updateReproxyNodeForChange(baseProxy);
-    handler.emitter.emit(
-        "nodeChanged",
-        target,
-        baseProxy,
-        reproxy,
-        createNodeFieldChanges(
-            target,
-            prop,
-            prev,
-            rawNewValue,
-            createsKey ? "add" : undefined
-        )
-    );
-    if (nodeRemoved && !Transactions.skipEmit) {
-        const removedUnproxied = getUnproxiedNode(nodeRemoved);
-        handler.emitter.emit(
-            "nodeRemoved",
-            removedUnproxied ?? nodeRemoved,
-            nodeRemoved
-        );
-    }
-}
-
-/** Emitted @link field setter body: `writeLinked(this[H], "other", v)`. */
-export function writeLinked(
-    handler: BaseProxyHandler<TreeNode>,
-    prop: string,
-    newValue: unknown
-): void {
-    const baseProxy = handler.baseProxy;
-    const target = handler[unproxiedBaseNodeKey];
-    trackPropertyWriteIfNeeded(baseProxy, prop);
-    assertValidLinkedValue(prop, newValue);
-    const rawNewValue =
-        newValue !== null && typeof newValue === "object"
-            ? getUnproxiedNode(newValue) ?? newValue
-            : newValue;
-    const prev = (target as Record<string, unknown>)[prop];
-    if (prev === rawNewValue) {
-        return;
-    }
-    (target as Record<string, unknown>)[prop] = rawNewValue;
-    if (Transactions.skipReproxy) {
-        bumpGlobalWriteVersion(target);
-        return;
-    }
-    const reproxy = updateReproxyNodeForChange(baseProxy);
-    handler.emitter.emit(
-        "nodeChanged",
-        target,
-        baseProxy,
-        reproxy,
-        createNodeFieldChanges(target, prop, prev, rawNewValue)
-    );
-}
-
-/** Mirrors the deleteProperty trap for a compiled node; used by undo and Retree.move. */
-function deleteCompiledField(
-    handler: BaseProxyHandler<TreeNode>,
-    info: CompiledClassInfo,
-    prop: string
-): boolean {
-    const target = handler[unproxiedBaseNodeKey];
-    if (info.roles.get(prop) === CompiledFieldRole.Ignore) {
-        bumpGlobalWriteVersion(target);
-        return Reflect.deleteProperty(target, prop);
-    }
-    if (!Object.hasOwn(target, prop)) {
-        return Reflect.deleteProperty(target, prop);
-    }
-    const baseProxy = handler.baseProxy;
-    const nodeRemoved = handleNodeRemoved(baseProxy, prop);
-    const previousValue = Reflect.get(target, prop, target);
-    const returnValue = Reflect.deleteProperty(target, prop);
-    if (returnValue) {
-        if (Transactions.skipReproxy) bumpGlobalWriteVersion(target);
-        deleteProxiedChild(handler, prop);
-    }
-    if (!Transactions.skipReproxy) {
-        const reproxy = updateReproxyNodeForChange(baseProxy);
-        handler.emitter.emit(
-            "nodeChanged",
-            target,
-            baseProxy,
-            reproxy,
-            createNodeFieldChanges(
-                target,
-                prop,
-                previousValue,
-                undefined,
-                "delete"
-            )
-        );
-        if (nodeRemoved && !Transactions.skipEmit) {
-            const removedUnproxied = getUnproxiedNode(nodeRemoved);
-            handler.emitter.emit(
-                "nodeRemoved",
-                removedUnproxied ?? nodeRemoved,
-                nodeRemoved
-            );
-        }
-    }
-    return returnValue;
-}
-
-/** Deletes a key on a managed node, through the trap or the compiled path. */
+/** Deletes through the same handler for proxies and custom managed instances. */
 export function deleteManagedKey(node: object, key: PropertyKey): void {
-    const handler = getCustomProxyHandlerFromMetadata(node);
-    if (
-        handler instanceof BaseProxyHandler &&
-        handler.compiled !== null &&
-        typeof key === "string"
-    ) {
-        deleteCompiledField(handler, handler.compiled, key);
+    const metadata = getCustomProxyHandlerFromMetadata(node);
+    if (metadata === undefined) {
+        delete (node as Record<PropertyKey, unknown>)[key];
         return;
     }
-    delete (node as Record<PropertyKey, unknown>)[key];
+    const handler = resolveBaseHandler(metadata);
+    const prop = typeof key === "number" ? String(key) : key;
+    if (!handler.deleteProperty(handler[unproxiedBaseNodeKey], prop)) {
+        throw new TypeError(
+            `Retree: could not delete property "${String(key)}".`
+        );
+    }
 }
 
-/**
- * Validates a destination key before mutation. A compiled node has no trap to catch a
- * key its class never declared, so that case fails here instead of leaving
- * the value on the managed object where the raw node cannot see it.
- */
+/** Validate before a move detaches its source. */
 export function assertManagedKey(
     node: object,
     key: string | symbol,
     apiName: string
 ): void {
-    const handler = getCustomProxyHandlerFromMetadata(node);
-    if (
-        handler instanceof BaseProxyHandler &&
-        handler.compiled !== null &&
-        typeof key === "string" &&
-        !handler.compiled.knownKeys.has(key) &&
-        !(key in node)
-    ) {
-        // @retree-throws
-        throw new Error(
-            `${apiName}: the destination is a compiled ${node.constructor.name} and has no field "${key}". Declare the field on the class so the compiler emits it, or move into a plain object.`
-        );
-    }
+    const metadata = getCustomProxyHandlerFromMetadata(node);
+    if (metadata !== undefined)
+        resolveBaseHandler(metadata).assertWritableKey(key, apiName);
 }
 
 export function setManagedKey(
@@ -1331,6 +1109,16 @@ export function setManagedKey(
     (node as Record<string | symbol, unknown>)[key] = value;
 }
 
+/**
+ * @internal
+ * Builds a proxied object that emits changes when any value changes.
+ * Also ensures `this` references are bound properly to functions, among other things.
+ *
+ * @param object base object to proxy
+ * @param emitter event emitter to emit changes through
+ * @param parent Optional. The parent of the object
+ * @returns the proxied version of the object provided.
+ */
 export function buildProxy<T extends TreeNode = TreeNode>(
     object: T,
     emitter: TreeChangeEmitter,
@@ -1366,23 +1154,13 @@ function buildProxyHandler<T extends TreeNode = TreeNode>(
     if (existing !== undefined) {
         return existing as BaseProxyHandler<T>;
     }
-    const compiled =
-        object instanceof ReactiveNode
-            ? resolveCompiledNode(object) ?? null
-            : null;
-    const proxyHandler = new BaseProxyHandler<T>(
-        object,
-        emitter,
-        parent ?? null,
-        compiled
-    );
-    const proxy =
-        compiled === null
-            ? (new Proxy(object, proxyHandler) as TCustomProxy<T>)
-            : (new compiled.managed(
-                  object,
-                  proxyHandler as BaseProxyHandler<TreeNode>
-              ) as TCustomProxy<T>);
+    const proxyHandler =
+        (object instanceof ReactiveNode
+            ? createRegisteredHandler(object, emitter, parent ?? null)
+            : undefined) ??
+        new BaseProxyHandler<T>(object, emitter, parent ?? null);
+    const proxy = proxyHandler.createBaseProxy();
+    const reactiveFields = proxyHandler.reactiveFields;
     proxyHandler.baseProxy = proxy;
     const reactiveObject = proxyHandler.reactiveObject;
     registerBaseProxy(object, proxyHandler);
@@ -1444,10 +1222,10 @@ function buildProxyHandler<T extends TreeNode = TreeNode>(
             Set.prototype.delete.call(object, replacement.previous);
             Set.prototype.add.call(object, replacement.next);
         }
-    } else if (compiled !== null) {
+    } else if (reactiveFields !== undefined) {
         // The compiler already separated reactive fields from @ignore and
         // @link keys, so the walk covers exactly the reactive ones.
-        for (const prop of compiled.reactiveFields) {
+        for (const prop of reactiveFields) {
             adoptStoredField(proxyHandler, object, prop, emitter);
         }
     } else {
@@ -1544,13 +1322,8 @@ function deleteProxiedChild(
     if (children === null) {
         return;
     }
-    // A compiled children record keeps its shape: clear the slot instead of
-    // deleting it, which would push the record into dictionary mode.
-    if (
-        proxyHandler instanceof BaseProxyHandler &&
-        proxyHandler.compiled !== null
-    ) {
-        (children as Record<string | symbol, unknown>)[prop] = undefined;
+    if (proxyHandler instanceof BaseProxyHandler) {
+        proxyHandler.clearChild(prop);
         return;
     }
     Reflect.deleteProperty(children, prop);

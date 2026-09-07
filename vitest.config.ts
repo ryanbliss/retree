@@ -25,6 +25,7 @@ const viteConfig = defineViteConfig({
     },
     resolve: {
         preserveSymlinks: true,
+        dedupe: ["react", "react-dom"],
         alias: [
             {
                 find: "@retreejs/core/internal",
@@ -133,6 +134,7 @@ function transformDecoratorsForVitest(): Plugin {
  */
 function compileReactiveNodesForVitest(): Plugin {
     const coreDir = path.resolve(rootDir, "packages/retree-core/src");
+    const sampleDir = path.resolve(rootDir, "samples/04.convex-react-nextjs");
     const coreModules = [
         "@retreejs/core",
         "./index.js",
@@ -147,28 +149,64 @@ function compileReactiveNodesForVitest(): Plugin {
         enforce: "pre",
         // A load hook runs before the esbuild decorator transform above.
         async load(id: string) {
-            if (!id.startsWith(coreDir) || !/\.spec\.tsx?$/.test(id)) {
+            const sample =
+                id.startsWith(sampleDir + "/app/") && /\.tsx?$/.test(id);
+            if (
+                !sample &&
+                (!id.startsWith(coreDir) || !/\.spec\.tsx?$/.test(id))
+            ) {
                 return null;
             }
             const code = await readFile(id, "utf8");
+            const sampleConfig:
+                | {
+                      presets: string[];
+                      plugins: Array<string | [string, object]>;
+                  }
+                | undefined = sample
+                ? JSON.parse(
+                      await readFile(path.join(sampleDir, ".babelrc"), "utf8")
+                  )
+                : undefined;
             const result = await transformWithBabel(code, {
                 filename: id,
+                caller: {
+                    name: "vitest",
+                    supportsStaticESM: true,
+                    supportsDynamicImport: true,
+                },
                 babelrc: false,
                 configFile: false,
                 sourceMaps: true,
-                presets: [
-                    [
-                        "@babel/preset-typescript",
-                        { allExtensions: true, isTSX: id.endsWith("x") },
-                    ],
-                ],
-                plugins: [
-                    [retreeCompiler, { coreModules }],
-                    [
-                        "@babel/plugin-proposal-decorators",
-                        { version: "2023-11" },
-                    ],
-                ],
+                presets: sampleConfig
+                    ? sampleConfig.presets
+                    : [
+                          [
+                              "@babel/preset-typescript",
+                              { allExtensions: true, isTSX: id.endsWith("x") },
+                          ],
+                      ],
+                plugins: sampleConfig
+                    ? sampleConfig.plugins.map(
+                          (plugin: string | [string, object]) => {
+                              const name = Array.isArray(plugin)
+                                  ? plugin[0]
+                                  : plugin;
+                              if (name === "@retreejs/babel-plugin-compiler")
+                                  return [
+                                      retreeCompiler,
+                                      Array.isArray(plugin) ? plugin[1] : {},
+                                  ];
+                              return plugin;
+                          }
+                      )
+                    : [
+                          [retreeCompiler, { coreModules }],
+                          [
+                              "@babel/plugin-proposal-decorators",
+                              { version: "2023-11" },
+                          ],
+                      ],
             });
             if (
                 result === null ||
@@ -237,6 +275,7 @@ const vitestConfig = defineVitestConfig({
                 : []),
             {
                 extends: true,
+                plugins: [compileReactiveNodesForVitest()],
                 test: {
                     name: "react-and-samples",
                     exclude: [

@@ -8,7 +8,7 @@ import {
     getCustomProxyHandlerFromMetadata,
     unproxiedBaseNodeKey,
 } from "./internals/proxy-types.js";
-import { getCompiledReactiveFields } from "./internals/compiled-node.js";
+import { resolveBaseHandler } from "./internals/reproxy.js";
 import type { RetreeLink } from "./Retree.js";
 import {
     INodeFieldChanges,
@@ -813,10 +813,14 @@ function prepareObject(
     }
     seen.add(object);
 
-    const compiledFields =
+    const metadata =
         object instanceof ReactiveNode
-            ? getCompiledReactiveFields(object)
+            ? getCustomProxyHandlerFromMetadata(object)
             : undefined;
+    const compiledFields =
+        metadata === undefined
+            ? undefined
+            : resolveBaseHandler(metadata).reactiveFields;
     if (compiledFields !== undefined) {
         for (const key of compiledFields) {
             prepareValue(Reflect.get(object, key), remainingDepth - 1, seen);

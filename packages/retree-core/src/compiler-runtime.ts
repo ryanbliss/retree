@@ -25,7 +25,5 @@ export {
     readPrimitive,
     recoverGetterRead,
     writeField,
-    writeIgnored,
-    writeLinked,
 } from "./internals/compiled-node.js";
 export type { CompiledNodeSchema } from "./internals/compiled-node.js";

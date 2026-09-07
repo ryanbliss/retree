@@ -7,9 +7,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReactiveNode } from "./ReactiveNode.js";
 import { Retree } from "./Retree.js";
 import { ignore, memo } from "./decorators.js";
-import { CompiledFieldRole } from "./internals/compiled-node.js";
+import {
+    CompiledFieldRole,
+    CompiledProxyHandler,
+} from "./internals/compiled-node.js";
 import { BaseProxyHandler, getCustomProxyHandler } from "./internals/proxy.js";
 
+// React integration coverage lives in samples/04.convex-react-nextjs/app/page.spec.tsx.
 // Runs under the proxy project and the compiled project (see the root
 // vitest config); every expectation must hold on both paths.
 const expectCompiled = process.env.RETREE_COMPILED_SPECS === "1";
@@ -19,7 +23,7 @@ function expectManagedPath(node: object): void {
     if (!(handler instanceof BaseProxyHandler)) {
         throw new Error("Expected a managed node.");
     }
-    expect(handler.compiled !== null).toBe(expectCompiled);
+    expect(handler instanceof CompiledProxyHandler).toBe(expectCompiled);
 }
 
 afterEach(() => {
@@ -147,9 +151,7 @@ describe("compiled nodes", () => {
         Reflect.set(second, "surprise", 1);
         const root = Retree.root(second);
         const handler = getCustomProxyHandler(root);
-        expect(handler instanceof BaseProxyHandler && handler.compiled).toBe(
-            null
-        );
+        expect(handler instanceof CompiledProxyHandler).toBe(false);
         expect(warn).toHaveBeenCalledTimes(expectCompiled ? 1 : 0);
         if (expectCompiled) {
             expect(warn.mock.calls[0][0]).toContain("Derived");

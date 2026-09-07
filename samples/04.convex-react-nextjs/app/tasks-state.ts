@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactiveNode, fnMemo, memo, select } from "@retreejs/core";
+import { ReactiveNode, memo, select } from "@retreejs/core";
 import { BaseConvexNode, ConvexNode, ConvexQueryNode } from "@retreejs/convex";
 import { RetreeConvexReactClient } from "@retreejs/react-convex";
 import { api } from "../convex/_generated/api";
@@ -38,7 +38,6 @@ export class AddTaskState extends BaseConvexNode {
         return this.text.length > 0 && !this.isSaving;
     }
 
-    @fnMemo
     public setText(text: string): void {
         this.text = text;
     }

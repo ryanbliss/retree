@@ -63,11 +63,21 @@ function scan(root: { groups: Group[] }): number {
     return total;
 }
 
-function time(label: string, fn: () => unknown, iterations = 1): number {
+function time(
+    label: string,
+    fn: () => unknown,
+    iterations = 1,
+    samples = 1
+): number {
     fn(); // warmup
-    const start = performance.now();
-    for (let i = 0; i < iterations; i++) fn();
-    const ms = (performance.now() - start) / iterations;
+    const timings: number[] = [];
+    for (let sample = 0; sample < samples; sample++) {
+        const start = performance.now();
+        for (let i = 0; i < iterations; i++) fn();
+        timings.push((performance.now() - start) / iterations);
+    }
+    timings.sort((a, b) => a - b);
+    const ms = timings[Math.floor(samples / 2)];
 
     console.log(`${label}: ${ms.toFixed(3)} ms`);
     return ms;
@@ -246,13 +256,15 @@ describe("perf probe", () => {
                 const middle = items >> 1;
                 let writeCount = 0;
 
+                // Median samples keep one scheduling/GC pause out of the scaling ratio.
                 const notificationsBeforeUnrelated = notifications;
                 const unrelatedMs = time(
                     `@select unrelated write (name), ${items} items`,
                     () => {
                         board.items[middle].name = `renamed-${writeCount++}`;
                     },
-                    1
+                    1,
+                    5
                 );
                 unrelatedTimings.push({ items, ms: unrelatedMs });
                 expect(notifications).toBe(notificationsBeforeUnrelated);
@@ -263,6 +275,7 @@ describe("perf probe", () => {
                     () => {
                         board.items[middle].score = 1000 + writeCount++;
                     },
+                    5,
                     5
                 );
                 relatedTimings.push({ items, ms: relatedMs });

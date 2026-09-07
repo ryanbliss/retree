@@ -21,6 +21,7 @@ function compile(source: string, options: RetreeCompilerOptions = {}): string {
 
 const RUNTIME_IMPORT = 'from "@retreejs/core/compiler-runtime"';
 
+// React integration coverage lives in samples/04.convex-react-nextjs/app/page.spec.tsx.
 describe("retree compiler", () => {
     it("emits a managed class with field roles, methods, getters, and memos", () => {
         const code = compile(`

@@ -33,6 +33,18 @@ and `@link` before they are lowered:
 The emitted code imports from `@retreejs/core/compiler-runtime`, so the
 installed `@retreejs/core` must match the compiler's peer range.
 
+## Runtime boundary
+
+Only compiler-generated imports load `@retreejs/core/compiler-runtime`. It
+registers handler subclasses with core through a small registry that has no
+runtime imports. Core never imports the compiler runtime. Ordinary handlers
+carry no compiler fields; compiled handlers share proxy mutation methods,
+function binding, and dependency tracking.
+
+React integration tests live in
+`samples/04.convex-react-nextjs/app/page.spec.tsx`. The tests compile the real
+sample models with its `.babelrc` and stub only the Convex transport.
+
 ## What compiles
 
 A class compiles when it extends `ReactiveNode` imported from a core module,
