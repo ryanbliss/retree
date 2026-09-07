@@ -867,29 +867,89 @@ export enum ReactiveKeyRole {
     Getter,
 }
 
+interface ReactiveKeyRolesEntry {
+    roles: ReadonlyMap<string | symbol, ReactiveKeyRole>;
+    collectedSize: number;
+    linkedSize: number;
+}
+
+/**
+ * Key roles per prototype. Decorator initializers and constructors add the
+ * same keys to every instance of a class, so instances share one map; an
+ * instance whose sets differ (checked exactly, by size and membership)
+ * gets its own.
+ */
+const reactiveKeyRolesCache = new WeakMap<object, ReactiveKeyRolesEntry>();
+
+function reactiveKeyRolesMatch(
+    entry: ReactiveKeyRolesEntry,
+    collected: ReadonlySet<string | symbol>,
+    linked: ReadonlySet<string | symbol>
+): boolean {
+    if (entry.collectedSize !== collected.size) {
+        return false;
+    }
+    if (entry.linkedSize !== linked.size) {
+        return false;
+    }
+    for (const key of collected) {
+        if (entry.roles.get(key) !== ReactiveKeyRole.Collected) {
+            return false;
+        }
+    }
+    for (const key of linked) {
+        const role = entry.roles.get(key);
+        if (
+            role !== ReactiveKeyRole.Linked &&
+            role !== ReactiveKeyRole.Collected
+        ) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /**
  * @internal
  * The keys of a ReactiveNode the get traps cannot serve as plain reads.
- * Built once when the node is managed: decorators fill the collected and
+ * Resolved when the node is managed: decorators fill the collected and
  * linked key sets while the instance constructs, and the getters are the
  * prototype's. A collected key wins over a linked or getter one, matching
- * the order the traps checked before this map existed.
+ * the order the traps checked before this map existed. Instances of one
+ * class share the map, so materializing a node allocates nothing here.
  */
 export function buildReactiveKeyRoles(
     instance: ReactiveNode
 ): ReadonlyMap<string | symbol, ReactiveKeyRole> {
-    const roles = new Map<string | symbol, ReactiveKeyRole>();
     const prototype = Object.getPrototypeOf(instance);
+    const collected = instance[COLLECTED_KEYS_SYMBOL];
+    const linked = instance[LINKED_KEYS_SYMBOL];
+    const cached =
+        prototype === null ? undefined : reactiveKeyRolesCache.get(prototype);
+    if (
+        cached !== undefined &&
+        reactiveKeyRolesMatch(cached, collected, linked)
+    ) {
+        return cached.roles;
+    }
+    const roles = new Map<string | symbol, ReactiveKeyRole>();
     if (prototype !== null) {
         for (const key of getReactiveNodePrototypeGetterNames(prototype)) {
             roles.set(key, ReactiveKeyRole.Getter);
         }
     }
-    for (const key of instance[LINKED_KEYS_SYMBOL]) {
+    for (const key of linked) {
         roles.set(key, ReactiveKeyRole.Linked);
     }
-    for (const key of instance[COLLECTED_KEYS_SYMBOL]) {
+    for (const key of collected) {
         roles.set(key, ReactiveKeyRole.Collected);
+    }
+    if (prototype !== null) {
+        reactiveKeyRolesCache.set(prototype, {
+            roles,
+            collectedSize: collected.size,
+            linkedSize: linked.size,
+        });
     }
     return roles;
 }
