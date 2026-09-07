@@ -79,3 +79,22 @@ for (const [path, model] of [["raw", raw], ["base", base], ["view", view]] as co
     }, 1999);
 }
 Retree.clearListeners(base);
+
+// Vary the key over a larger collection so dispatch is not measured only
+// against one hot entry. Keep raw keys outside the managed tree.
+const keys = Array.from({ length: 50_000 }, (_, i) => `key-${i}`);
+const largeRaw = new Map(keys.map((key, i) => [key, i % 100]));
+const largeBase = Retree.root(largeRaw);
+largeBase.set("seed", 0);
+const largeView = getReproxyNode(largeBase);
+assert.notEqual(largeView, largeBase);
+let largeExpected = 0;
+for (let i = 0; i < operations; i++) largeExpected += ((i * 8191) % keys.length) % 100;
+for (const [path, map] of [["raw", largeRaw], ["base", largeBase], ["view", largeView]] as const) {
+    measure(`50k Map.get varied keys via ${path}`, operations, () => {
+        let sum = 0;
+        for (let i = 0; i < operations; i++) sum += map.get(keys[(i * 8191) % keys.length])!;
+        return sum;
+    }, largeExpected);
+}
+Retree.clearListeners(largeBase);
