@@ -88,7 +88,10 @@ describe("array read methods", () => {
     });
 
     it("matches native reduce, some, every, and findIndex edge cases", () => {
-        const root = Retree.root({ items: [1, 2, 3] as number[], empty: [] });
+        const root = Retree.root({
+            items: [1, 2, 3] as number[],
+            empty: [] as number[],
+        });
         expect(root.items.reduce((sum, value) => sum + value)).toBe(6);
         expect(root.items.reduce((sum, value) => sum + value, 10)).toBe(16);
         expect(() => root.empty.reduce((sum, value) => sum + value)).toThrow(
