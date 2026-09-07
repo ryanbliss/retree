@@ -4,6 +4,7 @@ export interface InstallSelections {
     react: boolean;
     convex: boolean;
     eslint: boolean;
+    compiler: boolean;
     skill: boolean;
 }
 
@@ -19,6 +20,7 @@ export interface InstallPlan {
     warnMissingReact: boolean;
     installCommand: PlannedCommand;
     eslintInstallCommand: PlannedCommand | undefined;
+    compilerInstallCommand: PlannedCommand | undefined;
     skillCommand: PlannedCommand | undefined;
 }
 
@@ -99,18 +101,34 @@ export function resolveInstallPlan(
             args: [INSTALL_SUBCOMMANDS[packageManager], ...packageSpecs],
         },
         eslintInstallCommand: selections.eslint
-            ? {
-                  command: packageManager,
-                  args: [
-                      INSTALL_SUBCOMMANDS[packageManager],
-                      ...DEV_DEPENDENCY_ARGS[packageManager],
-                      "@retreejs/react-eslint-plugin@latest",
-                  ],
-              }
+            ? buildDevInstallCommand(
+                  packageManager,
+                  "@retreejs/react-eslint-plugin@latest"
+              )
+            : undefined,
+        compilerInstallCommand: selections.compiler
+            ? buildDevInstallCommand(
+                  packageManager,
+                  "@retreejs/babel-plugin-compiler@latest"
+              )
             : undefined,
         skillCommand: selections.skill
             ? buildSkillInstallCommand(packageManager)
             : undefined,
+    };
+}
+
+function buildDevInstallCommand(
+    packageManager: PackageManager,
+    packageSpec: string
+): PlannedCommand {
+    return {
+        command: packageManager,
+        args: [
+            INSTALL_SUBCOMMANDS[packageManager],
+            ...DEV_DEPENDENCY_ARGS[packageManager],
+            packageSpec,
+        ],
     };
 }
 

@@ -7,8 +7,10 @@ import {
     parseCliFlags,
     resolveSelectionsFromFlags,
 } from "./args.js";
+import { tryConfigureRetreeCompiler } from "./compiler.js";
 import {
     applyTsconfigDecoratorFix,
+    findBabelConfigFileName,
     inspectDecoratorSetup,
     renderDecoratorNote,
 } from "./decorators.js";
@@ -86,6 +88,7 @@ export async function main(
         flags.packageManager ?? detectPackageManagerInDirectory(cwd);
     const eslintAvailable =
         target.hasReact && target.hasEslint && target.hasTypeScript;
+    const compilerAvailable = findBabelConfigFileName(cwd) !== undefined;
     const projectLabel = target.name ?? cwd;
     console.log(
         `${colorize("Retree installer", "bold", "cyan")} ${colorize(
@@ -98,6 +101,7 @@ export async function main(
         react: target.hasReact,
         convex: target.hasConvex,
         eslint: eslintAvailable,
+        compiler: compilerAvailable,
     });
     let selections: InstallSelections;
     if (flagSelections !== undefined) {
@@ -108,6 +112,8 @@ export async function main(
             convex: target.hasConvex,
             eslint: eslintAvailable,
             eslintAvailable,
+            compiler: compilerAvailable,
+            compilerAvailable,
         });
         selections = { ...prompted, skill: flags.skill ?? prompted.skill };
     } else {
@@ -164,6 +170,14 @@ export async function main(
             )}`
         );
     }
+    if (plan.compilerInstallCommand !== undefined) {
+        console.log(
+            `  ${colorize(
+                formatPlannedCommand(plan.compilerInstallCommand),
+                "bold"
+            )}`
+        );
+    }
     if (plan.skillCommand !== undefined) {
         console.log(
             `  ${colorize(formatPlannedCommand(plan.skillCommand), "bold")}`
@@ -185,6 +199,12 @@ export async function main(
         console.log(`\n> ${formatPlannedCommand(plan.eslintInstallCommand)}`);
         await run(plan.eslintInstallCommand, cwd);
         reportEslintConfigUpdate(cwd);
+    }
+
+    if (plan.compilerInstallCommand !== undefined) {
+        console.log(`\n> ${formatPlannedCommand(plan.compilerInstallCommand)}`);
+        await run(plan.compilerInstallCommand, cwd);
+        reportCompilerConfigUpdate(cwd);
     }
 
     if (plan.skillCommand !== undefined) {
@@ -229,6 +249,29 @@ function reportEslintConfigUpdate(cwd: string): void {
     console.log(
         colorize(
             `Updated ${result.configPath} with the Retree TypeScript ESLint preset.`,
+            "dim"
+        )
+    );
+}
+
+function reportCompilerConfigUpdate(cwd: string): void {
+    const result = tryConfigureRetreeCompiler(cwd);
+    if (result.status === "warning") {
+        console.warn(colorize(result.message, "yellow"));
+        return;
+    }
+    if (result.status === "already-configured") {
+        console.log(
+            colorize(
+                `${result.configPath} already includes @retreejs/babel-plugin-compiler.`,
+                "dim"
+            )
+        );
+        return;
+    }
+    console.log(
+        colorize(
+            `Updated ${result.configPath} with the @retreejs/babel-plugin-compiler Babel plugin.`,
             "dim"
         )
     );
@@ -314,8 +357,8 @@ function renderHelp() {
         "",
         "Adds the latest Retree packages to the project in the current",
         "directory. Interactive by default: detects React, Convex, ESLint,",
-        "and TypeScript to preselect matching integrations, and can install",
-        "the Retree AI skill for coding agents. Pass flags to run unattended",
+        "TypeScript, and Babel to preselect matching integrations, and can",
+        "install the Retree AI skill for coding agents. Pass flags to run unattended",
         "(e.g. from scripts or coding agents).",
         "",
         "Options:",

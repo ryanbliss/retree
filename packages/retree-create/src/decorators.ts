@@ -340,25 +340,33 @@ function readTypescriptVersionRange(cwd: string): string | undefined {
     return undefined;
 }
 
+/** The first Babel config file name present in `cwd`, in Babel's lookup order. */
+export function findBabelConfigFileName(cwd: string): string | undefined {
+    for (const fileName of BABEL_CONFIG_FILE_NAMES) {
+        if (existsSync(resolve(cwd, fileName))) {
+            return fileName;
+        }
+    }
+    return undefined;
+}
+
 function readBabelConfig(
     cwd: string
 ): { fileName: string; hasDecoratorsPlugin: boolean } | undefined {
-    for (const fileName of BABEL_CONFIG_FILE_NAMES) {
-        const filePath = resolve(cwd, fileName);
-        if (!existsSync(filePath)) {
-            continue;
-        }
-        let hasDecoratorsPlugin = false;
-        try {
-            hasDecoratorsPlugin = readFileSync(filePath, "utf8").includes(
-                BABEL_DECORATORS_PLUGIN
-            );
-        } catch {
-            // Best-effort: an unreadable config is treated as missing the plugin.
-        }
-        return { fileName, hasDecoratorsPlugin };
+    const fileName = findBabelConfigFileName(cwd);
+    if (fileName === undefined) {
+        return undefined;
     }
-    return undefined;
+    let hasDecoratorsPlugin = false;
+    try {
+        hasDecoratorsPlugin = readFileSync(
+            resolve(cwd, fileName),
+            "utf8"
+        ).includes(BABEL_DECORATORS_PLUGIN);
+    } catch {
+        // Best-effort: an unreadable config is treated as missing the plugin.
+    }
+    return { fileName, hasDecoratorsPlugin };
 }
 
 /**
