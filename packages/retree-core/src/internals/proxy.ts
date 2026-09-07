@@ -30,6 +30,11 @@ import {
 } from "./proxy-types.js";
 import { readReactiveNodeProperty } from "./memo.js";
 import {
+    ArrayReadMethodName,
+    isNativeArrayReadAccess,
+    wrapArrayRead,
+} from "./array-read.js";
+import {
     getBaseHandlerForUnproxiedNode,
     getBaseHandlerOfProxy,
     getManagedProxyForUnproxiedNode,
@@ -224,6 +229,7 @@ interface BoundFunctionCacheEntry {
 interface IHandlerCaches {
     boundFunctions: Map<string | symbol, BoundFunctionCacheEntry> | null;
     arrayMutators: Map<ArrayMutatingMethodName, Function> | null;
+    arrayReaders: Map<ArrayReadMethodName, Function> | null;
     reproxyArrayMutators: Map<string | symbol, Function> | null;
     collectionProxies: Map<any, TCustomProxy<any>> | null;
 }
@@ -389,6 +395,7 @@ export class BaseProxyHandler<T extends TreeNode>
         return (this.caches ??= {
             boundFunctions: null,
             arrayMutators: null,
+            arrayReaders: null,
             reproxyArrayMutators: null,
             collectionProxies: null,
         });
@@ -425,6 +432,26 @@ export class BaseProxyHandler<T extends TreeNode>
             this.emitter
         );
         mutators.set(prop, wrapper);
+        return wrapper;
+    }
+
+    public getArrayReader(
+        prop: ArrayReadMethodName,
+        arrayObject: T & unknown[]
+    ): Function {
+        const readers = (this.ensureCaches().arrayReaders ??= new Map());
+        const cached = readers.get(prop);
+        if (cached !== undefined) {
+            return cached;
+        }
+        const wrapper = wrapArrayRead(
+            this,
+            prop,
+            arrayObject,
+            this.baseProxy,
+            false
+        );
+        readers.set(prop, wrapper);
         return wrapper;
     }
 
@@ -503,6 +530,13 @@ export class BaseProxyHandler<T extends TreeNode>
             // and a per-(handler, method) cached wrapper so the mutator's
             // identity is stable across reads.
             return trackAccessIfNeeded(this.getArrayMutator(prop, target));
+        }
+        if (
+            kind === NodeKind.Array &&
+            isNativeArrayReadAccess(target, prop) &&
+            Array.isArray(target)
+        ) {
+            return trackAccessIfNeeded(this.getArrayReader(prop, target));
         }
         let value: any;
         if (reactiveObject !== undefined) {
