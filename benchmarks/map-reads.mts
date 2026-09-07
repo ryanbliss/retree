@@ -24,7 +24,12 @@ function measure(name: string, count: number, run: () => number, expected: numbe
 }
 const raw = new Model();
 const base = Retree.root(raw);
+base.values.set("seed", 0);
+base.objects.set("seed", { count: 0 });
 const view = getReproxyNode(base);
+assert.notEqual(view, base);
+assert.notEqual(view.values, base.values);
+assert.notEqual(view.objects, base.objects);
 for (const [path, model] of [["raw", raw], ["base", base], ["view", view]] as const) {
     const map = model.values;
     const objects = model.objects;
