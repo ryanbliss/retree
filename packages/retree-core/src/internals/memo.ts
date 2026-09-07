@@ -843,7 +843,7 @@ class KeylessMemoFrameRequest extends Error {
     }
 }
 
-function isKeylessMemoFrameRequestFor(
+export function isKeylessMemoFrameRequestFor(
     error: unknown,
     owner: ReactiveNode
 ): error is KeylessMemoFrameRequest {
@@ -1066,8 +1066,10 @@ export function consumeCurrentMemoGetter(
             // @retree-throws
             throw new KeylessMemoFrameRequest(owner);
         }
+        // Same request once marked: a compiled getter accessor on a node
+        // whose handler has not seen the mark yet recovers from it too.
         // @retree-throws
-        throw new Error(KEYLESS_MEMO_GUIDANCE);
+        throw new KeylessMemoFrameRequest(owner);
     }
     if (top.memoCalled) {
         // @retree-throws

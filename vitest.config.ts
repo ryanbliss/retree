@@ -1,7 +1,10 @@
 /// <reference types="vitest/config" />
 
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { transformAsync as transformWithBabel } from "@babel/core";
 import { transform as transformWithEsbuild } from "esbuild";
+import retreeCompiler from "./packages/retree-babel-plugin-compiler/src/index.js";
 import { defineConfig as defineViteConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import {
@@ -28,6 +31,13 @@ const viteConfig = defineViteConfig({
                 replacement: path.resolve(
                     rootDir,
                     "packages/retree-core/src/internals/index.ts"
+                ),
+            },
+            {
+                find: "@retreejs/core/compiler-runtime",
+                replacement: path.resolve(
+                    rootDir,
+                    "packages/retree-core/src/compiler-runtime.ts"
                 ),
             },
             {
@@ -117,6 +127,65 @@ function transformDecoratorsForVitest(): Plugin {
     };
 }
 
+/**
+ * Runs the ReactiveNode compiler over core spec files so the compiled
+ * managed-class path is covered by the same suite as the Proxy path.
+ */
+function compileReactiveNodesForVitest(): Plugin {
+    const coreDir = path.resolve(rootDir, "packages/retree-core/src");
+    const coreModules = [
+        "@retreejs/core",
+        "./index.js",
+        "../index.js",
+        "./ReactiveNode.js",
+        "../ReactiveNode.js",
+        "./decorators.js",
+        "../decorators.js",
+    ];
+    return {
+        name: "retree-compile-reactive-nodes-for-vitest",
+        enforce: "pre",
+        // A load hook runs before the esbuild decorator transform above.
+        async load(id: string) {
+            if (!id.startsWith(coreDir) || !/\.spec\.tsx?$/.test(id)) {
+                return null;
+            }
+            const code = await readFile(id, "utf8");
+            const result = await transformWithBabel(code, {
+                filename: id,
+                babelrc: false,
+                configFile: false,
+                sourceMaps: true,
+                presets: [
+                    [
+                        "@babel/preset-typescript",
+                        { allExtensions: true, isTSX: id.endsWith("x") },
+                    ],
+                ],
+                plugins: [
+                    [retreeCompiler, { coreModules }],
+                    [
+                        "@babel/plugin-proposal-decorators",
+                        { version: "2023-11" },
+                    ],
+                ],
+            });
+            if (
+                result === null ||
+                result.code === null ||
+                result.code === undefined
+            ) {
+                return null;
+            }
+            return { code: result.code, map: result.map ?? undefined };
+        },
+    };
+}
+
+const coreSpecPattern = /packages\/retree-core\/src\/.*\.spec\.tsx?$/;
+
+const compiledProjectEnabled = process.env.RETREE_SKIP_COMPILED_PROJECT !== "1";
+
 const vitestConfig = defineVitestConfig({
     test: {
         setupFiles: ["./vitest.setup.ts"],
@@ -129,6 +198,7 @@ const vitestConfig = defineVitestConfig({
                     name: "core",
                     include: [
                         "packages/retree-benchmark-cli/**/*.spec.ts",
+                        "packages/retree-babel-plugin-compiler/**/*.spec.ts",
                         "packages/retree-core/**/*.spec.ts",
                         "packages/retree-core/**/*.spec.tsx",
                         "packages/retree-convex/**/*.spec.ts",
@@ -142,6 +212,29 @@ const vitestConfig = defineVitestConfig({
                     environment: "node",
                 },
             },
+            ...(compiledProjectEnabled
+                ? [
+                      {
+                          extends: true,
+                          plugins: [compileReactiveNodesForVitest()],
+                          // Babel already lowered these files; oxc would
+                          // re-lower class fields under the es2020 target.
+                          oxc: {
+                              exclude: [coreSpecPattern],
+                              jsxRefreshExclude: [coreSpecPattern],
+                          },
+                          test: {
+                              name: "core-compiled",
+                              env: { RETREE_COMPILED_SPECS: "1" },
+                              include: [
+                                  "packages/retree-core/**/*.spec.ts",
+                                  "packages/retree-core/**/*.spec.tsx",
+                              ],
+                              environment: "node",
+                          },
+                      } as const,
+                  ]
+                : []),
             {
                 extends: true,
                 test: {

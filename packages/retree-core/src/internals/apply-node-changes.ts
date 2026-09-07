@@ -4,6 +4,7 @@
  */
 
 import { INodeFieldChanges, TreeNode } from "../types.js";
+import { deleteManagedKey } from "./proxy.js";
 import { getManagedProxyForUnproxiedNode } from "./reproxy.js";
 
 /**
@@ -295,7 +296,7 @@ function applyInverseObjectRecord(
 ): void {
     const key = toPropertyKey(record, apiName);
     if (record.op === "add") {
-        delete managedNode[key];
+        deleteManagedKey(managedNode, key);
         return;
     }
     // Plain rewrite or "delete": both restore the previous value at the key.
@@ -378,7 +379,7 @@ function applyForwardObjectRecord(
 ): void {
     const key = toPropertyKey(record, apiName);
     if (record.op === "delete") {
-        delete managedNode[key];
+        deleteManagedKey(managedNode, key);
         return;
     }
     managedNode[key] = record.new;

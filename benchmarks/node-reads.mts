@@ -91,6 +91,7 @@ console.log(
         rounds,
         reads: ROUNDS * 10,
         mode: "production source bundle, GC outside timed samples",
+        compiled: process.env.RETREE_COMPILER === "1",
     })
 );
 

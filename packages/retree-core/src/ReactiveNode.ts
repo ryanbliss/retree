@@ -8,6 +8,7 @@ import {
     getCustomProxyHandlerFromMetadata,
     unproxiedBaseNodeKey,
 } from "./internals/proxy-types.js";
+import { getCompiledReactiveFields } from "./internals/compiled-node.js";
 import type { RetreeLink } from "./Retree.js";
 import {
     INodeFieldChanges,
@@ -812,6 +813,13 @@ function prepareObject(
     }
     seen.add(object);
 
+    const compiledFields = getCompiledReactiveFields(object);
+    if (compiledFields !== undefined) {
+        for (const key of compiledFields) {
+            prepareValue(Reflect.get(object, key), remainingDepth - 1, seen);
+        }
+        return;
+    }
     if (object instanceof Map) {
         for (const value of object.values()) {
             prepareValue(value, remainingDepth - 1, seen);

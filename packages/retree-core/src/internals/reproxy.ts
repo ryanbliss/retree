@@ -37,6 +37,7 @@ import {
     TCustomProxy,
     TProxiedChildren,
 } from "./proxy-types.js";
+import { createCompiledView } from "./compiled-node.js";
 import { advanceSnapshotVersions } from "./snapshot-version.js";
 import { bumpGlobalWriteVersion } from "./write-version.js";
 
@@ -507,6 +508,13 @@ class ReproxyHandler<T extends TreeNode>
 function buildReproxy<T extends TreeNode>(
     handler: BaseProxyHandler<T>
 ): TCustomProxy<T> {
+    const compiled = handler.compiled;
+    if (compiled !== null) {
+        return createCompiledView(
+            compiled,
+            handler as BaseProxyHandler<TreeNode>
+        ) as TCustomProxy<T>;
+    }
     return new Proxy(
         handler[unproxiedBaseNodeKey],
         new ReproxyHandler<T>(handler)
