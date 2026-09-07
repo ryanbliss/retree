@@ -130,6 +130,8 @@ Always run `npm run doctor` before publishing your PR.
 
 Don't add agent contributors to git commits.
 
+Every PR that changes a published package adds a changeset in `.changeset/` describing the user-facing change (see CONTRIBUTING.md); a PR without one is not ready for review.
+
 <!-- git-end -->
 
 <!-- convex-ai-start -->
