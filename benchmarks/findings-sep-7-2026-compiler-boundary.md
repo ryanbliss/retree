@@ -1,5 +1,7 @@
 # Compiler runtime boundary and overhead
 
+The [full current-revision remeasurement](findings-sep-7-2026-compiler-remeasurement.md) adds repeated Neo workloads, compiler cost, sample builds, and browser hot reload checks.
+
 PR #100 follow-up, measured September 7, 2026. Baseline is the PR's merge
 base with main, `a889d81541279a43424c61fc7ddb539b4cdb8aae`.
 
