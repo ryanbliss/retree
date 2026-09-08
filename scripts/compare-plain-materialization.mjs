@@ -8,10 +8,10 @@ if (!baseline || !output)
         "Usage: node scripts/compare-plain-materialization.mjs BASELINE_DIRECTORY OUTPUT_JSON"
     );
 const variants = [
-    ["103-off", baseline, "0"],
-    ["103-on", baseline, "1"],
-    ["ancestry-off", repo, "0"],
-    ["ancestry-on", repo, "1"],
+    ["104-off", baseline, "0"],
+    ["104-on", baseline, "1"],
+    ["registry-off", repo, "0"],
+    ["registry-on", repo, "1"],
 ];
 const runs = [];
 for (let block = 0; block < 8; block++) {
@@ -46,7 +46,7 @@ for (let block = 0; block < 8; block++) {
             JSON.stringify(
                 {
                     node: process.version,
-                    base: "93ba2bfbc15d7d68389b1493756c72d44f488710",
+                    base: "52a6dcf06faf5cafcd2b355d22dae430a8b9d1da",
                     runs,
                 },
                 null,
