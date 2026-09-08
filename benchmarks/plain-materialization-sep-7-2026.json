@@ -1,0 +1,4170 @@
+{
+  "node": "v22.13.1",
+  "base": "93ba2bfbc15d7d68389b1493756c72d44f488710",
+  "runs": [
+    {
+      "block": 0,
+      "variant": "103",
+      "processMs": 1658.8269579999999,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2021249999999668,
+              "materializeMs": 14.503541999999982,
+              "totalMs": 14.705666999999949,
+              "warmMs": 3.040958000000046
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.032833999999979824,
+              "materializeMs": 14.38554099999999,
+              "totalMs": 14.418374999999969,
+              "warmMs": 2.7579580000000306
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.437375000000031,
+              "materializeMs": 11.36770899999999,
+              "totalMs": 15.805084000000022,
+              "warmMs": 2.4399159999999824
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.7030410000000415,
+              "materializeMs": 9.34004200000004,
+              "totalMs": 14.043083000000081,
+              "warmMs": 2.462333000000001
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.5318340000000035,
+              "materializeMs": 10.128959000000009,
+              "totalMs": 14.660793000000012,
+              "warmMs": 2.4586669999999913
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.620166999999981,
+              "materializeMs": 9.18104199999999,
+              "totalMs": 13.801208999999972,
+              "warmMs": 2.394875000000013
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.605374999999981,
+              "materializeMs": 9.809500000000014,
+              "totalMs": 14.414874999999995,
+              "warmMs": 2.4012500000000045
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8047080000000051,
+              "materializeMs": 22.044667000000004,
+              "totalMs": 22.84937500000001,
+              "warmMs": 6.773083999999983
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.01754199999999173,
+              "materializeMs": 19.542875000000038,
+              "totalMs": 19.56041700000003,
+              "warmMs": 8.245083000000022
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.34166700000003,
+              "materializeMs": 17.164750000000026,
+              "totalMs": 25.506417000000056,
+              "warmMs": 6.877541000000065
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.470833999999968,
+              "materializeMs": 17.505041000000006,
+              "totalMs": 25.975874999999974,
+              "warmMs": 7.834666000000084
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.764499999999998,
+              "materializeMs": 17.309374999999932,
+              "totalMs": 25.07387499999993,
+              "warmMs": 6.622041999999965
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.301333999999997,
+              "materializeMs": 16.753417000000013,
+              "totalMs": 25.05475100000001,
+              "warmMs": 7.224958000000015
+            },
+            {
+              "warmup": false,
+              "rootMs": 10.26254199999994,
+              "materializeMs": 17.266416999999933,
+              "totalMs": 27.528958999999873,
+              "warmMs": 7.616667000000007
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8446669999999585,
+              "materializeMs": 113.96495900000002,
+              "totalMs": 114.80962599999998,
+              "warmMs": 0.6592500000000427
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.008459000000016204,
+              "materializeMs": 105.263916,
+              "totalMs": 105.27237500000001,
+              "warmMs": 0.333458999999948
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5811670000000504,
+              "materializeMs": 111.88054199999988,
+              "totalMs": 112.46170899999993,
+              "warmMs": 0.3446670000000722
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7253749999999854,
+              "materializeMs": 101.26191699999981,
+              "totalMs": 101.9872919999998,
+              "warmMs": 0.3448329999998805
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.577167000000145,
+              "materializeMs": 94.22004099999981,
+              "totalMs": 94.79720799999996,
+              "warmMs": 0.3503339999999753
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5713339999999789,
+              "materializeMs": 95.66387500000019,
+              "totalMs": 96.23520900000017,
+              "warmMs": 0.34970899999984795
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5758749999999964,
+              "materializeMs": 92.34087499999987,
+              "totalMs": 92.91674999999987,
+              "warmMs": 0.35924999999997453
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.277417000000014,
+              "materializeMs": 7.830832999999984,
+              "totalMs": 8.108249999999998,
+              "warmMs": 1.2233750000000327
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.011874999999918145,
+              "materializeMs": 5.843708000000106,
+              "totalMs": 5.855583000000024,
+              "warmMs": 0.6767910000000938
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.6390420000000177,
+              "materializeMs": 4.965666999999939,
+              "totalMs": 8.604708999999957,
+              "warmMs": 0.47708399999987705
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.1997080000001006,
+              "materializeMs": 5.157333999999992,
+              "totalMs": 8.357042000000092,
+              "warmMs": 0.5193750000000819
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.2929589999998825,
+              "materializeMs": 5.154500000000098,
+              "totalMs": 8.44745899999998,
+              "warmMs": 0.5098749999999654
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.043290999999954,
+              "materializeMs": 5.025916999999936,
+              "totalMs": 9.06920799999989,
+              "warmMs": 0.5032909999999902
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.16537500000004,
+              "materializeMs": 4.804082999999991,
+              "totalMs": 7.9694580000000315,
+              "warmMs": 0.5033329999998841
+            }
+          ],
+          "facades": 0
+        }
+      ]
+    },
+    {
+      "block": 0,
+      "variant": "routing-only",
+      "processMs": 1596.6900000000003,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2087500000000091,
+              "materializeMs": 14.51637500000001,
+              "totalMs": 14.72512500000002,
+              "warmMs": 3.237124999999992
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.032083000000000084,
+              "materializeMs": 14.492624999999975,
+              "totalMs": 14.524707999999976,
+              "warmMs": 3.270959000000005
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.064166999999998,
+              "materializeMs": 11.20195799999999,
+              "totalMs": 15.266124999999988,
+              "warmMs": 2.503667000000007
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.478457999999989,
+              "materializeMs": 9.78837500000003,
+              "totalMs": 14.26683300000002,
+              "warmMs": 2.425542000000007
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.0493339999999876,
+              "materializeMs": 10.181167000000016,
+              "totalMs": 14.230501000000004,
+              "warmMs": 2.436458000000016
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.154125000000022,
+              "materializeMs": 9.800791000000004,
+              "totalMs": 13.954916000000026,
+              "warmMs": 2.5070839999999635
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.634708000000046,
+              "materializeMs": 10.412583999999981,
+              "totalMs": 15.047292000000027,
+              "warmMs": 2.463707999999997
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8085419999999885,
+              "materializeMs": 22.449375000000032,
+              "totalMs": 23.25791700000002,
+              "warmMs": 6.6078750000000355
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.011833000000024185,
+              "materializeMs": 19.702207999999985,
+              "totalMs": 19.71404100000001,
+              "warmMs": 9.290666000000044
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.83137499999998,
+              "materializeMs": 19.619708000000003,
+              "totalMs": 27.451082999999983,
+              "warmMs": 8.962875000000054
+            },
+            {
+              "warmup": false,
+              "rootMs": 9.255292000000054,
+              "materializeMs": 17.613040999999953,
+              "totalMs": 26.868333000000007,
+              "warmMs": 6.310292000000004
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.658416999999986,
+              "materializeMs": 16.855332999999973,
+              "totalMs": 25.51374999999996,
+              "warmMs": 8.098749999999995
+            },
+            {
+              "warmup": false,
+              "rootMs": 9.360750000000053,
+              "materializeMs": 17.850125000000048,
+              "totalMs": 27.2108750000001,
+              "warmMs": 7.3689580000000205
+            },
+            {
+              "warmup": false,
+              "rootMs": 9.194124999999985,
+              "materializeMs": 16.786207999999988,
+              "totalMs": 25.980332999999973,
+              "warmMs": 7.741333999999938
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8584590000000389,
+              "materializeMs": 112.972125,
+              "totalMs": 113.83058400000004,
+              "warmMs": 0.708791999999903
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.00829199999998309,
+              "materializeMs": 107.97166700000002,
+              "totalMs": 107.97995900000001,
+              "warmMs": 0.36587499999996
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7117499999999382,
+              "materializeMs": 104.71204199999988,
+              "totalMs": 105.42379199999982,
+              "warmMs": 0.32225000000016735
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5851250000000618,
+              "materializeMs": 97.52600000000007,
+              "totalMs": 98.11112500000013,
+              "warmMs": 0.33654200000000856
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.6044999999999163,
+              "materializeMs": 94.54612500000007,
+              "totalMs": 95.15062499999999,
+              "warmMs": 0.33979199999998855
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5683339999998225,
+              "materializeMs": 94.54112499999997,
+              "totalMs": 95.10945899999979,
+              "warmMs": 0.33512500000006185
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5825839999999971,
+              "materializeMs": 93.7968330000001,
+              "totalMs": 94.3794170000001,
+              "warmMs": 0.3085829999999987
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.287708000000066,
+              "materializeMs": 7.845291999999972,
+              "totalMs": 8.133000000000038,
+              "warmMs": 1.2177500000000236
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.017917000000124972,
+              "materializeMs": 5.820334000000003,
+              "totalMs": 5.8382510000001275,
+              "warmMs": 0.6827499999999418
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.284125000000131,
+              "materializeMs": 5.095000000000027,
+              "totalMs": 8.379125000000158,
+              "warmMs": 0.48225000000002183
+            },
+            {
+              "warmup": false,
+              "rootMs": 2.4650839999999334,
+              "materializeMs": 5.958458000000064,
+              "totalMs": 8.423541999999998,
+              "warmMs": 0.5762919999999667
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.3389589999999316,
+              "materializeMs": 5.084374999999909,
+              "totalMs": 8.42333399999984,
+              "warmMs": 0.4963749999999436
+            },
+            {
+              "warmup": false,
+              "rootMs": 2.8559170000000904,
+              "materializeMs": 5.050208999999995,
+              "totalMs": 7.906126000000086,
+              "warmMs": 0.461084000000028
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.6566250000000764,
+              "materializeMs": 5.114790999999968,
+              "totalMs": 8.771416000000045,
+              "warmMs": 0.505333999999948
+            }
+          ],
+          "facades": 0
+        }
+      ]
+    },
+    {
+      "block": 0,
+      "variant": "facade",
+      "processMs": 2091.9149999999995,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2820830000000001,
+              "materializeMs": 45.19987499999999,
+              "totalMs": 45.48195799999999,
+              "warmMs": 3.85691700000001
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.0901670000000081,
+              "materializeMs": 31.587917000000004,
+              "totalMs": 31.678084000000013,
+              "warmMs": 2.033875000000023
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.095292000000029,
+              "materializeMs": 28.059957999999995,
+              "totalMs": 32.155250000000024,
+              "warmMs": 2.208958999999993
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.921375000000012,
+              "materializeMs": 28.825625000000002,
+              "totalMs": 33.747000000000014,
+              "warmMs": 1.9132090000000517
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.501500000000021,
+              "materializeMs": 31.27129199999996,
+              "totalMs": 35.77279199999998,
+              "warmMs": 1.892499999999984
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.141999999999996,
+              "materializeMs": 33.82537500000001,
+              "totalMs": 40.967375000000004,
+              "warmMs": 2.310834
+            },
+            {
+              "warmup": false,
+              "rootMs": 5.417541999999969,
+              "materializeMs": 28.915333999999973,
+              "totalMs": 34.33287599999994,
+              "warmMs": 1.8949999999999818
+            }
+          ],
+          "facades": 139307
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8414999999999964,
+              "materializeMs": 44.514291999999955,
+              "totalMs": 45.35579199999995,
+              "warmMs": 5.022417000000019
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.021459000000049855,
+              "materializeMs": 43.112499999999955,
+              "totalMs": 43.133959000000004,
+              "warmMs": 3.6686249999999063
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.86262499999998,
+              "materializeMs": 40.63575000000003,
+              "totalMs": 49.49837500000001,
+              "warmMs": 3.8002089999999953
+            },
+            {
+              "warmup": false,
+              "rootMs": 9.384874999999965,
+              "materializeMs": 41.47333299999991,
+              "totalMs": 50.85820799999988,
+              "warmMs": 3.358665999999971
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.692709000000036,
+              "materializeMs": 41.29829199999995,
+              "totalMs": 49.99100099999998,
+              "warmMs": 3.7752080000000205
+            },
+            {
+              "warmup": false,
+              "rootMs": 6.929957999999942,
+              "materializeMs": 41.431332999999995,
+              "totalMs": 48.36129099999994,
+              "warmMs": 3.6702920000000177
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.26887499999998,
+              "materializeMs": 40.58891600000004,
+              "totalMs": 48.85779100000002,
+              "warmMs": 3.695791999999983
+            }
+          ],
+          "facades": 350014
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8410840000000235,
+              "materializeMs": 116.28329099999985,
+              "totalMs": 117.12437499999987,
+              "warmMs": 0.8682499999999891
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.016499999999950887,
+              "materializeMs": 144.001166,
+              "totalMs": 144.01766599999996,
+              "warmMs": 0.7461249999998927
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.597208000000137,
+              "materializeMs": 131.20958399999995,
+              "totalMs": 131.8067920000001,
+              "warmMs": 0.7758750000000418
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5892089999999826,
+              "materializeMs": 126.62675000000013,
+              "totalMs": 127.21595900000011,
+              "warmMs": 0.7029159999999592
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7125410000001011,
+              "materializeMs": 113.36583300000007,
+              "totalMs": 114.07837400000017,
+              "warmMs": 0.7010830000001533
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.609749999999849,
+              "materializeMs": 107.55441599999995,
+              "totalMs": 108.1641659999998,
+              "warmMs": 0.5364999999999327
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7515000000000782,
+              "materializeMs": 106.787959,
+              "totalMs": 107.53945900000008,
+              "warmMs": 0.6808340000000044
+            }
+          ],
+          "facades": 385021
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2807909999999083,
+              "materializeMs": 20.81637499999988,
+              "totalMs": 21.09716599999979,
+              "warmMs": 1.0816670000001523
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.015124999999898137,
+              "materializeMs": 18.91237500000011,
+              "totalMs": 18.92750000000001,
+              "warmMs": 1.6054999999998927
+            },
+            {
+              "warmup": false,
+              "rootMs": 2.952333999999837,
+              "materializeMs": 17.210125000000062,
+              "totalMs": 20.1624589999999,
+              "warmMs": 1.2885420000000067
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.0820420000000013,
+              "materializeMs": 17.233334000000013,
+              "totalMs": 20.315376000000015,
+              "warmMs": 1.119457999999895
+            },
+            {
+              "warmup": false,
+              "rootMs": 2.8436249999999745,
+              "materializeMs": 16.467249999999922,
+              "totalMs": 19.310874999999896,
+              "warmMs": 1.3887079999999514
+            },
+            {
+              "warmup": false,
+              "rootMs": 2.9942909999999756,
+              "materializeMs": 16.67274999999995,
+              "totalMs": 19.667040999999926,
+              "warmMs": 0.9694159999999101
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.1664579999999205,
+              "materializeMs": 16.620999999999867,
+              "totalMs": 19.787457999999788,
+              "warmMs": 1.1170419999998558
+            }
+          ],
+          "facades": 525728
+        }
+      ]
+    },
+    {
+      "block": 1,
+      "variant": "facade",
+      "processMs": 2042.9376250000005,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.24899999999999523,
+              "materializeMs": 38.60983300000001,
+              "totalMs": 38.858833000000004,
+              "warmMs": 3.540999999999997
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.04054200000001629,
+              "materializeMs": 29.98070899999999,
+              "totalMs": 30.021251000000007,
+              "warmMs": 2.132417000000032
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.344750000000033,
+              "materializeMs": 27.21858400000002,
+              "totalMs": 31.563334000000054,
+              "warmMs": 1.6166670000000067
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.393542000000025,
+              "materializeMs": 26.657708000000014,
+              "totalMs": 31.05125000000004,
+              "warmMs": 1.5825829999999996
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.837417000000016,
+              "materializeMs": 26.865042000000017,
+              "totalMs": 31.702459000000033,
+              "warmMs": 1.8068329999999833
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.351999999999975,
+              "materializeMs": 27.404042000000004,
+              "totalMs": 31.75604199999998,
+              "warmMs": 1.9894160000000056
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.34295800000001,
+              "materializeMs": 26.87091700000002,
+              "totalMs": 31.21387500000003,
+              "warmMs": 1.849999999999966
+            }
+          ],
+          "facades": 139307
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.850750000000005,
+              "materializeMs": 45.29450000000003,
+              "totalMs": 46.14525000000003,
+              "warmMs": 5.399916999999959
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.02008299999999963,
+              "materializeMs": 41.93141700000001,
+              "totalMs": 41.95150000000001,
+              "warmMs": 3.3476670000000013
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.097000000000094,
+              "materializeMs": 41.49933299999998,
+              "totalMs": 49.59633300000007,
+              "warmMs": 3.7364579999999705
+            },
+            {
+              "warmup": false,
+              "rootMs": 9.986540999999988,
+              "materializeMs": 41.37004200000001,
+              "totalMs": 51.356583,
+              "warmMs": 3.399041000000011
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.164625000000001,
+              "materializeMs": 41.419208000000026,
+              "totalMs": 49.58383300000003,
+              "warmMs": 3.6924999999999955
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.024000000000001,
+              "materializeMs": 41.14066600000001,
+              "totalMs": 49.16466600000001,
+              "warmMs": 3.705624999999941
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.254333999999972,
+              "materializeMs": 41.12704099999996,
+              "totalMs": 49.381374999999935,
+              "warmMs": 3.835749999999962
+            }
+          ],
+          "facades": 350014
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.84050000000002,
+              "materializeMs": 111.79479199999992,
+              "totalMs": 112.63529199999994,
+              "warmMs": 0.7514579999999569
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.01212500000019645,
+              "materializeMs": 126.26429200000007,
+              "totalMs": 126.27641700000027,
+              "warmMs": 0.6733329999999569
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.6303749999999582,
+              "materializeMs": 134.57062499999984,
+              "totalMs": 135.2009999999998,
+              "warmMs": 0.762749999999869
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.6190420000000358,
+              "materializeMs": 125.65674999999987,
+              "totalMs": 126.27579199999991,
+              "warmMs": 0.6875840000000153
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5885000000000673,
+              "materializeMs": 112.94641699999988,
+              "totalMs": 113.53491699999995,
+              "warmMs": 0.6260419999998703
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7064589999999953,
+              "materializeMs": 111.27133299999991,
+              "totalMs": 111.97779199999991,
+              "warmMs": 0.6025839999999789
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.589334000000008,
+              "materializeMs": 111.636708,
+              "totalMs": 112.226042,
+              "warmMs": 0.7452499999999418
+            }
+          ],
+          "facades": 385021
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2983750000000782,
+              "materializeMs": 22.03495900000007,
+              "totalMs": 22.33333400000015,
+              "warmMs": 0.997124999999869
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.018875000000207365,
+              "materializeMs": 18.89929200000006,
+              "totalMs": 18.918167000000267,
+              "warmMs": 1.2539580000000115
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.8649579999998878,
+              "materializeMs": 18.238624999999956,
+              "totalMs": 22.103582999999844,
+              "warmMs": 1.5768749999999727
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.113125000000082,
+              "materializeMs": 17.816417,
+              "totalMs": 20.929542000000083,
+              "warmMs": 1.2257500000000618
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.549167000000125,
+              "materializeMs": 18.046875,
+              "totalMs": 21.596042000000125,
+              "warmMs": 1.0647910000000138
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.5054589999999735,
+              "materializeMs": 17.96333400000003,
+              "totalMs": 21.468793000000005,
+              "warmMs": 1.0392919999999322
+            },
+            {
+              "warmup": false,
+              "rootMs": 2.640625,
+              "materializeMs": 17.78862499999991,
+              "totalMs": 20.42924999999991,
+              "warmMs": 1.1482499999999618
+            }
+          ],
+          "facades": 525728
+        }
+      ]
+    },
+    {
+      "block": 1,
+      "variant": "routing-only",
+      "processMs": 1483.4292499999992,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.1857090000000028,
+              "materializeMs": 13.943749999999994,
+              "totalMs": 14.129458999999997,
+              "warmMs": 3.068667000000005
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.030000000000001137,
+              "materializeMs": 13.722457999999989,
+              "totalMs": 13.75245799999999,
+              "warmMs": 2.6995830000000183
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.338040999999976,
+              "materializeMs": 9.921208999999976,
+              "totalMs": 14.259249999999952,
+              "warmMs": 2.316332999999986
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.2811249999999745,
+              "materializeMs": 9.145624999999995,
+              "totalMs": 13.42674999999997,
+              "warmMs": 2.4326670000000377
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.713374999999985,
+              "materializeMs": 9.420209,
+              "totalMs": 13.133583999999985,
+              "warmMs": 2.3355829999999855
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.8372079999999755,
+              "materializeMs": 9.749875000000031,
+              "totalMs": 13.587083000000007,
+              "warmMs": 2.473208999999997
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.8344579999999837,
+              "materializeMs": 9.22316699999999,
+              "totalMs": 13.057624999999973,
+              "warmMs": 2.327208999999982
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8066670000000045,
+              "materializeMs": 21.079084000000023,
+              "totalMs": 21.885751000000027,
+              "warmMs": 6.863790999999992
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.011166000000002896,
+              "materializeMs": 18.341207999999995,
+              "totalMs": 18.352373999999998,
+              "warmMs": 7.24675000000002
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.112750000000005,
+              "materializeMs": 16.308875,
+              "totalMs": 24.421625000000006,
+              "warmMs": 7.025125000000003
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.129500000000007,
+              "materializeMs": 16.246375,
+              "totalMs": 24.375875000000008,
+              "warmMs": 6.3406250000000455
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.7697919999999385,
+              "materializeMs": 16.121666000000005,
+              "totalMs": 23.891457999999943,
+              "warmMs": 6.310334000000012
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.960166999999956,
+              "materializeMs": 16.20520799999997,
+              "totalMs": 24.165374999999926,
+              "warmMs": 7.1360839999999826
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.904708000000028,
+              "materializeMs": 16.62033299999996,
+              "totalMs": 25.525040999999987,
+              "warmMs": 6.284249999999929
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8173340000000735,
+              "materializeMs": 104.37816699999996,
+              "totalMs": 105.19550100000004,
+              "warmMs": 0.6312080000000151
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.010333999999943444,
+              "materializeMs": 99.88858399999992,
+              "totalMs": 99.89891799999987,
+              "warmMs": 0.31533299999989595
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.61525000000006,
+              "materializeMs": 88.14129200000002,
+              "totalMs": 88.75654200000008,
+              "warmMs": 0.3258329999999887
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7024999999999864,
+              "materializeMs": 103.28800000000001,
+              "totalMs": 103.9905,
+              "warmMs": 0.3081250000000182
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7062089999999444,
+              "materializeMs": 90.944792,
+              "totalMs": 91.65100099999995,
+              "warmMs": 0.33829199999991033
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7124590000000808,
+              "materializeMs": 90.78433300000006,
+              "totalMs": 91.49679200000014,
+              "warmMs": 0.30683300000009694
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5727919999999358,
+              "materializeMs": 86.67883300000017,
+              "totalMs": 87.2516250000001,
+              "warmMs": 0.3056249999999636
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.29825000000005275,
+              "materializeMs": 7.36545799999999,
+              "totalMs": 7.663708000000042,
+              "warmMs": 1.1463749999998072
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.013042000000041298,
+              "materializeMs": 5.283916999999974,
+              "totalMs": 5.296959000000015,
+              "warmMs": 0.630666999999903
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.1784999999999854,
+              "materializeMs": 4.703500000000076,
+              "totalMs": 7.882000000000062,
+              "warmMs": 0.4523749999998472
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.606999999999971,
+              "materializeMs": 4.932125000000042,
+              "totalMs": 8.539125000000013,
+              "warmMs": 0.45670799999993505
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.092582999999877,
+              "materializeMs": 4.756792000000132,
+              "totalMs": 7.849375000000009,
+              "warmMs": 0.48958300000003874
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.047208999999839,
+              "materializeMs": 4.9190830000000005,
+              "totalMs": 7.966291999999839,
+              "warmMs": 0.6357500000001437
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.152917000000116,
+              "materializeMs": 4.689499999999953,
+              "totalMs": 7.842417000000069,
+              "warmMs": 0.4932499999999891
+            }
+          ],
+          "facades": 0
+        }
+      ]
+    },
+    {
+      "block": 1,
+      "variant": "103",
+      "processMs": 1485.822333,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.18574999999998454,
+              "materializeMs": 13.958207999999985,
+              "totalMs": 14.14395799999997,
+              "warmMs": 2.992750000000001
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.03262500000002433,
+              "materializeMs": 13.623708000000022,
+              "totalMs": 13.656333000000046,
+              "warmMs": 2.6717079999999953
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.7219160000000215,
+              "materializeMs": 10.146292000000017,
+              "totalMs": 13.868208000000038,
+              "warmMs": 2.403332999999975
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.714917000000014,
+              "materializeMs": 9.401917000000026,
+              "totalMs": 13.11683400000004,
+              "warmMs": 2.4508329999999887
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.333207999999956,
+              "materializeMs": 9.227708000000007,
+              "totalMs": 13.560915999999963,
+              "warmMs": 2.331957999999986
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.391208000000006,
+              "materializeMs": 9.787249999999972,
+              "totalMs": 14.178457999999978,
+              "warmMs": 2.4410839999999894
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.2051250000000095,
+              "materializeMs": 9.44858400000004,
+              "totalMs": 13.653709000000049,
+              "warmMs": 2.3910000000000196
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8137919999999781,
+              "materializeMs": 20.925374999999974,
+              "totalMs": 21.739166999999952,
+              "warmMs": 6.230707999999993
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.011458000000004631,
+              "materializeMs": 17.90224999999998,
+              "totalMs": 17.913707999999986,
+              "warmMs": 7.369624999999985
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.826374999999985,
+              "materializeMs": 16.47225000000003,
+              "totalMs": 25.298625000000015,
+              "warmMs": 7.008874999999989
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.17816700000003,
+              "materializeMs": 16.177915999999982,
+              "totalMs": 24.356083000000012,
+              "warmMs": 6.122292000000016
+            },
+            {
+              "warmup": false,
+              "rootMs": 9.954709000000094,
+              "materializeMs": 16.339124999999967,
+              "totalMs": 26.29383400000006,
+              "warmMs": 6.258417000000009
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.068083000000001,
+              "materializeMs": 16.271916000000033,
+              "totalMs": 24.339999000000034,
+              "warmMs": 6.645708000000013
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.250375000000076,
+              "materializeMs": 16.14462500000002,
+              "totalMs": 24.395000000000095,
+              "warmMs": 6.2251249999999345
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8164170000000013,
+              "materializeMs": 107.397917,
+              "totalMs": 108.21433400000001,
+              "warmMs": 0.7058329999999842
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.00987499999996544,
+              "materializeMs": 102.21224999999993,
+              "totalMs": 102.22212499999989,
+              "warmMs": 0.3091660000000047
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.6914160000000038,
+              "materializeMs": 98.07633299999998,
+              "totalMs": 98.76774899999998,
+              "warmMs": 0.3063329999999951
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5822910000000547,
+              "materializeMs": 90.36087500000008,
+              "totalMs": 90.94316600000013,
+              "warmMs": 0.3082919999999376
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5787499999999,
+              "materializeMs": 88.07795800000008,
+              "totalMs": 88.65670799999998,
+              "warmMs": 0.31062500000007276
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.6995419999998376,
+              "materializeMs": 88.71179200000006,
+              "totalMs": 89.4113339999999,
+              "warmMs": 0.33616699999993216
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5729169999999613,
+              "materializeMs": 89.05445899999995,
+              "totalMs": 89.62737599999991,
+              "warmMs": 0.30529100000012477
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2840409999998883,
+              "materializeMs": 7.441125000000056,
+              "totalMs": 7.725165999999945,
+              "warmMs": 1.185416000000032
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.013249999999970896,
+              "materializeMs": 5.249082999999928,
+              "totalMs": 5.262332999999899,
+              "warmMs": 0.6453330000001642
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.547625000000153,
+              "materializeMs": 4.806541000000152,
+              "totalMs": 8.354166000000305,
+              "warmMs": 0.4769169999999576
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.4915419999999813,
+              "materializeMs": 4.824041999999963,
+              "totalMs": 8.315583999999944,
+              "warmMs": 0.44758299999989504
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.2112080000001697,
+              "materializeMs": 4.8535410000001775,
+              "totalMs": 8.064749000000347,
+              "warmMs": 0.4515000000001237
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.6872920000000704,
+              "materializeMs": 4.9783330000000205,
+              "totalMs": 8.665625000000091,
+              "warmMs": 0.4659999999998945
+            },
+            {
+              "warmup": false,
+              "rootMs": 2.69662500000004,
+              "materializeMs": 4.802958999999873,
+              "totalMs": 7.499583999999913,
+              "warmMs": 0.4652499999999691
+            }
+          ],
+          "facades": 0
+        }
+      ]
+    },
+    {
+      "block": 2,
+      "variant": "103",
+      "processMs": 1477.875791999999,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.18762499999999704,
+              "materializeMs": 13.99808299999998,
+              "totalMs": 14.185707999999977,
+              "warmMs": 3.010249999999985
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.03145799999998644,
+              "materializeMs": 13.957415999999995,
+              "totalMs": 13.988873999999981,
+              "warmMs": 2.7069999999999936
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.407209000000023,
+              "materializeMs": 9.842041999999992,
+              "totalMs": 14.249251000000015,
+              "warmMs": 2.4594169999999735
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.325416999999959,
+              "materializeMs": 9.52254099999999,
+              "totalMs": 13.847957999999949,
+              "warmMs": 2.323750000000018
+            },
+            {
+              "warmup": false,
+              "rootMs": 5.294375000000002,
+              "materializeMs": 9.145916999999997,
+              "totalMs": 14.440292,
+              "warmMs": 2.3600829999999746
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.7084579999999505,
+              "materializeMs": 10.128291999999988,
+              "totalMs": 13.836749999999938,
+              "warmMs": 2.451040999999975
+            },
+            {
+              "warmup": false,
+              "rootMs": 5.342375000000004,
+              "materializeMs": 8.947541999999999,
+              "totalMs": 14.289917000000003,
+              "warmMs": 2.4284580000000346
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8109580000000278,
+              "materializeMs": 21.162333000000046,
+              "totalMs": 21.973291000000074,
+              "warmMs": 6.297458000000006
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.013582999999982803,
+              "materializeMs": 18.564166,
+              "totalMs": 18.577748999999983,
+              "warmMs": 7.046207999999979
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.512541999999996,
+              "materializeMs": 16.62812500000001,
+              "totalMs": 24.140667000000008,
+              "warmMs": 7.398624999999981
+            },
+            {
+              "warmup": false,
+              "rootMs": 10.74570799999998,
+              "materializeMs": 16.31129100000004,
+              "totalMs": 27.05699900000002,
+              "warmMs": 6.348666999999978
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.324208999999996,
+              "materializeMs": 16.220041000000037,
+              "totalMs": 23.544250000000034,
+              "warmMs": 6.784750000000031
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.748707999999965,
+              "materializeMs": 16.531499999999937,
+              "totalMs": 25.280207999999902,
+              "warmMs": 6.535209000000009
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.441958,
+              "materializeMs": 16.312624999999912,
+              "totalMs": 23.75458299999991,
+              "warmMs": 6.624333999999976
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.9774159999999483,
+              "materializeMs": 106.22929199999999,
+              "totalMs": 107.20670799999994,
+              "warmMs": 0.6655410000000757
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.010041999999998552,
+              "materializeMs": 89.21058400000004,
+              "totalMs": 89.22062600000004,
+              "warmMs": 0.30670900000006895
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5357500000000073,
+              "materializeMs": 102.049125,
+              "totalMs": 102.58487500000001,
+              "warmMs": 0.3302090000000817
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5743749999999181,
+              "materializeMs": 92.051334,
+              "totalMs": 92.62570899999992,
+              "warmMs": 0.3272500000000491
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5712499999999636,
+              "materializeMs": 87.77641700000004,
+              "totalMs": 88.347667,
+              "warmMs": 0.3326670000001286
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5783340000000408,
+              "materializeMs": 91.27658300000007,
+              "totalMs": 91.85491700000011,
+              "warmMs": 0.3126670000001468
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7069590000000971,
+              "materializeMs": 85.07562499999995,
+              "totalMs": 85.78258400000004,
+              "warmMs": 0.3139579999999569
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2722919999998794,
+              "materializeMs": 7.776207999999997,
+              "totalMs": 8.048499999999876,
+              "warmMs": 1.2350830000000315
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.007707999999865933,
+              "materializeMs": 5.513165999999956,
+              "totalMs": 5.5208739999998215,
+              "warmMs": 0.6448339999999462
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.598792000000003,
+              "materializeMs": 4.870166000000154,
+              "totalMs": 8.468958000000157,
+              "warmMs": 0.45337500000005093
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.866209000000026,
+              "materializeMs": 5.0122919999998885,
+              "totalMs": 8.878500999999915,
+              "warmMs": 0.5004169999999704
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.1192089999999553,
+              "materializeMs": 4.767707999999857,
+              "totalMs": 7.886916999999812,
+              "warmMs": 0.619707999999946
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.5387499999999363,
+              "materializeMs": 4.86845900000003,
+              "totalMs": 8.407208999999966,
+              "warmMs": 0.5065409999999702
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.1111249999999018,
+              "materializeMs": 4.629249999999956,
+              "totalMs": 7.740374999999858,
+              "warmMs": 0.46983399999999165
+            }
+          ],
+          "facades": 0
+        }
+      ]
+    },
+    {
+      "block": 2,
+      "variant": "routing-only",
+      "processMs": 1514.1562919999997,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.19308300000000145,
+              "materializeMs": 13.827124999999995,
+              "totalMs": 14.020207999999997,
+              "warmMs": 2.9660829999999976
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.027375000000006366,
+              "materializeMs": 13.787041000000016,
+              "totalMs": 13.814416000000023,
+              "warmMs": 2.65270799999999
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.343042000000025,
+              "materializeMs": 9.927999999999997,
+              "totalMs": 14.271042000000023,
+              "warmMs": 2.3354590000000144
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.37620800000002,
+              "materializeMs": 9.16900000000004,
+              "totalMs": 13.54520800000006,
+              "warmMs": 2.3542079999999714
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.73395800000003,
+              "materializeMs": 9.625458999999978,
+              "totalMs": 14.359417000000008,
+              "warmMs": 2.463333000000034
+            },
+            {
+              "warmup": false,
+              "rootMs": 5.523666999999989,
+              "materializeMs": 10.539375000000007,
+              "totalMs": 16.063041999999996,
+              "warmMs": 2.5340419999999995
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.519334000000015,
+              "materializeMs": 9.81495799999999,
+              "totalMs": 14.334292000000005,
+              "warmMs": 2.5714169999999967
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8122079999999983,
+              "materializeMs": 23.000958000000026,
+              "totalMs": 23.813166000000024,
+              "warmMs": 6.87704100000002
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.024499999999989086,
+              "materializeMs": 20.396333999999968,
+              "totalMs": 20.420833999999957,
+              "warmMs": 7.9376250000000255
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.133291999999983,
+              "materializeMs": 18.45945899999998,
+              "totalMs": 25.592750999999964,
+              "warmMs": 7.304041999999981
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.458874999999978,
+              "materializeMs": 16.818374999999946,
+              "totalMs": 25.277249999999924,
+              "warmMs": 6.674957999999947
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.902500000000032,
+              "materializeMs": 16.448167000000012,
+              "totalMs": 25.350667000000044,
+              "warmMs": 6.316708000000062
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.067709000000036,
+              "materializeMs": 16.493790999999987,
+              "totalMs": 24.561500000000024,
+              "warmMs": 6.914040999999997
+            },
+            {
+              "warmup": false,
+              "rootMs": 9.120999999999981,
+              "materializeMs": 16.46875,
+              "totalMs": 25.58974999999998,
+              "warmMs": 6.6981250000000045
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.831707999999935,
+              "materializeMs": 105.35054200000002,
+              "totalMs": 106.18224999999995,
+              "warmMs": 0.6421669999999722
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.01041700000007495,
+              "materializeMs": 97.57391700000005,
+              "totalMs": 97.58433400000013,
+              "warmMs": 0.2956249999999727
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7798340000000508,
+              "materializeMs": 110.39766699999996,
+              "totalMs": 111.177501,
+              "warmMs": 0.30824999999992997
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5670420000000149,
+              "materializeMs": 95.0853330000001,
+              "totalMs": 95.65237500000012,
+              "warmMs": 0.3252500000000964
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5696669999999813,
+              "materializeMs": 91.21245799999997,
+              "totalMs": 91.78212499999995,
+              "warmMs": 0.3093330000001515
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5707919999999831,
+              "materializeMs": 90.81345800000008,
+              "totalMs": 91.38425000000007,
+              "warmMs": 0.3341250000000855
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5848750000000109,
+              "materializeMs": 87.28691700000013,
+              "totalMs": 87.87179200000014,
+              "warmMs": 0.30558300000006966
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2668340000000171,
+              "materializeMs": 7.461500000000115,
+              "totalMs": 7.728334000000132,
+              "warmMs": 1.1735830000000078
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.00970799999981864,
+              "materializeMs": 5.669208000000026,
+              "totalMs": 5.678915999999845,
+              "warmMs": 0.6648330000000442
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.0867500000001655,
+              "materializeMs": 4.955500000000029,
+              "totalMs": 8.042250000000195,
+              "warmMs": 0.48908400000004804
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.087707999999793,
+              "materializeMs": 4.944666999999981,
+              "totalMs": 8.032374999999774,
+              "warmMs": 0.5324170000001232
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.0193749999998545,
+              "materializeMs": 4.592750000000024,
+              "totalMs": 7.612124999999878,
+              "warmMs": 0.4831249999999727
+            },
+            {
+              "warmup": false,
+              "rootMs": 2.6304999999999836,
+              "materializeMs": 4.997624999999971,
+              "totalMs": 7.6281249999999545,
+              "warmMs": 0.5077079999998659
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.0967079999998077,
+              "materializeMs": 4.679249999999911,
+              "totalMs": 7.775957999999719,
+              "warmMs": 0.4637910000001284
+            }
+          ],
+          "facades": 0
+        }
+      ]
+    },
+    {
+      "block": 2,
+      "variant": "facade",
+      "processMs": 2073.4991250000003,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.27462500000001455,
+              "materializeMs": 41.59925000000001,
+              "totalMs": 41.87387500000003,
+              "warmMs": 4.384749999999997
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.04137500000001637,
+              "materializeMs": 31.363291000000004,
+              "totalMs": 31.40466600000002,
+              "warmMs": 1.8662080000000287
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.924500000000023,
+              "materializeMs": 27.591582999999957,
+              "totalMs": 31.51608299999998,
+              "warmMs": 1.8968329999999582
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.301625000000001,
+              "materializeMs": 27.970500000000015,
+              "totalMs": 32.27212500000002,
+              "warmMs": 1.586166999999989
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.441416000000004,
+              "materializeMs": 28.23087499999997,
+              "totalMs": 32.67229099999997,
+              "warmMs": 1.9132910000000152
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.304540999999972,
+              "materializeMs": 27.993583,
+              "totalMs": 32.29812399999997,
+              "warmMs": 1.9055000000000177
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.5969160000000215,
+              "materializeMs": 27.21075000000002,
+              "totalMs": 31.80766600000004,
+              "warmMs": 2.1220420000000217
+            }
+          ],
+          "facades": 139307
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8070839999999748,
+              "materializeMs": 45.08949999999993,
+              "totalMs": 45.896583999999905,
+              "warmMs": 5.4777500000000146
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.03049999999996089,
+              "materializeMs": 41.7862080000001,
+              "totalMs": 41.81670800000006,
+              "warmMs": 3.382708999999977
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.400790999999913,
+              "materializeMs": 41.951374999999985,
+              "totalMs": 49.3521659999999,
+              "warmMs": 3.7534580000000233
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.729833000000099,
+              "materializeMs": 41.56462499999998,
+              "totalMs": 50.29445800000008,
+              "warmMs": 3.42508399999997
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.582583,
+              "materializeMs": 40.97866699999997,
+              "totalMs": 49.56124999999997,
+              "warmMs": 3.8402500000000828
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.728083000000083,
+              "materializeMs": 41.34912500000007,
+              "totalMs": 49.077208000000155,
+              "warmMs": 3.7003330000000005
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.292500000000018,
+              "materializeMs": 41.52020900000002,
+              "totalMs": 49.81270900000004,
+              "warmMs": 3.9083329999999705
+            }
+          ],
+          "facades": 350014
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8468329999999469,
+              "materializeMs": 115.06475,
+              "totalMs": 115.91158299999995,
+              "warmMs": 0.9467909999998483
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.022457999999915046,
+              "materializeMs": 144.96875,
+              "totalMs": 144.99120799999992,
+              "warmMs": 0.7158330000002024
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.6136670000000777,
+              "materializeMs": 114.76758399999994,
+              "totalMs": 115.38125100000002,
+              "warmMs": 0.47979099999997743
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5940829999999551,
+              "materializeMs": 138.65637500000003,
+              "totalMs": 139.25045799999998,
+              "warmMs": 0.6201670000000377
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5894579999999223,
+              "materializeMs": 113.1730829999999,
+              "totalMs": 113.76254099999983,
+              "warmMs": 0.5318339999998898
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.58462499999996,
+              "materializeMs": 113.68229100000008,
+              "totalMs": 114.26691600000004,
+              "warmMs": 0.5208750000001601
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5875409999998737,
+              "materializeMs": 114.33066600000006,
+              "totalMs": 114.91820699999994,
+              "warmMs": 0.4726670000000013
+            }
+          ],
+          "facades": 385021
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2952500000001237,
+              "materializeMs": 21.548082999999906,
+              "totalMs": 21.84333300000003,
+              "warmMs": 0.9447500000001128
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.022124999999959982,
+              "materializeMs": 19.55950000000007,
+              "totalMs": 19.58162500000003,
+              "warmMs": 1.1714170000000195
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.2651670000000195,
+              "materializeMs": 18.446791000000076,
+              "totalMs": 21.711958000000095,
+              "warmMs": 1.2881669999999303
+            },
+            {
+              "warmup": false,
+              "rootMs": 2.9884170000000267,
+              "materializeMs": 18.51587500000005,
+              "totalMs": 21.504292000000078,
+              "warmMs": 1.0688330000000406
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.5295000000000982,
+              "materializeMs": 17.71245799999997,
+              "totalMs": 21.241958000000068,
+              "warmMs": 1.0109999999999673
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.9161669999998594,
+              "materializeMs": 17.874874999999975,
+              "totalMs": 21.791041999999834,
+              "warmMs": 0.9606249999999363
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.699459000000161,
+              "materializeMs": 17.83004200000005,
+              "totalMs": 21.52950100000021,
+              "warmMs": 1.1099169999999958
+            }
+          ],
+          "facades": 525728
+        }
+      ]
+    },
+    {
+      "block": 3,
+      "variant": "facade",
+      "processMs": 2033.411082999999,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2880410000000211,
+              "materializeMs": 40.29524999999998,
+              "totalMs": 40.583291,
+              "warmMs": 3.561000000000007
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.03849999999999909,
+              "materializeMs": 30.662916999999993,
+              "totalMs": 30.701416999999992,
+              "warmMs": 2.116874999999993
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.9333330000000046,
+              "materializeMs": 27.409334,
+              "totalMs": 31.342667000000006,
+              "warmMs": 1.6612910000000056
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.491582999999991,
+              "materializeMs": 27.06841700000001,
+              "totalMs": 31.560000000000002,
+              "warmMs": 1.6227499999999964
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.185125000000028,
+              "materializeMs": 27.235292000000015,
+              "totalMs": 31.420417000000043,
+              "warmMs": 1.7641669999999863
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.296416000000022,
+              "materializeMs": 27.570333000000005,
+              "totalMs": 31.866749000000027,
+              "warmMs": 1.952791999999988
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.4850419999999644,
+              "materializeMs": 27.62179199999997,
+              "totalMs": 32.106833999999935,
+              "warmMs": 1.8559999999999945
+            }
+          ],
+          "facades": 139307
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8561249999999632,
+              "materializeMs": 45.51279199999993,
+              "totalMs": 46.3689169999999,
+              "warmMs": 5.090250000000083
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.02287499999999909,
+              "materializeMs": 42.909165999999914,
+              "totalMs": 42.93204099999991,
+              "warmMs": 3.6555000000000746
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.110042000000021,
+              "materializeMs": 41.07220799999993,
+              "totalMs": 49.182249999999954,
+              "warmMs": 3.574292000000014
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.451415999999995,
+              "materializeMs": 41.791667000000075,
+              "totalMs": 49.24308300000007,
+              "warmMs": 3.4171250000000555
+            },
+            {
+              "warmup": false,
+              "rootMs": 9.375917000000072,
+              "materializeMs": 40.93383400000005,
+              "totalMs": 50.30975100000012,
+              "warmMs": 3.7064169999999876
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.33137499999998,
+              "materializeMs": 41.86120800000003,
+              "totalMs": 50.19258300000001,
+              "warmMs": 3.7595000000000027
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.243249999999989,
+              "materializeMs": 44.08645799999999,
+              "totalMs": 52.32970799999998,
+              "warmMs": 4.0946669999999585
+            }
+          ],
+          "facades": 350014
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8577920000000177,
+              "materializeMs": 123.98370799999998,
+              "totalMs": 124.8415,
+              "warmMs": 1.0443330000000515
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.013749999999845386,
+              "materializeMs": 134.0831250000001,
+              "totalMs": 134.09687499999995,
+              "warmMs": 0.7343329999998787
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.6022090000001299,
+              "materializeMs": 120.57866700000022,
+              "totalMs": 121.18087600000035,
+              "warmMs": 0.7419580000000678
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7301669999999376,
+              "materializeMs": 111.87412500000005,
+              "totalMs": 112.60429199999999,
+              "warmMs": 0.6285420000001523
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7079579999999623,
+              "materializeMs": 108.20308399999999,
+              "totalMs": 108.91104199999995,
+              "warmMs": 0.7150000000001455
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7387499999999818,
+              "materializeMs": 110.54324999999994,
+              "totalMs": 111.28199999999993,
+              "warmMs": 0.586667000000034
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5946669999998448,
+              "materializeMs": 109.97745799999984,
+              "totalMs": 110.57212499999969,
+              "warmMs": 1.124667000000045
+            }
+          ],
+          "facades": 385021
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2956659999999829,
+              "materializeMs": 20.604916999999887,
+              "totalMs": 20.90058299999987,
+              "warmMs": 1.0115000000000691
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.015292000000044936,
+              "materializeMs": 18.50691599999982,
+              "totalMs": 18.522207999999864,
+              "warmMs": 1.2508749999999509
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.141459000000168,
+              "materializeMs": 17.38870799999995,
+              "totalMs": 20.53016700000012,
+              "warmMs": 1.2756669999998849
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.568708000000015,
+              "materializeMs": 17.011834000000135,
+              "totalMs": 20.58054200000015,
+              "warmMs": 1.3395829999999478
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.5262500000001182,
+              "materializeMs": 16.97245900000007,
+              "totalMs": 20.49870900000019,
+              "warmMs": 1.153332999999975
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.0812499999999545,
+              "materializeMs": 16.982124999999996,
+              "totalMs": 20.06337499999995,
+              "warmMs": 0.9610000000000127
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.0865410000001248,
+              "materializeMs": 17.153458,
+              "totalMs": 20.239999000000125,
+              "warmMs": 1.1796249999999873
+            }
+          ],
+          "facades": 525728
+        }
+      ]
+    },
+    {
+      "block": 3,
+      "variant": "routing-only",
+      "processMs": 1504.712875000001,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.19820799999999394,
+              "materializeMs": 13.740082999999998,
+              "totalMs": 13.938290999999992,
+              "warmMs": 3.0600000000000023
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.02941699999999514,
+              "materializeMs": 13.982291000000004,
+              "totalMs": 14.011707999999999,
+              "warmMs": 2.664584000000019
+            },
+            {
+              "warmup": false,
+              "rootMs": 5.7191250000000196,
+              "materializeMs": 9.833167000000003,
+              "totalMs": 15.552292000000023,
+              "warmMs": 2.3893750000000296
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.356291999999996,
+              "materializeMs": 9.318832999999984,
+              "totalMs": 13.67512499999998,
+              "warmMs": 2.3214590000000044
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.4260830000000055,
+              "materializeMs": 11.982082999999989,
+              "totalMs": 16.408165999999994,
+              "warmMs": 2.5335420000000113
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.905083999999988,
+              "materializeMs": 9.413625000000025,
+              "totalMs": 14.318709000000013,
+              "warmMs": 2.369041999999979
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.885665999999958,
+              "materializeMs": 10.023124999999993,
+              "totalMs": 13.908790999999951,
+              "warmMs": 2.43912499999999
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8079159999999774,
+              "materializeMs": 20.905209000000013,
+              "totalMs": 21.71312499999999,
+              "warmMs": 6.621249999999975
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.010249999999984993,
+              "materializeMs": 17.78016699999995,
+              "totalMs": 17.790416999999934,
+              "warmMs": 6.963416999999993
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.467084,
+              "materializeMs": 16.27991700000001,
+              "totalMs": 23.74700100000001,
+              "warmMs": 7.2676250000000095
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.857458000000008,
+              "materializeMs": 16.130791999999985,
+              "totalMs": 24.988249999999994,
+              "warmMs": 6.235458999999992
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.527082999999948,
+              "materializeMs": 16.11166700000001,
+              "totalMs": 23.63874999999996,
+              "warmMs": 6.5237090000000535
+            },
+            {
+              "warmup": false,
+              "rootMs": 10.019000000000005,
+              "materializeMs": 16.007000000000062,
+              "totalMs": 26.026000000000067,
+              "warmMs": 6.67937500000005
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.288584000000014,
+              "materializeMs": 16.210749999999962,
+              "totalMs": 24.499333999999976,
+              "warmMs": 6.555124999999975
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8142080000000078,
+              "materializeMs": 106.82695799999999,
+              "totalMs": 107.641166,
+              "warmMs": 0.6802089999999907
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.009332999999969616,
+              "materializeMs": 101.57433400000002,
+              "totalMs": 101.58366699999999,
+              "warmMs": 0.3177500000000464
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5802499999999782,
+              "materializeMs": 105.14245800000003,
+              "totalMs": 105.72270800000001,
+              "warmMs": 0.35474999999996726
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7107080000000678,
+              "materializeMs": 98.74933300000009,
+              "totalMs": 99.46004100000016,
+              "warmMs": 0.31041700000014316
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5727500000000418,
+              "materializeMs": 92.15066700000011,
+              "totalMs": 92.72341700000015,
+              "warmMs": 0.32141699999988305
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5706250000000637,
+              "materializeMs": 93.33125000000018,
+              "totalMs": 93.90187500000025,
+              "warmMs": 0.3109580000000278
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5699999999999363,
+              "materializeMs": 87.43845799999986,
+              "totalMs": 88.00845799999979,
+              "warmMs": 0.3384169999999358
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2657089999997879,
+              "materializeMs": 7.466125000000147,
+              "totalMs": 7.731833999999935,
+              "warmMs": 1.35220900000013
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.008458000000018728,
+              "materializeMs": 5.611791999999923,
+              "totalMs": 5.620249999999942,
+              "warmMs": 0.7734159999999974
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.1157499999999345,
+              "materializeMs": 4.907375000000002,
+              "totalMs": 8.023124999999936,
+              "warmMs": 0.5206250000001091
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.48829099999989,
+              "materializeMs": 4.781332999999904,
+              "totalMs": 8.269623999999794,
+              "warmMs": 0.4674170000000686
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.0679159999999683,
+              "materializeMs": 4.619832999999971,
+              "totalMs": 7.68774899999994,
+              "warmMs": 0.4438749999999345
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.183999999999969,
+              "materializeMs": 5.109333000000106,
+              "totalMs": 8.293333000000075,
+              "warmMs": 0.47862499999996544
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.1047909999999774,
+              "materializeMs": 4.629040999999916,
+              "totalMs": 7.733831999999893,
+              "warmMs": 0.44287499999995816
+            }
+          ],
+          "facades": 0
+        }
+      ]
+    },
+    {
+      "block": 3,
+      "variant": "103",
+      "processMs": 1508.679333,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.18458400000000097,
+              "materializeMs": 13.938457999999997,
+              "totalMs": 14.123041999999998,
+              "warmMs": 3.011415999999997
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.029167000000001053,
+              "materializeMs": 13.774124999999998,
+              "totalMs": 13.803291999999999,
+              "warmMs": 2.6467090000000155
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.402792000000034,
+              "materializeMs": 10.197958999999969,
+              "totalMs": 14.600751000000002,
+              "warmMs": 2.330167000000017
+            },
+            {
+              "warmup": false,
+              "rootMs": 5.42391600000002,
+              "materializeMs": 9.251916999999992,
+              "totalMs": 14.675833000000011,
+              "warmMs": 2.3460829999999646
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.767499999999984,
+              "materializeMs": 10.06454199999996,
+              "totalMs": 14.832041999999944,
+              "warmMs": 2.4460829999999874
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.498334,
+              "materializeMs": 9.421790999999985,
+              "totalMs": 13.920124999999985,
+              "warmMs": 2.380875000000003
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.9080830000000333,
+              "materializeMs": 10.153166999999996,
+              "totalMs": 14.06125000000003,
+              "warmMs": 2.3476249999999936
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8307909999999765,
+              "materializeMs": 21.264583000000016,
+              "totalMs": 22.095373999999993,
+              "warmMs": 6.422249999999963
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.011332999999979165,
+              "materializeMs": 18.622124999999983,
+              "totalMs": 18.633457999999962,
+              "warmMs": 7.151124999999979
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.292209000000014,
+              "materializeMs": 16.306583000000046,
+              "totalMs": 24.59879200000006,
+              "warmMs": 7.383083999999997
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.850583000000029,
+              "materializeMs": 16.23724999999996,
+              "totalMs": 25.08783299999999,
+              "warmMs": 6.3302079999999705
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.330666999999949,
+              "materializeMs": 16.511209000000008,
+              "totalMs": 24.841875999999957,
+              "warmMs": 6.3125
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.463416999999936,
+              "materializeMs": 16.465542000000028,
+              "totalMs": 23.928958999999963,
+              "warmMs": 6.934582999999975
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.877917000000025,
+              "materializeMs": 16.56070800000009,
+              "totalMs": 25.438625000000116,
+              "warmMs": 6.266999999999939
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8221250000000282,
+              "materializeMs": 106.12045899999998,
+              "totalMs": 106.94258400000001,
+              "warmMs": 0.636792000000014
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.011499999999955435,
+              "materializeMs": 97.94333400000005,
+              "totalMs": 97.954834,
+              "warmMs": 0.35562500000003183
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.69337500000006,
+              "materializeMs": 104.59554200000002,
+              "totalMs": 105.28891700000008,
+              "warmMs": 0.42229199999997036
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7077910000000429,
+              "materializeMs": 93.39641600000004,
+              "totalMs": 94.10420700000009,
+              "warmMs": 0.30737500000009277
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5764580000000024,
+              "materializeMs": 97.2908339999999,
+              "totalMs": 97.8672919999999,
+              "warmMs": 0.3298749999999018
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.576917000000094,
+              "materializeMs": 87.39079100000004,
+              "totalMs": 87.96770800000013,
+              "warmMs": 0.2957499999999982
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5996249999998327,
+              "materializeMs": 92.2807499999999,
+              "totalMs": 92.88037499999973,
+              "warmMs": 0.3143330000000333
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2728749999998854,
+              "materializeMs": 7.554875000000038,
+              "totalMs": 7.827749999999924,
+              "warmMs": 1.1727499999999509
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.020709000000124433,
+              "materializeMs": 5.496583999999984,
+              "totalMs": 5.517293000000109,
+              "warmMs": 0.6473329999998896
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.5402500000000146,
+              "materializeMs": 4.732334000000037,
+              "totalMs": 8.272584000000052,
+              "warmMs": 0.48366600000008475
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.0071660000000975,
+              "materializeMs": 4.885292000000163,
+              "totalMs": 8.89245800000026,
+              "warmMs": 0.4526250000001255
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.426666999999952,
+              "materializeMs": 4.9650420000000395,
+              "totalMs": 8.391708999999992,
+              "warmMs": 0.46499999999991815
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.14262500000018,
+              "materializeMs": 5.219000000000051,
+              "totalMs": 8.361625000000231,
+              "warmMs": 0.5022919999998976
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.1085840000000644,
+              "materializeMs": 4.780333000000155,
+              "totalMs": 7.88891700000022,
+              "warmMs": 0.49204199999985576
+            }
+          ],
+          "facades": 0
+        }
+      ]
+    },
+    {
+      "block": 4,
+      "variant": "103",
+      "processMs": 1558.2274160000015,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.19058300000000372,
+              "materializeMs": 13.96674999999999,
+              "totalMs": 14.157332999999994,
+              "warmMs": 2.992416999999989
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.036167000000006055,
+              "materializeMs": 13.761209000000008,
+              "totalMs": 13.797376000000014,
+              "warmMs": 2.737249999999989
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.464458000000036,
+              "materializeMs": 9.887166999999977,
+              "totalMs": 14.351625000000013,
+              "warmMs": 2.359125000000006
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.475083999999981,
+              "materializeMs": 9.356916000000012,
+              "totalMs": 13.831999999999994,
+              "warmMs": 2.3111660000000143
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.370999999999981,
+              "materializeMs": 9.571916000000044,
+              "totalMs": 13.942916000000025,
+              "warmMs": 2.3770419999999604
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.3536660000000325,
+              "materializeMs": 9.479291999999987,
+              "totalMs": 13.83295800000002,
+              "warmMs": 2.424000000000035
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.373083000000008,
+              "materializeMs": 9.760874999999999,
+              "totalMs": 14.133958000000007,
+              "warmMs": 2.377375000000029
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8152089999999816,
+              "materializeMs": 20.774834,
+              "totalMs": 21.59004299999998,
+              "warmMs": 6.2902500000000146
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.017333000000007814,
+              "materializeMs": 17.855999999999995,
+              "totalMs": 17.873333000000002,
+              "warmMs": 7.083167000000003
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.677000000000021,
+              "materializeMs": 16.513207999999963,
+              "totalMs": 25.190207999999984,
+              "warmMs": 7.534375000000011
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.030624999999986,
+              "materializeMs": 16.295958999999982,
+              "totalMs": 24.32658399999997,
+              "warmMs": 6.1920410000000174
+            },
+            {
+              "warmup": false,
+              "rootMs": 9.632959000000028,
+              "materializeMs": 16.312999999999988,
+              "totalMs": 25.945959000000016,
+              "warmMs": 6.601333000000068
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.118249999999989,
+              "materializeMs": 16.20316600000001,
+              "totalMs": 24.321416,
+              "warmMs": 6.592957999999953
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.226541999999995,
+              "materializeMs": 16.20608299999992,
+              "totalMs": 24.432624999999916,
+              "warmMs": 6.473666999999978
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8241659999999911,
+              "materializeMs": 108.64304099999993,
+              "totalMs": 109.46720699999992,
+              "warmMs": 0.7019579999999905
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.008874999999989086,
+              "materializeMs": 112.29666699999996,
+              "totalMs": 112.30554199999995,
+              "warmMs": 0.3065839999999298
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.424082999999996,
+              "materializeMs": 118.94475,
+              "totalMs": 119.368833,
+              "warmMs": 0.3253750000000082
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5697499999999991,
+              "materializeMs": 105.58345800000006,
+              "totalMs": 106.15320800000006,
+              "warmMs": 0.33858299999997143
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5792079999998805,
+              "materializeMs": 101.77362500000004,
+              "totalMs": 102.35283299999992,
+              "warmMs": 0.29404199999999037
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7097909999999956,
+              "materializeMs": 92.07720799999993,
+              "totalMs": 92.78699899999992,
+              "warmMs": 0.366457999999966
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5791659999999865,
+              "materializeMs": 93.984917,
+              "totalMs": 94.56408299999998,
+              "warmMs": 0.3243330000000242
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.27120800000011513,
+              "materializeMs": 7.8103329999999005,
+              "totalMs": 8.081541000000016,
+              "warmMs": 1.2654999999999745
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.011833000000024185,
+              "materializeMs": 5.5090000000000146,
+              "totalMs": 5.520833000000039,
+              "warmMs": 0.656458000000157
+            },
+            {
+              "warmup": false,
+              "rootMs": 2.6826250000001437,
+              "materializeMs": 4.698874999999816,
+              "totalMs": 7.38149999999996,
+              "warmMs": 0.4577919999999267
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.435958000000028,
+              "materializeMs": 5.215457999999899,
+              "totalMs": 8.651415999999926,
+              "warmMs": 0.5131659999999556
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.0632080000000315,
+              "materializeMs": 4.8627500000000055,
+              "totalMs": 7.925958000000037,
+              "warmMs": 0.4891250000000582
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.0954169999999976,
+              "materializeMs": 4.945416999999907,
+              "totalMs": 8.040833999999904,
+              "warmMs": 0.5105000000000928
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.4600829999999405,
+              "materializeMs": 4.71266700000001,
+              "totalMs": 8.17274999999995,
+              "warmMs": 0.45849999999995816
+            }
+          ],
+          "facades": 0
+        }
+      ]
+    },
+    {
+      "block": 4,
+      "variant": "routing-only",
+      "processMs": 1555.6165,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.18316599999999994,
+              "materializeMs": 13.738,
+              "totalMs": 13.921166,
+              "warmMs": 3.185625000000016
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.03983299999998735,
+              "materializeMs": 16.046458,
+              "totalMs": 16.08629099999999,
+              "warmMs": 2.657207999999997
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.414874999999995,
+              "materializeMs": 10.524041000000011,
+              "totalMs": 14.938916000000006,
+              "warmMs": 2.373958000000016
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.3993750000000205,
+              "materializeMs": 9.261875000000032,
+              "totalMs": 13.661250000000052,
+              "warmMs": 2.3999999999999773
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.225500000000011,
+              "materializeMs": 10.140041999999994,
+              "totalMs": 14.365542000000005,
+              "warmMs": 2.350999999999999
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.8237079999999537,
+              "materializeMs": 9.275541999999973,
+              "totalMs": 13.099249999999927,
+              "warmMs": 2.5009169999999585
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.250166999999976,
+              "materializeMs": 9.905124999999998,
+              "totalMs": 14.155291999999974,
+              "warmMs": 2.3519999999999754
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8082499999999868,
+              "materializeMs": 20.684541999999965,
+              "totalMs": 21.49279199999995,
+              "warmMs": 6.285792000000015
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.01474999999999227,
+              "materializeMs": 19.08624999999995,
+              "totalMs": 19.100999999999942,
+              "warmMs": 7.709875000000011
+            },
+            {
+              "warmup": false,
+              "rootMs": 6.887749999999983,
+              "materializeMs": 19.440583000000004,
+              "totalMs": 26.328332999999986,
+              "warmMs": 7.406749999999988
+            },
+            {
+              "warmup": false,
+              "rootMs": 10.845917000000043,
+              "materializeMs": 17.26545800000008,
+              "totalMs": 28.111375000000123,
+              "warmMs": 7.240249999999946
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.083375000000046,
+              "materializeMs": 16.650792000000024,
+              "totalMs": 24.73416700000007,
+              "warmMs": 6.351541999999995
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.25933299999997,
+              "materializeMs": 17.11824999999999,
+              "totalMs": 25.37758299999996,
+              "warmMs": 6.908125000000041
+            },
+            {
+              "warmup": false,
+              "rootMs": 9.439875000000029,
+              "materializeMs": 16.08858299999997,
+              "totalMs": 25.528458,
+              "warmMs": 6.25162499999999
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8349159999999074,
+              "materializeMs": 107.041291,
+              "totalMs": 107.87620699999991,
+              "warmMs": 0.6530840000000353
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.01320799999996325,
+              "materializeMs": 108.15112499999998,
+              "totalMs": 108.16433299999994,
+              "warmMs": 0.3074579999999969
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5853749999999991,
+              "materializeMs": 114.66824999999994,
+              "totalMs": 115.25362499999994,
+              "warmMs": 0.31091699999990396
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5718329999999696,
+              "materializeMs": 99.71604200000013,
+              "totalMs": 100.2878750000001,
+              "warmMs": 0.299541999999974
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7068329999999605,
+              "materializeMs": 96.13091699999995,
+              "totalMs": 96.83774999999991,
+              "warmMs": 0.32579199999986486
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5797919999999976,
+              "materializeMs": 94.5185419999998,
+              "totalMs": 95.0983339999998,
+              "warmMs": 0.3114579999999023
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.569915999999921,
+              "materializeMs": 88.46654199999989,
+              "totalMs": 89.03645799999981,
+              "warmMs": 0.337833000000046
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.298041000000012,
+              "materializeMs": 7.558250000000044,
+              "totalMs": 7.856291000000056,
+              "warmMs": 1.1928330000000642
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.013584000000037122,
+              "materializeMs": 5.51908299999991,
+              "totalMs": 5.532666999999947,
+              "warmMs": 0.6168749999999363
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.526542000000063,
+              "materializeMs": 4.643082999999933,
+              "totalMs": 8.169624999999996,
+              "warmMs": 0.44729199999983393
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.1311249999998836,
+              "materializeMs": 5.032709000000068,
+              "totalMs": 8.163833999999952,
+              "warmMs": 0.4689170000001468
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.2021669999999176,
+              "materializeMs": 4.615917000000081,
+              "totalMs": 7.818083999999999,
+              "warmMs": 0.48174999999991996
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.3250829999999496,
+              "materializeMs": 5.152000000000044,
+              "totalMs": 8.477082999999993,
+              "warmMs": 0.497333000000026
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.6991669999999885,
+              "materializeMs": 4.631915999999819,
+              "totalMs": 8.331082999999808,
+              "warmMs": 0.47375000000010914
+            }
+          ],
+          "facades": 0
+        }
+      ]
+    },
+    {
+      "block": 4,
+      "variant": "facade",
+      "processMs": 2012.1233329999995,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.27266700000001265,
+              "materializeMs": 39.67945800000001,
+              "totalMs": 39.952125000000024,
+              "warmMs": 3.645792
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.04520800000000236,
+              "materializeMs": 30.619917000000044,
+              "totalMs": 30.665125000000046,
+              "warmMs": 1.943916999999999
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.4406660000000215,
+              "materializeMs": 26.577416000000028,
+              "totalMs": 31.01808200000005,
+              "warmMs": 1.865916000000027
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.864250000000027,
+              "materializeMs": 27.118333000000007,
+              "totalMs": 30.982583000000034,
+              "warmMs": 1.634457999999995
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.421791999999982,
+              "materializeMs": 26.41133400000001,
+              "totalMs": 30.833125999999993,
+              "warmMs": 1.691332999999986
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.300792000000001,
+              "materializeMs": 27.43354199999999,
+              "totalMs": 31.73433399999999,
+              "warmMs": 1.9179169999999885
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.592917,
+              "materializeMs": 26.74849999999998,
+              "totalMs": 31.34141699999998,
+              "warmMs": 1.6970420000000104
+            }
+          ],
+          "facades": 139307
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.821124999999995,
+              "materializeMs": 44.782291999999984,
+              "totalMs": 45.60341699999998,
+              "warmMs": 5.099165999999968
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.01595800000006875,
+              "materializeMs": 42.694916000000035,
+              "totalMs": 42.7108740000001,
+              "warmMs": 3.545792000000006
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.558542000000102,
+              "materializeMs": 40.57562500000006,
+              "totalMs": 48.13416700000016,
+              "warmMs": 3.8166669999999385
+            },
+            {
+              "warmup": false,
+              "rootMs": 10.07670900000005,
+              "materializeMs": 40.702541,
+              "totalMs": 50.77925000000005,
+              "warmMs": 3.713542000000075
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.115666000000033,
+              "materializeMs": 40.77449999999999,
+              "totalMs": 48.89016600000002,
+              "warmMs": 3.7229999999999563
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.191915999999992,
+              "materializeMs": 41.63525000000004,
+              "totalMs": 49.827166000000034,
+              "warmMs": 3.5822090000000344
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.932667000000038,
+              "materializeMs": 40.68983400000002,
+              "totalMs": 49.62250100000006,
+              "warmMs": 3.6226669999999785
+            }
+          ],
+          "facades": 350014
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8698749999999791,
+              "materializeMs": 114.6662500000001,
+              "totalMs": 115.53612500000008,
+              "warmMs": 0.946042000000034
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.014583000000129687,
+              "materializeMs": 128.6505000000002,
+              "totalMs": 128.66508300000032,
+              "warmMs": 0.6797500000000127
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7153749999999945,
+              "materializeMs": 124.5212919999999,
+              "totalMs": 125.2366669999999,
+              "warmMs": 0.7261670000000322
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5943329999997786,
+              "materializeMs": 111.0508749999999,
+              "totalMs": 111.64520799999968,
+              "warmMs": 0.8160000000000309
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5782080000001315,
+              "materializeMs": 115.64970799999992,
+              "totalMs": 116.22791600000005,
+              "warmMs": 0.7314589999998589
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.6186250000000655,
+              "materializeMs": 106.91445900000008,
+              "totalMs": 107.53308400000014,
+              "warmMs": 0.6445840000001226
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.6309590000000753,
+              "materializeMs": 113.35020800000007,
+              "totalMs": 113.98116700000014,
+              "warmMs": 0.6827089999999316
+            }
+          ],
+          "facades": 385021
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2836250000000291,
+              "materializeMs": 20.658750000000055,
+              "totalMs": 20.942375000000084,
+              "warmMs": 1.0146250000000236
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.019249999999829015,
+              "materializeMs": 17.924332999999933,
+              "totalMs": 17.943582999999762,
+              "warmMs": 1.0717079999999441
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.058042000000114,
+              "materializeMs": 17.40129100000013,
+              "totalMs": 20.459333000000242,
+              "warmMs": 1.3830419999999322
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.190832999999884,
+              "materializeMs": 17.019833000000062,
+              "totalMs": 20.210665999999947,
+              "warmMs": 1.3620420000002014
+            },
+            {
+              "warmup": false,
+              "rootMs": 2.7390830000001642,
+              "materializeMs": 16.77254199999993,
+              "totalMs": 19.511625000000095,
+              "warmMs": 1.0621249999999236
+            },
+            {
+              "warmup": false,
+              "rootMs": 2.7229580000000624,
+              "materializeMs": 16.70962499999996,
+              "totalMs": 19.432583000000022,
+              "warmMs": 1.1099169999999958
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.0520830000000387,
+              "materializeMs": 16.774457999999868,
+              "totalMs": 19.826540999999906,
+              "warmMs": 1.0858749999999873
+            }
+          ],
+          "facades": 525728
+        }
+      ]
+    },
+    {
+      "block": 5,
+      "variant": "facade",
+      "processMs": 2074.2165829999976,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2949169999999981,
+              "materializeMs": 38.83654200000001,
+              "totalMs": 39.13145900000001,
+              "warmMs": 3.816541000000001
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.03954199999998309,
+              "materializeMs": 30.641332999999975,
+              "totalMs": 30.680874999999958,
+              "warmMs": 1.912666999999999
+            },
+            {
+              "warmup": false,
+              "rootMs": 6.059999999999945,
+              "materializeMs": 26.573583999999983,
+              "totalMs": 32.63358399999993,
+              "warmMs": 2.110958000000039
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.262999999999977,
+              "materializeMs": 26.92620800000003,
+              "totalMs": 31.189208000000008,
+              "warmMs": 1.6212500000000318
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.339832999999999,
+              "materializeMs": 26.47225000000003,
+              "totalMs": 30.81208300000003,
+              "warmMs": 1.6898749999999723
+            },
+            {
+              "warmup": false,
+              "rootMs": 6.2406669999999735,
+              "materializeMs": 26.84362500000003,
+              "totalMs": 33.084292000000005,
+              "warmMs": 1.9053749999999923
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.516415999999992,
+              "materializeMs": 26.49145900000002,
+              "totalMs": 31.007875000000013,
+              "warmMs": 1.6724999999999568
+            }
+          ],
+          "facades": 139307
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8298330000000078,
+              "materializeMs": 44.11337500000002,
+              "totalMs": 44.94320800000003,
+              "warmMs": 5.585416000000009
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.01704199999994671,
+              "materializeMs": 42.37195899999995,
+              "totalMs": 42.389000999999894,
+              "warmMs": 3.428042000000005
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.97804199999996,
+              "materializeMs": 41.042958,
+              "totalMs": 50.02099999999996,
+              "warmMs": 3.9305409999999483
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.631833000000029,
+              "materializeMs": 40.619249999999965,
+              "totalMs": 48.251082999999994,
+              "warmMs": 3.401042000000075
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.503999999999905,
+              "materializeMs": 43.308832999999936,
+              "totalMs": 51.81283299999984,
+              "warmMs": 3.734458000000018
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.519583000000011,
+              "materializeMs": 43.33749999999998,
+              "totalMs": 51.85708299999999,
+              "warmMs": 3.6012499999999363
+            },
+            {
+              "warmup": false,
+              "rootMs": 9.487167,
+              "materializeMs": 41.84825000000001,
+              "totalMs": 51.33541700000001,
+              "warmMs": 3.785166000000004
+            }
+          ],
+          "facades": 350014
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8545839999999316,
+              "materializeMs": 116.92266700000005,
+              "totalMs": 117.77725099999998,
+              "warmMs": 0.7010000000000218
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.018000000000029104,
+              "materializeMs": 144.6619999999998,
+              "totalMs": 144.67999999999984,
+              "warmMs": 0.6005419999999049
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.6066670000000158,
+              "materializeMs": 126.63766699999996,
+              "totalMs": 127.24433399999998,
+              "warmMs": 0.6256670000000213
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5811249999999291,
+              "materializeMs": 124.26504099999988,
+              "totalMs": 124.84616599999981,
+              "warmMs": 0.6380830000000515
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5820000000001073,
+              "materializeMs": 113.59100000000012,
+              "totalMs": 114.17300000000023,
+              "warmMs": 0.634375000000091
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.6054999999998927,
+              "materializeMs": 117.79437499999995,
+              "totalMs": 118.39987499999984,
+              "warmMs": 0.5932080000000042
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5803750000000036,
+              "materializeMs": 114.16983300000015,
+              "totalMs": 114.75020800000016,
+              "warmMs": 0.5711670000000595
+            }
+          ],
+          "facades": 385021
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.3272910000000593,
+              "materializeMs": 24.95616599999994,
+              "totalMs": 25.283457,
+              "warmMs": 1.009708000000046
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.0234170000001086,
+              "materializeMs": 19.21570799999995,
+              "totalMs": 19.239125000000058,
+              "warmMs": 1.1210840000001099
+            },
+            {
+              "warmup": false,
+              "rootMs": 5.070124999999962,
+              "materializeMs": 18.759416999999985,
+              "totalMs": 23.829541999999947,
+              "warmMs": 1.3133339999999407
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.2967080000000806,
+              "materializeMs": 18.254666999999927,
+              "totalMs": 21.551375000000007,
+              "warmMs": 1.321957999999995
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.172207999999955,
+              "materializeMs": 17.972125000000005,
+              "totalMs": 21.14433299999996,
+              "warmMs": 1.1938749999999345
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.0698339999999007,
+              "materializeMs": 18.11262499999998,
+              "totalMs": 21.18245899999988,
+              "warmMs": 1.1227080000001024
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.088790999999901,
+              "materializeMs": 18.022334,
+              "totalMs": 21.1111249999999,
+              "warmMs": 1.1585419999998976
+            }
+          ],
+          "facades": 525728
+        }
+      ]
+    },
+    {
+      "block": 5,
+      "variant": "routing-only",
+      "processMs": 1487.4185829999988,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.19570799999999622,
+              "materializeMs": 13.665208000000007,
+              "totalMs": 13.860916000000003,
+              "warmMs": 3.0352089999999805
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.02862500000000523,
+              "materializeMs": 13.940332999999981,
+              "totalMs": 13.968957999999986,
+              "warmMs": 2.6093330000000208
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.9284999999999854,
+              "materializeMs": 10.31170800000001,
+              "totalMs": 14.240207999999996,
+              "warmMs": 2.3511669999999754
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.826208000000008,
+              "materializeMs": 9.314499999999953,
+              "totalMs": 14.140707999999961,
+              "warmMs": 2.303333000000009
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.9072499999999764,
+              "materializeMs": 9.112374999999986,
+              "totalMs": 13.019624999999962,
+              "warmMs": 2.353999999999985
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.331083999999976,
+              "materializeMs": 9.45862500000004,
+              "totalMs": 13.789709000000016,
+              "warmMs": 2.392709000000025
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.47204099999999,
+              "materializeMs": 9.124791000000016,
+              "totalMs": 13.596832000000006,
+              "warmMs": 2.2878330000000346
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8010409999999979,
+              "materializeMs": 20.80200000000002,
+              "totalMs": 21.60304100000002,
+              "warmMs": 6.367750000000001
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.01212500000002592,
+              "materializeMs": 18.518666999999994,
+              "totalMs": 18.53079200000002,
+              "warmMs": 7.354041999999993
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.088124999999991,
+              "materializeMs": 16.726665999999966,
+              "totalMs": 24.814790999999957,
+              "warmMs": 7.307332999999971
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.140457999999967,
+              "materializeMs": 16.143834000000027,
+              "totalMs": 24.284291999999994,
+              "warmMs": 6.177000000000021
+            },
+            {
+              "warmup": false,
+              "rootMs": 6.769874999999956,
+              "materializeMs": 16.263874999999985,
+              "totalMs": 23.03374999999994,
+              "warmMs": 6.672957999999994
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.646375000000035,
+              "materializeMs": 16.806124999999952,
+              "totalMs": 24.452499999999986,
+              "warmMs": 6.511665999999991
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.22058299999992,
+              "materializeMs": 16.01354200000003,
+              "totalMs": 24.23412499999995,
+              "warmMs": 6.298124999999914
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8125,
+              "materializeMs": 106.32279199999994,
+              "totalMs": 107.13529199999994,
+              "warmMs": 0.6455829999999878
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.006292000000030384,
+              "materializeMs": 99.71683399999995,
+              "totalMs": 99.72312599999998,
+              "warmMs": 0.3131670000000213
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5756249999999454,
+              "materializeMs": 104.49566600000003,
+              "totalMs": 105.07129099999997,
+              "warmMs": 0.3087920000000395
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.7107079999999542,
+              "materializeMs": 94.6245419999999,
+              "totalMs": 95.33524999999986,
+              "warmMs": 0.3073749999998654
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.744083000000046,
+              "materializeMs": 88.98633399999994,
+              "totalMs": 89.73041699999999,
+              "warmMs": 0.3088749999999436
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5733750000001692,
+              "materializeMs": 86.89533400000005,
+              "totalMs": 87.46870900000022,
+              "warmMs": 0.30016699999987395
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5928749999998217,
+              "materializeMs": 88.61562499999991,
+              "totalMs": 89.20849999999973,
+              "warmMs": 0.303333000000066
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2708749999999327,
+              "materializeMs": 7.483000000000175,
+              "totalMs": 7.753875000000107,
+              "warmMs": 1.2293750000001182
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.009500000000116415,
+              "materializeMs": 5.664792000000034,
+              "totalMs": 5.67429200000015,
+              "warmMs": 0.6398750000000746
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.1211249999998927,
+              "materializeMs": 4.697957999999971,
+              "totalMs": 7.819082999999864,
+              "warmMs": 0.5942079999999805
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.125583000000006,
+              "materializeMs": 4.934709000000112,
+              "totalMs": 8.060292000000118,
+              "warmMs": 0.5184580000000096
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.5306250000001,
+              "materializeMs": 4.666042000000061,
+              "totalMs": 8.196667000000161,
+              "warmMs": 0.5149590000000899
+            },
+            {
+              "warmup": false,
+              "rootMs": 2.6992499999998927,
+              "materializeMs": 4.852541999999858,
+              "totalMs": 7.55179199999975,
+              "warmMs": 0.502666999999974
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.145208000000139,
+              "materializeMs": 4.7283749999999145,
+              "totalMs": 7.873583000000053,
+              "warmMs": 0.46508300000004965
+            }
+          ],
+          "facades": 0
+        }
+      ]
+    },
+    {
+      "block": 5,
+      "variant": "103",
+      "processMs": 1512.645708,
+      "measurements": [
+        {
+          "name": "existing first-touch scan 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.18812499999998522,
+              "materializeMs": 14.300542000000007,
+              "totalMs": 14.488666999999992,
+              "warmMs": 3.0521249999999895
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.03212500000000773,
+              "materializeMs": 13.63704199999998,
+              "totalMs": 13.669166999999987,
+              "warmMs": 2.690082999999987
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.807791000000009,
+              "materializeMs": 9.790124999999989,
+              "totalMs": 14.597915999999998,
+              "warmMs": 2.3198750000000246
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.7854169999999954,
+              "materializeMs": 9.077167000000031,
+              "totalMs": 12.862584000000027,
+              "warmMs": 2.336666999999977
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.287791999999968,
+              "materializeMs": 9.608499999999992,
+              "totalMs": 13.89629199999996,
+              "warmMs": 2.374750000000006
+            },
+            {
+              "warmup": false,
+              "rootMs": 5.116167000000019,
+              "materializeMs": 9.650625000000048,
+              "totalMs": 14.766792000000066,
+              "warmMs": 2.3927909999999883
+            },
+            {
+              "warmup": false,
+              "rootMs": 4.395332999999994,
+              "materializeMs": 9.342499999999973,
+              "totalMs": 13.737832999999966,
+              "warmMs": 2.367291000000023
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "full materialization 100x100",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.9013749999999732,
+              "materializeMs": 20.943666999999948,
+              "totalMs": 21.84504199999992,
+              "warmMs": 6.477207999999962
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.012375000000020009,
+              "materializeMs": 18.403750000000002,
+              "totalMs": 18.416125000000022,
+              "warmMs": 7.147291999999993
+            },
+            {
+              "warmup": false,
+              "rootMs": 9.021625000000029,
+              "materializeMs": 16.269624999999962,
+              "totalMs": 25.29124999999999,
+              "warmMs": 6.930958999999973
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.14504199999999,
+              "materializeMs": 16.33991700000007,
+              "totalMs": 24.48495900000006,
+              "warmMs": 6.516250000000014
+            },
+            {
+              "warmup": false,
+              "rootMs": 7.586332999999968,
+              "materializeMs": 16.498042000000055,
+              "totalMs": 24.084375000000023,
+              "warmMs": 6.334917000000019
+            },
+            {
+              "warmup": false,
+              "rootMs": 9.676707999999962,
+              "materializeMs": 16.907916,
+              "totalMs": 26.584623999999963,
+              "warmMs": 7.153291999999965
+            },
+            {
+              "warmup": false,
+              "rootMs": 8.14716599999997,
+              "materializeMs": 16.300042000000076,
+              "totalMs": 24.447208000000046,
+              "warmMs": 6.42733300000009
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "5000-deep full traversal",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.8297919999999976,
+              "materializeMs": 107.10350000000005,
+              "totalMs": 107.93329200000005,
+              "warmMs": 0.6376249999999573
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.007541999999943982,
+              "materializeMs": 108.59979099999998,
+              "totalMs": 108.60733299999993,
+              "warmMs": 0.3233749999999418
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5729589999999689,
+              "materializeMs": 108.49979200000007,
+              "totalMs": 109.07275100000004,
+              "warmMs": 0.3137090000000171
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5734170000000631,
+              "materializeMs": 95.46666699999992,
+              "totalMs": 96.04008399999998,
+              "warmMs": 0.3479580000000624
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5742079999999987,
+              "materializeMs": 95.1868750000001,
+              "totalMs": 95.7610830000001,
+              "warmMs": 0.31370799999990595
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.56837500000006,
+              "materializeMs": 90.08445900000015,
+              "totalMs": 90.65283400000021,
+              "warmMs": 0.33725000000004
+            },
+            {
+              "warmup": false,
+              "rootMs": 0.5830839999998716,
+              "materializeMs": 89.472125,
+              "totalMs": 90.05520899999988,
+              "warmMs": 0.3076659999999265
+            }
+          ],
+          "facades": 0
+        },
+        {
+          "name": "existing synchronous materialization 10k rows",
+          "samples": [
+            {
+              "warmup": true,
+              "rootMs": 0.2660840000000917,
+              "materializeMs": 7.8188749999999345,
+              "totalMs": 8.084959000000026,
+              "warmMs": 1.1955840000000535
+            },
+            {
+              "warmup": true,
+              "rootMs": 0.010416999999961263,
+              "materializeMs": 5.540333000000146,
+              "totalMs": 5.550750000000107,
+              "warmMs": 0.6677909999998519
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.072791999999936,
+              "materializeMs": 4.870374999999967,
+              "totalMs": 7.943166999999903,
+              "warmMs": 0.4766660000000229
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.080791999999974,
+              "materializeMs": 4.673999999999978,
+              "totalMs": 7.754791999999952,
+              "warmMs": 0.4560830000000351
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.0795419999999467,
+              "materializeMs": 4.694541000000072,
+              "totalMs": 7.774083000000019,
+              "warmMs": 0.484749999999849
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.0372500000000855,
+              "materializeMs": 4.895917000000054,
+              "totalMs": 7.9331670000001395,
+              "warmMs": 0.49424999999996544
+            },
+            {
+              "warmup": false,
+              "rootMs": 3.186999999999898,
+              "materializeMs": 4.645041999999876,
+              "totalMs": 7.832041999999774,
+              "warmMs": 0.4484580000000733
+            }
+          ],
+          "facades": 0
+        }
+      ]
+    }
+  ],
+  "heap": [
+    {
+      "block": 0,
+      "variant": "103",
+      "rows": 10000,
+      "retainedBytes": 6974168
+    },
+    {
+      "block": 0,
+      "variant": "facade",
+      "rows": 10000,
+      "retainedBytes": 7636760
+    },
+    {
+      "block": 1,
+      "variant": "facade",
+      "rows": 10000,
+      "retainedBytes": 7636792
+    },
+    {
+      "block": 1,
+      "variant": "103",
+      "rows": 10000,
+      "retainedBytes": 6974144
+    },
+    {
+      "block": 2,
+      "variant": "103",
+      "rows": 10000,
+      "retainedBytes": 6974136
+    },
+    {
+      "block": 2,
+      "variant": "facade",
+      "rows": 10000,
+      "retainedBytes": 7636840
+    },
+    {
+      "block": 3,
+      "variant": "facade",
+      "rows": 10000,
+      "retainedBytes": 7636800
+    },
+    {
+      "block": 3,
+      "variant": "103",
+      "rows": 10000,
+      "retainedBytes": 6974184
+    },
+    {
+      "block": 4,
+      "variant": "103",
+      "rows": 10000,
+      "retainedBytes": 6974176
+    },
+    {
+      "block": 4,
+      "variant": "facade",
+      "rows": 10000,
+      "retainedBytes": 7636792
+    },
+    {
+      "block": 5,
+      "variant": "facade",
+      "rows": 10000,
+      "retainedBytes": 7636760
+    },
+    {
+      "block": 5,
+      "variant": "103",
+      "rows": 10000,
+      "retainedBytes": 6974160
+    }
+  ],
+  "machine": {
+    "cpu": "Apple M3 Max",
+    "macOS": "26.6.2"
+  }
+}

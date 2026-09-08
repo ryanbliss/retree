@@ -12,6 +12,7 @@
     },
     "include": [
         "sdk-scaling.mts",
+        "plain-materialization.mts",
         "node-reads.mts",
         "array-reads.mts",
         "compiled-node-shapes.mts"
