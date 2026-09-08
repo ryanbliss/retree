@@ -18,74 +18,70 @@ Dropped on measurement: resolving iterated array elements by numeric index inste
 
 Apple M3 Max, macOS 26.6.2, Node 22.13.1. Eight serial blocks, one process per variant per block, five measured fresh graphs after two warmups, order reversed each block. Benchmark processes ran without concurrent tests, typechecks, or other benchmark workers. Every sample validates traversal output. No samples were filtered out. Tables show medians of the eight process medians.
 
-`Registry` is #105 at `412c83c`; `Footprint` is this branch. The compiler flag only changes how `ReactiveNode` classes are handled, so for these plain-data scenarios the off and on columns of one variant run identical code. Their disagreement is a fair picture of the noise floor between two runs of the same code: up to 10% on the first-touch scan, about 5% on the forests.
+All times are milliseconds; lower is better. `Before` is #105 at `412c83c`, `After` is this branch. `Faster by` is the paired effect over the eight blocks with its 95% bootstrap interval (method below); a negative number means slower. The compiler flag only changes how `ReactiveNode` classes are handled, so for these plain-data scenarios both variants run identical code with it off and on. The compiler-off run is the main table; the compiler-on run is a second full replicate, and where the two disagree the disagreement is the noise floor between two runs of the same code, up to 10% on the first-touch scan and about 5% on the forests.
 
-| Root plus first traversal, ms | Registry off | Footprint off | Registry on | Footprint on |
-| --- | ---: | ---: | ---: | ---: |
-| existing first-touch scan 100x100 | 8.457 | 7.166 | 9.356 | 7.310 |
-| full materialization 100x100 | 16.702 | 15.060 | 17.374 | 15.187 |
-| 5000-deep full traversal | 1.248 | 1.191 | 1.289 | 1.196 |
-| existing synchronous materialization 10k rows | 4.581 | 3.875 | 4.717 | 3.834 |
-| plain forest depth 16, 16371 nodes | 4.463 | 4.177 | 4.705 | 4.206 |
-| plain forest depth 64, 16380 nodes | 4.293 | 4.071 | 4.599 | 4.068 |
-| plain forest depth 256, 16191 nodes | 4.211 | 3.991 | 4.616 | 3.941 |
-| plain forest depth 1024, 15375 nodes | 3.975 | 3.785 | 4.311 | 3.726 |
-| explicit prepareTree, 16191 plain nodes | 22.467 | 23.108 | 23.576 | 23.081 |
-| churn: 30 rounds of 1k fresh rows into a 40k-node live tree | 32.247 | 28.548 | 32.858 | 27.653 |
-| Neowyn fixture exhaustive plain traversal | 59.924 | 58.852 | 60.468 | 57.197 |
+| Root plus first traversal, compiler off | Before | After | Faster by |
+| --- | ---: | ---: | ---: |
+| existing first-touch scan 100x100 | 8.457 | 7.166 | 14.1% [11.7%, 16.1%] |
+| full materialization 100x100 | 16.702 | 15.060 | 10.5% [8.5%, 12.4%] |
+| 5000-deep full traversal | 1.248 | 1.191 | 5.4% [3.8%, 7.1%] |
+| existing synchronous materialization 10k rows | 4.581 | 3.875 | 16.0% [14.7%, 17.6%] |
+| plain forest depth 16, 16371 nodes | 4.463 | 4.177 | 6.9% [5.5%, 8.2%] |
+| plain forest depth 64, 16380 nodes | 4.293 | 4.071 | 5.1% [2.9%, 7.4%] |
+| plain forest depth 256, 16191 nodes | 4.211 | 3.991 | 6.1% [3.6%, 8.6%] |
+| plain forest depth 1024, 15375 nodes | 3.975 | 3.785 | 5.2% [3.1%, 7.2%] |
+| explicit prepareTree, 16191 plain nodes | 22.467 | 23.108 | -4.6% [-9.1%, -0.8%] |
+| churn: 30 rounds of 1k fresh rows into a 40k-node live tree | 32.247 | 28.548 | 12.5% [9.4%, 15.5%] |
+| Neowyn fixture exhaustive plain traversal | 59.924 | 58.852 | 1.9% [-0.2%, 3.7%] |
 
-The `root` phase is `Retree.root` alone and is under 0.03 ms everywhere except churn, where it is the live tree build and first read (12.135 to 10.771 ms off, 12.516 to 10.738 ms on). The first-traversal-only table is the same picture and is in the JSON.
+| Root plus first traversal, compiler on (replicate) | Before | After | Faster by |
+| --- | ---: | ---: | ---: |
+| existing first-touch scan 100x100 | 9.356 | 7.310 | 22.1% [19.7%, 24.4%] |
+| full materialization 100x100 | 17.374 | 15.187 | 11.9% [10.2%, 13.5%] |
+| 5000-deep full traversal | 1.289 | 1.196 | 8.3% [5.9%, 11.1%] |
+| existing synchronous materialization 10k rows | 4.717 | 3.834 | 19.2% [18.0%, 20.4%] |
+| plain forest depth 16, 16371 nodes | 4.705 | 4.206 | 11.2% [9.7%, 12.7%] |
+| plain forest depth 64, 16380 nodes | 4.599 | 4.068 | 11.5% [10.0%, 12.9%] |
+| plain forest depth 256, 16191 nodes | 4.616 | 3.941 | 14.5% [12.6%, 16.7%] |
+| plain forest depth 1024, 15375 nodes | 4.311 | 3.726 | 13.7% [11.9%, 15.6%] |
+| explicit prepareTree, 16191 plain nodes | 23.576 | 23.081 | 4.8% [-1.8%, 11.2%] |
+| churn: 30 rounds of 1k fresh rows into a 40k-node live tree | 32.858 | 27.653 | 15.9% [13.5%, 18.8%] |
+| Neowyn fixture exhaustive plain traversal | 60.468 | 57.197 | 4.3% [1.5%, 7.0%] |
 
-| Warm re-read, ms | Registry off | Footprint off | Registry on | Footprint on |
-| --- | ---: | ---: | ---: | ---: |
-| existing first-touch scan 100x100 | 2.429 | 2.472 | 2.427 | 2.476 |
-| full materialization 100x100 | 4.662 | 4.773 | 4.725 | 4.706 |
-| 5000-deep full traversal | 0.338 | 0.340 | 0.340 | 0.332 |
-| existing synchronous materialization 10k rows | 0.540 | 0.511 | 0.542 | 0.508 |
-| plain forest depth 16, 16371 nodes | 1.141 | 1.141 | 1.124 | 1.140 |
-| plain forest depth 64, 16380 nodes | 1.108 | 1.117 | 1.138 | 1.105 |
-| plain forest depth 256, 16191 nodes | 1.093 | 1.137 | 1.105 | 1.105 |
-| plain forest depth 1024, 15375 nodes | 1.032 | 1.038 | 1.029 | 1.027 |
-| explicit prepareTree, 16191 plain nodes | 17.475 | 18.185 | 18.970 | 18.577 |
-| churn: warm re-read of all 20,000 rows | 1.581 | 1.675 | 1.608 | 1.597 |
-| Neowyn fixture exhaustive plain traversal | 45.720 | 46.903 | 47.192 | 45.063 |
+The `root` phase is `Retree.root` alone and is under 0.03 ms everywhere except churn, where it is the live tree build and first read: 12.135 to 10.771 ms, 13.0% [11.1%, 14.7%] faster (compiler on: 12.516 to 10.738, 14.3% [12.4%, 16.5%]). The first-traversal-only numbers are the same picture and are in the JSON.
+
+| Warm re-read, compiler off | Before | After | Faster by |
+| --- | ---: | ---: | ---: |
+| existing first-touch scan 100x100 | 2.429 | 2.472 | -0.3% [-2.7%, 2.5%] |
+| full materialization 100x100 | 4.662 | 4.773 | -1.9% [-4.6%, 0.7%] |
+| 5000-deep full traversal | 0.338 | 0.340 | -1.1% [-3.8%, 1.6%] |
+| existing synchronous materialization 10k rows | 0.540 | 0.511 | 6.0% [1.0%, 10.5%] |
+| plain forest depth 16, 16371 nodes | 1.141 | 1.141 | -0.1% [-3.8%, 3.3%] |
+| plain forest depth 64, 16380 nodes | 1.108 | 1.117 | -1.1% [-3.5%, 1.1%] |
+| plain forest depth 256, 16191 nodes | 1.093 | 1.137 | -5.2% [-8.3%, -1.9%] |
+| plain forest depth 1024, 15375 nodes | 1.032 | 1.038 | -0.5% [-1.3%, 0.4%] |
+| explicit prepareTree, 16191 plain nodes | 17.475 | 18.185 | -5.8% [-10.6%, -1.9%] |
+| churn: warm re-read of all 20,000 rows | 1.581 | 1.675 | -4.7% [-10.0%, 1.0%] |
+| Neowyn fixture exhaustive plain traversal | 45.720 | 46.903 | -1.2% [-3.8%, 1.1%] |
+
+With the compiler on, the warm re-reads are 10k rows 4.5% [1.0%, 7.6%] faster, Neowyn 3.7% [1.3%, 6.5%] faster, and every other interval covers zero. Nothing in the change touches the warm path except the digit-led key check, which the iterator-based warm reads do not hit, so the warm rows in both directions are read as noise.
 
 ## Churn
 
 Same scenario as the registry report: a 40,400-node tree stays mounted, then 30 rounds each replace the rows of 10 sections with 1,000 fresh raw rows and read them. Garbage is collected on the engine's schedule.
 
-| Churn | Registry off | Footprint off | Registry on | Footprint on |
-| --- | ---: | ---: | ---: | ---: |
-| 30 rounds total, ms | 20.012 | 17.754 | 20.441 | 17.182 |
-| worst single round, ms | 2.403 | 2.317 | 2.624 | 2.317 |
-| live tree build and first read, ms | 12.135 | 10.771 | 12.516 | 10.738 |
-| warm re-read of all 20,000 rows, ms | 1.581 | 1.675 | 1.608 | 1.597 |
+| Churn, compiler off | Before | After | Faster by |
+| --- | ---: | ---: | ---: |
+| live tree build and first read, ms | 12.135 | 10.771 | 13.0% [11.1%, 14.7%] |
+| 30 rounds total, ms | 20.012 | 17.754 | 11.6% [7.9%, 14.8%] |
+| worst single round, ms | 2.403 | 2.317 | 5.3% [-0.9%, 10.2%] |
+| warm re-read of all 20,000 rows, ms | 1.581 | 1.675 | -4.7% [-10.0%, 1.0%] |
+
+Compiler on: build and first read 12.516 to 10.738 ms (14.3% [12.4%, 16.5%]), 30 rounds 20.441 to 17.182 ms (16.3% [13.4%, 19.7%]), worst round 2.624 to 2.317 ms (13.4% [6.6%, 20.7%]), warm re-read 1.608 to 1.597 ms (2.8% [-0.8%, 7.9%]).
 
 ## Effects and uncertainty
 
-Effects use the geometric mean of paired process-median ratios within each block. Intervals are nominal 95% percentile bootstrap intervals from 20,000 resamples of the eight blocks, seed 10407. The five samples within a process are not treated as independent runs. These intervals do not correct for multiple comparisons and do not establish cross-machine or Neo-wide gains. Positive percentages mean less time.
-
-| Root plus first traversal | Compiler off | Compiler on |
-| --- | ---: | ---: |
-| existing first-touch scan 100x100 | 14.1% [11.7%, 16.1%] | 22.1% [19.7%, 24.4%] |
-| full materialization 100x100 | 10.5% [8.5%, 12.4%] | 11.9% [10.2%, 13.5%] |
-| 5000-deep full traversal | 5.4% [3.8%, 7.1%] | 8.3% [5.9%, 11.1%] |
-| existing synchronous materialization 10k rows | 16.0% [14.7%, 17.6%] | 19.2% [18.0%, 20.4%] |
-| plain forest depth 16 | 6.9% [5.5%, 8.2%] | 11.2% [9.7%, 12.7%] |
-| plain forest depth 64 | 5.1% [2.9%, 7.4%] | 11.5% [10.0%, 12.9%] |
-| plain forest depth 256 | 6.1% [3.6%, 8.6%] | 14.5% [12.6%, 16.7%] |
-| plain forest depth 1024 | 5.2% [3.1%, 7.2%] | 13.7% [11.9%, 15.6%] |
-| explicit prepareTree | -4.6% [-9.1%, -0.8%] | 4.8% [-1.8%, 11.2%] |
-| churn: 30 rounds total | 12.5% [9.4%, 15.5%] | 15.9% [13.5%, 18.8%] |
-| Neowyn fixture exhaustive plain traversal | 1.9% [-0.2%, 3.7%] | 4.3% [1.5%, 7.0%] |
-
-| Churn detail | Compiler off | Compiler on |
-| --- | ---: | ---: |
-| live tree build and first read | 13.0% [11.1%, 14.7%] | 14.3% [12.4%, 16.5%] |
-| 30 rounds | 11.6% [7.9%, 14.8%] | 16.3% [13.4%, 19.7%] |
-| worst single round | 5.3% [-0.9%, 10.2%] | 13.4% [6.6%, 20.7%] |
-
-Warm re-reads are unchanged within noise: the 10k-row scenario is 6.0% [1.0%, 10.5%] and 4.5% [1.0%, 7.6%] faster, the depth-256 forest is 5.2% [1.9%, 8.3%] slower with the compiler off and 1.1% [-1.8%, 4.1%] slower with it on, and every other interval covers zero. Nothing in the change touches the warm path except the digit-led key check, which the iterator-based warm reads do not hit, so both of those are read as noise.
+`Faster by` uses the geometric mean of paired process-median ratios within each block. Intervals are nominal 95% percentile bootstrap intervals from 20,000 resamples of the eight blocks, seed 10407. The five samples within a process are not treated as independent runs. These intervals do not correct for multiple comparisons and do not establish cross-machine or Neo-wide gains.
 
 Explicit `prepareTree` is the one scenario that moved against the change in one configuration and for it in the other, on identical code paths. Its walk reads each field through the proxy but also records every object in a `WeakSet`, which is most of its 22 ms for 16k nodes (a plain traversal of the same forest is 4 ms), so the per-node change is a small fraction of it and both intervals sit inside the noise the identical-code pairs show. It is reported as no measurable change.
 
