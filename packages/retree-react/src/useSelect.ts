@@ -12,7 +12,6 @@
 
 import { RetreeSelectOptions, TreeNode } from "@retreejs/core";
 import {
-    areTrackedReadsEqual,
     canSkipTrackedDependencyChange,
     DependencySubscriptionKind,
     getUnproxiedNode,
@@ -20,6 +19,7 @@ import {
     defaultTrackedSelectedChanged,
     getBaseProxy,
     getReproxyNode,
+    hasTrackedSelectionChanged,
     normalizeDependencyEntry,
     normalizeSelectDependencies,
     runTrackedSelection,
@@ -521,30 +521,25 @@ function refreshTrackedSelectState<TSelected>(
         state.container.selected,
         nextSelection.selected
     );
-    const selectedEqual =
-        equals !== undefined
-            ? equals(state.container.selected, stabilizedSelected)
-            : !defaultTrackedSelectedChanged(
-                  state.container.selected,
-                  stabilizedSelected
-              );
-    const dependenciesEqual = areTrackedReadsEqual(
-        previousReads,
-        nextSelection.reads
+    const selectedEqual = !hasTrackedSelectionChanged(
+        { selected: state.container.selected, reads: previousReads },
+        { selected: stabilizedSelected, reads: nextSelection.reads },
+        equals
     );
     const nextSources = getTrackedSelectionSources(nextSelection);
     const sourcesEqual = areRetreeExternalStoreSourcesEqual(
         state.sources,
         nextSources
     );
-    if (selectedEqual && dependenciesEqual && sourcesEqual) {
+    if (selectedEqual && sourcesEqual) {
         state.snapshot = snapshot;
         return state.container;
     }
     let selected = stabilizedSelected;
     if (selectedEqual) {
-        // Reference stabilization: dependencies or sources changed but the
-        // selected value did not, so keep handing out the previous reference.
+        // Reference stabilization: the selected value is unchanged, so keep
+        // handing out the previous reference even though the subscription
+        // sources moved.
         selected = state.container.selected;
     }
     if (!sourcesEqual) {

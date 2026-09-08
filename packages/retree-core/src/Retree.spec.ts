@@ -1711,6 +1711,43 @@ describe("Retree.select", () => {
     });
 });
 
+describe("Retree.select tracked equals", () => {
+    it("does not notify while equals holds across a dependency change", () => {
+        const root = Retree.root({
+            items: [
+                { id: "a", rank: 1 },
+                { id: "b", rank: 2 },
+            ],
+        });
+        const selected = vi.fn();
+        Retree.select(
+            () =>
+                [...root.items]
+                    .sort((left, right) => left.rank - right.rank)
+                    .map((item) => item.id),
+            selected,
+            { equals: sameIds }
+        );
+
+        root.items[1].rank = 3;
+        expect(selected).not.toHaveBeenCalled();
+
+        root.items[1].rank = 0;
+        expect(selected).toHaveBeenCalledTimes(1);
+        expect(selected).toHaveBeenLastCalledWith(["b", "a"], ["a", "b"]);
+    });
+});
+
+function sameIds(
+    previous: readonly string[],
+    next: readonly string[]
+): boolean {
+    return (
+        previous.length === next.length &&
+        previous.every((id, index) => id === next[index])
+    );
+}
+
 describe("Retree.untracked", () => {
     it("pauses dependency collection inside tracked selectors", () => {
         const root = Retree.root({
