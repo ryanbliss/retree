@@ -880,6 +880,7 @@ export class Retree {
             });
         }
         const node = nodeOrSelector;
+        this.assertRetreeManagedNode(node, "Retree.select");
         const selector = selectorOrCallback as RetreeSelectSelector<
             TNode,
             TSelected

@@ -1699,6 +1699,18 @@ describe("Retree.raw", () => {
     });
 });
 
+describe("Retree.select", () => {
+    it("names itself when its node form gets an unmanaged value", () => {
+        expect(() =>
+            Retree.select(
+                { count: 0 },
+                (node) => node.count,
+                () => {}
+            )
+        ).toThrowError(/Retree\.select: expected a Retree-managed node/);
+    });
+});
+
 describe("Retree.untracked", () => {
     it("pauses dependency collection inside tracked selectors", () => {
         const root = Retree.root({

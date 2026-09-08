@@ -31,9 +31,15 @@ import {
 export type UseNodeInternalListenerType = "nodeChanged" | "treeChanged";
 
 export interface UseNodeInternalOperations {
+    /**
+     * Resolve the base proxy to subscribe to. `hookName` names the caller in
+     * the error a value without Retree metadata throws, which is the only
+     * useful message when that value came straight from application code.
+     */
     getRenderBaseProxy<T extends TreeNode>(
         listenerType: UseNodeInternalListenerType,
-        node: T
+        node: T,
+        hookName: NodeFactoryHookName
     ): T;
     getRenderReproxyNode<T extends TreeNode>(
         listenerType: UseNodeInternalListenerType,
@@ -72,7 +78,11 @@ export function useNodeInternalCore<T extends TreeNode = TreeNode>(
 
     // We can listen to a reproxied or base proxy node, but base proxies change less frequently.
     // Listen to the baseProxy changes. This is cheap so it's okay to do it unmemoized.
-    const baseProxy = operations.getRenderBaseProxy<T>(listenerType, memoNode);
+    const baseProxy = operations.getRenderBaseProxy<T>(
+        listenerType,
+        memoNode,
+        hookName
+    );
     useNodeFactoryResetWarning(hookName, node, baseProxy);
     const source = operations.getSource(listenerType, baseProxy);
     useRetreeExternalStore([source]);

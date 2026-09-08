@@ -777,7 +777,7 @@ function useNodeSelect<TNode extends TreeNode, TSelected>(
     const memoNode = useMemo(() => {
         return getNode(node);
     }, [node]);
-    const baseProxy = getBaseProxy<TNode>(memoNode);
+    const baseProxy = getBaseProxy<TNode>(memoNode, "useSelect");
     useNodeFactoryResetWarning("useSelect", node, baseProxy);
     const listenerType = options?.listenerType ?? "nodeChanged";
     const equals = options?.equals;
