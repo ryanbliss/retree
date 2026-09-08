@@ -1,6 +1,6 @@
 # Plain-object ancestry optimization, September 7, 2026
 
-First materialization of deep plain-object trees is faster after removing a redundant ancestor walk. This is the successful continuation of #104, stacked on #103 at `93ba2bfbc15d7d68389b1493756c72d44f488710`. The final implementation keeps ordinary proxies. The failed accessor facade and its optional SDK factory changes have been removed. Its historical report and raw samples remain available.
+First materialization of deep plain-object trees is faster after removing a redundant ancestor walk. This is the successful continuation of #104. The measurements below were taken against #103 at `93ba2bf`, which was closed afterwards; the branch now stacks on #101 (`perf/collection-method-dispatch` at `6949e34`). The only runtime difference between those two baselines is the compiled method-receiver helper, which the plain-object workloads here do not exercise, so the #103 columns stand in for #101. The final implementation keeps ordinary proxies. The failed accessor facade and its optional SDK factory changes have been removed. Its historical report and raw samples remain available.
 
 ## Why the check is redundant
 
