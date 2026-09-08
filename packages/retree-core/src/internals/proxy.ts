@@ -1394,10 +1394,10 @@ function setProxiedChildHandler(
  * children and "__proto__" behaves as a normal key. A fast-mode object with
  * an empty prototype costs about a third of the dictionary-mode object
  * `Object.create(null)` allocates, and most materialized nodes carry one.
+ * Never frozen: a frozen prototype forces V8's slow path for every
+ * index-keyed store beneath it, which is how array children are cached.
  */
-const childrenCachePrototype: object = Object.freeze(
-    Object.setPrototypeOf({}, null)
-);
+const childrenCachePrototype: object = Object.setPrototypeOf({}, null);
 
 export function createChildrenCache(): Record<string | symbol, any> {
     return Object.create(childrenCachePrototype) as Record<
