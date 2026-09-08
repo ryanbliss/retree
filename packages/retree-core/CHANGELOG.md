@@ -1,5 +1,37 @@
 # @retreejs/core
 
+## 0.11.0
+
+### Minor Changes
+
+-   e0506f5: Add `@retreejs/babel-plugin-compiler`, a Babel plugin that compiles `ReactiveNode` subclasses into managed classes with literal accessors so their instances skip the Proxy path with support for reactive, `@ignore`, and `@link` fields, bound methods, tracked getters, `@memo`/`@select`/`@fnMemo`, undo history, transactions, and the stable-base plus per-change view identity contract. `@memo` getters use the existing memo runtime to preserve selector tracking, decorator composition, and live prototype replacements.
+
+    `@retreejs/core` gains the `@retreejs/core/compiler-runtime` entry the emitted code imports from. Instances whose decorator key set or own keys disagree with the compiled schema fall back to the Proxy path with a development warning.
+
+    Compiled instances with symbol-keyed own properties fall back to proxies. Moving to an undeclared compiled field fails before detaching the child from its original parent.
+
+    The optional compiler runtime registers handler subclasses through a dependency-free registry. Core no longer imports the compiler runtime, and ordinary handlers do not carry compiler state. Compiled mutations and function binding reuse the proxy implementation.
+
+    Install reactive dependency subscriptions as one transaction so synchronous cached query results reach all dependencies. Recursive listener cleanup traverses compiled fields correctly.
+
+### Patch Changes
+
+-   4df9b59: Three read-path trims measured against Neo's constructor replay, where Retree's cost is per-read overhead on millions of untracked reads.
+
+    Reading a `ReactiveNode` getter through a proxy no longer treats its result as a stored slot. A managed node the getter returns is served at its identity and a plain object it builds is served as built, instead of probing the result for proxy metadata and looking up an own-property descriptor the getter never has. This matches what compiled classes already did. Each handler also remembers whether its class uses keyless `this.memo(fn)`, so getter reads skip a per-read prototype lookup, and `@ignore` and `@link` reads of a managed node resolve its latest identity with one metadata probe instead of two.
+
+    The array callback wrappers (`forEach`, `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `flatMap`, `slice`) walk the raw array in their own loop instead of through a per-element visitor closure, and a primitive element is served straight from its slot without the hole check or the element resolver. Callback methods over lists of ids or numbers are about 40 to 55% faster; over lists of records about 5%.
+
+    Memo comparison snapshots no longer copy a comparison's captured values before normalizing them, and a value that is not an explicit `{ node, comparisons }` dependency is compared as itself without building a dependency slot for it.
+
+-   346c37d: Avoid redundant ancestor walks when first materializing unmanaged plain children. Deep plain-object traversal scales linearly for fresh nodes while existing-node and reparenting cycle checks remain in place.
+-   8d8784f: Materializing plain objects and arrays does less work per node. Each handler now stores its parent edge in two fields instead of a separately allocated record, a fresh node's field walk no longer looks up the registry for plain children (a plain object or array that is already managed elsewhere attaches on its first read, with the same structural-cycle check), fresh arrays are walked by index instead of through `Object.keys`, element reads skip the array method tables when the key starts with a digit, and the children-cache prototype is no longer frozen, which had forced V8's slow path for every index-keyed store. First traversal of a deep plain tree is about 13% faster, a 10k-row table about 16%, and the steady-state churn of fresh rows into a large mounted tree about 14%, all measured against the private-field registry.
+
+    One observable change: a structural cycle through plain objects is now rejected when the closing edge itself is first read rather than when its holder is. `Retree.root(input)` with `input.self = input` no longer throws at `root()`; the first read of `root.self` throws instead. Class instances and collections still attach eagerly.
+
+-   412c83c: Store each managed node's handler in a private field on the raw object instead of a module-level WeakMap. The WeakMap's ephemeron table rehashed after garbage collection, so the first materialization after any collection paid a stall proportional to every node ever managed. Registration is now constant cost, apps that keep a large tree mounted while data churns no longer see those stalls, and the raw object stays clean: private fields are invisible to key walks, spreads, JSON, `structuredClone`, and equality checks. The core package now compiles to ES2022 so the private field ships natively; bundlers that lower class private fields below ES2022 fall back to WeakMap helpers and keep the old cost.
+-   2a2d4d6: Reuse Map and Set method wrappers across reads and views, reducing repeated method allocation without changing collection types. Custom method replacements invalidate the cached wrapper.
+
 ## 0.10.4
 
 ### Patch Changes
