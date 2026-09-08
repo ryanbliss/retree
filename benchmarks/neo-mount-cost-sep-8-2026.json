@@ -329,5 +329,108 @@
       "methodTrapMs": 48.8
     },
     "preventExtensionsPerInstanceNs": 17
+  },
+  "changes": {
+    "description": "Retree self time in constructorReplaySetup after the three read-path trims in this PR; same phase profile method, inspector excluded.",
+    "retreeSelfMs": {
+      "before": 550.9,
+      "getterTrim": 450.7,
+      "allThree": 424.0
+    },
+    "phaseProfiledMs": {
+      "before": 1739.2,
+      "getterTrim": 1644.5,
+      "allThree": 1652.5
+    },
+    "byFunctionMs": {
+      "getTrap": [
+        318.5,
+        250.4,
+        235.8
+      ],
+      "readReactiveNodeGetter": [
+        47.6,
+        25.8,
+        31.1
+      ],
+      "metadataProbe": [
+        33.7,
+        12.6,
+        10.0
+      ],
+      "adoptStoredProxy": [
+        13.8,
+        0.0,
+        0.0
+      ],
+      "arrayReadAll": [
+        68.9,
+        71.5,
+        58.8
+      ],
+      "memoComparisonNormalization": [
+        9.0,
+        17.5,
+        3.7
+      ],
+      "ownKeys": [
+        8.8,
+        15.1,
+        16.2
+      ]
+    },
+    "wallClockMs": {
+      "before": {
+        "constructorReplaySetup": [
+          1646.78,
+          1582.74,
+          1579.64
+        ],
+        "constructorReplay": [
+          359.77,
+          403.75,
+          358.59
+        ],
+        "initialMount": [
+          367.14,
+          364.71,
+          408.45
+        ]
+      },
+      "getterTrim": {
+        "constructorReplaySetup": [
+          1527.03,
+          1551.14,
+          1773.31
+        ],
+        "constructorReplay": [
+          353.76,
+          402.5,
+          403.95
+        ],
+        "initialMount": [
+          381.43,
+          395.25,
+          431.35
+        ]
+      },
+      "allThree": {
+        "constructorReplaySetup": [
+          1569.57,
+          1534.67,
+          1555.73
+        ],
+        "constructorReplay": [
+          358.73,
+          387.35,
+          363.42
+        ],
+        "initialMount": [
+          392.03,
+          368.84,
+          363.94
+        ]
+      }
+    }
   }
 }

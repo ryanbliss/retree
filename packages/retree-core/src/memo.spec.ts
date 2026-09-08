@@ -1786,6 +1786,40 @@ describe("keyless memo getter fast path", () => {
         // And the memo cache still holds (no recompute).
         expect(root.computeCount).toBe(1);
     });
+
+    it("recovers on a handler built before another instance marked the class", () => {
+        class SharedClass extends ReactiveNode {
+            public counter = 0;
+            public computeCount = 0;
+
+            get cached(): number {
+                return this.memo(() => {
+                    this.computeCount += 1;
+                    return this.counter;
+                }, [this.counter]);
+            }
+
+            get dependencies() {
+                return [];
+            }
+        }
+
+        // Both handlers exist before either getter runs, so the second one
+        // never saw the class marked at construction.
+        const first = trackRoot(Retree.root(new SharedClass()));
+        const second = trackRoot(Retree.root(new SharedClass()));
+        expect(first.cached).toBe(0);
+        expect(second.cached).toBe(0);
+        expect(second.computeCount).toBe(1);
+
+        second.counter = 2;
+        expect(second.cached).toBe(2);
+        expect(second.computeCount).toBe(2);
+        const framesBefore = getMemoGetterFramePushCount();
+        expect(second.cached).toBe(2);
+        expect(getMemoGetterFramePushCount()).toBeGreaterThan(framesBefore);
+        expect(second.computeCount).toBe(2);
+    });
 });
 
 describe("incremental trapped memo validation", () => {

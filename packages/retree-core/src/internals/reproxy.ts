@@ -442,7 +442,12 @@ class ReproxyHandler<T extends TreeNode>
             base.reactiveObject !== undefined
         ) {
             // Mirror proxy.ts: a getter may need a memo-getter frame.
-            value = readReactiveNodeGetter(base.reactiveObject, prop, receiver);
+            value = readReactiveNodeGetter(
+                base,
+                base.reactiveObject,
+                prop,
+                receiver
+            );
         } else {
             value = Reflect.get(target, prop, receiver);
         }
@@ -465,11 +470,17 @@ class ReproxyHandler<T extends TreeNode>
             typeof value === "object" &&
             prop !== "constructor"
         ) {
+            // Mirror proxy.ts: a getter result is served as returned, at
+            // its latest identity when it is a managed node.
             return trackPropertyAccessIfNeeded(
                 base,
                 baseProxy,
                 prop,
-                latestIdentity(base.resolveStoredObject(target, prop, value))
+                latestIdentity(
+                    role === ReactiveKeyRole.Getter
+                        ? value
+                        : base.resolveStoredObject(target, prop, value)
+                )
             );
         }
         return trackPropertyAccessIfNeeded(base, baseProxy, prop, value);
