@@ -96,9 +96,10 @@ jobs:
             # Tag and release run even when a publish step failed or was
             # skipped: the script checks npm itself and refuses to tag until
             # every package in the release is published at its manifest
-            # version. So a partial publish leaves no tag, and the next run
-            # after the missing packages land (rerun or manual publish)
-            # creates the release. An existing release is left alone.
+            # version, waiting out registry propagation before it decides a
+            # version is missing. So a partial publish leaves no tag, and the
+            # next run after the missing packages land (rerun or manual
+            # publish) creates the release. An existing release is left alone.
             - name: Tag and create GitHub release (lockstep family)
               if: ${{ !cancelled() && steps.version.outcome == 'success' }}
               env:

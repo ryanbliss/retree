@@ -115,7 +115,10 @@ notes. The lockstep family shares one tag (`v0.8.0`); the React ESLint plugin
 gets a name-scoped one (`react-eslint-plugin-v0.1.1`). A failed package does
 not stop the packages after it from publishing. The tag step runs regardless
 and checks npm itself: it refuses to tag until every package in the release is
-published, and leaves an existing release alone. So after a partial failure,
+published, and leaves an existing release alone. The registry needs a few
+seconds to serve a publish it just accepted, so a missing version is re-read on
+a bounded backoff (about a minute) before it counts as unpublished — the error
+says how long it waited. So after a partial failure,
 publish the missing packages (a rerun, or by hand) and rerun the workflow to
 create the release. Preview the notes for the current manifests with:
 

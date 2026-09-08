@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
     buildNpmPublishArguments,
+    findUnpublishedVersions,
     parsePublishArguments,
     selectPackagesToPublish,
 } from "./publish-package-selection.mjs";
@@ -111,5 +112,77 @@ describe("publish package selection", () => {
                 useProvenance: true,
             })
         ).toEqual(["publish", "--provenance"]);
+    });
+});
+
+describe("registry propagation", () => {
+    const family = [
+        { label: "@retreejs/core", version: "0.11.1" },
+        { label: "@retreejs/create", version: "0.11.1" },
+    ];
+
+    /** Reports a package as published once `reads` reads have seen it. */
+    function readerAfter(reads) {
+        const seen = new Map();
+        return (label) => {
+            const count = (seen.get(label) ?? 0) + 1;
+            seen.set(label, count);
+            return {
+                packageExists: true,
+                versionPublished: count > reads[label],
+            };
+        };
+    }
+
+    it("reads once and waits none when every version is already visible", async () => {
+        const waits = [];
+
+        const result = await findUnpublishedVersions(family, {
+            readVersionState: readerAfter({
+                "@retreejs/core": 0,
+                "@retreejs/create": 0,
+            }),
+            wait: (delayMs) => waits.push(delayMs),
+        });
+
+        expect(result).toEqual({ missing: [], waitedMs: 0 });
+        expect(waits).toEqual([]);
+    });
+
+    it("waits out a version the registry has not served yet", async () => {
+        const waits = [];
+        const pending = [];
+
+        const result = await findUnpublishedVersions(family, {
+            readVersionState: readerAfter({
+                "@retreejs/core": 0,
+                "@retreejs/create": 2,
+            }),
+            delaysMs: [2000, 4000, 8000],
+            wait: (delayMs) => waits.push(delayMs),
+            onWait: ({ missing }) =>
+                pending.push(missing.map((entry) => entry.label)),
+        });
+
+        expect(result).toEqual({ missing: [], waitedMs: 6000 });
+        expect(waits).toEqual([2000, 4000]);
+        // Only the still-missing package is re-read.
+        expect(pending).toEqual([["@retreejs/create"], ["@retreejs/create"]]);
+    });
+
+    it("reports what is still missing and how long it waited", async () => {
+        const result = await findUnpublishedVersions(family, {
+            readVersionState: readerAfter({
+                "@retreejs/core": 0,
+                "@retreejs/create": Number.POSITIVE_INFINITY,
+            }),
+            delaysMs: [2000, 4000],
+            wait: () => {},
+        });
+
+        expect(result.missing).toEqual([
+            { label: "@retreejs/create", version: "0.11.1" },
+        ]);
+        expect(result.waitedMs).toBe(6000);
     });
 });

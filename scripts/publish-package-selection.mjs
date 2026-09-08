@@ -203,6 +203,52 @@ export function npmVersionState(packageName, version, env = process.env) {
     );
 }
 
+/**
+ * How long to wait between registry reads while a just-published version
+ * propagates. npm accepts a publish before every read replica serves it, so
+ * the packages published last are the ones a read right after the publish
+ * step can still miss.
+ */
+export const registryPropagationDelaysMs = [2000, 4000, 8000, 16000, 30000];
+
+/**
+ * Which of `packages` ({ label, version }) are still not on npm, after giving
+ * the registry `delaysMs` chances to catch up. Re-reads only the versions
+ * still missing, and returns how long it waited so a caller can say so.
+ */
+export async function findUnpublishedVersions(
+    packages,
+    {
+        readVersionState = npmVersionState,
+        delaysMs = registryPropagationDelaysMs,
+        wait = sleep,
+        onWait = () => {},
+    } = {}
+) {
+    let missing = packages.filter(
+        (entry) =>
+            !readVersionState(entry.label, entry.version).versionPublished
+    );
+    let waitedMs = 0;
+    for (const delayMs of delaysMs) {
+        if (missing.length === 0) {
+            return { missing, waitedMs };
+        }
+        onWait({ missing, delayMs });
+        await wait(delayMs);
+        waitedMs += delayMs;
+        missing = missing.filter(
+            (entry) =>
+                !readVersionState(entry.label, entry.version).versionPublished
+        );
+    }
+    return { missing, waitedMs };
+}
+
+function sleep(delayMs) {
+    return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
 function isNpmNotFound(stderr) {
     if (stderr.includes("E404")) {
         return true;
