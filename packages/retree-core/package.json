@@ -38,6 +38,10 @@
         "./internal": {
             "types": "./bin/internals/index.d.ts",
             "default": "./bin/internals/index.js"
+        },
+        "./compiler-runtime": {
+            "types": "./bin/compiler-runtime.d.ts",
+            "default": "./bin/compiler-runtime.js"
         }
     },
     "files": [

@@ -970,6 +970,30 @@ function tombstoneIndexedEntries(
     indexMap.delete(node);
 }
 
+export function trackAccessIfNeeded<T>(value: T): T {
+    if (!isDependencyTrackingActive()) {
+        return value;
+    }
+    return trackDependencyAccess(value);
+}
+
+export function trackPropertyAccessIfNeeded<T>(
+    ownerHandler: ICustomProxyHandler<TreeNode>,
+    owner: TCustomProxy<TreeNode>,
+    propertyKey: string | symbol,
+    value: T
+): T {
+    if (!isDependencyTrackingActive()) {
+        return value;
+    }
+    return trackDependencyPropertyAccess(
+        ownerHandler,
+        owner,
+        propertyKey,
+        value
+    );
+}
+
 /**
  * Record a property read on a tracked frame. Traps pass their own handler so
  * the owner's identity never costs a second trip through the proxy.

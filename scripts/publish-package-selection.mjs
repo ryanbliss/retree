@@ -39,6 +39,11 @@ export const publishPackageCatalog = [
         directory: "packages/retree-react-eslint-plugin",
         publishByDefault: false,
     },
+    {
+        label: "@retreejs/babel-plugin-compiler",
+        directory: "packages/retree-babel-plugin-compiler",
+        publishByDefault: false,
+    },
 ];
 
 export function parsePublishArguments(args) {

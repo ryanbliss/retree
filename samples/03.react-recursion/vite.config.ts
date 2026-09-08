@@ -5,7 +5,11 @@ import babel from "@rolldown/plugin-babel";
 function decoratorPreset(options: Record<string, unknown>) {
     return {
         preset: () => ({
-            plugins: [["@babel/plugin-proposal-decorators", options]],
+            plugins: [
+                // The Retree compiler must run before decorators are lowered.
+                "@retreejs/babel-plugin-compiler",
+                ["@babel/plugin-proposal-decorators", options],
+            ],
         }),
         rolldown: {
             filter: { code: "@" },

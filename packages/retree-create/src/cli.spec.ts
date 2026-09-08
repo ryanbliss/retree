@@ -189,11 +189,14 @@ describe("main", () => {
                     convex: false,
                     eslint: false,
                     eslintAvailable: false,
+                    compiler: false,
+                    compilerAvailable: false,
                 });
                 return {
                     react: false,
                     convex: false,
                     eslint: false,
+                    compiler: false,
                     skill: false,
                 };
             },
@@ -252,6 +255,7 @@ describe("main", () => {
                     react: false,
                     convex: false,
                     eslint: false,
+                    compiler: false,
                     skill: false,
                 };
             },
@@ -347,11 +351,14 @@ describe("main", () => {
                     convex: false,
                     eslint: true,
                     eslintAvailable: true,
+                    compiler: false,
+                    compilerAvailable: false,
                 });
                 return {
                     react: true,
                     convex: false,
                     eslint: false,
+                    compiler: false,
                     skill: false,
                 };
             },
@@ -390,6 +397,41 @@ describe("main", () => {
         expect(vi.mocked(console.warn)).toHaveBeenCalledWith(
             expect.stringContaining("missing React, ESLint, TypeScript")
         );
+    });
+
+    it("installs the compiler with --compiler and adds it before the decorators plugin", async () => {
+        writePackageJson({ name: "babel-app" });
+        const babelrcPath = join(projectDir, ".babelrc");
+        writeFileSync(
+            babelrcPath,
+            '{\n  "presets": ["next/babel"],\n  "plugins": [["@babel/plugin-proposal-decorators", { "version": "2023-11" }]]\n}\n'
+        );
+
+        await main(["--yes", "--no-skill", "--pm", "npm"], {
+            cwd: projectDir,
+            isTTY: false,
+            promptAdapter: createUnusablePromptAdapter(),
+            runCommand: createRecordingRunner(ranCommands),
+        });
+        expect(ranCommands).toHaveLength(1);
+
+        await main(["--yes", "--compiler", "--no-skill", "--pm", "npm"], {
+            cwd: projectDir,
+            isTTY: false,
+            promptAdapter: createUnusablePromptAdapter(),
+            runCommand: createRecordingRunner(ranCommands),
+        });
+
+        expect(ranCommands).toHaveLength(3);
+        expect(ranCommands[2].plannedCommand.args).toEqual([
+            "install",
+            "--save-dev",
+            "@retreejs/babel-plugin-compiler@latest",
+        ]);
+        expect(JSON.parse(readFileSync(babelrcPath, "utf8")).plugins).toEqual([
+            "@retreejs/babel-plugin-compiler",
+            ["@babel/plugin-proposal-decorators", { version: "2023-11" }],
+        ]);
     });
 
     it("warns without throwing when eslint.config.mjs cannot be edited safely", async () => {

@@ -1,4 +1,17 @@
 {
     "presets": ["next/babel"],
-    "plugins": [["@babel/plugin-proposal-decorators", { "version": "2023-11" }]]
+    "plugins": [
+        [
+            "@retreejs/babel-plugin-compiler",
+            {
+                "bases": ["ConvexNode", "BaseConvexNode"]
+            }
+        ],
+        [
+            "@babel/plugin-proposal-decorators",
+            {
+                "version": "2023-11"
+            }
+        ]
+    ]
 }

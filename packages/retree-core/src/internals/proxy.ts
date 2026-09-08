@@ -51,13 +51,14 @@ import {
 import {
     isDependencyTrackingActive,
     noteUntrackedRead,
-    trackDependencyAccess,
+    trackAccessIfNeeded,
     trackDependencyKeyPresenceAccess,
     trackDependencyKeysAccess,
-    trackDependencyPropertyAccess,
+    trackPropertyAccessIfNeeded,
     trackDependencyPropertyWrite,
 } from "./dependency-tracking.js";
 import { Transactions } from "./transactions.js";
+import { createRegisteredHandler } from "./handler-factories.js";
 import { bumpGlobalWriteVersion } from "./write-version.js";
 import { prepareSnapshotParentChange } from "./snapshot-version.js";
 
@@ -122,30 +123,6 @@ export function isNativeArrayMutatorAccess(
         return false;
     }
     return Reflect.get(node, prop, node) === ARRAY_MUTATING_METHODS[prop];
-}
-
-function trackAccessIfNeeded<T>(value: T): T {
-    if (!isDependencyTrackingActive()) {
-        return value;
-    }
-    return trackDependencyAccess(value);
-}
-
-function trackPropertyAccessIfNeeded<T>(
-    ownerHandler: ICustomProxyHandler<TreeNode>,
-    owner: TCustomProxy<TreeNode>,
-    propertyKey: string | symbol,
-    value: T
-): T {
-    if (!isDependencyTrackingActive()) {
-        return value;
-    }
-    return trackDependencyPropertyAccess(
-        ownerHandler,
-        owner,
-        propertyKey,
-        value
-    );
 }
 
 function trackPropertyWriteIfNeeded(
@@ -224,7 +201,7 @@ interface BoundFunctionCacheEntry {
 
 /**
  * Per-node caches only some nodes ever need, allocated together on first use
- * so a plain data node carries one null field instead of four. Array mutator
+ * so a plain data node carries one null field instead of five. Array mutator
  * wrappers are cached so `arr.push === arr.push` holds across reads and
  * reproxy generations (tracked selectors reading a mutator would otherwise
  * re-run forever); collection proxies keep Map/Set children keyed by map key
@@ -385,11 +362,16 @@ export class BaseProxyHandler<T extends TreeNode>
     constructor(
         object: T,
         emitter: TreeChangeEmitter,
-        parent: IProxyParent<any> | null
+        parent: IProxyParent<any> | null,
+        reactiveFields?: readonly string[]
     ) {
         this[unproxiedBaseNodeKey] = object;
-        // Lazily allocated: leaf nodes never cache children.
         this[proxiedChildrenKey] = null;
+        if (reactiveFields !== undefined) {
+            const children = createChildrenCache();
+            for (const key of reactiveFields) children[key] = undefined;
+            this[proxiedChildrenKey] = children;
+        }
         this[proxiedParentKey] = parent;
         this.emitter = emitter;
         const kind = getNodeKind(object);
@@ -400,9 +382,28 @@ export class BaseProxyHandler<T extends TreeNode>
                 : undefined;
         this.reactiveObject = reactiveObject;
         this.reactiveKeyRoles =
-            reactiveObject === undefined
+            reactiveObject === undefined || reactiveFields !== undefined
                 ? null
                 : buildReactiveKeyRoles(reactiveObject);
+    }
+
+    public get reactiveFields(): readonly string[] | undefined {
+        return undefined;
+    }
+
+    public createBaseProxy(): TCustomProxy<T> {
+        return new Proxy(this[unproxiedBaseNodeKey], this) as TCustomProxy<T>;
+    }
+
+    public createView(): TCustomProxy<T> | undefined {
+        return undefined;
+    }
+
+    public assertWritableKey(_key: string | symbol, _apiName: string): void {}
+
+    public clearChild(prop: string | symbol): void {
+        const children = this[proxiedChildrenKey];
+        if (children !== null) Reflect.deleteProperty(children, prop);
     }
 
     public ensureCaches(): IHandlerCaches {
@@ -415,7 +416,7 @@ export class BaseProxyHandler<T extends TreeNode>
         });
     }
 
-    private getBoundFunction<TFunction extends Function>(
+    public getBoundFunction<TFunction extends Function>(
         prop: string | symbol,
         source: TFunction,
         thisArg: unknown
@@ -1071,6 +1072,43 @@ export class BaseProxyHandler<T extends TreeNode>
     }
 }
 
+/** Deletes through the same handler for proxies and custom managed instances. */
+export function deleteManagedKey(node: object, key: PropertyKey): void {
+    const metadata = getCustomProxyHandlerFromMetadata(node);
+    if (metadata === undefined) {
+        delete (node as Record<PropertyKey, unknown>)[key];
+        return;
+    }
+    const handler = resolveBaseHandler(metadata);
+    const prop = typeof key === "number" ? String(key) : key;
+    if (!handler.deleteProperty(handler[unproxiedBaseNodeKey], prop)) {
+        throw new TypeError(
+            `Retree: could not delete property "${String(key)}".`
+        );
+    }
+}
+
+/** Validate before a move detaches its source. */
+export function assertManagedKey(
+    node: object,
+    key: string | symbol,
+    apiName: string
+): void {
+    const metadata = getCustomProxyHandlerFromMetadata(node);
+    if (metadata !== undefined)
+        resolveBaseHandler(metadata).assertWritableKey(key, apiName);
+}
+
+export function setManagedKey(
+    node: object,
+    key: string | symbol,
+    value: unknown,
+    apiName: string
+): void {
+    assertManagedKey(node, key, apiName);
+    (node as Record<string | symbol, unknown>)[key] = value;
+}
+
 /**
  * @internal
  * Builds a proxied object that emits changes when any value changes.
@@ -1116,12 +1154,13 @@ function buildProxyHandler<T extends TreeNode = TreeNode>(
     if (existing !== undefined) {
         return existing as BaseProxyHandler<T>;
     }
-    const proxyHandler = new BaseProxyHandler<T>(
-        object,
-        emitter,
-        parent ?? null
-    );
-    const proxy = new Proxy(object, proxyHandler) as TCustomProxy<T>;
+    const proxyHandler =
+        (object instanceof ReactiveNode
+            ? createRegisteredHandler(object, emitter, parent ?? null)
+            : undefined) ??
+        new BaseProxyHandler<T>(object, emitter, parent ?? null);
+    const proxy = proxyHandler.createBaseProxy();
+    const reactiveFields = proxyHandler.reactiveFields;
     proxyHandler.baseProxy = proxy;
     const reactiveObject = proxyHandler.reactiveObject;
     registerBaseProxy(object, proxyHandler);
@@ -1183,66 +1222,27 @@ function buildProxyHandler<T extends TreeNode = TreeNode>(
             Set.prototype.delete.call(object, replacement.previous);
             Set.prototype.add.call(object, replacement.next);
         }
+    } else if (reactiveFields !== undefined) {
+        // The compiler already separated reactive fields from @ignore and
+        // @link keys, so the walk covers exactly the reactive ones.
+        for (const prop of reactiveFields) {
+            adoptStoredField(proxyHandler, object, prop, emitter);
+        }
     } else {
         // The children record was created empty just above, so deferred
         // children need no bookkeeping here; they resolve through the lazy
         // read path. Checking laziness before descriptors keeps this walk
         // free of per-property descriptor allocations for plain data.
         for (const prop of Object.keys(object)) {
-            const storedValue = (object as Record<string, unknown>)[prop];
             if (
-                storedValue === null ||
-                (reactiveObject !== undefined &&
-                    (prop === COLLECTED_KEYS_SYMBOL ||
-                        reactiveObject[COLLECTED_KEYS_SYMBOL].has(prop) ||
-                        reactiveObject[LINKED_KEYS_SYMBOL].has(prop)))
+                reactiveObject !== undefined &&
+                (prop === COLLECTED_KEYS_SYMBOL ||
+                    reactiveObject[COLLECTED_KEYS_SYMBOL].has(prop) ||
+                    reactiveObject[LINKED_KEYS_SYMBOL].has(prop))
             ) {
                 continue;
-            } else if (typeof storedValue === "object") {
-                if (Object.isFrozen(storedValue)) {
-                    continue;
-                }
-                const storedHandler =
-                    getCustomProxyHandlerFromMetadata(storedValue);
-                if (
-                    storedHandler === undefined &&
-                    hasLazilyProxiedShape(storedValue) &&
-                    getManagedProxyForUnproxiedNode(storedValue) === undefined
-                ) {
-                    continue;
-                }
-                const value: object =
-                    storedHandler === undefined
-                        ? storedValue
-                        : storedHandler[unproxiedBaseNodeKey];
-                const descriptor = Reflect.getOwnPropertyDescriptor(
-                    object,
-                    prop
-                );
-                if (shouldKeepRawPropertyValue(descriptor, value)) {
-                    continue;
-                }
-                // Raw purity: a proxy the constructor stored is replaced by
-                // its raw node before the child edge is built.
-                if (
-                    storedHandler !== undefined &&
-                    descriptor !== undefined &&
-                    descriptorHasValue(descriptor)
-                ) {
-                    Reflect.defineProperty(object, prop, {
-                        ...descriptor,
-                        value,
-                    });
-                }
-                setProxiedChildHandler(
-                    proxyHandler,
-                    prop,
-                    buildProxyHandler(value, emitter, {
-                        handler: proxyHandler,
-                        propName: prop,
-                    })
-                );
             }
+            adoptStoredField(proxyHandler, object, prop, emitter);
         }
     }
     if (
@@ -1257,6 +1257,58 @@ function buildProxyHandler<T extends TreeNode = TreeNode>(
     return proxyHandler;
 }
 
+/** Builds the child edge for one stored field of a fresh object or ReactiveNode. */
+function adoptStoredField(
+    proxyHandler: BaseProxyHandler<TreeNode>,
+    object: object,
+    prop: string,
+    emitter: TreeChangeEmitter
+): void {
+    const storedValue = (object as Record<string, unknown>)[prop];
+    if (storedValue === null || typeof storedValue !== "object") {
+        return;
+    }
+    if (Object.isFrozen(storedValue)) {
+        return;
+    }
+    const storedHandler = getCustomProxyHandlerFromMetadata(storedValue);
+    if (
+        storedHandler === undefined &&
+        hasLazilyProxiedShape(storedValue) &&
+        getManagedProxyForUnproxiedNode(storedValue) === undefined
+    ) {
+        return;
+    }
+    const value: object =
+        storedHandler === undefined
+            ? storedValue
+            : storedHandler[unproxiedBaseNodeKey];
+    const descriptor = Reflect.getOwnPropertyDescriptor(object, prop);
+    if (shouldKeepRawPropertyValue(descriptor, value)) {
+        return;
+    }
+    // Raw purity: a proxy the constructor stored is replaced by its raw node
+    // before the child edge is built.
+    if (
+        storedHandler !== undefined &&
+        descriptor !== undefined &&
+        descriptorHasValue(descriptor)
+    ) {
+        Reflect.defineProperty(object, prop, {
+            ...descriptor,
+            value,
+        });
+    }
+    setProxiedChildHandler(
+        proxyHandler,
+        prop,
+        buildProxyHandler(value, emitter, {
+            handler: proxyHandler,
+            propName: prop,
+        })
+    );
+}
+
 function mapKeyAsPropName(key: unknown): string | symbol | null {
     if (typeof key === "string" || typeof key === "symbol") return key;
     return null;
@@ -1268,6 +1320,10 @@ function deleteProxiedChild(
 ) {
     const children = proxyHandler[proxiedChildrenKey];
     if (children === null) {
+        return;
+    }
+    if (proxyHandler instanceof BaseProxyHandler) {
+        proxyHandler.clearChild(prop);
         return;
     }
     Reflect.deleteProperty(children, prop);
@@ -1305,7 +1361,7 @@ const childrenCachePrototype: object = Object.freeze(
     Object.setPrototypeOf({}, null)
 );
 
-function createChildrenCache(): Record<string | symbol, any> {
+export function createChildrenCache(): Record<string | symbol, any> {
     return Object.create(childrenCachePrototype) as Record<
         string | symbol,
         any

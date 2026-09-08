@@ -13,6 +13,20 @@ describe("SDK runtime import boundaries", () => {
         );
         expect(imports).toHaveLength(3);
     });
+    it("keeps the optional compiler runtime out of core imports", () => {
+        expect(
+            findRuntimeTestImports(
+                "packages/retree-core/src/internals/proxy.ts",
+                "import { defineCompiledNode } from './compiled-node.js'; import '@retreejs/core/compiler-runtime';"
+            )
+        ).toHaveLength(2);
+        expect(
+            findRuntimeTestImports(
+                "packages/retree-core/src/compiler-runtime.ts",
+                "export * from './internals/compiled-node.js';"
+            )
+        ).toEqual([]);
+    });
     it("allows SDK dependencies and isolated test entrypoints", () => {
         expect(
             findRuntimeTestImports(

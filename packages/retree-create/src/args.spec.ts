@@ -102,6 +102,17 @@ describe("parseCliFlags", () => {
         );
     });
 
+    it("parses --compiler and --no-compiler", () => {
+        expect(parseCliFlags(["--compiler"]).compiler).toBe(true);
+        expect(parseCliFlags(["--no-compiler"]).compiler).toBe(false);
+        expect(() => parseCliFlags(["--compiler", "--no-compiler"])).toThrow(
+            "--compiler and --no-compiler were both passed. Pass only one of them."
+        );
+        expect(() => parseCliFlags(["--core-only", "--compiler"])).toThrow(
+            /--core-only and --compiler were both passed/
+        );
+    });
+
     it("throws when --core-only is combined with --eslint", () => {
         expect(() => parseCliFlags(["--core-only", "--eslint"])).toThrow(
             /--core-only and --eslint were both passed/
@@ -110,8 +121,18 @@ describe("parseCliFlags", () => {
 });
 
 describe("resolveSelectionsFromFlags", () => {
-    const detectedNone = { react: false, convex: false, eslint: false };
-    const detectedAll = { react: true, convex: true, eslint: true };
+    const detectedNone = {
+        react: false,
+        convex: false,
+        eslint: false,
+        compiler: false,
+    };
+    const detectedAll = {
+        react: true,
+        convex: true,
+        eslint: true,
+        compiler: true,
+    };
 
     it("returns undefined when no deciding flags are passed", () => {
         expect(
@@ -131,16 +152,34 @@ describe("resolveSelectionsFromFlags", () => {
                 parseCliFlags(["--core-only"]),
                 detectedAll
             )
-        ).toEqual({ react: false, convex: false, eslint: false, skill: false });
+        ).toEqual({
+            react: false,
+            convex: false,
+            eslint: false,
+            compiler: false,
+            skill: false,
+        });
     });
 
     it("uses detection defaults for --yes, with the skill on", () => {
         expect(
             resolveSelectionsFromFlags(parseCliFlags(["--yes"]), detectedAll)
-        ).toEqual({ react: true, convex: true, eslint: true, skill: true });
+        ).toEqual({
+            react: true,
+            convex: true,
+            eslint: true,
+            compiler: true,
+            skill: true,
+        });
         expect(
             resolveSelectionsFromFlags(parseCliFlags(["--yes"]), detectedNone)
-        ).toEqual({ react: false, convex: false, eslint: false, skill: true });
+        ).toEqual({
+            react: false,
+            convex: false,
+            eslint: false,
+            compiler: false,
+            skill: true,
+        });
     });
 
     it("lets --no-skill override the --yes skill default", () => {
@@ -149,13 +188,25 @@ describe("resolveSelectionsFromFlags", () => {
                 parseCliFlags(["--yes", "--no-skill"]),
                 detectedNone
             )
-        ).toEqual({ react: false, convex: false, eslint: false, skill: false });
+        ).toEqual({
+            react: false,
+            convex: false,
+            eslint: false,
+            compiler: false,
+            skill: false,
+        });
     });
 
     it("treats explicit feature flags as the full selection, skill off", () => {
         expect(
             resolveSelectionsFromFlags(parseCliFlags(["--react"]), detectedAll)
-        ).toEqual({ react: true, convex: false, eslint: false, skill: false });
+        ).toEqual({
+            react: true,
+            convex: false,
+            eslint: false,
+            compiler: false,
+            skill: false,
+        });
     });
 
     it("adds the skill to explicit feature flags with --skill", () => {
@@ -164,7 +215,13 @@ describe("resolveSelectionsFromFlags", () => {
                 parseCliFlags(["--convex", "--skill"]),
                 detectedNone
             )
-        ).toEqual({ react: false, convex: true, eslint: false, skill: true });
+        ).toEqual({
+            react: false,
+            convex: true,
+            eslint: false,
+            compiler: false,
+            skill: true,
+        });
     });
 
     it("fills unset features from detection when --yes accompanies a feature flag", () => {
@@ -173,8 +230,15 @@ describe("resolveSelectionsFromFlags", () => {
                 react: false,
                 convex: true,
                 eslint: true,
+                compiler: true,
             })
-        ).toEqual({ react: true, convex: true, eslint: true, skill: true });
+        ).toEqual({
+            react: true,
+            convex: true,
+            eslint: true,
+            compiler: true,
+            skill: true,
+        });
     });
 
     it("lets --no-eslint override the detected --yes default", () => {
@@ -183,6 +247,27 @@ describe("resolveSelectionsFromFlags", () => {
                 parseCliFlags(["--yes", "--no-eslint"]),
                 detectedAll
             )
-        ).toEqual({ react: true, convex: true, eslint: false, skill: true });
+        ).toEqual({
+            react: true,
+            convex: true,
+            eslint: false,
+            compiler: true,
+            skill: true,
+        });
+    });
+
+    it("lets --no-compiler override the detected --yes default", () => {
+        expect(
+            resolveSelectionsFromFlags(
+                parseCliFlags(["--yes", "--no-compiler"]),
+                detectedAll
+            )
+        ).toEqual({
+            react: true,
+            convex: true,
+            eslint: true,
+            compiler: false,
+            skill: true,
+        });
     });
 });

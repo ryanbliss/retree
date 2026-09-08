@@ -20,6 +20,17 @@ export function findRuntimeTestImports(file, source) {
         const target = specifier.startsWith(".")
             ? resolve(dirname(file), specifier)
             : specifier;
+        const coreRuntime =
+            /packages\/retree-core\/src\//.test(file) &&
+            !/(?:compiler-runtime|compiled-node)\.[jt]s$/.test(file);
+        if (
+            coreRuntime &&
+            /(?:compiler-runtime|compiled-node)(?:\.[cm]?[jt]s)?$/.test(target)
+        ) {
+            errors.push(
+                `${file}: core must not import the optional compiler runtime '${specifier}'`
+            );
+        }
         const framework =
             /^(?:vitest(?:\/|$)|@vitest\/|@testing-library\/|@jest\/|jest$|node:test$)/.test(
                 specifier
@@ -90,7 +101,7 @@ async function audit() {
         }
     }
     if (errors.length > 0) throw new Error(errors.join("\n"));
-    console.log("SDK runtime/test import boundaries passed.");
+    console.log("SDK runtime import boundaries passed.");
 }
 
 if (

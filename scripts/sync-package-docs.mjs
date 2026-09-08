@@ -22,6 +22,7 @@ const packageDirectories = [
     "packages/retree-benchmark-cli",
     "packages/retree-create",
     "packages/retree-react-eslint-plugin",
+    "packages/retree-babel-plugin-compiler",
 ];
 
 const rawArgs = process.argv.slice(2);

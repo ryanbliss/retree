@@ -6,6 +6,8 @@ export interface FeatureDefaults {
     convex: boolean;
     eslint: boolean;
     eslintAvailable: boolean;
+    compiler: boolean;
+    compilerAvailable: boolean;
 }
 
 export interface PromptAdapter {
@@ -14,7 +16,7 @@ export interface PromptAdapter {
     confirmTsconfigDecoratorFix(): Promise<boolean>;
 }
 
-type FeatureValue = "react" | "convex" | "eslint" | "skill";
+type FeatureValue = "react" | "convex" | "eslint" | "compiler" | "skill";
 
 export function createInquirerPromptAdapter(): PromptAdapter {
     return {
@@ -47,6 +49,16 @@ export function createInquirerPromptAdapter(): PromptAdapter {
                             "Catch Retree reads beyond a component's subscription",
                     },
                     {
+                        name: "ReactiveNode compiler (@retreejs/babel-plugin-compiler)",
+                        value: "compiler",
+                        checked: defaults.compiler,
+                        disabled: defaults.compilerAvailable
+                            ? false
+                            : "Requires a Babel config",
+                        description:
+                            "Babel plugin that compiles ReactiveNode classes past the Proxy path",
+                    },
+                    {
                         name: "Retree AI skill",
                         value: "skill",
                         checked: true,
@@ -59,6 +71,7 @@ export function createInquirerPromptAdapter(): PromptAdapter {
                 react: values.includes("react"),
                 convex: values.includes("convex"),
                 eslint: values.includes("eslint"),
+                compiler: values.includes("compiler"),
                 skill: values.includes("skill"),
             };
         },

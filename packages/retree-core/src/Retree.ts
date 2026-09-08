@@ -22,6 +22,11 @@ import {
     TCustomProxy,
     unproxiedBaseNodeKey,
 } from "./internals/proxy-types.js";
+import {
+    assertManagedKey,
+    deleteManagedKey,
+    setManagedKey,
+} from "./internals/proxy.js";
 import { getStructureVersion } from "./internals/snapshot-version.js";
 import {
     deleteReactiveDependencies,
@@ -613,6 +618,9 @@ export class Retree {
             );
         }
 
+        if (typeof key === "string" || typeof key === "symbol") {
+            assertManagedKey(destination, key, "Retree.move");
+        }
         const nodeToMove = getBaseProxy(node);
         Retree.runTransaction(() => {
             this.removeNodeFromParent(nodeToMove, parent.proxyNode);
@@ -1629,7 +1637,8 @@ export class Retree {
         } else if (node instanceof Set) {
             children = [...node.values()];
         } else {
-            children = Object.values(node);
+            const raw = getUnproxiedNode(node) ?? node;
+            children = Object.keys(raw).map((key) => Reflect.get(node, key));
         }
         children.forEach((child) => {
             if (child === null || typeof child !== "object") {
@@ -2218,7 +2227,7 @@ export class Retree {
                 )} no longer points to the node being moved. Call Retree.move(...) before deleting or overwriting the old property.`
             );
         }
-        delete (parent as any)[parentInfo.propName];
+        deleteManagedKey(parent, parentInfo.propName);
     }
 
     private static insertNodeIntoDestination(
@@ -2263,7 +2272,7 @@ export class Retree {
                 "Retree.move: object destinations require a string or symbol key. Pass the destination property name as the third argument."
             );
         }
-        (destination as any)[key] = node;
+        setManagedKey(destination, key, node, "Retree.move");
     }
 
     private static findArrayChildIndex(parent: TreeNode[], node: TreeNode) {
@@ -2455,7 +2464,14 @@ export class Retree {
             );
             return;
         }
-        this.handleReactiveNode(proxiedDependentNode, unproxiedDependentNode);
+        // A newly observed dependency can emit synchronously. Install all
+        // edges before delivering those writes so later edges cannot miss them.
+        this.runTransaction(() =>
+            this.handleReactiveNode(
+                proxiedDependentNode,
+                unproxiedDependentNode
+            )
+        );
     }
 
     /**

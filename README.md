@@ -55,6 +55,7 @@ Each decorator has a non-decorator equivalent (`this.memo(...)`, the `dependenci
 -   [`@retreejs/react-convex`](packages/retree-react-convex#readme) adapts Convex's `ConvexReactClient` for React apps that want one client instance for both Convex React and Retree, plus a Next.js RSC preload helper.
 -   [`@retreejs/devtools`](packages/retree-devtools#readme) bridges Retree to the Redux DevTools Extension and exposes a structured change-log tap.
 -   [`@retreejs/react-eslint-plugin`](packages/retree-react-eslint-plugin#readme) catches React render reads that go beyond the Retree node a component observes.
+-   [`@retreejs/babel-plugin-compiler`](packages/retree-babel-plugin-compiler#readme) is a Babel plugin that compiles `ReactiveNode` classes past the Proxy path.
 
 ## Feature glossary
 

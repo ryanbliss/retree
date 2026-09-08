@@ -90,7 +90,7 @@ describe("publish package selection", () => {
 
     it("lists every allowed package when selection is unknown", () => {
         expect(() => selectPackagesToPublish("@retreejs/missing")).toThrow(
-            "Publish arguments: unknown package @retreejs/missing. Expected one of: @retreejs/core, @retreejs/query, @retreejs/react, @retreejs/devtools, @retreejs/convex, @retreejs/react-convex, @retreejs/create, @retreejs/react-eslint-plugin."
+            "Publish arguments: unknown package @retreejs/missing. Expected one of: @retreejs/core, @retreejs/query, @retreejs/react, @retreejs/devtools, @retreejs/convex, @retreejs/react-convex, @retreejs/create, @retreejs/react-eslint-plugin, @retreejs/babel-plugin-compiler."
         );
     });
 

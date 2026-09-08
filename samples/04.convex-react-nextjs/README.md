@@ -29,3 +29,17 @@ cd samples/04.convex-react-nextjs
 npx convex dev   # provisions a dev deployment and writes .env.local
 npm run dev      # in a second terminal
 ```
+
+## Compiled React tests
+
+From the repository root, run:
+
+```sh
+npx vitest run samples/04.convex-react-nextjs/app/page.spec.tsx
+```
+
+The tests use this sample's `.babelrc`, assert the real view models use
+compiled handlers, and exercise the page's form, filtering, query updates,
+cached results, and subscription cleanup. Only the Convex transport is
+stubbed; Retree, React, and the view models run normally. The compiler
+package does not depend on React.

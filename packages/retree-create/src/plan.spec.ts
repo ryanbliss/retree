@@ -17,6 +17,7 @@ function selections(
         react: false,
         convex: false,
         eslint: false,
+        compiler: false,
         skill: false,
         ...overrides,
     };
@@ -31,6 +32,23 @@ describe("resolveInstallPlan", () => {
         expect(plan.warnMissingReact).toBe(false);
         expect(plan.skillCommand).toBeUndefined();
         expect(plan.eslintInstallCommand).toBeUndefined();
+        expect(plan.compilerInstallCommand).toBeUndefined();
+    });
+
+    it("installs the compiler as a dev dependency", () => {
+        const plan = resolveInstallPlan(
+            selections({ compiler: true }),
+            bareTarget,
+            "pnpm"
+        );
+        expect(plan.compilerInstallCommand).toEqual({
+            command: "pnpm",
+            args: [
+                "add",
+                "--save-dev",
+                "@retreejs/babel-plugin-compiler@latest",
+            ],
+        });
     });
 
     it("adds @retreejs/react when react is selected", () => {
