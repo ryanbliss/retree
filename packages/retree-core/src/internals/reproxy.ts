@@ -22,6 +22,7 @@ import {
 import { ReactiveKeyRole, readReactiveNodeGetter } from "./memo.js";
 import {
     ArrayReadMethodName,
+    isDigitLedKey,
     isNativeArrayReadAccess,
     wrapArrayRead,
 } from "./array-read.js";
@@ -411,10 +412,8 @@ class ReproxyHandler<T extends TreeNode>
         if (kind >= NodeKind.Map) {
             return base.get(target, prop, baseProxy);
         }
-        if (
-            kind === NodeKind.Array &&
-            isNativeArrayMutatorAccess(target, prop)
-        ) {
+        const arrayMethodRead = kind === NodeKind.Array && !isDigitLedKey(prop);
+        if (arrayMethodRead && isNativeArrayMutatorAccess(target, prop)) {
             const baseMutator: unknown = base.get(target, prop, baseProxy);
             if (typeof baseMutator !== "function") {
                 // @retree-throws
@@ -427,7 +426,7 @@ class ReproxyHandler<T extends TreeNode>
             return this.getReproxyAwareArrayMutator(prop, baseMutator);
         }
         if (
-            kind === NodeKind.Array &&
+            arrayMethodRead &&
             isNativeArrayReadAccess(target, prop) &&
             Array.isArray(target)
         ) {

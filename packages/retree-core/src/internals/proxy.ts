@@ -35,6 +35,7 @@ import {
 } from "./memo.js";
 import {
     ArrayReadMethodName,
+    isDigitLedKey,
     isNativeArrayReadAccess,
     wrapArrayRead,
 } from "./array-read.js";
@@ -532,24 +533,25 @@ export class BaseProxyHandler<T extends TreeNode>
             }
             return trackPropertyAccessIfNeeded(this, baseProxy, prop, value);
         }
-        if (
-            kind === NodeKind.Array &&
-            typeof prop === "string" &&
-            isArrayMutatingMethod(prop) &&
-            Array.isArray(target) &&
-            Reflect.get(target, prop, target) === ARRAY_MUTATING_METHODS[prop]
-        ) {
-            // Same dependency-tracking treatment as any other function read,
-            // and a per-(handler, method) cached wrapper so the mutator's
-            // identity is stable across reads.
-            return trackAccessIfNeeded(this.getArrayMutator(prop, target));
-        }
-        if (
-            kind === NodeKind.Array &&
-            isNativeArrayReadAccess(target, prop) &&
-            Array.isArray(target)
-        ) {
-            return trackAccessIfNeeded(this.getArrayReader(prop, target));
+        if (kind === NodeKind.Array && !isDigitLedKey(prop)) {
+            if (
+                typeof prop === "string" &&
+                isArrayMutatingMethod(prop) &&
+                Array.isArray(target) &&
+                Reflect.get(target, prop, target) ===
+                    ARRAY_MUTATING_METHODS[prop]
+            ) {
+                // Same dependency-tracking treatment as any other function
+                // read, and a per-(handler, method) cached wrapper so the
+                // mutator's identity is stable across reads.
+                return trackAccessIfNeeded(this.getArrayMutator(prop, target));
+            }
+            if (
+                isNativeArrayReadAccess(target, prop) &&
+                Array.isArray(target)
+            ) {
+                return trackAccessIfNeeded(this.getArrayReader(prop, target));
+            }
         }
         let value: any;
         if (
