@@ -143,4 +143,16 @@ describe("reproxy internals", () => {
 
         expect(root.value).toBe(1);
     });
+
+    it("registers handlers on non-extensible raw nodes and resolves them by raw identity", () => {
+        const root = Retree.root({
+            child: Object.preventExtensions({ value: 1 }),
+        });
+        const child = root.child;
+        const raw = Retree.raw(child);
+
+        expect(Object.isExtensible(raw)).toBe(false);
+        expect(Retree.managed(raw)).toBe(child);
+        expect(Reflect.ownKeys(raw)).toEqual(["value"]);
+    });
 });

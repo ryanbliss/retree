@@ -41,10 +41,32 @@ import { advanceSnapshotVersions } from "./snapshot-version.js";
 import { bumpGlobalWriteVersion } from "./write-version.js";
 
 /**
- * Raw node to its base handler. The handler carries the node's view state
- * (`view`, `viewDirty`), so this is the only per-node registry.
+ * A managed raw node carries its base handler in a private field that
+ * {@link HandlerStamp} adds to the node itself (a derived constructor
+ * returning its argument installs the field on that argument). The handler
+ * carries the node's view state (`view`, `viewDirty`), so this is the only
+ * per-node registry. Private fields stay out of key walks, copies, and
+ * equality checks, work on non-extensible nodes, and unlike a WeakMap add
+ * no ephemeron table that rehashes after garbage collection.
  */
-const managedHandlers = new WeakMap<TreeNode, BaseProxyHandler<TreeNode>>();
+class HandlerHost {
+    constructor(raw: TreeNode) {
+        return raw;
+    }
+}
+
+class HandlerStamp extends HandlerHost {
+    #handler: BaseProxyHandler<TreeNode>;
+
+    constructor(raw: TreeNode, handler: BaseProxyHandler<TreeNode>) {
+        super(raw);
+        this.#handler = handler;
+    }
+
+    static read(raw: TreeNode): BaseProxyHandler<TreeNode> | undefined {
+        return #handler in raw ? raw.#handler : undefined;
+    }
+}
 
 function currentView<T extends TreeNode>(
     handler: BaseProxyHandler<T>
@@ -67,7 +89,7 @@ export function resolveBaseHandler<T extends TreeNode>(
     if (handler instanceof BaseProxyHandler) {
         return handler;
     }
-    const base = managedHandlers.get(handler[unproxiedBaseNodeKey]);
+    const base = getBaseHandlerForUnproxiedNode(handler[unproxiedBaseNodeKey]);
     if (base === undefined) {
         // @retree-throws
         throw new Error(
@@ -114,14 +136,14 @@ export function registerBaseProxy<T extends TreeNode = TreeNode>(
     unproxiedNode: T,
     handler: BaseProxyHandler<T>
 ): void {
-    managedHandlers.set(unproxiedNode, handler);
+    new HandlerStamp(unproxiedNode, handler);
 }
 
 /** Base handler of a managed raw node, without a proxy trap. */
 export function getBaseHandlerForUnproxiedNode(
     unproxiedNode: TreeNode
 ): BaseProxyHandler<TreeNode> | undefined {
-    return managedHandlers.get(unproxiedNode);
+    return HandlerStamp.read(unproxiedNode);
 }
 
 export function updateReproxyNode<T extends TreeNode = TreeNode>(
@@ -148,7 +170,7 @@ export function updateReproxyNode<T extends TreeNode = TreeNode>(
  * metadata skip the sentinel trap a proxy lookup would pay.
  */
 export function invalidateReproxyNodeForUnproxiedNode(raw: TreeNode): void {
-    const base = managedHandlers.get(raw);
+    const base = getBaseHandlerForUnproxiedNode(raw);
     if (base === undefined)
         throw new Error(
             "invalidateReproxyNodeForUnproxiedNode: missing managed node record."
@@ -186,7 +208,7 @@ export function getReproxyNode<T extends TreeNode = TreeNode>(node: T): T {
 export function getReproxyNodeForUnproxiedNode<T extends TreeNode = TreeNode>(
     unproxiedNode: T
 ): TCustomProxy<T> | undefined {
-    const base = managedHandlers.get(unproxiedNode);
+    const base = getBaseHandlerForUnproxiedNode(unproxiedNode);
     if (base === undefined) return undefined;
     return (currentView(base) ?? undefined) as TCustomProxy<T> | undefined;
 }
@@ -194,7 +216,7 @@ export function getReproxyNodeForUnproxiedNode<T extends TreeNode = TreeNode>(
 export function getManagedProxyForUnproxiedNode<T extends TreeNode = TreeNode>(
     unproxiedNode: T
 ): TCustomProxy<T> | undefined {
-    const base = managedHandlers.get(unproxiedNode);
+    const base = getBaseHandlerForUnproxiedNode(unproxiedNode);
     if (base === undefined) return undefined;
     return (currentView(base) ?? base.baseProxy) as TCustomProxy<T>;
 }
