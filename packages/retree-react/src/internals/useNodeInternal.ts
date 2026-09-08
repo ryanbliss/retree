@@ -21,8 +21,8 @@ import {
 } from "./useNodeInternalCore.js";
 
 const operations: UseNodeInternalOperations = {
-    getRenderBaseProxy(_listenerType, node) {
-        return getBaseProxy(node);
+    getRenderBaseProxy(_listenerType, node, hookName) {
+        return getBaseProxy(node, hookName);
     },
     getRenderReproxyNode(_listenerType, node) {
         return getReproxyNode(node);

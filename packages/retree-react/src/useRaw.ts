@@ -150,7 +150,7 @@ export function useRaw<TNode extends TreeNode>(
     const memoNode = useMemo(() => {
         return getNode(node);
     }, [node]);
-    const baseProxy = getBaseProxy(memoNode);
+    const baseProxy = getBaseProxy(memoNode, "useRaw");
     useNodeFactoryResetWarning("useRaw", node, baseProxy);
     const listenerType = options?.listenerType ?? "nodeChanged";
 

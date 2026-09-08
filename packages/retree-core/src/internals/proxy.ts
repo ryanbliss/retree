@@ -3348,17 +3348,42 @@ export function getUnproxiedNode<TNode extends TreeNode = TreeNode>(
  * Gets the base proxied object, aka meaning the non reproxied object.
  *
  * @param node node to check
+ * @param apiName Optional. Name of the public API the node was passed to.
+ * Supplying it turns the internal invariant into an error that names the call
+ * the caller made, which is the only useful message when the value came
+ * straight from application code.
  * @returns the base proxied object
  */
 export function getBaseProxy<T extends TreeNode = TreeNode>(
-    node: T
+    node: T,
+    apiName?: string
 ): TCustomProxy<T> {
     const handler = getCustomProxyHandlerFromMetadata<T>(node);
     if (handler !== undefined) {
         return handler.baseProxy;
     }
+    if (apiName !== undefined) {
+        // @retree-throws
+        throw new Error(
+            `${apiName}: expected a Retree-managed node but received ${describeUnmanagedValue(
+                node
+            )}. Pass an object returned by Retree.root(...) or read a child from an existing Retree tree.`
+        );
+    }
     // @retree-throws
     throw new Error(
         "Retree internal invariant failed: expected a Retree-managed proxy but received an unproxied object. This is unexpected if it came from a public Retree API. Fix: pass objects returned by Retree.root(...) or children read from a Retree tree; if that is already true, file a Retree issue with the operation that triggered this."
     );
+}
+
+/** Names what arrived instead of a node, for {@link getBaseProxy}'s error. */
+function describeUnmanagedValue(value: unknown): string {
+    if (value === null) return "null";
+    if (value === undefined) return "undefined";
+    if (typeof value !== "object") return `a ${typeof value}`;
+    if (Array.isArray(value)) return "an unmanaged array";
+    const name = value.constructor?.name;
+    if (name === undefined) return "an unmanaged object";
+    if (name === "Object") return "an unmanaged object";
+    return `an unmanaged ${name}`;
 }
