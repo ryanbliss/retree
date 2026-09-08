@@ -93,6 +93,17 @@ function readArrayElement(
     if (value === null || typeof value !== "object") {
         return value;
     }
+    return resolveArrayElement(handler, target, index, value, asView);
+}
+
+/** The object stored at `index`, served the way the get trap serves it. */
+function resolveArrayElement(
+    handler: BaseProxyHandler<TreeNode>,
+    target: unknown[],
+    index: number,
+    value: object,
+    asView: boolean
+): unknown {
     const children = handler[proxiedChildrenKey];
     const child = children === null ? undefined : children[index];
     if (child !== undefined) {
@@ -142,40 +153,79 @@ type ArrayReadCallback = (
     array: TCustomProxy<TreeNode>
 ) => unknown;
 
+/** What a walk yields for a hole: the callback methods skip it. */
+const HOLE: unique symbol = Symbol("retree.hole");
+
 /**
- * Walk the raw array like the native callback methods do: the length is
- * read once up front, holes are skipped, and elements are read live so a
- * callback that writes to the array observes its own writes. `visit`
- * returns true to stop early. Walks in `[from, to)`.
+ * Start of a walk like the native callback methods do it: the length is
+ * read once up front. Returns whether the walk's reads are being tracked.
  */
-function walkArray(
+function beginWalk(
     handler: BaseProxyHandler<TreeNode>,
-    target: unknown[],
-    asView: boolean,
-    visit: (element: unknown, index: number) => boolean,
-    from = 0,
-    to = target.length
-): void {
+    target: unknown[]
+): boolean {
     const tracking = isDependencyTrackingActive();
     if (tracking) {
         trackLengthRead(handler, target.length);
     }
-    for (let index = from; index < to; index++) {
-        if (!(index in target)) {
-            if (tracking) {
-                // A filled hole changes this read, so record it.
-                trackElementRead(handler, index, undefined);
-            }
+    return tracking;
+}
+
+/**
+ * Element `index` of a walk, read live so a callback that writes to the
+ * array observes its own writes, or {@link HOLE}. A tracked walk records
+ * a hole as an `undefined` read, since filling it changes the walk.
+ */
+function walkElement(
+    handler: BaseProxyHandler<TreeNode>,
+    target: unknown[],
+    index: number,
+    asView: boolean,
+    tracking: boolean
+): unknown {
+    const value = target[index];
+    if (value === undefined && !(index in target)) {
+        if (tracking) {
+            trackElementRead(handler, index, undefined);
+        }
+        return HOLE;
+    }
+    const element =
+        value === null || typeof value !== "object"
+            ? value
+            : resolveArrayElement(handler, target, index, value, asView);
+    if (tracking) {
+        trackElementRead(handler, index, element);
+    }
+    return element;
+}
+
+/**
+ * The first index in the walk whose callback result is truthy (or falsy,
+ * for `every`), or -1. Serves `findIndex`, `some`, and `every`; `find`
+ * keeps its own loop so it returns the element the callback saw.
+ */
+function walkUntil(
+    handler: BaseProxyHandler<TreeNode>,
+    target: unknown[],
+    asView: boolean,
+    callback: ArrayReadCallback,
+    thisArg: unknown,
+    self: TCustomProxy<TreeNode>,
+    stopOn: boolean
+): number {
+    const tracking = beginWalk(handler, target);
+    const length = target.length;
+    for (let index = 0; index < length; index++) {
+        const element = walkElement(handler, target, index, asView, tracking);
+        if (element === HOLE) {
             continue;
         }
-        const element = readArrayElement(handler, target, index, asView);
-        if (tracking) {
-            trackElementRead(handler, index, element);
-        }
-        if (visit(element, index)) {
-            return;
+        if (!!callback.call(thisArg, element, index, self) === stopOn) {
+            return index;
         }
     }
+    return -1;
 }
 
 /** `ToIntegerOrInfinity` from the spec: the integer an index argument means. */
@@ -335,10 +385,20 @@ export function wrapArrayRead(
                 thisArg?: unknown
             ): void {
                 assertCallable(prop, callback);
-                walkArray(handler, target, asView, (element, index) => {
-                    callback.call(thisArg, element, index, self);
-                    return false;
-                });
+                const tracking = beginWalk(handler, target);
+                const length = target.length;
+                for (let index = 0; index < length; index++) {
+                    const element = walkElement(
+                        handler,
+                        target,
+                        index,
+                        asView,
+                        tracking
+                    );
+                    if (element !== HOLE) {
+                        callback.call(thisArg, element, index, self);
+                    }
+                }
             };
         case "map":
             return function mapWrapper(
@@ -346,16 +406,26 @@ export function wrapArrayRead(
                 thisArg?: unknown
             ): unknown[] {
                 assertCallable(prop, callback);
-                const result: unknown[] = new Array(target.length);
-                walkArray(handler, target, asView, (element, index) => {
-                    result[index] = callback.call(
-                        thisArg,
-                        element,
+                const tracking = beginWalk(handler, target);
+                const length = target.length;
+                const result: unknown[] = new Array(length);
+                for (let index = 0; index < length; index++) {
+                    const element = walkElement(
+                        handler,
+                        target,
                         index,
-                        self
+                        asView,
+                        tracking
                     );
-                    return false;
-                });
+                    if (element !== HOLE) {
+                        result[index] = callback.call(
+                            thisArg,
+                            element,
+                            index,
+                            self
+                        );
+                    }
+                }
                 return result;
             };
         case "filter":
@@ -364,13 +434,24 @@ export function wrapArrayRead(
                 thisArg?: unknown
             ): unknown[] {
                 assertCallable(prop, callback);
+                const tracking = beginWalk(handler, target);
+                const length = target.length;
                 const result: unknown[] = [];
-                walkArray(handler, target, asView, (element, index) => {
+                for (let index = 0; index < length; index++) {
+                    const element = walkElement(
+                        handler,
+                        target,
+                        index,
+                        asView,
+                        tracking
+                    );
+                    if (element === HOLE) {
+                        continue;
+                    }
                     if (callback.call(thisArg, element, index, self)) {
                         result.push(element);
                     }
-                    return false;
-                });
+                }
                 return result;
             };
         case "find":
@@ -379,15 +460,24 @@ export function wrapArrayRead(
                 thisArg?: unknown
             ): unknown {
                 assertCallable(prop, callback);
-                let found: unknown = undefined;
-                walkArray(handler, target, asView, (element, index) => {
-                    if (!callback.call(thisArg, element, index, self)) {
-                        return false;
+                const tracking = beginWalk(handler, target);
+                const length = target.length;
+                for (let index = 0; index < length; index++) {
+                    const element = walkElement(
+                        handler,
+                        target,
+                        index,
+                        asView,
+                        tracking
+                    );
+                    if (element === HOLE) {
+                        continue;
                     }
-                    found = element;
-                    return true;
-                });
-                return found;
+                    if (callback.call(thisArg, element, index, self)) {
+                        return element;
+                    }
+                }
+                return undefined;
             };
         case "findIndex":
             return function findIndexWrapper(
@@ -395,15 +485,15 @@ export function wrapArrayRead(
                 thisArg?: unknown
             ): number {
                 assertCallable(prop, callback);
-                let found = -1;
-                walkArray(handler, target, asView, (element, index) => {
-                    if (!callback.call(thisArg, element, index, self)) {
-                        return false;
-                    }
-                    found = index;
-                    return true;
-                });
-                return found;
+                return walkUntil(
+                    handler,
+                    target,
+                    asView,
+                    callback,
+                    thisArg,
+                    self,
+                    true
+                );
             };
         case "some":
             return function someWrapper(
@@ -411,15 +501,17 @@ export function wrapArrayRead(
                 thisArg?: unknown
             ): boolean {
                 assertCallable(prop, callback);
-                let result = false;
-                walkArray(handler, target, asView, (element, index) => {
-                    if (!callback.call(thisArg, element, index, self)) {
-                        return false;
-                    }
-                    result = true;
-                    return true;
-                });
-                return result;
+                return (
+                    walkUntil(
+                        handler,
+                        target,
+                        asView,
+                        callback,
+                        thisArg,
+                        self,
+                        true
+                    ) !== -1
+                );
             };
         case "every":
             return function everyWrapper(
@@ -427,15 +519,17 @@ export function wrapArrayRead(
                 thisArg?: unknown
             ): boolean {
                 assertCallable(prop, callback);
-                let result = true;
-                walkArray(handler, target, asView, (element, index) => {
-                    if (callback.call(thisArg, element, index, self)) {
-                        return false;
-                    }
-                    result = false;
-                    return true;
-                });
-                return result;
+                return (
+                    walkUntil(
+                        handler,
+                        target,
+                        asView,
+                        callback,
+                        thisArg,
+                        self,
+                        false
+                    ) === -1
+                );
             };
         case "reduce":
             return function reduceWrapper(
@@ -448,9 +542,21 @@ export function wrapArrayRead(
                 ...initial: unknown[]
             ): unknown {
                 assertCallable(prop, callback);
+                const tracking = beginWalk(handler, target);
+                const length = target.length;
                 let hasAccumulator = initial.length > 0;
                 let accumulator: unknown = initial[0];
-                walkArray(handler, target, asView, (element, index) => {
+                for (let index = 0; index < length; index++) {
+                    const element = walkElement(
+                        handler,
+                        target,
+                        index,
+                        asView,
+                        tracking
+                    );
+                    if (element === HOLE) {
+                        continue;
+                    }
                     if (hasAccumulator) {
                         accumulator = callback(
                             accumulator,
@@ -458,12 +564,11 @@ export function wrapArrayRead(
                             index,
                             self
                         );
-                        return false;
+                        continue;
                     }
                     accumulator = element;
                     hasAccumulator = true;
-                    return false;
-                });
+                }
                 if (!hasAccumulator) {
                     // @retree-throws
                     throw new TypeError(
@@ -478,12 +583,24 @@ export function wrapArrayRead(
                 thisArg?: unknown
             ): unknown[] {
                 assertCallable(prop, callback);
+                const tracking = beginWalk(handler, target);
+                const length = target.length;
                 const result: unknown[] = [];
-                walkArray(handler, target, asView, (element, index) => {
+                for (let index = 0; index < length; index++) {
+                    const element = walkElement(
+                        handler,
+                        target,
+                        index,
+                        asView,
+                        tracking
+                    );
+                    if (element === HOLE) {
+                        continue;
+                    }
                     const mapped = callback.call(thisArg, element, index, self);
                     if (!Array.isArray(mapped)) {
                         result.push(mapped);
-                        return false;
+                        continue;
                     }
                     // One level, like the native: present inner elements
                     // are read through whatever `mapped` is.
@@ -492,8 +609,7 @@ export function wrapArrayRead(
                             result.push(mapped[inner]);
                         }
                     }
-                    return false;
-                });
+                }
                 return result;
             };
         case "indexOf":
@@ -564,17 +680,19 @@ export function wrapArrayRead(
                         ? length
                         : clampRelativeIndex(toIntegerOrInfinity(end), length);
                 const result: unknown[] = new Array(Math.max(to - from, 0));
-                walkArray(
-                    handler,
-                    target,
-                    asView,
-                    (element, index) => {
+                const tracking = beginWalk(handler, target);
+                for (let index = from; index < to; index++) {
+                    const element = walkElement(
+                        handler,
+                        target,
+                        index,
+                        asView,
+                        tracking
+                    );
+                    if (element !== HOLE) {
                         result[index - from] = element;
-                        return false;
-                    },
-                    from,
-                    to
-                );
+                    }
+                }
                 return result;
             };
         case "keys":

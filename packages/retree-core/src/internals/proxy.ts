@@ -28,6 +28,7 @@ import {
 } from "./proxy-types.js";
 import {
     buildReactiveKeyRoles,
+    hasKeylessMemoPrototype,
     ReactiveKeyRole,
     readReactiveNodeGetter,
 } from "./memo.js";
@@ -41,7 +42,7 @@ import {
     getBaseHandlerForUnproxiedNode,
     getBaseHandlerOfProxy,
     getManagedProxyForUnproxiedNode,
-    getReproxyNode,
+    latestIdentityOfHandler,
     registerBaseProxy,
     resolveBaseHandler,
     updateReproxyNode,
@@ -274,8 +275,9 @@ export function getLatestIgnoredValue(value: unknown) {
     if (value === null || typeof value !== "object") {
         return value;
     }
-    if (isCustomProxy(value)) {
-        return getReproxyNode(value);
+    const handler = getCustomProxyHandlerFromMetadata(value);
+    if (handler !== undefined) {
+        return latestIdentityOfHandler(handler);
     }
     // A frozen value is a leaf wherever it is stored.
     if (Object.isFrozen(value)) {
@@ -287,13 +289,14 @@ export function getLatestIgnoredValue(value: unknown) {
 }
 
 export function getLatestLinkedValue(value: unknown) {
-    if (isCustomProxy(value)) {
-        return getReproxyNode(value);
+    if (value === null || typeof value !== "object") {
+        return value;
     }
-    if (value !== null && typeof value === "object") {
-        return getManagedProxyForUnproxiedNode(value as TreeNode) ?? value;
+    const handler = getCustomProxyHandlerFromMetadata(value);
+    if (handler !== undefined) {
+        return latestIdentityOfHandler(handler);
     }
-    return value;
+    return getManagedProxyForUnproxiedNode(value as TreeNode) ?? value;
 }
 
 function assertValidLinkedValue(prop: string | symbol, value: unknown) {
@@ -356,6 +359,8 @@ export class BaseProxyHandler<T extends TreeNode>
         string | symbol,
         ReactiveKeyRole
     > | null;
+    /** Set once the node's class is known to use keyless `this.memo(fn)`; getter reads then push a frame. */
+    public keyless: boolean;
     private isApplyingSet = false;
     public caches: IHandlerCaches | null = null;
 
@@ -387,6 +392,9 @@ export class BaseProxyHandler<T extends TreeNode>
             reactiveObject === undefined || reactiveFields !== undefined
                 ? null
                 : buildReactiveKeyRoles(reactiveObject);
+        this.keyless =
+            reactiveObject !== undefined &&
+            hasKeylessMemoPrototype(reactiveObject);
     }
 
     public get reactiveFields(): readonly string[] | undefined {
@@ -562,7 +570,12 @@ export class BaseProxyHandler<T extends TreeNode>
             // A getter may need a memo-getter frame so a keyless
             // `this.memo(fn, deps)` inside it can derive its cache key from
             // `prop`; classes that never use keyless memo skip the frame.
-            value = readReactiveNodeGetter(this.reactiveObject, prop, receiver);
+            value = readReactiveNodeGetter(
+                this,
+                this.reactiveObject,
+                prop,
+                receiver
+            );
         } else {
             value = Reflect.get(target, prop, receiver);
         }
@@ -576,10 +589,14 @@ export class BaseProxyHandler<T extends TreeNode>
                 this.getBoundFunction(prop, value, baseProxy)
             );
         }
+        // A getter result is not a stored slot: a managed node it returns
+        // keeps its identity and a plain object it builds is served as
+        // built, so only data reads resolve through the stored-object path.
         if (
             value !== null &&
             typeof value === "object" &&
-            prop !== "constructor"
+            prop !== "constructor" &&
+            role !== ReactiveKeyRole.Getter
         ) {
             return trackPropertyAccessIfNeeded(
                 this,

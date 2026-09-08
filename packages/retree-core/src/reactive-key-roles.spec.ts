@@ -12,6 +12,8 @@ import {
 } from "./ReactiveNode.js";
 import { ignore, link } from "./decorators.js";
 import { buildReactiveKeyRoles, ReactiveKeyRole } from "./internals/memo.js";
+import { getReproxyNode } from "./internals/reproxy.js";
+import { Retree } from "./Retree.js";
 
 class Parent extends ReactiveNode {
     public count = 0;
@@ -62,5 +64,48 @@ describe("reactive key roles", () => {
         expect(buildReactiveKeyRoles(new Child()).get("doubled")).toBe(
             ReactiveKeyRole.Getter
         );
+    });
+});
+
+describe("getter results", () => {
+    class Child extends ReactiveNode {
+        public value = 1;
+        get dependencies() {
+            return [];
+        }
+    }
+    class Owner extends ReactiveNode {
+        public child = new Child();
+        get sameChild(): Child {
+            return this.child;
+        }
+        get builtObject(): { value: number } {
+            return { value: this.child.value };
+        }
+        get dependencies() {
+            return [];
+        }
+    }
+
+    it("serves a managed node a getter returns at its identity", () => {
+        const owner = Retree.root(new Owner());
+        expect(owner.sameChild).toBe(owner.child);
+        const unsubscribe = Retree.on(owner, "nodeChanged", () => {});
+        const beforeChange = getReproxyNode(owner);
+        owner.child = new Child();
+        const view = getReproxyNode(owner);
+        unsubscribe();
+        expect(view).not.toBe(beforeChange);
+        expect(view.sameChild).toBe(view.child);
+        expect(view.child).toBe(getReproxyNode(owner.child));
+    });
+
+    it("serves a plain object a getter builds as built", () => {
+        const owner = Retree.root(new Owner());
+        const built = owner.builtObject;
+        expect(Retree.isNode(built)).toBe(false);
+        expect(built).toEqual({ value: 1 });
+        expect(owner.builtObject).not.toBe(built);
+        expect(Retree.isNode(getReproxyNode(owner).builtObject)).toBe(false);
     });
 });

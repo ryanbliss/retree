@@ -91,7 +91,6 @@ export interface CompiledClassInfo {
 }
 
 export class CompiledProxyHandler extends BaseProxyHandler<TreeNode> {
-    public keyless: boolean;
     public viewBoundFunctions: Map<
         string | symbol,
         { source: Function; bound: Function }

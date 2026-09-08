@@ -45,7 +45,8 @@
         "lint:architecture": "node scripts/lint-architecture.mjs",
         "typecheck:benchmarks": "tsc -p benchmarks/tsconfig.json",
         "benchmark:maps": "node --expose-gc scripts/run-sdk-scaling.mjs benchmarks/map-reads.mts",
-        "benchmark:plain-materialization": "node --expose-gc scripts/run-sdk-scaling.mjs benchmarks/plain-materialization.mts"
+        "benchmark:plain-materialization": "node --expose-gc scripts/run-sdk-scaling.mjs benchmarks/plain-materialization.mts",
+        "benchmark:corpus": "node --expose-gc scripts/run-sdk-scaling.mjs benchmarks/corpus-cost.mts"
     },
     "author": "Ryan Bliss",
     "license": "MIT",

@@ -722,7 +722,7 @@ function getComparisonCells(
             ? comparison.capturedValues
             : undefined;
     return getDependencyComparisonValues(
-        captured === undefined ? comparison.getValues() : [...captured]
+        captured === undefined ? comparison.getValues() : captured
     );
 }
 
@@ -954,37 +954,35 @@ export function buildReactiveKeyRoles(
     return roles;
 }
 
+/** Whether `instance`'s class has been seen calling the keyless `this.memo(fn)` form. */
+export function hasKeylessMemoPrototype(instance: ReactiveNode): boolean {
+    const prototype = Object.getPrototypeOf(instance);
+    return prototype !== null && keylessMemoPrototypes.has(prototype);
+}
+
 /**
  * @internal
  * Read a getter of a raw ReactiveNode on behalf of a proxy get trap,
  * pushing a memo-getter frame around the invocation only when the
- * instance's class is known to use the keyless `this.memo(...)` form.
+ * node's handler knows its class uses the keyless `this.memo(...)` form.
  * Callers gate on {@link ReactiveKeyRole.Getter}; data fields and methods
  * never need a frame and are read directly.
  *
- * Fast path (class never marked): one WeakSet lookup, no frame allocation.
- * The first keyless memo call on such a class throws
+ * Fast path (`handler.keyless` false): a plain `Reflect.get`, no frame. The
+ * first keyless memo call on such a class throws
  * {@link KeylessMemoFrameRequest} from `consumeCurrentMemoGetter`, which is
- * caught here and answered by re-running the getter with a frame — so keyless
- * memo still works on its first-ever call.
+ * caught here, remembered on the handler, and answered by re-running the
+ * getter with a frame. A handler built before another instance marked the
+ * class recovers the same way on its own first keyless read.
  */
 export function readReactiveNodeGetter(
+    handler: { keyless: boolean },
     instance: ReactiveNode,
     prop: string | symbol,
     receiver: unknown
 ): unknown {
-    const prototype = Object.getPrototypeOf(instance);
-    if (prototype !== null && keylessMemoPrototypes.has(prototype)) {
-        // An own data property can shadow the prototype getter.
-        if (getReactiveNodeGetter(instance, prop)) {
-            pushMemoGetter(instance, prop);
-            try {
-                return Reflect.get(instance, prop, receiver);
-            } finally {
-                popMemoGetter(instance);
-            }
-        }
-        return Reflect.get(instance, prop, receiver);
+    if (handler.keyless) {
+        return readGetterWithFrame(instance, prop, receiver);
     }
     try {
         return Reflect.get(instance, prop, receiver);
@@ -992,14 +990,25 @@ export function readReactiveNodeGetter(
         if (!isKeylessMemoFrameRequestFor(error, instance)) {
             throw error;
         }
-        // consumeCurrentMemoGetter marked the prototype before throwing;
-        // re-run the getter with a frame so this first call succeeds.
-        pushMemoGetter(instance, prop);
-        try {
-            return Reflect.get(instance, prop, receiver);
-        } finally {
-            popMemoGetter(instance);
-        }
+        handler.keyless = true;
+        return readGetterWithFrame(instance, prop, receiver);
+    }
+}
+
+function readGetterWithFrame(
+    instance: ReactiveNode,
+    prop: string | symbol,
+    receiver: unknown
+): unknown {
+    // An own data property can shadow the prototype getter.
+    if (!getReactiveNodeGetter(instance, prop)) {
+        return Reflect.get(instance, prop, receiver);
+    }
+    pushMemoGetter(instance, prop);
+    try {
+        return Reflect.get(instance, prop, receiver);
+    } finally {
+        popMemoGetter(instance);
     }
 }
 
