@@ -192,6 +192,48 @@ describe("useSelect", () => {
         expect(renderCount).toBe(2);
     });
 
+    it("does not re-render the tracked form while equals holds across a dependency change", () => {
+        const root = trackRoot(
+            Retree.root({
+                items: [
+                    { id: "a", rank: 1 },
+                    { id: "b", rank: 2 },
+                ],
+            })
+        );
+        let renderCount = 0;
+
+        function Probe() {
+            renderCount += 1;
+            const ids = useSelect(
+                () =>
+                    [...root.items]
+                        .sort((left, right) => left.rank - right.rank)
+                        .map((item) => item.id),
+                {
+                    equals: (previous, next) =>
+                        previous.length === next.length &&
+                        previous.every((id, index) => id === next[index]),
+                }
+            );
+            return <div data-testid="value">{ids.join(",")}</div>;
+        }
+
+        render(<Probe />);
+        expect(renderCount).toBe(1);
+
+        act(() => {
+            root.items[1].rank = 3;
+        });
+        expect(renderCount).toBe(1);
+
+        act(() => {
+            root.items[1].rank = 0;
+        });
+        expect(screen.getByTestId("value").textContent).toBe("b,a");
+        expect(renderCount).toBe(2);
+    });
+
     it("can select across descendant changes with treeChanged", () => {
         const root = trackRoot(
             Retree.root({

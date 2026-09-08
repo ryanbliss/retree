@@ -162,6 +162,31 @@ export function defaultTrackedSelectedChanged<TSelected>(
     return !Object.is(previous, next);
 }
 
+/**
+ * Whether a tracked re-run changed what the selector produced. An explicit
+ * `equals` is the whole answer. The default comparison also counts changed
+ * reads, since a selector that returns a stable node reference is selecting
+ * that node's content.
+ */
+export function hasTrackedSelectionChanged<TSelected>(
+    previous: TrackedSelectionValue<TSelected>,
+    next: TrackedSelectionValue<TSelected>,
+    equals: RetreeSelectEquals<TSelected> | undefined
+): boolean {
+    if (equals !== undefined) {
+        return !equals(previous.selected, next.selected);
+    }
+    return (
+        defaultTrackedSelectedChanged(previous.selected, next.selected) ||
+        !areTrackedReadsEqual(previous.reads, next.reads)
+    );
+}
+
+interface TrackedSelectionValue<TSelected> {
+    selected: TSelected;
+    reads: ReadonlyMap<TreeNode, NodeReadRecord>;
+}
+
 export function stabilizeSelectedRetreeReferences<TSelected>(
     previous: TSelected,
     next: TSelected
@@ -451,16 +476,10 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
             next.selected
         );
         subscriptions.update(next.sources);
-        const selectedChanged =
-            options.equals !== undefined
-                ? !options.equals(previous.selected, nextSelected)
-                : defaultTrackedSelectedChanged(
-                      previous.selected,
-                      nextSelected
-                  );
-        const dependenciesChanged = !areTrackedReadsEqual(
-            previous.reads,
-            next.reads
+        const changed = hasTrackedSelectionChanged(
+            previous,
+            { selected: nextSelected, reads: next.reads },
+            options.equals
         );
         const previousToEmit = previous;
         previous = {
@@ -469,7 +488,7 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
             reads: next.reads,
             subtreeReads: next.subtreeReads,
         };
-        if (!selectedChanged && !dependenciesChanged) {
+        if (!changed) {
             return;
         }
         options.onChange(nextSelected, previousToEmit.selected);
