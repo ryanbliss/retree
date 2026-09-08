@@ -1279,15 +1279,14 @@ function adoptStoredField(
     if (storedValue === null || typeof storedValue !== "object") {
         return;
     }
-    if (Object.isFrozen(storedValue)) {
+    const storedHandler = getCustomProxyHandlerFromMetadata(storedValue);
+    // A raw plain object or array resolves on first read, whether or not it
+    // is already managed elsewhere: the lazy read path adopts a managed raw
+    // with the same cycle check, so the walk skips the registry lookup.
+    if (storedHandler === undefined && hasLazilyProxiedShape(storedValue)) {
         return;
     }
-    const storedHandler = getCustomProxyHandlerFromMetadata(storedValue);
-    if (
-        storedHandler === undefined &&
-        hasLazilyProxiedShape(storedValue) &&
-        getManagedProxyForUnproxiedNode(storedValue) === undefined
-    ) {
+    if (Object.isFrozen(storedValue)) {
         return;
     }
     const value: object =

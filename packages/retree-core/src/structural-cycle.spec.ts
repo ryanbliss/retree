@@ -5,8 +5,8 @@
 
 /**
  * Structural cycles are rejected where the closing edge is materialized.
- * Class instances, collections, and already-managed values attach eagerly
- * when their holder is built; plain objects and arrays attach on first read.
+ * Class instances and collections attach eagerly when their holder is
+ * built; plain objects and arrays attach on first read, managed or not.
  * Raw input is never walked up front.
  */
 import { describe, expect, it } from "vitest";
@@ -21,17 +21,19 @@ interface SelfRef {
 }
 
 describe("structural cycles", () => {
-    it("rejects a self-reference at root() because the root is managed when its fields attach", () => {
+    it("rejects a self-reference when the closing edge is first read", () => {
         const input: SelfRef = {};
         input.self = input;
-        expect(() => Retree.root(input)).toThrow(CYCLE);
+        const root = Retree.root(input);
+        expect(() => root.self).toThrow(CYCLE);
     });
 
-    it("rejects a deeper plain cycle when the holder of the closing edge is first read", () => {
+    it("rejects a deeper plain cycle when the closing edge is first read, not its holder", () => {
         const input: SelfRef = { nested: {} };
         input.nested!.back = input;
         const root = Retree.root(input);
-        expect(() => root.nested).toThrow(CYCLE);
+        const nested = root.nested!;
+        expect(() => nested.back).toThrow(CYCLE);
     });
 
     it("rejects a closing edge after materializing a long unmanaged chain", () => {
