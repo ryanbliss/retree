@@ -18,6 +18,7 @@ describe("publish package selection", () => {
             "@retreejs/convex",
             "@retreejs/react-convex",
             "@retreejs/create",
+            "@retreejs/babel-plugin-compiler",
         ]);
     });
 
