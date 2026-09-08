@@ -18,7 +18,6 @@ import { TreeChangeEmitter } from "./internals/NodeChangeEmitter.js";
 import {
     ICustomProxyHandler,
     isCustomProxy,
-    proxiedParentKey,
     TCustomProxy,
     unproxiedBaseNodeKey,
 } from "./internals/proxy-types.js";
@@ -1797,7 +1796,7 @@ export class Retree {
             if (listeners !== undefined) {
                 this.notifyChangedListeners(listeners, unproxiedNode, changes);
             }
-            handler = handler[proxiedParentKey]?.handler ?? undefined;
+            handler = handler.parentHandler ?? undefined;
         }
     }
 
@@ -1862,7 +1861,7 @@ export class Retree {
                 observed = true;
                 break;
             }
-            const parent = handler[proxiedParentKey]?.handler;
+            const parent = handler.parentHandler;
             if (!parent) break;
             handler = parent;
         }
@@ -1910,7 +1909,7 @@ export class Retree {
                 listenersByProxyNode.set(currentProxyNode, listeners.slice());
                 topProxyNodeListenedTo = currentProxyNode;
             }
-            const parentHandler = handler[proxiedParentKey]?.handler;
+            const parentHandler = handler.parentHandler;
             if (!parentHandler) {
                 break;
             }
@@ -2150,11 +2149,10 @@ export class Retree {
     } | null {
         const oldHandler = getCustomProxyHandler(node);
         if (oldHandler) {
-            const parent = oldHandler[proxiedParentKey];
-            const parentHandler = parent?.handler;
+            const parentHandler = oldHandler.parentHandler;
             if (!parentHandler) return null;
             return {
-                propName: parent.propName,
+                propName: oldHandler.parentProp,
                 proxyNode: parentHandler.baseProxy,
                 rawNode: parentHandler[unproxiedBaseNodeKey],
             };

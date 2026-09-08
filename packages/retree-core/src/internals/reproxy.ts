@@ -28,12 +28,10 @@ import {
 } from "./array-read.js";
 import {
     ICustomProxyHandler,
-    IProxyParent,
     ISnapshotVersionRecord,
     getCustomProxyHandlerFromMetadata,
     proxiedChildrenKey,
     unproxiedBaseNodeKey,
-    proxiedParentKey,
     proxyHandlerSentinel,
     TCustomProxy,
     TProxiedChildren,
@@ -254,11 +252,17 @@ class ReproxyHandler<T extends TreeNode>
         this.baseHandler = baseHandler;
     }
 
-    public get [proxiedParentKey](): IProxyParent | null {
-        return this.baseHandler[proxiedParentKey];
+    public get parentHandler(): ICustomProxyHandler<any> | null {
+        return this.baseHandler.parentHandler;
     }
-    public set [proxiedParentKey](parent: IProxyParent | null) {
-        this.baseHandler[proxiedParentKey] = parent;
+    public set parentHandler(parentHandler: ICustomProxyHandler<any> | null) {
+        this.baseHandler.parentHandler = parentHandler;
+    }
+    public get parentProp(): string | symbol | null {
+        return this.baseHandler.parentProp;
+    }
+    public set parentProp(parentProp: string | symbol | null) {
+        this.baseHandler.parentProp = parentProp;
     }
 
     /**
