@@ -7,10 +7,12 @@
  * Runs at the end of the `Release` workflow whether or not the publish step
  * succeeded, and checks the registry itself: every package in the release must
  * already be on npm at its manifest version, so a tag never points at a
- * version that failed to publish. Idempotent in the same way as the publish
- * step: an existing release for the tag is left alone. So a partial publish
- * leaves no tag, and the next run after the missing packages are published
- * (by a rerun or by hand) creates it.
+ * version that failed to publish. The registry serves a publish it just
+ * accepted a few seconds later, so a version still missing is polled on a
+ * bounded backoff before it counts as unpublished. Idempotent in the same way
+ * as the publish step: an existing release for the tag is left alone. So a
+ * partial publish leaves no tag, and the next run after the missing packages
+ * are published (by a rerun or by hand) creates it.
  *
  * Two release trains, two tag shapes:
  *
@@ -27,8 +29,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-    npmVersionState,
+    findUnpublishedVersions,
     publishPackageCatalog,
+    registryPropagationDelaysMs,
 } from "./publish-package-selection.mjs";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -52,16 +55,30 @@ if (releaseExists(target.tag)) {
     process.exit(0);
 }
 
-const unpublished = target.packages.filter(
-    (entry) => !npmVersionState(entry.label, entry.version).versionPublished
-);
-if (unpublished.length > 0) {
-    const list = unpublished
+// A dry run answers from the registry as it reads right now; only the real
+// run waits out propagation.
+const { missing, waitedMs } = await findUnpublishedVersions(target.packages, {
+    delaysMs: options.dryRun ? [] : registryPropagationDelaysMs,
+    onWait: ({ missing: pending, delayMs }) => {
+        const list = pending.map((entry) => entry.label).join(", ");
+        console.log(
+            `Not on npm yet: ${list}. Waiting ${
+                delayMs / 1000
+            }s for the registry to catch up.`
+        );
+    },
+});
+if (missing.length > 0) {
+    const list = missing
         .map((entry) => `${entry.label}@${entry.version}`)
         .join(", ");
     if (!options.dryRun) {
         throw new Error(
-            `create-github-release: ${list} is not on npm, so ${target.tag} would point at an unpublished version. Fix: publish the missing package(s) (\`npm run publish:packages\` skips the ones already on npm), then rerun the Release workflow to create the release.`
+            `create-github-release: ${list} is not on npm after waiting ${
+                waitedMs / 1000
+            }s for the registry, so ${
+                target.tag
+            } would point at an unpublished version. Fix: publish the missing package(s) (\`npm run publish:packages\` skips the ones already on npm), then rerun the Release workflow to create the release.`
         );
     }
     console.log(`Not on npm yet: ${list}. The real run would stop here.`);
