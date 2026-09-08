@@ -93,18 +93,20 @@ jobs:
               if: steps.version.outputs.eslint_publish == 'true'
               run: node scripts/publish-packages.mjs --package @retreejs/react-eslint-plugin --provenance
 
-            # Tag and release only after npm publish succeeds, so a tag never
-            # points at a version that failed to publish. Both steps are
-            # idempotent: an existing release for the tag is left alone, so a
-            # rerun after a partial failure converges.
+            # Tag and release run even when a publish step failed or was
+            # skipped: the script checks npm itself and refuses to tag until
+            # every package in the release is published at its manifest
+            # version. So a partial publish leaves no tag, and the next run
+            # after the missing packages land (rerun or manual publish)
+            # creates the release. An existing release is left alone.
             - name: Tag and create GitHub release (lockstep family)
-              if: steps.version.outputs.lockstep_publish == 'true'
+              if: ${{ !cancelled() && steps.version.outcome == 'success' }}
               env:
                   GH_TOKEN: ${{ github.token }}
               run: node scripts/create-github-release.mjs
 
             - name: Tag and create GitHub release (React ESLint plugin)
-              if: steps.version.outputs.eslint_publish == 'true'
+              if: ${{ !cancelled() && steps.version.outcome == 'success' }}
               env:
                   GH_TOKEN: ${{ github.token }}
               run: node scripts/create-github-release.mjs --package @retreejs/react-eslint-plugin

@@ -1,3 +1,9 @@
+import { spawnSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
 export const publishPackageCatalog = [
     {
         label: "@retreejs/core",
@@ -138,4 +144,73 @@ export function buildNpmPublishArguments({ isNewPackage, useProvenance }) {
         args.push("--provenance");
     }
     return args;
+}
+
+/**
+ * Whether `packageName` exists on the registry and whether `version` is
+ * already published there. Reads only, so it needs no token.
+ */
+export function npmVersionState(packageName, version, env = process.env) {
+    const result = spawnSync(
+        "npm",
+        ["view", packageName, "versions", "--json"],
+        {
+            cwd: rootDir,
+            env,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"],
+        }
+    );
+
+    if (result.error) {
+        throw new Error(
+            `npm view ${packageName} versions: failed to start: ${result.error.message}`
+        );
+    }
+
+    if (result.signal) {
+        throw new Error(
+            `npm view ${packageName} versions: exited with signal ${result.signal}.`
+        );
+    }
+
+    if (result.status === 0) {
+        const parsed = JSON.parse(result.stdout);
+        const versions = Array.isArray(parsed) ? parsed : [parsed];
+        return {
+            packageExists: true,
+            versionPublished: versions.includes(version),
+        };
+    }
+
+    if (isNpmNotFound(result.stderr)) {
+        return { packageExists: false, versionPublished: false };
+    }
+
+    const stderr = result.stderr.trim();
+    if (stderr.length === 0) {
+        throw new Error(
+            `npm view ${packageName} versions: exited with status ${String(
+                result.status
+            )}.`
+        );
+    }
+
+    throw new Error(
+        `npm view ${packageName} versions: exited with status ${String(
+            result.status
+        )}: ${stderr}`
+    );
+}
+
+function isNpmNotFound(stderr) {
+    if (stderr.includes("E404")) {
+        return true;
+    }
+
+    if (stderr.includes("404 Not Found")) {
+        return true;
+    }
+
+    return stderr.includes("is not in this registry");
 }

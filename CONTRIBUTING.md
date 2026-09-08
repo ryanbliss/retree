@@ -112,10 +112,12 @@ published through their npm Trusted Publisher connections with provenance.
 After a successful publish the workflow tags the commit and creates the
 matching GitHub release, with the package's changelog entry as the release
 notes. The lockstep family shares one tag (`v0.8.0`); the React ESLint plugin
-gets a name-scoped one (`react-eslint-plugin-v0.1.1`). Tagging runs after
-publishing so a tag never points at a version that failed to publish, and an
-existing release for a tag is left alone, so rerunning the workflow after a
-partial failure converges. Preview the notes for the current manifests with:
+gets a name-scoped one (`react-eslint-plugin-v0.1.1`). A failed package does
+not stop the packages after it from publishing. The tag step runs regardless
+and checks npm itself: it refuses to tag until every package in the release is
+published, and leaves an existing release alone. So after a partial failure,
+publish the missing packages (a rerun, or by hand) and rerun the workflow to
+create the release. Preview the notes for the current manifests with:
 
 ```bash
 node scripts/create-github-release.mjs --dry-run
