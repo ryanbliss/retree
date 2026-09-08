@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Retree } from "./Retree.js";
+import { getReproxyNode } from "./internals/reproxy.js";
 import { Transactions } from "./internals/transactions.js";
 
 const rootsToCleanup: object[] = [];
@@ -395,5 +396,61 @@ describe("Map within Retree proxy", () => {
             // Calling a Map method on the reproxy should not throw.
             expect(lastReproxy!.get("a")).toBe(1);
         });
+    });
+});
+
+describe("cached collection methods", () => {
+    it("keeps captured Map methods live across replacements and views", () => {
+        const map = trackRoot(Retree.root(new Map([["a", { value: 1 }]])));
+        const get = map.get;
+        const set = map.set;
+        const remove = map.delete;
+        expect(map.get).toBe(get);
+        expect(map.set).toBe(set);
+        const first = get("a");
+        expect(set("a", { value: 2 })).toBe(map);
+        const view = getReproxyNode(map);
+        expect(view.get).toBe(get);
+        expect(view.set).toBe(set);
+        expect(get("a")).not.toBe(first);
+        expect(get("a")?.value).toBe(2);
+        expect(remove("a")).toBe(true);
+        expect(get("a")).toBeUndefined();
+    });
+
+    it("keeps extracted Set methods live after mutation", () => {
+        const set = trackRoot(Retree.root(new Set<number>()));
+        const add = set.add;
+        const has = set.has;
+        const values = set.values;
+        expect(add(1)).toBe(set);
+        expect(has(1)).toBe(true);
+        const view = getReproxyNode(set);
+        expect(view.add).toBe(add);
+        expect(view.has).toBe(has);
+        expect(view.values).toBe(values);
+        set.delete(1);
+        expect(has(1)).toBe(false);
+        expect([...values()]).toEqual([]);
+    });
+
+    it("invalidates cached custom subclass methods when their source changes", () => {
+        class LookupMap extends Map<string, number> {
+            #offset = 1;
+            lookup(key: string) {
+                return (this.get(key) ?? 0) + this.#offset;
+            }
+        }
+        const raw = new LookupMap([["a", 2]]);
+        const map = trackRoot(Retree.root(raw));
+        const lookup = map.lookup;
+        expect(map.lookup).toBe(lookup);
+        expect(lookup("a")).toBe(3);
+        raw.lookup = function (key: string) {
+            return (this.get(key) ?? 0) + 10;
+        };
+        expect(map.lookup).not.toBe(lookup);
+        expect(map.lookup("a")).toBe(12);
+        expect(lookup("a")).toBe(3);
     });
 });

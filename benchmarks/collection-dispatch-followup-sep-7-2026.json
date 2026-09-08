@@ -1,0 +1,1575 @@
+{
+  "statistics": [
+    {
+      "name": "Map.get primitive via raw",
+      "baselineNs": 3.390832499999945,
+      "experimentNs": 3.110312499999992,
+      "pairedPercent": -2.2976608665220297,
+      "ci95": [
+        -11.6196374024125,
+        7.991486171220087
+      ],
+      "fasterPairs": 6,
+      "randomizationP": 0.658008658008658,
+      "baselineSamples": [
+        2.807085000000029,
+        3.6249999999999716,
+        3.66375000000005,
+        3.1566649999999186,
+        3.09937500000018,
+        3.9083300000000065,
+        3.1270849999999943,
+        3.9258350000000064,
+        3.1002099999999193,
+        3.9906249999999943,
+        3.8722899999999076,
+        2.8031250000000796
+      ],
+      "experimentSamples": [
+        3.6345850000000723,
+        3.9610449999997854,
+        2.8258300000000243,
+        3.9039599999999552,
+        2.8114550000000804,
+        3.08125000000004,
+        3.637289999999922,
+        3.116250000000065,
+        3.1043749999999193,
+        3.87770500000002,
+        3.0708350000000446,
+        3.0843749999999654
+      ],
+      "holmP": 1
+    },
+    {
+      "name": "Map.has via raw",
+      "baselineNs": 2.9517700000000957,
+      "experimentNs": 2.574062500000025,
+      "pairedPercent": -2.087741596841039,
+      "ci95": [
+        -12.928832820808866,
+        10.190003667324389
+      ],
+      "fasterPairs": 8,
+      "randomizationP": 0.8311688311688312,
+      "baselineSamples": [
+        2.5539549999999167,
+        3.39895499999983,
+        3.3493749999999523,
+        2.52207999999996,
+        2.543749999999818,
+        3.370625000000018,
+        2.5250000000002615,
+        3.334790000000112,
+        2.5518750000000523,
+        3.396669999999915,
+        3.354579999999885,
+        2.5687500000000796
+      ],
+      "experimentSamples": [
+        3.363750000000038,
+        3.386040000000037,
+        2.585835000000145,
+        3.3645800000002173,
+        2.5302100000001815,
+        2.5391650000000254,
+        3.3791700000000446,
+        2.562289999999905,
+        2.523750000000007,
+        3.46478999999988,
+        2.521460000000104,
+        2.525835000000143
+      ],
+      "holmP": 1
+    },
+    {
+      "name": "Map.get object + field via raw",
+      "baselineNs": 3.267084999999952,
+      "experimentNs": 2.9121874999999875,
+      "pairedPercent": -1.863950932383394,
+      "ci95": [
+        -11.0431186200602,
+        8.198180852104455
+      ],
+      "fasterPairs": 5,
+      "randomizationP": 0.7683982683982684,
+      "baselineSamples": [
+        2.8804150000001987,
+        3.63646000000017,
+        3.647290000000112,
+        2.8841700000000974,
+        2.904164999999921,
+        3.652915000000121,
+        2.887499999999932,
+        3.6393749999999154,
+        2.9285450000000424,
+        3.6354149999999663,
+        3.6056249999998613,
+        2.868750000000091
+      ],
+      "experimentSamples": [
+        3.6220850000000837,
+        3.6720849999997536,
+        2.87146000000007,
+        3.637705000000153,
+        2.904374999999959,
+        2.894170000000145,
+        3.6335449999998555,
+        2.87666999999999,
+        2.8912500000001273,
+        3.654585000000168,
+        2.865835000000061,
+        2.920000000000016
+      ],
+      "holmP": 1
+    },
+    {
+      "name": "parent + Map.get via raw",
+      "baselineNs": 3.2672899999998606,
+      "experimentNs": 2.8109350000001143,
+      "pairedPercent": -2.5442888670232193,
+      "ci95": [
+        -12.58463673217084,
+        8.741707916838266
+      ],
+      "fasterPairs": 8,
+      "randomizationP": 0.5735930735930735,
+      "baselineSamples": [
+        2.801249999999982,
+        3.6250000000001137,
+        3.605414999999823,
+        2.799374999999884,
+        2.8118749999998727,
+        3.6445799999998485,
+        2.826249999999959,
+        3.6835400000001073,
+        2.929164999999898,
+        3.649585000000002,
+        3.61937499999982,
+        2.8027099999999905
+      ],
+      "experimentSamples": [
+        3.6293749999998677,
+        3.6818749999997635,
+        2.8141650000000595,
+        3.622500000000173,
+        2.8077050000001686,
+        2.8016700000000583,
+        3.6229149999999777,
+        2.7949999999998454,
+        2.8006250000001387,
+        3.6456250000000523,
+        2.8031250000000796,
+        2.8024999999999523
+      ],
+      "holmP": 1
+    },
+    {
+      "name": "Map.set property lookup via raw",
+      "baselineNs": 0.7034399999999152,
+      "experimentNs": 0.7028124999999363,
+      "pairedPercent": -0.4597694383030475,
+      "ci95": [
+        -1.1629380784825247,
+        0.024906008373316135
+      ],
+      "fasterPairs": 7,
+      "randomizationP": 0.19696969696969696,
+      "baselineSamples": [
+        0.7039600000001656,
+        0.7072900000000004,
+        0.7062500000000682,
+        0.7297900000000368,
+        0.7016700000002629,
+        0.7027049999999234,
+        0.7035450000000766,
+        0.7016649999999913,
+        0.703334999999754,
+        0.7233300000001464,
+        0.7020849999997836,
+        0.7022900000001187
+      ],
+      "experimentSamples": [
+        0.703125,
+        0.7095850000001747,
+        0.7029149999999618,
+        0.7020800000000804,
+        0.7012499999999022,
+        0.7027099999999109,
+        0.7024999999998727,
+        0.702295000000106,
+        0.7014599999999405,
+        0.7133300000000986,
+        0.7041699999999196,
+        0.7029200000002334
+      ],
+      "holmP": 1
+    },
+    {
+      "name": "Map.set changed scalar via raw",
+      "baselineNs": 6.208250000000248,
+      "experimentNs": 6.145500000002357,
+      "pairedPercent": -0.5263279768952794,
+      "ci95": [
+        -2.1822663625100702,
+        1.2217697464788928
+      ],
+      "fasterPairs": 6,
+      "randomizationP": 0.5692640692640693,
+      "baselineSamples": [
+        6.208499999985406,
+        6.000000000000227,
+        6.249999999994316,
+        6.062499999984539,
+        6.021000000004051,
+        6.416500000000269,
+        6.06250000001296,
+        6.20800000001509,
+        6.33349999998245,
+        6.104500000020607,
+        6.270999999998139,
+        6.270999999998139
+      ],
+      "experimentSamples": [
+        6.062499999984539,
+        6.37499999999136,
+        6.083499999988362,
+        6.145500000002357,
+        6.166500000006181,
+        6.041499999980715,
+        6.021000000004051,
+        6.208499999985406,
+        6.10400000002187,
+        6.187499999981583,
+        6.270999999998139,
+        6.145500000002357
+      ],
+      "holmP": 1
+    },
+    {
+      "name": "Map.get primitive via base",
+      "baselineNs": 47.280315,
+      "experimentNs": 40.56010499999999,
+      "pairedPercent": -14.361692281729152,
+      "ci95": [
+        -17.230617526162366,
+        -11.38890743537846
+      ],
+      "fasterPairs": 12,
+      "randomizationP": 0.0021645021645021645,
+      "baselineSamples": [
+        46.80770999999992,
+        45.971045,
+        47.54771000000006,
+        45.577085000000174,
+        49.22187500000007,
+        47.01291999999995,
+        45.84249999999997,
+        49.694375000000264,
+        47.95062499999972,
+        45.915834999999845,
+        49.716875000000016,
+        47.82646
+      ],
+      "experimentSamples": [
+        42.10228999999998,
+        40.22208500000005,
+        38.344374999999786,
+        42.4656250000001,
+        41.24479000000008,
+        39.575834999999984,
+        42.69312499999984,
+        39.159375000000125,
+        40.898124999999936,
+        42.24791499999981,
+        38.641455000000065,
+        39.85749999999996
+      ],
+      "holmP": 0.049783549783549784
+    },
+    {
+      "name": "Map.has via base",
+      "baselineNs": 51.67281250000002,
+      "experimentNs": 42.13677249999989,
+      "pairedPercent": -20.044495388010407,
+      "ci95": [
+        -22.09506112456316,
+        -17.92455656377622
+      ],
+      "fasterPairs": 12,
+      "randomizationP": 0.0021645021645021645,
+      "baselineSamples": [
+        56.288959999999975,
+        51.596250000000055,
+        52.35895999999968,
+        50,
+        54.75458500000002,
+        51.74937499999999,
+        51.130415000000085,
+        54.714375000000366,
+        51.35229499999979,
+        50.989794999999845,
+        52.4487499999998,
+        50.04645499999982
+      ],
+      "experimentSamples": [
+        42.3702099999997,
+        42.46417000000008,
+        40.47229000000016,
+        43.11729000000014,
+        42.671250000000214,
+        40.645000000000095,
+        42.91687500000023,
+        40.63500000000033,
+        41.903335000000084,
+        42.59979499999986,
+        40.37895999999989,
+        41.31104499999992
+      ],
+      "holmP": 0.049783549783549784
+    },
+    {
+      "name": "Map.get object + field via base",
+      "baselineNs": 108.52854250000007,
+      "experimentNs": 105.7393725,
+      "pairedPercent": -2.9992114375015153,
+      "ci95": [
+        -4.443427015768424,
+        -1.5344856943917655
+      ],
+      "fasterPairs": 10,
+      "randomizationP": 0.008658008658008658,
+      "baselineSamples": [
+        106.74395500000004,
+        108.59833500000035,
+        109.12541500000032,
+        106.36562500000024,
+        107.91833499999996,
+        108.45874999999978,
+        108.67812500000014,
+        110.25853999999981,
+        111.55499999999961,
+        107.64499999999998,
+        111.01708500000029,
+        107.64354000000026
+      ],
+      "experimentSamples": [
+        102.57625000000019,
+        104.6358349999997,
+        104.92229000000009,
+        107.28541500000006,
+        107.17520999999975,
+        102.90750000000001,
+        106.626665,
+        103.23229000000026,
+        103.36728999999991,
+        108.47020499999985,
+        106.5564549999999,
+        107.23583000000019
+      ],
+      "holmP": 0.11255411255411256
+    },
+    {
+      "name": "parent + Map.get via base",
+      "baselineNs": 52.58937500000002,
+      "experimentNs": 46.21603999999991,
+      "pairedPercent": -12.237846801095891,
+      "ci95": [
+        -13.827811154526495,
+        -10.555841142496245
+      ],
+      "fasterPairs": 12,
+      "randomizationP": 0.0021645021645021645,
+      "baselineSamples": [
+        54.121249999999456,
+        51.24895500000093,
+        53.18292000000042,
+        51.399170000000254,
+        52.379584999999906,
+        51.84103999999934,
+        51.38124999999945,
+        54.30041500000016,
+        53.80770499999925,
+        51.784999999999854,
+        53.431249999999864,
+        52.79916500000013
+      ],
+      "experimentSamples": [
+        47.83979499999987,
+        44.94541500000025,
+        43.91958499999987,
+        47.596249999999145,
+        45.767079999999396,
+        44.44312500000023,
+        47.940624999999955,
+        46.30666499999961,
+        47.58353999999997,
+        46.54062500000009,
+        46.1254150000002,
+        45.4718749999995
+      ],
+      "holmP": 0.049783549783549784
+    },
+    {
+      "name": "prototype helper Map.get via base",
+      "baselineNs": 47.0730199999997,
+      "experimentNs": 43.56948000000045,
+      "pairedPercent": -7.515037285706224,
+      "ci95": [
+        -10.022678978788194,
+        -5.019860617014892
+      ],
+      "fasterPairs": 11,
+      "randomizationP": 0.0021645021645021645,
+      "baselineSamples": [
+        47.759585000000015,
+        46.82416499999931,
+        49.63853999999969,
+        44.88166999999976,
+        48.150415000000066,
+        46.58625000000029,
+        46.69791499999974,
+        49.68104500000095,
+        47.32187500000009,
+        45.84666500000026,
+        47.64708500000097,
+        46.6885400000001
+      ],
+      "experimentSamples": [
+        46.31958499999996,
+        43.4104149999996,
+        41.55083500000046,
+        44.96208499999967,
+        43.5883350000006,
+        42.11396000000036,
+        45.13874999999984,
+        43.55062500000031,
+        44.78478999999992,
+        44.17374999999993,
+        43.48604000000023,
+        42.020835000000716
+      ],
+      "holmP": 0.049783549783549784
+    },
+    {
+      "name": "Map.set property lookup via base",
+      "baselineNs": 35.46354250000036,
+      "experimentNs": 34.280937500000164,
+      "pairedPercent": -3.5675931640759626,
+      "ci95": [
+        -5.597833574709752,
+        -1.0637965279849286
+      ],
+      "fasterPairs": 11,
+      "randomizationP": 0.01948051948051948,
+      "baselineSamples": [
+        35.11416499999996,
+        36.91229000000021,
+        35.32771000000025,
+        34.874585000000025,
+        37.261250000000246,
+        34.774375000000646,
+        35.599375000000464,
+        34.97521000000006,
+        36.81124999999952,
+        36.31395999999995,
+        34.713124999999536,
+        36.09124999999949
+      ],
+      "experimentSamples": [
+        34.903960000000325,
+        34.47812499999941,
+        34.750415000000885,
+        32.85000000000082,
+        34.292295000000195,
+        34.26958000000013,
+        33.339789999999994,
+        33.1339550000007,
+        36.61478999999986,
+        33.91145999999935,
+        37.20791499999905,
+        33.86333000000036
+      ],
+      "holmP": 0.23376623376623376
+    },
+    {
+      "name": "Map.set changed scalar via base",
+      "baselineNs": 212.06250000000182,
+      "experimentNs": 168.88525000001664,
+      "pairedPercent": -21.104062655655028,
+      "ci95": [
+        -23.5648559634771,
+        -18.600391733756748
+      ],
+      "fasterPairs": 12,
+      "randomizationP": 0.0021645021645021645,
+      "baselineSamples": [
+        206.95850000004157,
+        209.54150000000027,
+        208.70849999994334,
+        217.8544999999303,
+        211.5000000000009,
+        209.12500000008552,
+        211.10449999991945,
+        212.62500000000273,
+        215.62500000004545,
+        214.6455000000742,
+        240.8544999999549,
+        213.9789999999948
+      ],
+      "experimentSamples": [
+        172.74999999995086,
+        168.66650000008576,
+        175.85449999990033,
+        168.02100000006703,
+        161.43750000003365,
+        178.04200000000492,
+        164.2914999999903,
+        156.54200000005858,
+        180.70850000003702,
+        169.10399999994752,
+        170.45849999999515,
+        163.8335000000097
+      ],
+      "holmP": 0.049783549783549784
+    },
+    {
+      "name": "Map.get primitive via view",
+      "baselineNs": 50.83135500000026,
+      "experimentNs": 43.98520749999989,
+      "pairedPercent": -13.58793079338474,
+      "ci95": [
+        -16.13379477375101,
+        -10.740609780478277
+      ],
+      "fasterPairs": 12,
+      "randomizationP": 0.0021645021645021645,
+      "baselineSamples": [
+        51.119790000000194,
+        50.81187500000056,
+        51.91728999999896,
+        47.945210000000316,
+        50.682084999999695,
+        50.71229500000073,
+        48.79583000000025,
+        52.57333499999959,
+        50.33083499999975,
+        50.85083499999996,
+        51.914794999999,
+        51.53229499999952
+      ],
+      "experimentSamples": [
+        46.51708499999928,
+        42.27833499999974,
+        41.44604000000072,
+        46.2816650000002,
+        42.876454999999396,
+        42.08208500000069,
+        45.46375000000012,
+        43.665415000000394,
+        45.033750000000055,
+        44.50895999999943,
+        44.30499999999939,
+        42.164169999999785
+      ],
+      "holmP": 0.049783549783549784
+    },
+    {
+      "name": "Map.has via view",
+      "baselineNs": 55.053437500000655,
+      "experimentNs": 44.97395749999953,
+      "pairedPercent": -19.047071212776583,
+      "ci95": [
+        -20.95491984159089,
+        -17.17939914583543
+      ],
+      "fasterPairs": 12,
+      "randomizationP": 0.0021645021645021645,
+      "baselineSamples": [
+        57.148750000000064,
+        56.192915000000305,
+        55.46978999999965,
+        53.23770999999966,
+        57.226249999999936,
+        54.79416499999956,
+        54.03749999999945,
+        58.86333499999978,
+        55.057500000000346,
+        53.98479499999894,
+        55.04937500000097,
+        53.1435399999998
+      ],
+      "experimentSamples": [
+        45.59583500000031,
+        44.609580000000044,
+        43.38270999999963,
+        45.851669999999565,
+        45.338334999999006,
+        44.09208499999977,
+        46.06103999999959,
+        43.46603999999956,
+        46.10437500000103,
+        45.59916499999986,
+        44.002289999999675,
+        43.49166500000024
+      ],
+      "holmP": 0.049783549783549784
+    },
+    {
+      "name": "Map.get object + field via view",
+      "baselineNs": 111.3634350000001,
+      "experimentNs": 109.42072999999993,
+      "pairedPercent": -1.7172125938727814,
+      "ci95": [
+        -3.1980537829299363,
+        -0.14608577694918803
+      ],
+      "fasterPairs": 10,
+      "randomizationP": 0.07142857142857142,
+      "baselineSamples": [
+        109.83166499999926,
+        112.06229000000008,
+        110.2172900000005,
+        109.79146000000014,
+        111.07270500000025,
+        111.65416499999992,
+        110.62229499999944,
+        112.70167000000015,
+        113.54437500000017,
+        110.2472899999998,
+        113.03457999999978,
+        112.65750000000025
+      ],
+      "experimentSamples": [
+        107.1077050000008,
+        111.57854000000043,
+        109.57896000000005,
+        111.26833499999975,
+        110.55082999999968,
+        109.26249999999982,
+        110.45353999999973,
+        107.81916499999967,
+        107.59541500000068,
+        114.5939599999997,
+        106.85937500000023,
+        107.97374999999988
+      ],
+      "holmP": 0.7142857142857142
+    },
+    {
+      "name": "parent + Map.get via view",
+      "baselineNs": 57.48760250000032,
+      "experimentNs": 50.222707499999615,
+      "pairedPercent": -12.152786763361837,
+      "ci95": [
+        -13.74222639400573,
+        -10.543507539130017
+      ],
+      "fasterPairs": 12,
+      "randomizationP": 0.0021645021645021645,
+      "baselineSamples": [
+        56.433750000001055,
+        57.50416500000029,
+        58.35645999999997,
+        55.94249999999988,
+        57.322079999999005,
+        57.47104000000036,
+        54.84146000000009,
+        58.666249999998854,
+        58.25291499999821,
+        57.83187499999941,
+        58.673125000000255,
+        57.091250000000855
+      ],
+      "experimentSamples": [
+        52.0799999999997,
+        49.41979500000002,
+        48.312919999999615,
+        51.20750000000044,
+        49.81083500000068,
+        50.67354000000023,
+        50.30687499999999,
+        49.923125000000255,
+        52.17832999999927,
+        51.32458000000043,
+        50.13853999999924,
+        49.38291499999877
+      ],
+      "holmP": 0.049783549783549784
+    },
+    {
+      "name": "prototype helper Map.get via view",
+      "baselineNs": 53.76260249999973,
+      "experimentNs": 50.556667499998866,
+      "pairedPercent": -6.702669963387091,
+      "ci95": [
+        -8.717021619253716,
+        -4.470213263916242
+      ],
+      "fasterPairs": 11,
+      "randomizationP": 0.0021645021645021645,
+      "baselineSamples": [
+        53.74332999999979,
+        54.23645499999793,
+        54.68229500000007,
+        52.1785449999993,
+        54.35353999999961,
+        53.30604500000163,
+        52.40103999999974,
+        55.911665000000994,
+        53.300835000000006,
+        53.78187499999967,
+        54.430205000001024,
+        53.2077100000015
+      ],
+      "experimentSamples": [
+        50.49624999999878,
+        48.26291500000025,
+        48.02208500000007,
+        53.02000000000135,
+        50.71521000000075,
+        48.638124999999945,
+        50.98770500000001,
+        50.617084999998944,
+        51.34937499999979,
+        51.948750000001375,
+        49.53416500000003,
+        48.83937500000002
+      ],
+      "holmP": 0.049783549783549784
+    },
+    {
+      "name": "Map.set property lookup via view",
+      "baselineNs": 37.727499999999736,
+      "experimentNs": 37.36833499999989,
+      "pairedPercent": -1.2897355401373765,
+      "ci95": [
+        -3.443525550033607,
+        1.1843829168321394
+      ],
+      "fasterPairs": 8,
+      "randomizationP": 0.3246753246753247,
+      "baselineSamples": [
+        37.51854500000036,
+        39.64874999999893,
+        37.5952099999995,
+        37.40208500000108,
+        38.43541499999901,
+        38.222915000001194,
+        37.764790000001085,
+        37.50874999999951,
+        38.099584999999934,
+        39.825210000001334,
+        37.50291999999945,
+        37.69020999999839
+      ],
+      "experimentSamples": [
+        35.96125000000029,
+        37.62187499999982,
+        37.1333350000009,
+        36.618539999999484,
+        36.95416499999965,
+        39.44770999999946,
+        35.642709999999624,
+        36.48979000000054,
+        39.730829999998605,
+        37.60333499999888,
+        40.42624999999816,
+        37.923960000000534
+      ],
+      "holmP": 1
+    },
+    {
+      "name": "Map.set changed scalar via view",
+      "baselineNs": 209.01049999997664,
+      "experimentNs": 151.9687499999236,
+      "pairedPercent": -27.04824731301106,
+      "ci95": [
+        -28.42856923509338,
+        -25.445725091367898
+      ],
+      "fasterPairs": 12,
+      "randomizationP": 0.0021645021645021645,
+      "baselineSamples": [
+        210.24999999985997,
+        207.91650000001027,
+        213.5829999999714,
+        213.12499999999093,
+        209.18749999987082,
+        207.58299999988594,
+        208.83350000008247,
+        212.0204999998805,
+        203.4375000000637,
+        211.77099999999885,
+        205.56250000004187,
+        207.54149999993388
+      ],
+      "experimentSamples": [
+        152.87499999999451,
+        151.0624999998527,
+        152.91649999994664,
+        154.12500000002183,
+        148.9794999999958,
+        149.93749999985084,
+        150.52050000008424,
+        148.08299999981503,
+        159.91650000000843,
+        147.9164999998375,
+        160.93750000004545,
+        154.87499999994728
+      ],
+      "holmP": 0.049783549783549784
+    },
+    {
+      "name": "50k Map.get varied keys via raw",
+      "baselineNs": 29.65614749999986,
+      "experimentNs": 30.268124999998918,
+      "pairedPercent": 1.5379722204991655,
+      "ci95": [
+        -1.2042454846676276,
+        4.344926679259914
+      ],
+      "fasterPairs": 4,
+      "randomizationP": 0.33766233766233766,
+      "baselineSamples": [
+        29.98958499999844,
+        29.24604000000045,
+        30.607500000000982,
+        29.183960000000297,
+        31.973124999999524,
+        29.057289999998375,
+        30.07457999999815,
+        29.262915000001612,
+        29.683334999999715,
+        29.025420000000395,
+        29.628960000000006,
+        31.16521000000148
+      ],
+      "experimentSamples": [
+        30.48270999999886,
+        31.37771000000157,
+        30.37041999999928,
+        30.821670000000264,
+        30.01750000000129,
+        32.09687499999973,
+        30.16582999999855,
+        30.790204999998423,
+        29.20937499999809,
+        29.876045000000886,
+        29.968125000000327,
+        29.210205000001682
+      ],
+      "holmP": 1
+    },
+    {
+      "name": "50k Map.get varied keys via base",
+      "baselineNs": 97.63124749999974,
+      "experimentNs": 96.12979500000051,
+      "pairedPercent": -1.8507184052259855,
+      "ci95": [
+        -3.1300877572060974,
+        -0.4481184639730394
+      ],
+      "fasterPairs": 9,
+      "randomizationP": 0.030303030303030304,
+      "baselineSamples": [
+        97.56666499999936,
+        99.24187500000016,
+        96.81937499999776,
+        97.06541499999958,
+        97.69583000000011,
+        95.93812500000013,
+        96.57125000000178,
+        99.38208499999973,
+        100.89229000000161,
+        97.28937500000029,
+        98.7670849999995,
+        102.11624999999913
+      ],
+      "experimentSamples": [
+        97.87104,
+        95.05625000000009,
+        99.1685399999983,
+        94.84666500000004,
+        95.46583000000057,
+        98.15437499999916,
+        96.00292000000081,
+        96.822709999999,
+        96.2566700000002,
+        94.98458000000028,
+        95.92417000000069,
+        96.8858299999988
+      ],
+      "holmP": 0.33333333333333337
+    },
+    {
+      "name": "50k Map.get varied keys via view",
+      "baselineNs": 102.65156249999905,
+      "experimentNs": 101.69593500000019,
+      "pairedPercent": 0.7358740357053021,
+      "ci95": [
+        -1.374784151365941,
+        3.375419961578516
+      ],
+      "fasterPairs": 6,
+      "randomizationP": 0.5995670995670995,
+      "baselineSamples": [
+        102.93895999999906,
+        104.32229499999949,
+        102.08937500000046,
+        102.36416499999905,
+        104.45396000000072,
+        100.55916499999967,
+        102.26166500000089,
+        101.98666499999945,
+        103.8606249999998,
+        103.49937500000122,
+        102.32458499999893,
+        104.46104000000105
+      ],
+      "experimentSamples": [
+        100.21854499999789,
+        107.17499999999973,
+        100.85146000000123,
+        102.79416500000025,
+        116.91250000000082,
+        101.97333000000071,
+        102.75416499999892,
+        101.41853999999967,
+        99.62166499999967,
+        99.70583499999975,
+        101.17999999999938,
+        110.94187499999862
+      ],
+      "holmP": 1
+    }
+  ],
+  "orders": [
+    [
+      "pr100",
+      "experiment"
+    ],
+    [
+      "pr100",
+      "experiment"
+    ],
+    [
+      "experiment",
+      "pr100"
+    ],
+    [
+      "pr100",
+      "experiment"
+    ],
+    [
+      "experiment",
+      "pr100"
+    ],
+    [
+      "experiment",
+      "pr100"
+    ],
+    [
+      "pr100",
+      "experiment"
+    ],
+    [
+      "pr100",
+      "experiment"
+    ],
+    [
+      "experiment",
+      "pr100"
+    ],
+    [
+      "experiment",
+      "pr100"
+    ],
+    [
+      "pr100",
+      "experiment"
+    ],
+    [
+      "experiment",
+      "pr100"
+    ]
+  ],
+  "procedures": {
+    "maps.py": "from pathlib import Path\nimport subprocess,json,random,os,time\nD=Path('/tmp/retree-significance');A=Path('/tmp/retree-collections')\norders=[['pr100','experiment'],['experiment','pr100']]*6\nrandom.Random(73101).shuffle(orders)\n(D/'orders.json').write_text(json.dumps(orders))\nfor i,order in enumerate(orders):\n for v in order:\n  t=time.time()\n  with (D/f'maps-{i}-{v}.log').open('w') as f:\n   p=subprocess.run(['node','--expose-gc','scripts/run-sdk-scaling.mjs','benchmarks/map-reads.mts'],cwd=A/v,env={**os.environ,'RETREE_COMPILER':'1'},stdout=f,stderr=subprocess.STDOUT)\n  print(i,v,p.returncode,round(time.time()-t,2),flush=True)\n  if p.returncode:raise SystemExit(p.returncode)\nprint('DONE',flush=True)\n",
+    "analyze.py": "from pathlib import Path\nimport json,math,statistics,random,itertools\nD=Path('/tmp/retree-significance')\ndef read(i,v):\n return {x['name']:x for line in (D/f'maps-{i}-{v}.log').read_text().splitlines() if line.startswith('{') for x in [json.loads(line)]}\na=[read(i,'pr100') for i in range(12)];b=[read(i,'experiment') for i in range(12)]\norders=json.loads((D/'orders.json').read_text())\n# Exact randomization distribution for the randomized six AB / six BA orders.\nassignments=list(itertools.combinations(range(12),6))\nrng=random.Random(431);boots=[[rng.randrange(12) for j in range(12)] for k in range(20000)]\nresults=[]\nfor name in a[0]:\n av=[x[name]['nsPerOperation'] for x in a];bv=[x[name]['nsPerOperation'] for x in b]\n logs=[math.log(y/x) for x,y in zip(av,bv)];mean=statistics.mean(logs)\n chronological=[d if order[0]=='pr100' else -d for d,order in zip(logs,orders)]\n distribution=[statistics.mean([v if i in choice else -v for i,v in enumerate(chronological)]) for choice in assignments]\n p=sum(abs(x)>=abs(mean)-1e-14 for x in distribution)/len(distribution)\n estimates=sorted(statistics.mean([logs[i] for i in inds]) for inds in boots)\n results.append({'name':name,'baselineNs':statistics.median(av),'experimentNs':statistics.median(bv),'pairedPercent':100*math.expm1(mean),'ci95':[100*math.expm1(estimates[500]),100*math.expm1(estimates[19499])],'fasterPairs':sum(y<x for x,y in zip(av,bv)),'randomizationP':p,'baselineSamples':av,'experimentSamples':bv})\n# Correct across all benchmark scenarios, including raw controls.\nprimary=[r['name'] for r in results]\nprev=0\nfor rank,r in enumerate(sorted([x for x in results if x['name'] in primary],key=lambda x:x['randomizationP'])):\n prev=max(prev,min(1,r['randomizationP']*(len(primary)-rank)));r['holmP']=prev\n(D/'map-statistics.json').write_text(json.dumps(results,indent=2))\nfor r in results:\n print(r['name'],round(r['baselineNs'],2),round(r['experimentNs'],2),round(r['pairedPercent'],1),[round(x,1) for x in r['ci95']],r['fasterPairs'],round(r['randomizationP'],4),r.get('holmP',''))\n",
+    "counts.py": "from pathlib import Path\nimport subprocess,shutil,os,time,json\nD=Path('/tmp/retree-significance');A=Path('/tmp/retree-collections');N=Path('<NEO_ROOT>')\nwhile 'DONE' not in (D/'maps-driver.log').read_text():time.sleep(1)\nsource=N/'scripts/benchmark-world-animation-frame-change.heavy.test.tsx';original=source.read_bytes()\npackages=['core','babel-plugin-compiler']\nfor name in packages:\n if (D/('backup-'+name)).exists():shutil.rmtree(D/('backup-'+name))\nfor name in packages:shutil.copytree(N/'node_modules/@retreejs'/name,D/('backup-'+name),symlinks=True)\ntry:\n for name in packages:\n  dest=N/'node_modules/@retreejs'/name;shutil.rmtree(dest);shutil.copytree(A/'pr100/packages'/('retree-'+name),dest,ignore=shutil.ignore_patterns('node_modules'))\n p=N/'node_modules/@retreejs/core/bin/internals/proxy.js'\n s=p.read_text()\n s='function countCollectionProbe(key) { const c = globalThis.__collectionProbe ??= {}; c[key] = (c[key] ?? 0) + 1; }\\n'+s\n s=s.replace('getInternalSlotMethod(target, prop, value, baseProxy) {','getInternalSlotMethod(target, prop, value, baseProxy) {\\nif (target instanceof Map || target instanceof Set) countCollectionProbe((target instanceof Map ? \"Map.\" : \"Set.\") + String(prop));')\n s=s.replace('return function getWrapper(key) {','return function getWrapper(key) { countCollectionProbe(\"Map.get.call\");')\n s=s.replace('return function setWrapper(key, value) {','return function setWrapper(key, value) { countCollectionProbe(\"Map.set.call\");')\n p.write_text(s)\n s=original.decode().replace('const frameStarted = performance.now();','const probeBefore = { ...globalThis.__collectionProbe };\\n        const frameStarted = performance.now();')\n s=s.replace('const wallMs = performance.now() - frameStarted;','const wallMs = performance.now() - frameStarted;\\n        console.log(\"COLLECTION_PROBE\", JSON.stringify(Object.fromEntries(Object.entries(globalThis.__collectionProbe ?? {}).map(([k,v]) => [k, v - (probeBefore[k] ?? 0)]))));')\n s=s.replace('const frameProfilePath =', 'console.log(\"COLLECTION_TOTAL_BEFORE\", JSON.stringify(globalThis.__collectionProbe ?? {})); const probeMap = Retree.root(new Map([[\"probe\", 1]])); probeMap.get(\"probe\"); probeMap.set(\"probe\", 2); probeMap.has(\"probe\"); console.log(\"COLLECTION_POSITIVE_CONTROL\", JSON.stringify(globalThis.__collectionProbe ?? {})); Retree.clearListeners(probeMap);\\n      const frameProfilePath =')\n source.write_text(s)\n env={**os.environ,'RETREE_COMPILER':'1','BENCHMARK_NEO_WORKSPACE':str((N/'../../../neowyn/neo').resolve()),'BENCHMARK_WORLD_ANIMATION_RESULT_PATH':str(D/'counts-frame.json'),'BENCHMARK_WORLD_ANIMATION_ITERATIONS':'24'}\n with (D/'counts-frame.log').open('w') as f:\n  p=subprocess.run(['node','node_modules/vitest/vitest.mjs','run','scripts/benchmark-world-animation-frame-change.heavy.test.tsx','--project','heavy','--no-file-parallelism','--maxWorkers','1','--disableConsoleIntercept'],cwd=N,env=env,stdout=f,stderr=subprocess.STDOUT)\n print('COUNTS EXIT',p.returncode,flush=True)\nfinally:\n source.write_bytes(original)\n for name in packages:\n  dest=N/'node_modules/@retreejs'/name;shutil.rmtree(dest);shutil.copytree(D/('backup-'+name),dest,symlinks=True)\n print('RESTORED',flush=True)\n",
+    "heavy-counts.py": "from pathlib import Path\nimport subprocess,shutil,os,time,json\nD=Path('/tmp/retree-significance');A=Path('/tmp/retree-collections');N=Path('<NEO_ROOT>')\nwhile 'RESTORED' not in (D/'counts-driver.log').read_text():time.sleep(1)\ncmd=next(x['cmd'] for x in json.loads((A/'runs.json').read_text()) if x['name']=='heavy-baseline-1')\noriginals={N/x:(N/x).read_bytes() for x in cmd if x.endswith('.test.ts')}\npackages=['core','babel-plugin-compiler']\nfor name in packages:\n if (D/('heavy-backup-'+name)).exists():shutil.rmtree(D/('heavy-backup-'+name))\nfor name in packages:shutil.copytree(N/'node_modules/@retreejs'/name,D/('heavy-backup-'+name),symlinks=True)\ntry:\n for name in packages:\n  dest=N/'node_modules/@retreejs'/name;shutil.rmtree(dest);shutil.copytree(A/'pr100/packages'/('retree-'+name),dest,ignore=shutil.ignore_patterns('node_modules'))\n p=N/'node_modules/@retreejs/core/bin/internals/proxy.js';s=p.read_text()\n s='function countCollectionProbe(key) { const c = globalThis.__collectionProbe ??= {}; c[key] = (c[key] ?? 0) + 1; }\\n'+s\n s=s.replace('getInternalSlotMethod(target, prop, value, baseProxy) {','getInternalSlotMethod(target, prop, value, baseProxy) {\\nif (target instanceof Map || target instanceof Set) countCollectionProbe((target instanceof Map ? \"Map.\" : \"Set.\") + String(prop));')\n s=s.replace('return function getWrapper(key) {','return function getWrapper(key) { countCollectionProbe(\"Map.get.call\");').replace('return function setWrapper(key, value) {','return function setWrapper(key, value) { countCollectionProbe(\"Map.set.call\");')\n p.write_text(s)\n for f,original in originals.items():\n  f.write_text(original.decode()+'\\nimport { beforeEach as beforeCollectionProbe, afterEach as afterCollectionProbe } from \"vitest\";\\nbeforeCollectionProbe(async () => { globalThis.__collectionProbe = {}; const { Retree: ProbeRetree } = await import(\"@retreejs/core\"); const map = ProbeRetree.root(new Map([[\"probe\", 1]])); map.get(\"probe\"); map.set(\"probe\", 2); if (globalThis.__collectionProbe[\"Map.get.call\"] !== 1 || globalThis.__collectionProbe[\"Map.set.call\"] !== 1) throw new Error(\"Collection probe positive control failed\"); ProbeRetree.clearListeners(map); globalThis.__collectionProbe = {}; });\\nafterCollectionProbe(() => { console.log(\"HEAVY_COLLECTION_PROBE\", '+json.dumps(f.name)+', JSON.stringify(globalThis.__collectionProbe)); });\\n')\n with (D/'counts-heavy.log').open('w') as f:\n  p=subprocess.run(cmd+['--maxWorkers','1'],cwd=N,env={**os.environ,'RETREE_COMPILER':'1'},stdout=f,stderr=subprocess.STDOUT)\n print('HEAVY COUNTS EXIT',p.returncode,flush=True)\nfinally:\n for f,original in originals.items():f.write_bytes(original)\n for name in packages:\n  dest=N/'node_modules/@retreejs'/name;shutil.rmtree(dest);shutil.copytree(D/('heavy-backup-'+name),dest,symlinks=True)\n print('RESTORED',flush=True)\n"
+  },
+  "maps": {
+    "maps-0-experiment.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.6345850000000723,\"averageMeanMs\":0.8742220000000095,\"maxMs\":1.6570420000000183,\"medianMs\":0.7269170000000145,\"minMs\":0.717708000000016,\"p95Ms\":1.6570420000000183,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":3.363750000000038,\"averageMeanMs\":0.8925368888888935,\"maxMs\":1.7447500000000105,\"medianMs\":0.6727500000000077,\"minMs\":0.6639169999999694,\"p95Ms\":1.7447500000000105,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":3.6220850000000837,\"averageMeanMs\":0.949574111111095,\"maxMs\":1.8985829999999737,\"medianMs\":0.7244170000000167,\"minMs\":0.7167089999999803,\"p95Ms\":1.8985829999999737,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":3.6293749999998677,\"averageMeanMs\":0.9242498888888867,\"maxMs\":1.7731660000000034,\"medianMs\":0.7258749999999736,\"minMs\":0.7169579999999769,\"p95Ms\":1.7731660000000034,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.703125,\"averageMeanMs\":0.395860999999987,\"maxMs\":1.3685419999999908,\"medianMs\":0.140625,\"minMs\":0.1382499999999709,\"p95Ms\":1.3685419999999908,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.062499999984539,\"averageMeanMs\":0.01644911111111469,\"maxMs\":0.04795799999999417,\"medianMs\":0.012124999999969077,\"minMs\":0.010958000000016455,\"p95Ms\":0.04795799999999417,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":42.10228999999998,\"averageMeanMs\":8.503411888888897,\"maxMs\":9.142916000000014,\"medianMs\":8.420457999999996,\"minMs\":8.333416000000057,\"p95Ms\":9.142916000000014,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":42.3702099999997,\"averageMeanMs\":8.427916777777783,\"maxMs\":8.55929100000003,\"medianMs\":8.47404199999994,\"minMs\":8.280209000000013,\"p95Ms\":8.55929100000003,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":102.57625000000019,\"averageMeanMs\":20.58813900000002,\"maxMs\":21.26645899999994,\"medianMs\":20.515250000000037,\"minMs\":20.24416700000006,\"p95Ms\":21.26645899999994,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":47.83979499999987,\"averageMeanMs\":9.627180666666668,\"maxMs\":9.959542000000056,\"medianMs\":9.567958999999973,\"minMs\":9.452541999999994,\"p95Ms\":9.959542000000056,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":46.31958499999996,\"averageMeanMs\":9.3946203333333,\"maxMs\":10.372249999999894,\"medianMs\":9.263916999999992,\"minMs\":8.7356249999998,\"p95Ms\":10.372249999999894,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":34.903960000000325,\"averageMeanMs\":7.026189888888944,\"maxMs\":7.452583000000004,\"medianMs\":6.980792000000065,\"minMs\":6.812208000000055,\"p95Ms\":7.452583000000004,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":172.74999999995086,\"averageMeanMs\":0.40653699999997017,\"maxMs\":0.7992080000001351,\"medianMs\":0.3454999999999018,\"minMs\":0.3188340000001517,\"p95Ms\":0.7992080000001351,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":46.51708499999928,\"averageMeanMs\":9.124930333333346,\"maxMs\":9.420458000000053,\"medianMs\":9.303416999999854,\"minMs\":8.664999999999964,\"p95Ms\":9.420458000000053,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":45.59583500000031,\"averageMeanMs\":9.18742600000001,\"maxMs\":9.59762499999988,\"medianMs\":9.119167000000061,\"minMs\":8.838625000000093,\"p95Ms\":9.59762499999988,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":107.1077050000008,\"averageMeanMs\":21.500837555555513,\"maxMs\":21.91666599999985,\"medianMs\":21.42154100000016,\"minMs\":21.113374999999905,\"p95Ms\":21.91666599999985,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":52.0799999999997,\"averageMeanMs\":10.40403699999994,\"maxMs\":10.579874999999902,\"medianMs\":10.41599999999994,\"minMs\":10.167832999999973,\"p95Ms\":10.579874999999902,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":50.49624999999878,\"averageMeanMs\":10.085573888888828,\"maxMs\":10.173624999999902,\"medianMs\":10.099249999999756,\"minMs\":9.979957999999897,\"p95Ms\":10.173624999999902,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":35.96125000000029,\"averageMeanMs\":7.203467333333265,\"maxMs\":7.421666000000187,\"medianMs\":7.192250000000058,\"minMs\":7.062165999999706,\"p95Ms\":7.421666000000187,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":152.87499999999451,\"averageMeanMs\":0.30632877777790984,\"maxMs\":0.31195800000023155,\"medianMs\":0.3057499999999891,\"minMs\":0.302958000000217,\"p95Ms\":0.31195800000023155,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":30.48270999999886,\"averageMeanMs\":6.181731666666666,\"maxMs\":6.923166999999921,\"medianMs\":6.096541999999772,\"minMs\":5.686999999999898,\"p95Ms\":6.923166999999921,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":97.87104,\"averageMeanMs\":19.524458444444512,\"maxMs\":20.632916999999907,\"medianMs\":19.574208,\"minMs\":18.614000000000033,\"p95Ms\":20.632916999999907,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":100.21854499999789,\"averageMeanMs\":20.0865325555556,\"maxMs\":20.833334000000377,\"medianMs\":20.04370899999958,\"minMs\":19.487708999999995,\"p95Ms\":20.833334000000377,\"samples\":9}\n",
+    "maps-0-pr100.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":2.807085000000029,\"averageMeanMs\":0.7296850000000114,\"maxMs\":1.6130830000000174,\"medianMs\":0.5614170000000058,\"minMs\":0.5258329999999773,\"p95Ms\":1.6130830000000174,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":2.5539549999999167,\"averageMeanMs\":0.7814905555555609,\"maxMs\":1.9932080000000383,\"medianMs\":0.5107909999999833,\"minMs\":0.48525000000000773,\"p95Ms\":1.9932080000000383,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":2.8804150000001987,\"averageMeanMs\":0.8219074444444409,\"maxMs\":1.868333000000007,\"medianMs\":0.5760830000000396,\"minMs\":0.5712919999999713,\"p95Ms\":1.868333000000007,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":2.801249999999982,\"averageMeanMs\":0.7901804444444515,\"maxMs\":1.7860830000000192,\"medianMs\":0.5602499999999964,\"minMs\":0.5594169999999963,\"p95Ms\":1.7860830000000192,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7039600000001656,\"averageMeanMs\":0.38781477777778645,\"maxMs\":1.4217080000000237,\"medianMs\":0.1407920000000331,\"minMs\":0.1330000000000382,\"p95Ms\":1.4217080000000237,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.208499999985406,\"averageMeanMs\":0.016504777777773445,\"maxMs\":0.047708000000000084,\"medianMs\":0.012416999999970812,\"minMs\":0.012207999999986896,\"p95Ms\":0.047708000000000084,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":46.80770999999992,\"averageMeanMs\":9.375268666666683,\"maxMs\":9.575874999999996,\"medianMs\":9.361541999999986,\"minMs\":9.265292000000045,\"p95Ms\":9.575874999999996,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":56.288959999999975,\"averageMeanMs\":11.265379666666668,\"maxMs\":11.409374999999955,\"medianMs\":11.257791999999995,\"minMs\":11.097332999999935,\"p95Ms\":11.409374999999955,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":106.74395500000004,\"averageMeanMs\":21.33249544444446,\"maxMs\":22.078666999999996,\"medianMs\":21.348791000000006,\"minMs\":20.941332999999986,\"p95Ms\":22.078666999999996,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":54.121249999999456,\"averageMeanMs\":10.810365555555538,\"maxMs\":10.992749999999887,\"medianMs\":10.824249999999893,\"minMs\":10.592208000000028,\"p95Ms\":10.992749999999887,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":47.759585000000015,\"averageMeanMs\":9.81893066666665,\"maxMs\":11.154917000000069,\"medianMs\":9.551917000000003,\"minMs\":9.326500000000124,\"p95Ms\":11.154917000000069,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":35.11416499999996,\"averageMeanMs\":7.027865888888856,\"maxMs\":7.201499999999896,\"medianMs\":7.022832999999991,\"minMs\":6.84154199999989,\"p95Ms\":7.201499999999896,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":206.95850000004157,\"averageMeanMs\":0.4386527777777853,\"maxMs\":0.6590419999999995,\"medianMs\":0.41391700000008314,\"minMs\":0.26158299999997325,\"p95Ms\":0.6590419999999995,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":51.119790000000194,\"averageMeanMs\":10.226161888888909,\"maxMs\":10.393749999999955,\"medianMs\":10.223958000000039,\"minMs\":9.939082999999982,\"p95Ms\":10.393749999999955,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":57.148750000000064,\"averageMeanMs\":11.475870333333331,\"maxMs\":11.643332999999984,\"medianMs\":11.429750000000013,\"minMs\":11.36783400000013,\"p95Ms\":11.643332999999984,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":109.83166499999926,\"averageMeanMs\":21.916527666666678,\"maxMs\":22.204208000000108,\"medianMs\":21.96633299999985,\"minMs\":21.44404200000008,\"p95Ms\":22.204208000000108,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":56.433750000001055,\"averageMeanMs\":11.30771288888895,\"maxMs\":11.51720800000021,\"medianMs\":11.286750000000211,\"minMs\":11.143833000000086,\"p95Ms\":11.51720800000021,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":53.74332999999979,\"averageMeanMs\":10.826712888888778,\"maxMs\":11.143791999999848,\"medianMs\":10.748665999999957,\"minMs\":10.627290999999786,\"p95Ms\":11.143791999999848,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":37.51854500000036,\"averageMeanMs\":7.535388888888873,\"maxMs\":7.674082999999882,\"medianMs\":7.503709000000072,\"minMs\":7.427000000000135,\"p95Ms\":7.674082999999882,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":210.24999999985997,\"averageMeanMs\":0.3920093333332362,\"maxMs\":0.43391699999983757,\"medianMs\":0.4204999999997199,\"minMs\":0.2823329999996531,\"p95Ms\":0.43391699999983757,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":29.98958499999844,\"averageMeanMs\":6.040272999999969,\"maxMs\":6.7595830000000205,\"medianMs\":5.997916999999688,\"minMs\":5.672375000000102,\"p95Ms\":6.7595830000000205,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":97.56666499999936,\"averageMeanMs\":19.449027666666705,\"maxMs\":19.975832999999966,\"medianMs\":19.513332999999875,\"minMs\":18.93695800000023,\"p95Ms\":19.975832999999966,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":102.93895999999906,\"averageMeanMs\":20.72869433333335,\"maxMs\":21.415415999999823,\"medianMs\":20.58779199999981,\"minMs\":20.272958000000017,\"p95Ms\":21.415415999999823,\"samples\":9}\n",
+    "maps-1-experiment.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.9610449999997854,\"averageMeanMs\":0.9605324444444407,\"maxMs\":1.9423749999999984,\"medianMs\":0.7922089999999571,\"minMs\":0.7709580000000074,\"p95Ms\":1.9423749999999984,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":3.386040000000037,\"averageMeanMs\":0.8947315555555583,\"maxMs\":1.8587909999999965,\"medianMs\":0.6772080000000074,\"minMs\":0.6655000000000086,\"p95Ms\":1.8587909999999965,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":3.6720849999997536,\"averageMeanMs\":0.9658703333333215,\"maxMs\":2.0743329999999673,\"medianMs\":0.7344169999999508,\"minMs\":0.722458999999958,\"p95Ms\":2.0743329999999673,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":3.6818749999997635,\"averageMeanMs\":0.9467684444444507,\"maxMs\":1.8728750000000218,\"medianMs\":0.7363749999999527,\"minMs\":0.7024170000000254,\"p95Ms\":1.8728750000000218,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7095850000001747,\"averageMeanMs\":0.3992085555555731,\"maxMs\":1.3435420000000136,\"medianMs\":0.14191700000003493,\"minMs\":0.14008400000000165,\"p95Ms\":1.3435420000000136,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.37499999999136,\"averageMeanMs\":0.017786999999998443,\"maxMs\":0.05620800000002646,\"medianMs\":0.01274999999998272,\"minMs\":0.012000000000000455,\"p95Ms\":0.05620800000002646,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":40.22208500000005,\"averageMeanMs\":8.045106555555556,\"maxMs\":8.174040999999988,\"medianMs\":8.04441700000001,\"minMs\":7.853584000000069,\"p95Ms\":8.174040999999988,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":42.46417000000008,\"averageMeanMs\":8.490578666666668,\"maxMs\":8.603583000000071,\"medianMs\":8.492834000000016,\"minMs\":8.270167000000015,\"p95Ms\":8.603583000000071,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":104.6358349999997,\"averageMeanMs\":20.98427788888887,\"maxMs\":21.76120800000001,\"medianMs\":20.92716699999994,\"minMs\":20.542333999999983,\"p95Ms\":21.76120800000001,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":44.94541500000025,\"averageMeanMs\":8.997717444444422,\"maxMs\":9.102832999999919,\"medianMs\":8.98908300000005,\"minMs\":8.856999999999971,\"p95Ms\":9.102832999999919,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":43.4104149999996,\"averageMeanMs\":8.705791666666604,\"maxMs\":9.627999999999929,\"medianMs\":8.68208299999992,\"minMs\":8.308166999999912,\"p95Ms\":9.627999999999929,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":34.47812499999941,\"averageMeanMs\":6.957569555555539,\"maxMs\":7.341959000000088,\"medianMs\":6.895624999999882,\"minMs\":6.627291999999898,\"p95Ms\":7.341959000000088,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":168.66650000008576,\"averageMeanMs\":0.4005507777778045,\"maxMs\":0.7020829999999023,\"medianMs\":0.3373330000001715,\"minMs\":0.31529199999999946,\"p95Ms\":0.7020829999999023,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":42.27833499999974,\"averageMeanMs\":8.457148222222209,\"maxMs\":8.575790999999981,\"medianMs\":8.455666999999949,\"minMs\":8.329958999999917,\"p95Ms\":8.575790999999981,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":44.609580000000044,\"averageMeanMs\":8.973157444444446,\"maxMs\":9.110666999999921,\"medianMs\":8.92191600000001,\"minMs\":8.88520799999992,\"p95Ms\":9.110666999999921,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":111.57854000000043,\"averageMeanMs\":22.247143333333344,\"maxMs\":22.51629200000002,\"medianMs\":22.315708000000086,\"minMs\":21.860374999999976,\"p95Ms\":22.51629200000002,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":49.41979500000002,\"averageMeanMs\":9.866222333333301,\"maxMs\":10.019916999999623,\"medianMs\":9.883959000000004,\"minMs\":9.698999999999842,\"p95Ms\":10.019916999999623,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":48.26291500000025,\"averageMeanMs\":9.69702299999992,\"maxMs\":9.924582999999984,\"medianMs\":9.65258300000005,\"minMs\":9.480249999999614,\"p95Ms\":9.924582999999984,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":37.62187499999982,\"averageMeanMs\":7.527296111111253,\"maxMs\":7.676750000000084,\"medianMs\":7.524374999999964,\"minMs\":7.401292000000012,\"p95Ms\":7.676750000000084,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":151.0624999998527,\"averageMeanMs\":0.3100232222221469,\"maxMs\":0.3763749999998254,\"medianMs\":0.3021249999997053,\"minMs\":0.2978750000002037,\"p95Ms\":0.3763749999998254,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":31.37771000000157,\"averageMeanMs\":6.300115777777844,\"maxMs\":7.0812919999998485,\"medianMs\":6.275542000000314,\"minMs\":5.706541999999899,\"p95Ms\":7.0812919999998485,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":95.05625000000009,\"averageMeanMs\":19.40427299999995,\"maxMs\":21.420292000000245,\"medianMs\":19.011250000000018,\"minMs\":18.383957999999893,\"p95Ms\":21.420292000000245,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":107.17499999999973,\"averageMeanMs\":21.492384222222125,\"maxMs\":22.580291999999645,\"medianMs\":21.434999999999945,\"minMs\":20.691499999999905,\"p95Ms\":22.580291999999645,\"samples\":9}\n",
+    "maps-1-pr100.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.6249999999999716,\"averageMeanMs\":0.8862824444444376,\"maxMs\":1.7296669999999779,\"medianMs\":0.7249999999999943,\"minMs\":0.705666999999977,\"p95Ms\":1.7296669999999779,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":3.39895499999983,\"averageMeanMs\":0.8945369999999949,\"maxMs\":1.988334000000009,\"medianMs\":0.6797909999999661,\"minMs\":0.5939169999999763,\"p95Ms\":1.988334000000009,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":3.63646000000017,\"averageMeanMs\":0.9430325555555518,\"maxMs\":1.9996250000000373,\"medianMs\":0.727292000000034,\"minMs\":0.7088749999999777,\"p95Ms\":1.9996250000000373,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":3.6250000000001137,\"averageMeanMs\":0.9563516666666677,\"maxMs\":1.7948330000000396,\"medianMs\":0.7250000000000227,\"minMs\":0.7135410000000206,\"p95Ms\":1.7948330000000396,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7072900000000004,\"averageMeanMs\":0.38420366666665967,\"maxMs\":1.294667000000004,\"medianMs\":0.14145800000000008,\"minMs\":0.140166000000022,\"p95Ms\":1.294667000000004,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.000000000000227,\"averageMeanMs\":0.015976888888884686,\"maxMs\":0.045000000000015916,\"medianMs\":0.012000000000000455,\"minMs\":0.011415999999996984,\"p95Ms\":0.045000000000015916,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":45.971045,\"averageMeanMs\":9.250727000000008,\"maxMs\":9.463999999999999,\"medianMs\":9.194209,\"minMs\":9.146042000000023,\"p95Ms\":9.463999999999999,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":51.596250000000055,\"averageMeanMs\":10.305166555555552,\"maxMs\":10.52841699999999,\"medianMs\":10.319250000000011,\"minMs\":10.125166000000036,\"p95Ms\":10.52841699999999,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":108.59833500000035,\"averageMeanMs\":21.78003711111114,\"maxMs\":22.22458400000005,\"medianMs\":21.719667000000072,\"minMs\":21.48533400000008,\"p95Ms\":22.22458400000005,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":51.24895500000093,\"averageMeanMs\":10.28162977777783,\"maxMs\":10.49995899999999,\"medianMs\":10.249791000000187,\"minMs\":10.095624999999927,\"p95Ms\":10.49995899999999,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":46.82416499999931,\"averageMeanMs\":9.633610888888825,\"maxMs\":11.096416999999974,\"medianMs\":9.364832999999862,\"minMs\":9.067957999999862,\"p95Ms\":11.096416999999974,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":36.91229000000021,\"averageMeanMs\":7.382606555555564,\"maxMs\":7.4837500000001,\"medianMs\":7.382458000000042,\"minMs\":7.231499999999869,\"p95Ms\":7.4837500000001,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":209.54150000000027,\"averageMeanMs\":0.44216188888885377,\"maxMs\":0.7721659999999702,\"medianMs\":0.41908300000000054,\"minMs\":0.2803329999999278,\"p95Ms\":0.7721659999999702,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":50.81187500000056,\"averageMeanMs\":10.166698888888833,\"maxMs\":10.280999999999949,\"medianMs\":10.162375000000111,\"minMs\":10.038915999999972,\"p95Ms\":10.280999999999949,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":56.192915000000305,\"averageMeanMs\":11.276499888888894,\"maxMs\":11.821749999999838,\"medianMs\":11.238583000000062,\"minMs\":10.972999999999956,\"p95Ms\":11.821749999999838,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":112.06229000000008,\"averageMeanMs\":22.419911999999993,\"maxMs\":22.813875000000053,\"medianMs\":22.412458000000015,\"minMs\":22.076583000000028,\"p95Ms\":22.813875000000053,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":57.50416500000029,\"averageMeanMs\":11.52247700000003,\"maxMs\":11.928834000000279,\"medianMs\":11.500833000000057,\"minMs\":11.286667000000307,\"p95Ms\":11.928834000000279,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":54.23645499999793,\"averageMeanMs\":10.807708333333316,\"maxMs\":10.995374999999967,\"medianMs\":10.847290999999586,\"minMs\":10.612208999999893,\"p95Ms\":10.995374999999967,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":39.64874999999893,\"averageMeanMs\":7.975680444444354,\"maxMs\":8.332499999999982,\"medianMs\":7.929749999999785,\"minMs\":7.816457999999784,\"p95Ms\":8.332499999999982,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":207.91650000001027,\"averageMeanMs\":0.3863563333333736,\"maxMs\":0.44041699999979755,\"medianMs\":0.41583300000002055,\"minMs\":0.27824999999984357,\"p95Ms\":0.44041699999979755,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":29.24604000000045,\"averageMeanMs\":6.080930333333324,\"maxMs\":6.965665999999601,\"medianMs\":5.84920800000009,\"minMs\":5.447709000000032,\"p95Ms\":6.965665999999601,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":99.24187500000016,\"averageMeanMs\":20.360314777777855,\"maxMs\":22.80108300000029,\"medianMs\":19.848375000000033,\"minMs\":19.029875000000175,\"p95Ms\":22.80108300000029,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":104.32229499999949,\"averageMeanMs\":21.11210199999995,\"maxMs\":23.842583000000104,\"medianMs\":20.864458999999897,\"minMs\":19.99195899999995,\"p95Ms\":23.842583000000104,\"samples\":9}\n",
+    "maps-10-experiment.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.0708350000000446,\"averageMeanMs\":0.7841019999999995,\"maxMs\":1.6368750000000034,\"medianMs\":0.614167000000009,\"minMs\":0.6117920000000083,\"p95Ms\":1.6368750000000034,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":2.521460000000104,\"averageMeanMs\":0.7350646666666686,\"maxMs\":1.6413330000000315,\"medianMs\":0.5042920000000208,\"minMs\":0.481207999999981,\"p95Ms\":1.6413330000000315,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":2.865835000000061,\"averageMeanMs\":0.8079813333333417,\"maxMs\":1.7413329999999974,\"medianMs\":0.5731670000000122,\"minMs\":0.5493329999999901,\"p95Ms\":1.7413329999999974,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":2.8031250000000796,\"averageMeanMs\":0.8007455555555794,\"maxMs\":1.720625000000041,\"medianMs\":0.5606250000000159,\"minMs\":0.5590840000000412,\"p95Ms\":1.720625000000041,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7041699999999196,\"averageMeanMs\":0.3773844444444371,\"maxMs\":1.3331249999999955,\"medianMs\":0.14083399999998392,\"minMs\":0.14012500000001182,\"p95Ms\":1.3331249999999955,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.270999999998139,\"averageMeanMs\":0.016777888888883454,\"maxMs\":0.045416999999986274,\"medianMs\":0.012541999999996278,\"minMs\":0.01170799999999872,\"p95Ms\":0.045416999999986274,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":38.641455000000065,\"averageMeanMs\":7.724370222222218,\"maxMs\":7.795875000000024,\"medianMs\":7.728291000000013,\"minMs\":7.641750000000002,\"p95Ms\":7.795875000000024,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":40.37895999999989,\"averageMeanMs\":8.025509111111079,\"maxMs\":8.258666999999946,\"medianMs\":8.075791999999979,\"minMs\":7.7784580000000005,\"p95Ms\":8.258666999999946,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":106.5564549999999,\"averageMeanMs\":21.21362944444441,\"maxMs\":21.715874999999983,\"medianMs\":21.311290999999983,\"minMs\":20.721041000000014,\"p95Ms\":21.715874999999983,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":46.1254150000002,\"averageMeanMs\":9.201907444444487,\"maxMs\":9.443916000000172,\"medianMs\":9.22508300000004,\"minMs\":9.044916999999941,\"p95Ms\":9.443916000000172,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":43.48604000000023,\"averageMeanMs\":8.86603711111113,\"maxMs\":9.673666999999796,\"medianMs\":8.697208000000046,\"minMs\":8.512125000000196,\"p95Ms\":9.673666999999796,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":37.20791499999905,\"averageMeanMs\":7.48431466666663,\"maxMs\":7.962374999999838,\"medianMs\":7.4415829999998095,\"minMs\":7.256040999999868,\"p95Ms\":7.962374999999838,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":170.45849999999515,\"averageMeanMs\":0.4110553333333276,\"maxMs\":0.7215830000000096,\"medianMs\":0.34091699999999037,\"minMs\":0.3353330000002188,\"p95Ms\":0.7215830000000096,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":44.30499999999939,\"averageMeanMs\":8.84608355555555,\"maxMs\":8.940166999999974,\"medianMs\":8.860999999999876,\"minMs\":8.70329199999992,\"p95Ms\":8.940166999999974,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":44.002289999999675,\"averageMeanMs\":8.796814888888877,\"maxMs\":8.959875000000011,\"medianMs\":8.800457999999935,\"minMs\":8.642249999999876,\"p95Ms\":8.959875000000011,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":106.85937500000023,\"averageMeanMs\":21.398286999999982,\"maxMs\":21.657083000000057,\"medianMs\":21.371875000000045,\"minMs\":21.129040999999916,\"p95Ms\":21.657083000000057,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":50.13853999999924,\"averageMeanMs\":10.022037111111027,\"maxMs\":10.164250000000038,\"medianMs\":10.027707999999848,\"minMs\":9.860124999999925,\"p95Ms\":10.164250000000038,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":49.53416500000003,\"averageMeanMs\":9.867356444444491,\"maxMs\":9.965416999999889,\"medianMs\":9.906833000000006,\"minMs\":9.697250000000167,\"p95Ms\":9.965416999999889,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":40.42624999999816,\"averageMeanMs\":8.111268555555549,\"maxMs\":8.27454200000011,\"medianMs\":8.085249999999633,\"minMs\":7.989916999999878,\"p95Ms\":8.27454200000011,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":160.93750000004545,\"averageMeanMs\":0.32206022222216135,\"maxMs\":0.330583999999817,\"medianMs\":0.32187500000009095,\"minMs\":0.31729100000029575,\"p95Ms\":0.330583999999817,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":29.968125000000327,\"averageMeanMs\":6.150759111111256,\"maxMs\":7.190458000000035,\"medianMs\":5.9936250000000655,\"minMs\":5.807208000000173,\"p95Ms\":7.190458000000035,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":95.92417000000069,\"averageMeanMs\":19.383032444444375,\"maxMs\":20.19945800000005,\"medianMs\":19.184834000000137,\"minMs\":18.93020899999965,\"p95Ms\":20.19945800000005,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":101.17999999999938,\"averageMeanMs\":20.264291777777796,\"maxMs\":21.265124999999898,\"medianMs\":20.235999999999876,\"minMs\":19.721792000000278,\"p95Ms\":21.265124999999898,\"samples\":9}\n",
+    "maps-10-pr100.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.8722899999999076,\"averageMeanMs\":0.9320416666666662,\"maxMs\":1.793582999999984,\"medianMs\":0.7744579999999814,\"minMs\":0.7647919999999999,\"p95Ms\":1.793582999999984,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":3.354579999999885,\"averageMeanMs\":0.8805555555555473,\"maxMs\":1.7187919999999508,\"medianMs\":0.670915999999977,\"minMs\":0.651916999999969,\"p95Ms\":1.7187919999999508,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":3.6056249999998613,\"averageMeanMs\":0.9449447777777777,\"maxMs\":1.9183340000000157,\"medianMs\":0.7211249999999723,\"minMs\":0.704667000000029,\"p95Ms\":1.9183340000000157,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":3.61937499999982,\"averageMeanMs\":0.9218426666666599,\"maxMs\":1.7092079999999896,\"medianMs\":0.7238749999999641,\"minMs\":0.7176249999999982,\"p95Ms\":1.7092079999999896,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7020849999997836,\"averageMeanMs\":0.3836064444444421,\"maxMs\":1.3548340000000394,\"medianMs\":0.14041699999995672,\"minMs\":0.14012500000001182,\"p95Ms\":1.3548340000000394,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.270999999998139,\"averageMeanMs\":0.0167781111110988,\"maxMs\":0.04683399999998983,\"medianMs\":0.012541999999996278,\"minMs\":0.011832999999967342,\"p95Ms\":0.04683399999998983,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":49.716875000000016,\"averageMeanMs\":9.941564888888884,\"maxMs\":10.508375000000001,\"medianMs\":9.943375000000003,\"minMs\":9.57041700000002,\"p95Ms\":10.508375000000001,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":52.4487499999998,\"averageMeanMs\":10.455796444444445,\"maxMs\":10.707959000000074,\"medianMs\":10.489749999999958,\"minMs\":10.234958000000006,\"p95Ms\":10.707959000000074,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":111.01708500000029,\"averageMeanMs\":22.156703666666683,\"maxMs\":22.551165999999967,\"medianMs\":22.20341700000006,\"minMs\":21.442249999999945,\"p95Ms\":22.551165999999967,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":53.431249999999864,\"averageMeanMs\":10.694365666666677,\"maxMs\":10.776875000000018,\"medianMs\":10.686249999999973,\"minMs\":10.551333999999997,\"p95Ms\":10.776875000000018,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":47.64708500000097,\"averageMeanMs\":9.807708333333393,\"maxMs\":11.11095800000021,\"medianMs\":9.529417000000194,\"minMs\":9.352082999999993,\"p95Ms\":11.11095800000021,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":34.713124999999536,\"averageMeanMs\":6.960810333333332,\"maxMs\":7.11520900000005,\"medianMs\":6.942624999999907,\"minMs\":6.827167000000145,\"p95Ms\":7.11520900000005,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":240.8544999999549,\"averageMeanMs\":0.5271483333333689,\"maxMs\":1.2196670000000722,\"medianMs\":0.4817089999999098,\"minMs\":0.26833299999998417,\"p95Ms\":1.2196670000000722,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":51.914794999999,\"averageMeanMs\":10.388898222222199,\"maxMs\":10.628875000000107,\"medianMs\":10.3829589999998,\"minMs\":10.089291999999887,\"p95Ms\":10.628875000000107,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":55.04937500000097,\"averageMeanMs\":10.995648111111121,\"maxMs\":11.082791999999927,\"medianMs\":11.009875000000193,\"minMs\":10.81658399999992,\"p95Ms\":11.082791999999927,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":113.03457999999978,\"averageMeanMs\":22.595759111111093,\"maxMs\":23.079917000000023,\"medianMs\":22.606915999999956,\"minMs\":22.353624999999965,\"p95Ms\":23.079917000000023,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":58.673125000000255,\"averageMeanMs\":11.768916777777727,\"maxMs\":11.928540999999768,\"medianMs\":11.734625000000051,\"minMs\":11.660167000000001,\"p95Ms\":11.928540999999768,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":54.430205000001024,\"averageMeanMs\":10.86982411111113,\"maxMs\":11.019958999999744,\"medianMs\":10.886041000000205,\"minMs\":10.642624999999953,\"p95Ms\":11.019958999999744,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":37.50291999999945,\"averageMeanMs\":7.499139222222109,\"maxMs\":7.56512500000008,\"medianMs\":7.50058399999989,\"minMs\":7.385124999999789,\"p95Ms\":7.56512500000008,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":205.56250000004187,\"averageMeanMs\":0.3966157777777981,\"maxMs\":0.46895900000026813,\"medianMs\":0.4111250000000837,\"minMs\":0.28091700000004494,\"p95Ms\":0.46895900000026813,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":29.628960000000006,\"averageMeanMs\":5.99062500000001,\"maxMs\":6.5441249999998945,\"medianMs\":5.925792000000001,\"minMs\":5.595959000000221,\"p95Ms\":6.5441249999998945,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":98.7670849999995,\"averageMeanMs\":19.791884111111106,\"maxMs\":20.362500000000182,\"medianMs\":19.7534169999999,\"minMs\":19.235458000000108,\"p95Ms\":20.362500000000182,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":102.32458499999893,\"averageMeanMs\":20.658662111111123,\"maxMs\":21.310875000000124,\"medianMs\":20.464916999999787,\"minMs\":20.203958000000057,\"p95Ms\":21.310875000000124,\"samples\":9}\n",
+    "maps-11-experiment.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.0843749999999654,\"averageMeanMs\":0.7744307777777679,\"maxMs\":1.6051669999999945,\"medianMs\":0.6168749999999932,\"minMs\":0.6116249999999752,\"p95Ms\":1.6051669999999945,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":2.525835000000143,\"averageMeanMs\":0.7837266666666665,\"maxMs\":1.887790999999993,\"medianMs\":0.5051670000000286,\"minMs\":0.5045830000000251,\"p95Ms\":1.887790999999993,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":2.920000000000016,\"averageMeanMs\":0.8219813333333327,\"maxMs\":1.811999999999955,\"medianMs\":0.5840000000000032,\"minMs\":0.5544160000000034,\"p95Ms\":1.811999999999955,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":2.8024999999999523,\"averageMeanMs\":0.8461897777777823,\"maxMs\":2.179292000000032,\"medianMs\":0.5604999999999905,\"minMs\":0.5536250000000109,\"p95Ms\":2.179292000000032,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7029200000002334,\"averageMeanMs\":0.40537966666668507,\"maxMs\":1.4998340000000212,\"medianMs\":0.14058400000004667,\"minMs\":0.1402500000000373,\"p95Ms\":1.4998340000000212,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.145500000002357,\"averageMeanMs\":0.019342666666659625,\"maxMs\":0.04779200000001538,\"medianMs\":0.012291000000004715,\"minMs\":0.011542000000019925,\"p95Ms\":0.04779200000001538,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":39.85749999999996,\"averageMeanMs\":7.992661888888885,\"maxMs\":8.351125000000025,\"medianMs\":7.971499999999992,\"minMs\":7.716375000000028,\"p95Ms\":8.351125000000025,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":41.31104499999992,\"averageMeanMs\":8.251768555555563,\"maxMs\":8.547790999999961,\"medianMs\":8.262208999999984,\"minMs\":7.9319169999999986,\"p95Ms\":8.547790999999961,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":107.23583000000019,\"averageMeanMs\":21.32794433333335,\"maxMs\":21.805625000000077,\"medianMs\":21.44716600000004,\"minMs\":20.762042000000065,\"p95Ms\":21.805625000000077,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":45.4718749999995,\"averageMeanMs\":9.071323888888855,\"maxMs\":9.405332999999928,\"medianMs\":9.0943749999999,\"minMs\":8.573541999999861,\"p95Ms\":9.405332999999928,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":42.020835000000716,\"averageMeanMs\":8.500907555555589,\"maxMs\":9.372875000000022,\"medianMs\":8.404167000000143,\"minMs\":8.122292000000016,\"p95Ms\":9.372875000000022,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":33.86333000000036,\"averageMeanMs\":6.783763777777772,\"maxMs\":6.945915999999897,\"medianMs\":6.772666000000072,\"minMs\":6.645999999999958,\"p95Ms\":6.945915999999897,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":163.8335000000097,\"averageMeanMs\":0.43112500000001497,\"maxMs\":0.7415829999999914,\"medianMs\":0.32766700000001947,\"minMs\":0.31854199999997945,\"p95Ms\":0.7415829999999914,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":42.164169999999785,\"averageMeanMs\":8.55099077777772,\"maxMs\":8.862750000000005,\"medianMs\":8.432833999999957,\"minMs\":8.33199999999988,\"p95Ms\":8.862750000000005,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":43.49166500000024,\"averageMeanMs\":8.70673133333336,\"maxMs\":8.874250000000075,\"medianMs\":8.698333000000048,\"minMs\":8.574583000000075,\"p95Ms\":8.874250000000075,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":107.97374999999988,\"averageMeanMs\":21.596217444444417,\"maxMs\":22.323916000000054,\"medianMs\":21.594749999999976,\"minMs\":21.060375000000022,\"p95Ms\":22.323916000000054,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":49.38291499999877,\"averageMeanMs\":9.917995222222215,\"maxMs\":10.312666000000036,\"medianMs\":9.876582999999755,\"minMs\":9.774375000000191,\"p95Ms\":10.312666000000036,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":48.83937500000002,\"averageMeanMs\":9.720037222222194,\"maxMs\":9.988166999999976,\"medianMs\":9.767875000000004,\"minMs\":9.496999999999844,\"p95Ms\":9.988166999999976,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":37.923960000000534,\"averageMeanMs\":7.549476888888926,\"maxMs\":7.765542000000096,\"medianMs\":7.584792000000107,\"minMs\":7.279167000000143,\"p95Ms\":7.765542000000096,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":154.87499999994728,\"averageMeanMs\":0.31220844444447315,\"maxMs\":0.32820799999990413,\"medianMs\":0.3097499999998945,\"minMs\":0.3065420000002632,\"p95Ms\":0.32820799999990413,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":29.210205000001682,\"averageMeanMs\":6.062259111111164,\"maxMs\":6.99545900000021,\"medianMs\":5.842041000000336,\"minMs\":5.769250000000284,\"p95Ms\":6.99545900000021,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":96.8858299999988,\"averageMeanMs\":19.77195822222221,\"maxMs\":21.256792000000132,\"medianMs\":19.37716599999976,\"minMs\":18.931916,\"p95Ms\":21.256792000000132,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":110.94187499999862,\"averageMeanMs\":21.87274099999998,\"maxMs\":23.8468340000004,\"medianMs\":22.188374999999724,\"minMs\":20.152000000000044,\"p95Ms\":23.8468340000004,\"samples\":9}\n",
+    "maps-11-pr100.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":2.8031250000000796,\"averageMeanMs\":0.7397914444444432,\"maxMs\":1.691082999999992,\"medianMs\":0.5606250000000159,\"minMs\":0.5582499999999868,\"p95Ms\":1.691082999999992,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":2.5687500000000796,\"averageMeanMs\":0.7321296666666702,\"maxMs\":1.6317919999999617,\"medianMs\":0.5137500000000159,\"minMs\":0.5041250000000446,\"p95Ms\":1.6317919999999617,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":2.868750000000091,\"averageMeanMs\":0.80418511111111,\"maxMs\":1.8151659999999765,\"medianMs\":0.5737500000000182,\"minMs\":0.5705409999999915,\"p95Ms\":1.8151659999999765,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":2.8027099999999905,\"averageMeanMs\":0.7962221111111174,\"maxMs\":1.8646669999999972,\"medianMs\":0.5605419999999981,\"minMs\":0.5576249999999732,\"p95Ms\":1.8646669999999972,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7022900000001187,\"averageMeanMs\":0.4169583333333422,\"maxMs\":1.639792,\"medianMs\":0.14045800000002373,\"minMs\":0.14008300000000418,\"p95Ms\":1.639792,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.270999999998139,\"averageMeanMs\":0.01651399999999765,\"maxMs\":0.04866599999996879,\"medianMs\":0.012541999999996278,\"minMs\":0.011749999999949523,\"p95Ms\":0.04866599999996879,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":47.82646,\"averageMeanMs\":9.55533344444445,\"maxMs\":9.710875000000044,\"medianMs\":9.565292,\"minMs\":9.404125000000022,\"p95Ms\":9.710875000000044,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":50.04645499999982,\"averageMeanMs\":9.987430333333325,\"maxMs\":10.306874999999991,\"medianMs\":10.009290999999962,\"minMs\":9.736291000000051,\"p95Ms\":10.306874999999991,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":107.64354000000026,\"averageMeanMs\":21.43981466666667,\"maxMs\":22.084707999999978,\"medianMs\":21.52870800000005,\"minMs\":20.821500000000015,\"p95Ms\":22.084707999999978,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":52.79916500000013,\"averageMeanMs\":10.55225922222222,\"maxMs\":10.798999999999978,\"medianMs\":10.559833000000026,\"minMs\":10.385541000000103,\"p95Ms\":10.798999999999978,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":46.6885400000001,\"averageMeanMs\":9.693953555555531,\"maxMs\":10.991040999999996,\"medianMs\":9.33770800000002,\"minMs\":9.29058299999997,\"p95Ms\":10.991040999999996,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":36.09124999999949,\"averageMeanMs\":7.1659628888888465,\"maxMs\":7.357124999999996,\"medianMs\":7.218249999999898,\"minMs\":6.924208999999792,\"p95Ms\":7.357124999999996,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":213.9789999999948,\"averageMeanMs\":0.4532498888888515,\"maxMs\":0.7292910000001029,\"medianMs\":0.4279579999999896,\"minMs\":0.2779579999998987,\"p95Ms\":0.7292910000001029,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":51.53229499999952,\"averageMeanMs\":10.30104177777778,\"maxMs\":10.491459000000077,\"medianMs\":10.306458999999904,\"minMs\":10.176124999999956,\"p95Ms\":10.491459000000077,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":53.1435399999998,\"averageMeanMs\":10.597916888888879,\"maxMs\":10.76866700000005,\"medianMs\":10.62870799999996,\"minMs\":10.354457999999795,\"p95Ms\":10.76866700000005,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":112.65750000000025,\"averageMeanMs\":22.520768444444407,\"maxMs\":23.201707999999826,\"medianMs\":22.53150000000005,\"minMs\":22.048000000000002,\"p95Ms\":23.201707999999826,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":57.091250000000855,\"averageMeanMs\":11.3922685555556,\"maxMs\":11.535959000000275,\"medianMs\":11.418250000000171,\"minMs\":10.997208000000228,\"p95Ms\":11.535959000000275,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":53.2077100000015,\"averageMeanMs\":10.612412333333396,\"maxMs\":10.781167000000096,\"medianMs\":10.6415420000003,\"minMs\":10.439417000000049,\"p95Ms\":10.781167000000096,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":37.69020999999839,\"averageMeanMs\":7.541365888888929,\"maxMs\":7.679916999999932,\"medianMs\":7.5380419999996775,\"minMs\":7.4451670000003105,\"p95Ms\":7.679916999999932,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":207.54149999993388,\"averageMeanMs\":0.4017359999999017,\"maxMs\":0.46604200000001583,\"medianMs\":0.41508299999986775,\"minMs\":0.2784999999998945,\"p95Ms\":0.46604200000001583,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":31.16521000000148,\"averageMeanMs\":6.197564666666697,\"maxMs\":6.737624999999753,\"medianMs\":6.233042000000296,\"minMs\":5.7906660000003285,\"p95Ms\":6.737624999999753,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":102.11624999999913,\"averageMeanMs\":20.340703555555542,\"maxMs\":21.15929099999994,\"medianMs\":20.423249999999825,\"minMs\":19.750417000000198,\"p95Ms\":21.15929099999994,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":104.46104000000105,\"averageMeanMs\":20.793402888888824,\"maxMs\":21.278499999999894,\"medianMs\":20.89220800000021,\"minMs\":20.29820800000016,\"p95Ms\":21.278499999999894,\"samples\":9}\n",
+    "maps-2-experiment.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":2.8258300000000243,\"averageMeanMs\":0.7533563333333354,\"maxMs\":1.8048330000000021,\"medianMs\":0.5651660000000049,\"minMs\":0.5604580000000112,\"p95Ms\":1.8048330000000021,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":2.585835000000145,\"averageMeanMs\":0.7772316666666623,\"maxMs\":1.9279170000000363,\"medianMs\":0.517167000000029,\"minMs\":0.5040839999999776,\"p95Ms\":1.9279170000000363,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":2.87146000000007,\"averageMeanMs\":0.8480603333333457,\"maxMs\":2.109958000000006,\"medianMs\":0.574292000000014,\"minMs\":0.5552920000000086,\"p95Ms\":2.109958000000006,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":2.8141650000000595,\"averageMeanMs\":0.8301526666666759,\"maxMs\":1.8862500000000182,\"medianMs\":0.5628330000000119,\"minMs\":0.5602080000000456,\"p95Ms\":1.8862500000000182,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7029149999999618,\"averageMeanMs\":0.388615666666668,\"maxMs\":1.4979169999999726,\"medianMs\":0.14058299999999235,\"minMs\":0.13887499999998454,\"p95Ms\":1.4979169999999726,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.083499999988362,\"averageMeanMs\":0.016870333333334504,\"maxMs\":0.04870799999997644,\"medianMs\":0.012166999999976724,\"minMs\":0.01170799999999872,\"p95Ms\":0.04870799999997644,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":38.344374999999786,\"averageMeanMs\":7.6862823333333194,\"maxMs\":7.884416000000044,\"medianMs\":7.668874999999957,\"minMs\":7.544207999999969,\"p95Ms\":7.884416000000044,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":40.47229000000016,\"averageMeanMs\":8.124379555555542,\"maxMs\":8.29774999999995,\"medianMs\":8.094458000000031,\"minMs\":7.975999999999999,\"p95Ms\":8.29774999999995,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":104.92229000000009,\"averageMeanMs\":21.039532333333355,\"maxMs\":21.529750000000035,\"medianMs\":20.984458000000018,\"minMs\":20.785582999999974,\"p95Ms\":21.529750000000035,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":43.91958499999987,\"averageMeanMs\":8.790800888888876,\"maxMs\":8.898374999999987,\"medianMs\":8.783916999999974,\"minMs\":8.681500000000028,\"p95Ms\":8.898374999999987,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":41.55083500000046,\"averageMeanMs\":8.562143555555572,\"maxMs\":9.641292000000021,\"medianMs\":8.310167000000092,\"minMs\":8.150624999999991,\"p95Ms\":9.641292000000021,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":34.750415000000885,\"averageMeanMs\":6.97234233333332,\"maxMs\":7.196915999999874,\"medianMs\":6.950083000000177,\"minMs\":6.809582999999975,\"p95Ms\":7.196915999999874,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":175.85449999990033,\"averageMeanMs\":0.4091574444444682,\"maxMs\":0.6859580000000278,\"medianMs\":0.35170899999980065,\"minMs\":0.31512500000008004,\"p95Ms\":0.6859580000000278,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":41.44604000000072,\"averageMeanMs\":8.306138777777758,\"maxMs\":8.474124999999958,\"medianMs\":8.289208000000144,\"minMs\":8.160208000000011,\"p95Ms\":8.474124999999958,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":43.38270999999963,\"averageMeanMs\":8.703874888888878,\"maxMs\":9.137333000000126,\"medianMs\":8.676541999999927,\"minMs\":8.394624999999905,\"p95Ms\":9.137333000000126,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":109.57896000000005,\"averageMeanMs\":21.896907555555572,\"maxMs\":22.31795800000009,\"medianMs\":21.91579200000001,\"minMs\":21.384209000000055,\"p95Ms\":22.31795800000009,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":48.312919999999615,\"averageMeanMs\":9.675949222222219,\"maxMs\":9.88583299999982,\"medianMs\":9.662583999999924,\"minMs\":9.477041999999983,\"p95Ms\":9.88583299999982,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":48.02208500000007,\"averageMeanMs\":9.638999999999921,\"maxMs\":10.04049999999961,\"medianMs\":9.604417000000012,\"minMs\":9.516791999999896,\"p95Ms\":10.04049999999961,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":37.1333350000009,\"averageMeanMs\":7.387814777777799,\"maxMs\":7.5092500000000655,\"medianMs\":7.4266670000001795,\"minMs\":7.1692910000001575,\"p95Ms\":7.5092500000000655,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":152.91649999994664,\"averageMeanMs\":0.30629611111104776,\"maxMs\":0.3305000000000291,\"medianMs\":0.3058329999998932,\"minMs\":0.27995800000007875,\"p95Ms\":0.3305000000000291,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":30.37041999999928,\"averageMeanMs\":6.16858333333332,\"maxMs\":6.846958000000086,\"medianMs\":6.074083999999857,\"minMs\":5.735625000000255,\"p95Ms\":6.846958000000086,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":99.1685399999983,\"averageMeanMs\":19.527967444444332,\"maxMs\":21.001332999999704,\"medianMs\":19.83370799999966,\"minMs\":18.40137500000037,\"p95Ms\":21.001332999999704,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":100.85146000000123,\"averageMeanMs\":20.189907222222246,\"maxMs\":21.430832999999893,\"medianMs\":20.170292000000245,\"minMs\":19.49250000000029,\"p95Ms\":21.430832999999893,\"samples\":9}\n",
+    "maps-2-pr100.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.66375000000005,\"averageMeanMs\":0.8877961111111163,\"maxMs\":1.7662500000000136,\"medianMs\":0.73275000000001,\"minMs\":0.7170409999999947,\"p95Ms\":1.7662500000000136,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":3.3493749999999523,\"averageMeanMs\":0.8882316666666712,\"maxMs\":1.8848749999999939,\"medianMs\":0.6698749999999905,\"minMs\":0.6639999999999873,\"p95Ms\":1.8848749999999939,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":3.647290000000112,\"averageMeanMs\":0.9445277777777821,\"maxMs\":1.954208000000051,\"medianMs\":0.7294580000000224,\"minMs\":0.6970420000000104,\"p95Ms\":1.954208000000051,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":3.605414999999823,\"averageMeanMs\":0.9300832222222211,\"maxMs\":1.849958000000015,\"medianMs\":0.7210829999999646,\"minMs\":0.6905419999999935,\"p95Ms\":1.849958000000015,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7062500000000682,\"averageMeanMs\":0.3564353333333404,\"maxMs\":1.209165999999982,\"medianMs\":0.14125000000001364,\"minMs\":0.14016700000001947,\"p95Ms\":1.209165999999982,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.249999999994316,\"averageMeanMs\":0.020750000000008286,\"maxMs\":0.053832999999997355,\"medianMs\":0.012499999999988631,\"minMs\":0.011583000000030097,\"p95Ms\":0.053832999999997355,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":47.54771000000006,\"averageMeanMs\":9.558412,\"maxMs\":9.724874999999997,\"medianMs\":9.50954200000001,\"minMs\":9.456165999999996,\"p95Ms\":9.724874999999997,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":52.35895999999968,\"averageMeanMs\":10.433763888888885,\"maxMs\":10.57670799999994,\"medianMs\":10.471791999999937,\"minMs\":10.274582999999893,\"p95Ms\":10.57670799999994,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":109.12541500000032,\"averageMeanMs\":21.791268777777784,\"maxMs\":22.43837499999995,\"medianMs\":21.825083000000063,\"minMs\":21.38383399999998,\"p95Ms\":22.43837499999995,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":53.18292000000042,\"averageMeanMs\":10.652472111111138,\"maxMs\":10.932584000000134,\"medianMs\":10.636584000000084,\"minMs\":10.414040999999997,\"p95Ms\":10.932584000000134,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":49.63853999999969,\"averageMeanMs\":10.048444222222214,\"maxMs\":11.32795800000008,\"medianMs\":9.927707999999939,\"minMs\":9.61958299999992,\"p95Ms\":11.32795800000008,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":35.32771000000025,\"averageMeanMs\":7.0576757777777805,\"maxMs\":7.11870799999997,\"medianMs\":7.06554200000005,\"minMs\":6.963040999999976,\"p95Ms\":7.11870799999997,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":208.70849999994334,\"averageMeanMs\":0.445842444444477,\"maxMs\":0.691332999999986,\"medianMs\":0.4174169999998867,\"minMs\":0.29862500000012915,\"p95Ms\":0.691332999999986,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":51.91728999999896,\"averageMeanMs\":10.399833444444438,\"maxMs\":10.692459000000099,\"medianMs\":10.383457999999791,\"minMs\":10.210291999999981,\"p95Ms\":10.692459000000099,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":55.46978999999965,\"averageMeanMs\":11.165990666666605,\"maxMs\":11.699999999999818,\"medianMs\":11.09395799999993,\"minMs\":10.880832999999939,\"p95Ms\":11.699999999999818,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":110.2172900000005,\"averageMeanMs\":22.182050777777803,\"maxMs\":22.772707999999966,\"medianMs\":22.0434580000001,\"minMs\":21.698374999999942,\"p95Ms\":22.772707999999966,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":58.35645999999997,\"averageMeanMs\":11.748125111111221,\"maxMs\":12.096750000000156,\"medianMs\":11.671291999999994,\"minMs\":11.512042000000292,\"p95Ms\":12.096750000000156,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":54.68229500000007,\"averageMeanMs\":10.942273222222159,\"maxMs\":11.098833000000013,\"medianMs\":10.936459000000013,\"minMs\":10.725791999999728,\"p95Ms\":11.098833000000013,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":37.5952099999995,\"averageMeanMs\":7.553889222222198,\"maxMs\":7.7645840000000135,\"medianMs\":7.519041999999899,\"minMs\":7.421374999999898,\"p95Ms\":7.7645840000000135,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":213.5829999999714,\"averageMeanMs\":0.4056434444444474,\"maxMs\":0.44137499999987995,\"medianMs\":0.42716599999994287,\"minMs\":0.27920799999992596,\"p95Ms\":0.44137499999987995,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":30.607500000000982,\"averageMeanMs\":6.122949222222157,\"maxMs\":6.964666999999736,\"medianMs\":6.1215000000001965,\"minMs\":5.639458999999988,\"p95Ms\":6.964666999999736,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":96.81937499999776,\"averageMeanMs\":19.490569444444393,\"maxMs\":20.21041699999978,\"medianMs\":19.363874999999553,\"minMs\":19.07358299999987,\"p95Ms\":20.21041699999978,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":102.08937500000046,\"averageMeanMs\":20.503699111111068,\"maxMs\":21.04808299999968,\"medianMs\":20.417875000000095,\"minMs\":20.011625000000095,\"p95Ms\":21.04808299999968,\"samples\":9}\n",
+    "maps-3-experiment.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.9039599999999552,\"averageMeanMs\":0.9449396666666606,\"maxMs\":1.8605409999999836,\"medianMs\":0.780791999999991,\"minMs\":0.7715829999999926,\"p95Ms\":1.8605409999999836,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":3.3645800000002173,\"averageMeanMs\":0.9163980000000025,\"maxMs\":1.8605000000000018,\"medianMs\":0.6729160000000434,\"minMs\":0.6662919999999986,\"p95Ms\":1.8605000000000018,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":3.637705000000153,\"averageMeanMs\":0.9408148888888819,\"maxMs\":1.8874589999999785,\"medianMs\":0.7275410000000306,\"minMs\":0.7170830000000024,\"p95Ms\":1.8874589999999785,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":3.622500000000173,\"averageMeanMs\":0.9595694444444499,\"maxMs\":1.9115419999999972,\"medianMs\":0.7245000000000346,\"minMs\":0.6891669999999976,\"p95Ms\":1.9115419999999972,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7020800000000804,\"averageMeanMs\":0.3776483333333292,\"maxMs\":1.3600420000000213,\"medianMs\":0.14041600000001608,\"minMs\":0.14024999999998045,\"p95Ms\":1.3600420000000213,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.145500000002357,\"averageMeanMs\":0.016208111111123143,\"maxMs\":0.04704100000003564,\"medianMs\":0.012291000000004715,\"minMs\":0.011625000000037744,\"p95Ms\":0.04704100000003564,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":42.4656250000001,\"averageMeanMs\":8.487884111111132,\"maxMs\":8.569958000000042,\"medianMs\":8.49312500000002,\"minMs\":8.379458,\"p95Ms\":8.569958000000042,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":43.11729000000014,\"averageMeanMs\":8.617166666666638,\"maxMs\":8.839666999999963,\"medianMs\":8.623458000000028,\"minMs\":8.289541999999983,\"p95Ms\":8.839666999999963,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":107.28541500000006,\"averageMeanMs\":21.44574522222222,\"maxMs\":21.710042000000044,\"medianMs\":21.45708300000001,\"minMs\":21.14270799999997,\"p95Ms\":21.710042000000044,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":47.596249999999145,\"averageMeanMs\":9.558925888888881,\"maxMs\":9.876208000000133,\"medianMs\":9.519249999999829,\"minMs\":9.408500000000004,\"p95Ms\":9.876208000000133,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":44.96208499999967,\"averageMeanMs\":9.253263888888872,\"maxMs\":10.196500000000015,\"medianMs\":8.992416999999932,\"minMs\":8.939499999999953,\"p95Ms\":10.196500000000015,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":32.85000000000082,\"averageMeanMs\":6.645435222222255,\"maxMs\":7.110957999999982,\"medianMs\":6.570000000000164,\"minMs\":6.443416999999954,\"p95Ms\":7.110957999999982,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":168.02100000006703,\"averageMeanMs\":0.3966435555556068,\"maxMs\":0.7555830000001151,\"medianMs\":0.33604200000013407,\"minMs\":0.3164170000000013,\"p95Ms\":0.7555830000001151,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":46.2816650000002,\"averageMeanMs\":9.247499999999995,\"maxMs\":9.476625000000013,\"medianMs\":9.25633300000004,\"minMs\":8.932958999999983,\"p95Ms\":9.476625000000013,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":45.851669999999565,\"averageMeanMs\":9.221597444444418,\"maxMs\":9.425375000000031,\"medianMs\":9.170333999999912,\"minMs\":9.03129100000001,\"p95Ms\":9.425375000000031,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":111.26833499999975,\"averageMeanMs\":22.143620444444448,\"maxMs\":22.374541999999792,\"medianMs\":22.25366699999995,\"minMs\":21.777833999999984,\"p95Ms\":22.374541999999792,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":51.20750000000044,\"averageMeanMs\":10.223050888888944,\"maxMs\":10.704292000000123,\"medianMs\":10.241500000000087,\"minMs\":9.889209000000164,\"p95Ms\":10.704292000000123,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":53.02000000000135,\"averageMeanMs\":10.583338000000115,\"maxMs\":11.137167000000318,\"medianMs\":10.60400000000027,\"minMs\":10.10820799999965,\"p95Ms\":11.137167000000318,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":36.618539999999484,\"averageMeanMs\":7.40189355555554,\"maxMs\":7.733042000000296,\"medianMs\":7.323707999999897,\"minMs\":7.1733329999997295,\"p95Ms\":7.733042000000296,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":154.12500000002183,\"averageMeanMs\":0.3079536666666374,\"maxMs\":0.318416999999954,\"medianMs\":0.30825000000004366,\"minMs\":0.2879579999998896,\"p95Ms\":0.318416999999954,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":30.821670000000264,\"averageMeanMs\":6.246611111111077,\"maxMs\":6.85045799999989,\"medianMs\":6.1643340000000535,\"minMs\":5.725292000000081,\"p95Ms\":6.85045799999989,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":94.84666500000004,\"averageMeanMs\":19.10985644444453,\"maxMs\":20.07504199999994,\"medianMs\":18.969333000000006,\"minMs\":18.461166999999932,\"p95Ms\":20.07504199999994,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":102.79416500000025,\"averageMeanMs\":20.565564555555586,\"maxMs\":22.11291600000004,\"medianMs\":20.55883300000005,\"minMs\":19.735916999999972,\"p95Ms\":22.11291600000004,\"samples\":9}\n",
+    "maps-3-pr100.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.1566649999999186,\"averageMeanMs\":0.7789028888888873,\"maxMs\":1.6356250000000045,\"medianMs\":0.6313329999999837,\"minMs\":0.6122499999999889,\"p95Ms\":1.6356250000000045,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":2.52207999999996,\"averageMeanMs\":0.7179813333333319,\"maxMs\":1.613375000000019,\"medianMs\":0.504415999999992,\"minMs\":0.49183400000003985,\"p95Ms\":1.613375000000019,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":2.8841700000000974,\"averageMeanMs\":0.8105647777777752,\"maxMs\":1.8500829999999837,\"medianMs\":0.5768340000000194,\"minMs\":0.5707079999999678,\"p95Ms\":1.8500829999999837,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":2.799374999999884,\"averageMeanMs\":0.7617871111111059,\"maxMs\":1.618583000000001,\"medianMs\":0.5598749999999768,\"minMs\":0.5117089999999962,\"p95Ms\":1.618583000000001,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7297900000000368,\"averageMeanMs\":0.3786527777777893,\"maxMs\":1.2825000000000273,\"medianMs\":0.14595800000000736,\"minMs\":0.1400000000000432,\"p95Ms\":1.2825000000000273,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.062499999984539,\"averageMeanMs\":0.018212777777755998,\"maxMs\":0.041874999999947704,\"medianMs\":0.012124999999969077,\"minMs\":0.011458000000004631,\"p95Ms\":0.041874999999947704,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":45.577085000000174,\"averageMeanMs\":9.163138888888865,\"maxMs\":9.431874999999934,\"medianMs\":9.115417000000036,\"minMs\":8.930957999999976,\"p95Ms\":9.431874999999934,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":50,\"averageMeanMs\":10.02610633333331,\"maxMs\":10.178291000000058,\"medianMs\":10,\"minMs\":9.846374999999966,\"p95Ms\":10.178291000000058,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":106.36562500000024,\"averageMeanMs\":21.215847333333347,\"maxMs\":21.432375000000093,\"medianMs\":21.27312500000005,\"minMs\":20.957834000000048,\"p95Ms\":21.432375000000093,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":51.399170000000254,\"averageMeanMs\":10.273842666666699,\"maxMs\":10.410625000000095,\"medianMs\":10.27983400000005,\"minMs\":10.100417000000107,\"p95Ms\":10.410625000000095,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":44.88166999999976,\"averageMeanMs\":9.33439366666668,\"maxMs\":10.99691699999994,\"medianMs\":8.976333999999952,\"minMs\":8.873291999999992,\"p95Ms\":10.99691699999994,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":34.874585000000025,\"averageMeanMs\":7.010342666666626,\"maxMs\":7.211332999999968,\"medianMs\":6.974917000000005,\"minMs\":6.891875000000027,\"p95Ms\":7.211332999999968,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":217.8544999999303,\"averageMeanMs\":0.46278255555557735,\"maxMs\":0.668042000000014,\"medianMs\":0.4357089999998607,\"minMs\":0.28025000000002365,\"p95Ms\":0.668042000000014,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":47.945210000000316,\"averageMeanMs\":9.616046222222243,\"maxMs\":9.76583299999993,\"medianMs\":9.589042000000063,\"minMs\":9.423709000000144,\"p95Ms\":9.76583299999993,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":53.23770999999966,\"averageMeanMs\":10.628624888888883,\"maxMs\":10.764124999999922,\"medianMs\":10.64754199999993,\"minMs\":10.520582999999988,\"p95Ms\":10.764124999999922,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":109.79146000000014,\"averageMeanMs\":21.94888422222223,\"maxMs\":22.07591699999989,\"medianMs\":21.95829200000003,\"minMs\":21.78687499999978,\"p95Ms\":22.07591699999989,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":55.94249999999988,\"averageMeanMs\":11.211375111111188,\"maxMs\":11.39691700000003,\"medianMs\":11.188499999999976,\"minMs\":11.050375000000031,\"p95Ms\":11.39691700000003,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":52.1785449999993,\"averageMeanMs\":10.511787111111062,\"maxMs\":10.769124999999804,\"medianMs\":10.43570899999986,\"minMs\":10.37762500000008,\"p95Ms\":10.769124999999804,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":37.40208500000108,\"averageMeanMs\":7.476657333333403,\"maxMs\":7.653790999999728,\"medianMs\":7.480417000000216,\"minMs\":7.322416999999859,\"p95Ms\":7.653790999999728,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":213.12499999999093,\"averageMeanMs\":0.39806933333334704,\"maxMs\":0.43820800000003146,\"medianMs\":0.4262499999999818,\"minMs\":0.291957999999795,\"p95Ms\":0.43820800000003146,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":29.183960000000297,\"averageMeanMs\":6.015907444444464,\"maxMs\":6.760667000000012,\"medianMs\":5.8367920000000595,\"minMs\":5.681540999999925,\"p95Ms\":6.760667000000012,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":97.06541499999958,\"averageMeanMs\":19.446092555555627,\"maxMs\":20.119000000000142,\"medianMs\":19.413082999999915,\"minMs\":18.811125000000175,\"p95Ms\":20.119000000000142,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":102.36416499999905,\"averageMeanMs\":20.841402555555458,\"maxMs\":24.2043749999998,\"medianMs\":20.47283299999981,\"minMs\":19.84266600000001,\"p95Ms\":24.2043749999998,\"samples\":9}\n",
+    "maps-4-experiment.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":2.8114550000000804,\"averageMeanMs\":0.712583111111106,\"maxMs\":1.5248750000000086,\"medianMs\":0.5622910000000161,\"minMs\":0.524374999999992,\"p95Ms\":1.5248750000000086,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":2.5302100000001815,\"averageMeanMs\":0.7773335555555655,\"maxMs\":1.946374999999989,\"medianMs\":0.5060420000000363,\"minMs\":0.5041249999999877,\"p95Ms\":1.946374999999989,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":2.904374999999959,\"averageMeanMs\":0.8040184444444347,\"maxMs\":1.737166000000002,\"medianMs\":0.5808749999999918,\"minMs\":0.5736249999999927,\"p95Ms\":1.737166000000002,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":2.8077050000001686,\"averageMeanMs\":0.7807684444444603,\"maxMs\":1.6844999999999573,\"medianMs\":0.5615410000000338,\"minMs\":0.5463340000000017,\"p95Ms\":1.6844999999999573,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7012499999999022,\"averageMeanMs\":0.36649977777778353,\"maxMs\":1.2838750000000232,\"medianMs\":0.14024999999998045,\"minMs\":0.13279099999999744,\"p95Ms\":1.2838750000000232,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.166500000006181,\"averageMeanMs\":0.01678244444444014,\"maxMs\":0.04854199999999764,\"medianMs\":0.012333000000012362,\"minMs\":0.011541999999963082,\"p95Ms\":0.04854199999999764,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":41.24479000000008,\"averageMeanMs\":8.258004555555564,\"maxMs\":8.399000000000001,\"medianMs\":8.248958000000016,\"minMs\":8.082042000000001,\"p95Ms\":8.399000000000001,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":42.671250000000214,\"averageMeanMs\":8.47904166666664,\"maxMs\":8.556791999999973,\"medianMs\":8.534250000000043,\"minMs\":8.30499999999995,\"p95Ms\":8.556791999999973,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":107.17520999999975,\"averageMeanMs\":21.41697688888889,\"maxMs\":21.955249999999978,\"medianMs\":21.435041999999953,\"minMs\":21.00512500000002,\"p95Ms\":21.955249999999978,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":45.767079999999396,\"averageMeanMs\":9.1884442222222,\"maxMs\":9.352416000000062,\"medianMs\":9.15341599999988,\"minMs\":9.086832999999842,\"p95Ms\":9.352416000000062,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":43.5883350000006,\"averageMeanMs\":8.844324111111089,\"maxMs\":9.600291999999854,\"medianMs\":8.71766700000012,\"minMs\":8.513709000000063,\"p95Ms\":9.600291999999854,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":34.292295000000195,\"averageMeanMs\":6.864365888888894,\"maxMs\":7.015834000000041,\"medianMs\":6.858459000000039,\"minMs\":6.752416000000039,\"p95Ms\":7.015834000000041,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":161.43750000003365,\"averageMeanMs\":0.3987917777777612,\"maxMs\":0.7525000000000546,\"medianMs\":0.3228750000000673,\"minMs\":0.3070829999999205,\"p95Ms\":0.7525000000000546,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":42.876454999999396,\"averageMeanMs\":8.568185111111056,\"maxMs\":8.656708999999864,\"medianMs\":8.57529099999988,\"minMs\":8.429499999999962,\"p95Ms\":8.656708999999864,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":45.338334999999006,\"averageMeanMs\":9.098171222222113,\"maxMs\":9.379040999999916,\"medianMs\":9.067666999999801,\"minMs\":8.954457999999931,\"p95Ms\":9.379040999999916,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":110.55082999999968,\"averageMeanMs\":22.152500000000018,\"maxMs\":22.742499999999836,\"medianMs\":22.110165999999936,\"minMs\":21.719084000000066,\"p95Ms\":22.742499999999836,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":49.81083500000068,\"averageMeanMs\":9.985342555555539,\"maxMs\":10.154665999999906,\"medianMs\":9.962167000000136,\"minMs\":9.872875000000022,\"p95Ms\":10.154665999999906,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":50.71521000000075,\"averageMeanMs\":10.125236222222258,\"maxMs\":10.211334000000079,\"medianMs\":10.14304200000015,\"minMs\":10.000958000000082,\"p95Ms\":10.211334000000079,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":36.95416499999965,\"averageMeanMs\":7.385601666666592,\"maxMs\":7.5395000000003165,\"medianMs\":7.39083299999993,\"minMs\":7.222166999999899,\"p95Ms\":7.5395000000003165,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":148.9794999999958,\"averageMeanMs\":0.29849999999997734,\"maxMs\":0.3037080000003698,\"medianMs\":0.29795899999999165,\"minMs\":0.29316700000026685,\"p95Ms\":0.3037080000003698,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":30.01750000000129,\"averageMeanMs\":6.0998196666667654,\"maxMs\":6.994834000000083,\"medianMs\":6.003500000000258,\"minMs\":5.706666999999925,\"p95Ms\":6.994834000000083,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":95.46583000000057,\"averageMeanMs\":19.088208333333366,\"maxMs\":19.58966700000019,\"medianMs\":19.09316600000011,\"minMs\":18.729541000000154,\"p95Ms\":19.58966700000019,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":116.91250000000082,\"averageMeanMs\":23.10395833333339,\"maxMs\":25.75820799999974,\"medianMs\":23.382500000000164,\"minMs\":20.432166999999936,\"p95Ms\":25.75820799999974,\"samples\":9}\n",
+    "maps-4-pr100.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.09937500000018,\"averageMeanMs\":0.8118611111111136,\"maxMs\":1.9025829999999928,\"medianMs\":0.6198750000000359,\"minMs\":0.6067919999999845,\"p95Ms\":1.9025829999999928,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":2.543749999999818,\"averageMeanMs\":0.7759445555555607,\"maxMs\":2.029375000000016,\"medianMs\":0.5087499999999636,\"minMs\":0.4958340000000021,\"p95Ms\":2.029375000000016,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":2.904164999999921,\"averageMeanMs\":0.8302823333333246,\"maxMs\":1.8413340000000176,\"medianMs\":0.5808329999999842,\"minMs\":0.572749999999985,\"p95Ms\":1.8413340000000176,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":2.8118749999998727,\"averageMeanMs\":0.8107641111111042,\"maxMs\":1.8818750000000364,\"medianMs\":0.5623749999999745,\"minMs\":0.5558340000000044,\"p95Ms\":1.8818750000000364,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7016700000002629,\"averageMeanMs\":0.38348133333333734,\"maxMs\":1.4330830000000105,\"medianMs\":0.14033400000005258,\"minMs\":0.13962500000002365,\"p95Ms\":1.4330830000000105,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.021000000004051,\"averageMeanMs\":0.017314777777774754,\"maxMs\":0.05491599999999153,\"medianMs\":0.012042000000008102,\"minMs\":0.011417000000051303,\"p95Ms\":0.05491599999999153,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":49.22187500000007,\"averageMeanMs\":9.8852777777778,\"maxMs\":10.117541999999958,\"medianMs\":9.844375000000014,\"minMs\":9.664917000000003,\"p95Ms\":10.117541999999958,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":54.75458500000002,\"averageMeanMs\":11.045954000000014,\"maxMs\":11.618417000000022,\"medianMs\":10.950917000000004,\"minMs\":10.815375000000017,\"p95Ms\":11.618417000000022,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":107.91833499999996,\"averageMeanMs\":21.44695388888888,\"maxMs\":21.81791700000008,\"medianMs\":21.58366699999999,\"minMs\":21.02379200000007,\"p95Ms\":21.81791700000008,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":52.379584999999906,\"averageMeanMs\":10.468921222222232,\"maxMs\":10.720208000000184,\"medianMs\":10.475916999999981,\"minMs\":10.272040999999945,\"p95Ms\":10.720208000000184,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":48.150415000000066,\"averageMeanMs\":9.836643333333313,\"maxMs\":10.940832999999884,\"medianMs\":9.630083000000013,\"minMs\":9.533040999999912,\"p95Ms\":10.940832999999884,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":37.261250000000246,\"averageMeanMs\":7.448976777777817,\"maxMs\":7.774040999999897,\"medianMs\":7.452250000000049,\"minMs\":7.249250000000075,\"p95Ms\":7.774040999999897,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":211.5000000000009,\"averageMeanMs\":0.45832422222221997,\"maxMs\":0.833458999999948,\"medianMs\":0.4230000000000018,\"minMs\":0.2680000000000291,\"p95Ms\":0.833458999999948,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":50.682084999999695,\"averageMeanMs\":10.125555444444444,\"maxMs\":10.277708000000075,\"medianMs\":10.136416999999938,\"minMs\":9.982457999999951,\"p95Ms\":10.277708000000075,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":57.226249999999936,\"averageMeanMs\":11.450777888888853,\"maxMs\":11.826499999999896,\"medianMs\":11.445249999999987,\"minMs\":11.227624999999989,\"p95Ms\":11.826499999999896,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":111.07270500000025,\"averageMeanMs\":22.223467444444445,\"maxMs\":22.42450000000008,\"medianMs\":22.214541000000054,\"minMs\":22.046082999999953,\"p95Ms\":22.42450000000008,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":57.322079999999005,\"averageMeanMs\":11.511273111111121,\"maxMs\":11.659250000000156,\"medianMs\":11.464415999999801,\"minMs\":11.35958299999993,\"p95Ms\":11.659250000000156,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":54.35353999999961,\"averageMeanMs\":10.874740555555592,\"maxMs\":11.106208000000152,\"medianMs\":10.870707999999922,\"minMs\":10.639415999999983,\"p95Ms\":11.106208000000152,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":38.43541499999901,\"averageMeanMs\":7.732018555555543,\"maxMs\":7.978375000000142,\"medianMs\":7.687082999999802,\"minMs\":7.639083999999912,\"p95Ms\":7.978375000000142,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":209.18749999987082,\"averageMeanMs\":0.40995388888894824,\"maxMs\":0.45675000000028376,\"medianMs\":0.4183749999997417,\"minMs\":0.2747089999998025,\"p95Ms\":0.45675000000028376,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":31.973124999999524,\"averageMeanMs\":6.399847111111033,\"maxMs\":7.201583000000028,\"medianMs\":6.394624999999905,\"minMs\":5.558332999999948,\"p95Ms\":7.201583000000028,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":97.69583000000011,\"averageMeanMs\":19.648310222222285,\"maxMs\":20.725750000000062,\"medianMs\":19.539166000000023,\"minMs\":19.268459000000348,\"p95Ms\":20.725750000000062,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":104.45396000000072,\"averageMeanMs\":20.94444933333337,\"maxMs\":22.275250000000142,\"medianMs\":20.890792000000147,\"minMs\":19.821917000000212,\"p95Ms\":22.275250000000142,\"samples\":9}\n",
+    "maps-5-experiment.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.08125000000004,\"averageMeanMs\":0.7866391111111094,\"maxMs\":1.7032920000000047,\"medianMs\":0.616250000000008,\"minMs\":0.6119170000000054,\"p95Ms\":1.7032920000000047,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":2.5391650000000254,\"averageMeanMs\":0.7588843333333242,\"maxMs\":1.7949590000000057,\"medianMs\":0.5078330000000051,\"minMs\":0.5044169999999895,\"p95Ms\":1.7949590000000057,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":2.894170000000145,\"averageMeanMs\":0.8082733333333307,\"maxMs\":1.7770830000000046,\"medianMs\":0.5788340000000289,\"minMs\":0.5738329999999792,\"p95Ms\":1.7770830000000046,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":2.8016700000000583,\"averageMeanMs\":0.7795141111111169,\"maxMs\":1.6950420000000008,\"medianMs\":0.5603340000000117,\"minMs\":0.5582089999999766,\"p95Ms\":1.6950420000000008,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7027099999999109,\"averageMeanMs\":0.3948008888888871,\"maxMs\":1.3595000000000255,\"medianMs\":0.14054199999998218,\"minMs\":0.13283300000000509,\"p95Ms\":1.3595000000000255,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.041499999980715,\"averageMeanMs\":0.01632399999999734,\"maxMs\":0.0488330000000019,\"medianMs\":0.01208299999996143,\"minMs\":0.011666999999988548,\"p95Ms\":0.0488330000000019,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":39.575834999999984,\"averageMeanMs\":7.854814888888882,\"maxMs\":8.143417,\"medianMs\":7.915166999999997,\"minMs\":7.6159999999999854,\"p95Ms\":8.143417,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":40.645000000000095,\"averageMeanMs\":8.10936111111107,\"maxMs\":8.22849999999994,\"medianMs\":8.129000000000019,\"minMs\":7.887041999999951,\"p95Ms\":8.22849999999994,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":102.90750000000001,\"averageMeanMs\":20.587823999999994,\"maxMs\":20.924792000000025,\"medianMs\":20.581500000000005,\"minMs\":20.237167,\"p95Ms\":20.924792000000025,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":44.44312500000023,\"averageMeanMs\":8.899249777777804,\"maxMs\":9.071250000000077,\"medianMs\":8.888625000000047,\"minMs\":8.729082999999946,\"p95Ms\":9.071250000000077,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":42.11396000000036,\"averageMeanMs\":8.631194333333346,\"maxMs\":9.64716599999997,\"medianMs\":8.422792000000072,\"minMs\":8.176124999999956,\"p95Ms\":9.64716599999997,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":34.26958000000013,\"averageMeanMs\":6.868050999999948,\"maxMs\":7.17229199999997,\"medianMs\":6.8539160000000265,\"minMs\":6.665124999999989,\"p95Ms\":7.17229199999997,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":178.04200000000492,\"averageMeanMs\":0.3905046666666547,\"maxMs\":0.6952919999998812,\"medianMs\":0.35608400000000984,\"minMs\":0.303957999999966,\"p95Ms\":0.6952919999998812,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":42.08208500000069,\"averageMeanMs\":8.403176000000006,\"maxMs\":8.575959000000012,\"medianMs\":8.416417000000138,\"minMs\":8.12129200000004,\"p95Ms\":8.575959000000012,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":44.09208499999977,\"averageMeanMs\":8.830185111111076,\"maxMs\":8.89799999999991,\"medianMs\":8.818416999999954,\"minMs\":8.7282909999999,\"p95Ms\":8.89799999999991,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":109.26249999999982,\"averageMeanMs\":21.853222333333356,\"maxMs\":22.55962499999987,\"medianMs\":21.852499999999964,\"minMs\":21.274834000000055,\"p95Ms\":22.55962499999987,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":50.67354000000023,\"averageMeanMs\":10.097092555555541,\"maxMs\":10.423416999999972,\"medianMs\":10.134708000000046,\"minMs\":9.820290999999997,\"p95Ms\":10.423416999999972,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":48.638124999999945,\"averageMeanMs\":9.722078666666675,\"maxMs\":10.062583999999788,\"medianMs\":9.727624999999989,\"minMs\":9.492832999999791,\"p95Ms\":10.062583999999788,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":39.44770999999946,\"averageMeanMs\":7.87565733333329,\"maxMs\":8.161665999999968,\"medianMs\":7.889541999999892,\"minMs\":7.525416000000405,\"p95Ms\":8.161665999999968,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":149.93749999985084,\"averageMeanMs\":0.2983192222221381,\"maxMs\":0.3062079999999696,\"medianMs\":0.2998749999997017,\"minMs\":0.28774999999996,\"p95Ms\":0.3062079999999696,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":32.09687499999973,\"averageMeanMs\":6.4565923333333455,\"maxMs\":7.420832999999675,\"medianMs\":6.419374999999945,\"minMs\":5.782458000000133,\"p95Ms\":7.420832999999675,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":98.15437499999916,\"averageMeanMs\":19.903476888888942,\"maxMs\":21.029291000000285,\"medianMs\":19.630874999999833,\"minMs\":19.370707999999922,\"p95Ms\":21.029291000000285,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":101.97333000000071,\"averageMeanMs\":20.411240666666647,\"maxMs\":21.041041999999834,\"medianMs\":20.394666000000143,\"minMs\":19.851666999999907,\"p95Ms\":21.041041999999834,\"samples\":9}\n",
+    "maps-5-pr100.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.9083300000000065,\"averageMeanMs\":0.9485880000000072,\"maxMs\":1.8842500000000086,\"medianMs\":0.7816660000000013,\"minMs\":0.7677500000000066,\"p95Ms\":1.8842500000000086,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":3.370625000000018,\"averageMeanMs\":0.9110093333333238,\"maxMs\":1.8950419999999895,\"medianMs\":0.6741250000000036,\"minMs\":0.6547080000000278,\"p95Ms\":1.8950419999999895,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":3.652915000000121,\"averageMeanMs\":0.9450323333333396,\"maxMs\":1.8929999999999723,\"medianMs\":0.7305830000000242,\"minMs\":0.7173750000000041,\"p95Ms\":1.8929999999999723,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":3.6445799999998485,\"averageMeanMs\":0.9565834444444413,\"maxMs\":1.9235419999999976,\"medianMs\":0.7289159999999697,\"minMs\":0.7179169999999999,\"p95Ms\":1.9235419999999976,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7027049999999234,\"averageMeanMs\":0.41987966666666426,\"maxMs\":1.7593749999999773,\"medianMs\":0.1405409999999847,\"minMs\":0.14020899999997027,\"p95Ms\":1.7593749999999773,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.416500000000269,\"averageMeanMs\":0.017574111111122823,\"maxMs\":0.052333000000032825,\"medianMs\":0.012833000000000538,\"minMs\":0.01170799999999872,\"p95Ms\":0.052333000000032825,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":47.01291999999995,\"averageMeanMs\":9.445745666666673,\"maxMs\":9.661833999999999,\"medianMs\":9.40258399999999,\"minMs\":9.300375000000031,\"p95Ms\":9.661833999999999,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":51.74937499999999,\"averageMeanMs\":10.303884111111124,\"maxMs\":10.610083000000031,\"medianMs\":10.349874999999997,\"minMs\":10.097750000000019,\"p95Ms\":10.610083000000031,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":108.45874999999978,\"averageMeanMs\":21.71676833333331,\"maxMs\":22.283374999999978,\"medianMs\":21.691749999999956,\"minMs\":21.427832999999964,\"p95Ms\":22.283374999999978,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":51.84103999999934,\"averageMeanMs\":10.350472222222216,\"maxMs\":10.501457999999957,\"medianMs\":10.368207999999868,\"minMs\":10.11324999999988,\"p95Ms\":10.501457999999957,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":46.58625000000029,\"averageMeanMs\":9.618648111111119,\"maxMs\":10.835374999999885,\"medianMs\":9.317250000000058,\"minMs\":9.116042000000107,\"p95Ms\":10.835374999999885,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":34.774375000000646,\"averageMeanMs\":7.030421222222306,\"maxMs\":7.174792000000025,\"medianMs\":6.954875000000129,\"minMs\":6.866208000000142,\"p95Ms\":7.174792000000025,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":209.12500000008552,\"averageMeanMs\":0.45363900000004126,\"maxMs\":0.7002909999998792,\"medianMs\":0.418250000000171,\"minMs\":0.31279200000017227,\"p95Ms\":0.7002909999998792,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":50.71229500000073,\"averageMeanMs\":10.151569666666648,\"maxMs\":10.261332999999922,\"medianMs\":10.142459000000144,\"minMs\":9.955333999999993,\"p95Ms\":10.261332999999922,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":54.79416499999956,\"averageMeanMs\":10.96405088888888,\"maxMs\":11.111417000000074,\"medianMs\":10.958832999999913,\"minMs\":10.812166999999818,\"p95Ms\":11.111417000000074,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":111.65416499999992,\"averageMeanMs\":22.366615666666625,\"maxMs\":22.852040999999872,\"medianMs\":22.330832999999984,\"minMs\":22.093583999999964,\"p95Ms\":22.852040999999872,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":57.47104000000036,\"averageMeanMs\":11.460389000000053,\"maxMs\":11.69458399999985,\"medianMs\":11.494208000000071,\"minMs\":11.290415999999823,\"p95Ms\":11.69458399999985,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":53.30604500000163,\"averageMeanMs\":10.666069444444576,\"maxMs\":10.938542000000325,\"medianMs\":10.661209000000326,\"minMs\":10.445582999999715,\"p95Ms\":10.938542000000325,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":38.222915000001194,\"averageMeanMs\":7.6354583333334425,\"maxMs\":7.913250000000062,\"medianMs\":7.644583000000239,\"minMs\":7.460375000000113,\"p95Ms\":7.913250000000062,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":207.58299999988594,\"averageMeanMs\":0.39913411111117764,\"maxMs\":0.4487090000002354,\"medianMs\":0.4151659999997719,\"minMs\":0.29341699999986304,\"p95Ms\":0.4487090000002354,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":29.057289999998375,\"averageMeanMs\":5.94414799999999,\"maxMs\":7.091707999999926,\"medianMs\":5.811457999999675,\"minMs\":5.564249999999902,\"p95Ms\":7.091707999999926,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":95.93812500000013,\"averageMeanMs\":19.39318055555557,\"maxMs\":20.49508300000025,\"medianMs\":19.187625000000025,\"minMs\":18.8793340000002,\"p95Ms\":20.49508300000025,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":100.55916499999967,\"averageMeanMs\":20.245523222222246,\"maxMs\":20.766625000000204,\"medianMs\":20.111832999999933,\"minMs\":19.944458999999824,\"p95Ms\":20.766625000000204,\"samples\":9}\n",
+    "maps-6-experiment.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.637289999999922,\"averageMeanMs\":0.8976018888888859,\"maxMs\":1.7560840000000155,\"medianMs\":0.7274579999999844,\"minMs\":0.718291999999991,\"p95Ms\":1.7560840000000155,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":3.3791700000000446,\"averageMeanMs\":0.8939028888888932,\"maxMs\":1.798582999999951,\"medianMs\":0.6758340000000089,\"minMs\":0.6649590000000103,\"p95Ms\":1.798582999999951,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":3.6335449999998555,\"averageMeanMs\":0.9621296666666631,\"maxMs\":2.0585829999999987,\"medianMs\":0.7267089999999712,\"minMs\":0.7172080000000278,\"p95Ms\":2.0585829999999987,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":3.6229149999999777,\"averageMeanMs\":0.9472498888888986,\"maxMs\":1.887708000000032,\"medianMs\":0.7245829999999955,\"minMs\":0.7170839999999998,\"p95Ms\":1.887708000000032,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7024999999998727,\"averageMeanMs\":0.40694444444444067,\"maxMs\":1.3709590000000276,\"medianMs\":0.14049999999997453,\"minMs\":0.14004099999999653,\"p95Ms\":1.3709590000000276,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.021000000004051,\"averageMeanMs\":0.017564888888892308,\"maxMs\":0.045416999999986274,\"medianMs\":0.012042000000008102,\"minMs\":0.01141699999999446,\"p95Ms\":0.045416999999986274,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":42.69312499999984,\"averageMeanMs\":8.625087999999968,\"maxMs\":8.918333999999959,\"medianMs\":8.538624999999968,\"minMs\":8.443375000000003,\"p95Ms\":8.918333999999959,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":42.91687500000023,\"averageMeanMs\":8.602175888888901,\"maxMs\":8.847166000000016,\"medianMs\":8.583375000000046,\"minMs\":8.461625000000026,\"p95Ms\":8.847166000000016,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":106.626665,\"averageMeanMs\":21.348254555555563,\"maxMs\":22.40166600000009,\"medianMs\":21.325333,\"minMs\":20.82958300000007,\"p95Ms\":22.40166600000009,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":47.940624999999955,\"averageMeanMs\":9.584615666666663,\"maxMs\":9.839541000000054,\"medianMs\":9.588124999999991,\"minMs\":9.422415999999998,\"p95Ms\":9.839541000000054,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":45.13874999999984,\"averageMeanMs\":9.212569555555547,\"maxMs\":10.320541999999932,\"medianMs\":9.027749999999969,\"minMs\":8.839042000000063,\"p95Ms\":10.320541999999932,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":33.339789999999994,\"averageMeanMs\":6.62290244444441,\"maxMs\":6.802707999999939,\"medianMs\":6.667957999999999,\"minMs\":6.40566600000011,\"p95Ms\":6.802707999999939,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":164.2914999999903,\"averageMeanMs\":0.39924988888889046,\"maxMs\":0.7200000000000273,\"medianMs\":0.32858299999998053,\"minMs\":0.3125409999997828,\"p95Ms\":0.7200000000000273,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":45.46375000000012,\"averageMeanMs\":8.998555444444442,\"maxMs\":9.210790999999972,\"medianMs\":9.092750000000024,\"minMs\":8.725417000000107,\"p95Ms\":9.210790999999972,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":46.06103999999959,\"averageMeanMs\":9.235842666666636,\"maxMs\":9.375292000000172,\"medianMs\":9.212207999999919,\"minMs\":9.117666999999983,\"p95Ms\":9.375292000000172,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":110.45353999999973,\"averageMeanMs\":22.001657444444465,\"maxMs\":22.263666000000057,\"medianMs\":22.09070799999995,\"minMs\":21.753875000000107,\"p95Ms\":22.263666000000057,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":50.30687499999999,\"averageMeanMs\":10.114032333333348,\"maxMs\":10.37808300000006,\"medianMs\":10.061374999999998,\"minMs\":9.953207999999904,\"p95Ms\":10.37808300000006,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":50.98770500000001,\"averageMeanMs\":10.200184999999895,\"maxMs\":10.40124999999989,\"medianMs\":10.197541000000001,\"minMs\":9.993540999999823,\"p95Ms\":10.40124999999989,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":35.642709999999624,\"averageMeanMs\":7.147726888888883,\"maxMs\":7.3002080000001115,\"medianMs\":7.128541999999925,\"minMs\":7.019459000000097,\"p95Ms\":7.3002080000001115,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":150.52050000008424,\"averageMeanMs\":0.307397999999921,\"maxMs\":0.36687499999970896,\"medianMs\":0.3010410000001684,\"minMs\":0.2962089999996351,\"p95Ms\":0.36687499999970896,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":30.16582999999855,\"averageMeanMs\":6.071175999999974,\"maxMs\":6.857167000000118,\"medianMs\":6.03316599999971,\"minMs\":5.706334000000425,\"p95Ms\":6.857167000000118,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":96.00292000000081,\"averageMeanMs\":19.415120555555607,\"maxMs\":20.21225000000004,\"medianMs\":19.200584000000163,\"minMs\":18.878999999999905,\"p95Ms\":20.21225000000004,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":102.75416499999892,\"averageMeanMs\":20.52868511111112,\"maxMs\":21.283833000000413,\"medianMs\":20.550832999999784,\"minMs\":19.81379199999992,\"p95Ms\":21.283833000000413,\"samples\":9}\n",
+    "maps-6-pr100.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.1270849999999943,\"averageMeanMs\":0.7932131111111131,\"maxMs\":1.6308750000000032,\"medianMs\":0.6254169999999988,\"minMs\":0.6035420000000045,\"p95Ms\":1.6308750000000032,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":2.5250000000002615,\"averageMeanMs\":0.75545833333334,\"maxMs\":1.8287920000000213,\"medianMs\":0.5050000000000523,\"minMs\":0.5045000000000073,\"p95Ms\":1.8287920000000213,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":2.887499999999932,\"averageMeanMs\":0.8083841111111004,\"maxMs\":1.7989999999999782,\"medianMs\":0.5774999999999864,\"minMs\":0.5720000000000027,\"p95Ms\":1.7989999999999782,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":2.826249999999959,\"averageMeanMs\":0.7950787777777654,\"maxMs\":1.752999999999986,\"medianMs\":0.5652499999999918,\"minMs\":0.5600419999999531,\"p95Ms\":1.752999999999986,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7035450000000766,\"averageMeanMs\":0.3847455555555573,\"maxMs\":1.4134579999999914,\"medianMs\":0.1407090000000153,\"minMs\":0.14008300000000418,\"p95Ms\":1.4134579999999914,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.06250000001296,\"averageMeanMs\":0.016277777777784448,\"maxMs\":0.04775000000000773,\"medianMs\":0.01212500000002592,\"minMs\":0.011583999999970729,\"p95Ms\":0.04775000000000773,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":45.84249999999997,\"averageMeanMs\":9.141046222222208,\"maxMs\":9.40466600000002,\"medianMs\":9.168499999999995,\"minMs\":8.830833000000041,\"p95Ms\":9.40466600000002,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":51.130415000000085,\"averageMeanMs\":10.235740888888914,\"maxMs\":10.36770899999999,\"medianMs\":10.226083000000017,\"minMs\":10.086250000000064,\"p95Ms\":10.36770899999999,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":108.67812500000014,\"averageMeanMs\":21.71933311111113,\"maxMs\":22.287374999999997,\"medianMs\":21.735625000000027,\"minMs\":21.315167000000088,\"p95Ms\":22.287374999999997,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":51.38124999999945,\"averageMeanMs\":10.28117122222222,\"maxMs\":10.45049999999992,\"medianMs\":10.27624999999989,\"minMs\":10.118207999999981,\"p95Ms\":10.45049999999992,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":46.69791499999974,\"averageMeanMs\":9.58409266666667,\"maxMs\":10.99262500000009,\"medianMs\":9.339582999999948,\"minMs\":9.03924999999981,\"p95Ms\":10.99262500000009,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":35.599375000000464,\"averageMeanMs\":7.1255417777778,\"maxMs\":7.46612499999992,\"medianMs\":7.119875000000093,\"minMs\":6.896542000000181,\"p95Ms\":7.46612499999992,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":211.10449999991945,\"averageMeanMs\":0.47947233333330685,\"maxMs\":0.7006670000000668,\"medianMs\":0.42220899999983885,\"minMs\":0.404166000000032,\"p95Ms\":0.7006670000000668,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":48.79583000000025,\"averageMeanMs\":9.746004555555576,\"maxMs\":10.013332999999875,\"medianMs\":9.75916600000005,\"minMs\":9.465625000000045,\"p95Ms\":10.013332999999875,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":54.03749999999945,\"averageMeanMs\":10.78812033333328,\"maxMs\":10.989749999999958,\"medianMs\":10.80749999999989,\"minMs\":10.600791999999956,\"p95Ms\":10.989749999999958,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":110.62229499999944,\"averageMeanMs\":22.16213433333332,\"maxMs\":22.428667000000132,\"medianMs\":22.124458999999888,\"minMs\":21.840625000000045,\"p95Ms\":22.428667000000132,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":54.84146000000009,\"averageMeanMs\":10.999175999999958,\"maxMs\":11.203040999999757,\"medianMs\":10.96829200000002,\"minMs\":10.792583999999806,\"p95Ms\":11.203040999999757,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":52.40103999999974,\"averageMeanMs\":10.536634111111198,\"maxMs\":10.827832999999828,\"medianMs\":10.480207999999948,\"minMs\":10.358667000000423,\"p95Ms\":10.827832999999828,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":37.764790000001085,\"averageMeanMs\":7.583240444444477,\"maxMs\":7.7377080000001115,\"medianMs\":7.552958000000217,\"minMs\":7.515541000000212,\"p95Ms\":7.7377080000001115,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":208.83350000008247,\"averageMeanMs\":0.39672688888903296,\"maxMs\":0.4377910000002885,\"medianMs\":0.417667000000165,\"minMs\":0.27579100000002654,\"p95Ms\":0.4377910000002885,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":30.07457999999815,\"averageMeanMs\":6.170467333333211,\"maxMs\":6.8823749999996835,\"medianMs\":6.01491599999963,\"minMs\":5.852709000000232,\"p95Ms\":6.8823749999996835,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":96.57125000000178,\"averageMeanMs\":19.498495555555564,\"maxMs\":20.615250000000287,\"medianMs\":19.314250000000357,\"minMs\":18.87237499999992,\"p95Ms\":20.615250000000287,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":102.26166500000089,\"averageMeanMs\":20.668240777777807,\"maxMs\":21.42429200000015,\"medianMs\":20.45233300000018,\"minMs\":20.17291699999987,\"p95Ms\":21.42429200000015,\"samples\":9}\n",
+    "maps-7-experiment.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.116250000000065,\"averageMeanMs\":0.7722686666666713,\"maxMs\":1.5460410000000024,\"medianMs\":0.623250000000013,\"minMs\":0.6014169999999979,\"p95Ms\":1.5460410000000024,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":2.562289999999905,\"averageMeanMs\":0.7180831111111117,\"maxMs\":1.5296659999999633,\"medianMs\":0.512457999999981,\"minMs\":0.5039160000000038,\"p95Ms\":1.5296659999999633,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":2.87666999999999,\"averageMeanMs\":0.7978982222222221,\"maxMs\":1.6645000000000323,\"medianMs\":0.575333999999998,\"minMs\":0.5706250000000068,\"p95Ms\":1.6645000000000323,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":2.7949999999998454,\"averageMeanMs\":0.7641759999999951,\"maxMs\":1.6399169999999685,\"medianMs\":0.5589999999999691,\"minMs\":0.5577920000000063,\"p95Ms\":1.6399169999999685,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.702295000000106,\"averageMeanMs\":0.3912130000000123,\"maxMs\":1.5100830000000087,\"medianMs\":0.1404590000000212,\"minMs\":0.14008300000000418,\"p95Ms\":1.5100830000000087,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.208499999985406,\"averageMeanMs\":0.01625011111111184,\"maxMs\":0.04570899999998801,\"medianMs\":0.012416999999970812,\"minMs\":0.011875000000031832,\"p95Ms\":0.04570899999998801,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":39.159375000000125,\"averageMeanMs\":7.841888888888895,\"maxMs\":7.98275000000001,\"medianMs\":7.831875000000025,\"minMs\":7.739708000000007,\"p95Ms\":7.98275000000001,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":40.63500000000033,\"averageMeanMs\":8.143324111111106,\"maxMs\":8.321083999999928,\"medianMs\":8.127000000000066,\"minMs\":7.883874999999989,\"p95Ms\":8.321083999999928,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":103.23229000000026,\"averageMeanMs\":20.799097333333318,\"maxMs\":21.43674999999996,\"medianMs\":20.646458000000052,\"minMs\":20.396665999999982,\"p95Ms\":21.43674999999996,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":46.30666499999961,\"averageMeanMs\":9.196416555555553,\"maxMs\":9.324166999999989,\"medianMs\":9.261332999999922,\"minMs\":8.87241599999993,\"p95Ms\":9.324166999999989,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":43.55062500000031,\"averageMeanMs\":8.876569555555584,\"maxMs\":9.748250000000098,\"medianMs\":8.710125000000062,\"minMs\":8.483459000000039,\"p95Ms\":9.748250000000098,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":33.1339550000007,\"averageMeanMs\":6.626301000000037,\"maxMs\":6.700917000000118,\"medianMs\":6.626791000000139,\"minMs\":6.48741700000005,\"p95Ms\":6.700917000000118,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":156.54200000005858,\"averageMeanMs\":0.37822677777775326,\"maxMs\":0.7355830000001333,\"medianMs\":0.31308400000011716,\"minMs\":0.3027079999999387,\"p95Ms\":0.7355830000001333,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":43.665415000000394,\"averageMeanMs\":8.737999888888933,\"maxMs\":8.848666999999978,\"medianMs\":8.733083000000079,\"minMs\":8.640499999999975,\"p95Ms\":8.848666999999978,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":43.46603999999956,\"averageMeanMs\":8.7005647777778,\"maxMs\":8.850750000000062,\"medianMs\":8.693207999999913,\"minMs\":8.569333000000142,\"p95Ms\":8.850750000000062,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":107.81916499999967,\"averageMeanMs\":21.540550888888877,\"maxMs\":21.831207999999833,\"medianMs\":21.56383299999993,\"minMs\":21.285292000000027,\"p95Ms\":21.831207999999833,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":49.923125000000255,\"averageMeanMs\":10.014393444444472,\"maxMs\":10.28862499999991,\"medianMs\":9.984625000000051,\"minMs\":9.896582999999964,\"p95Ms\":10.28862499999991,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":50.617084999998944,\"averageMeanMs\":10.090467555555506,\"maxMs\":10.37175000000002,\"medianMs\":10.12341699999979,\"minMs\":9.867166999999881,\"p95Ms\":10.37175000000002,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":36.48979000000054,\"averageMeanMs\":7.371884111111033,\"maxMs\":8.002707999999984,\"medianMs\":7.297958000000108,\"minMs\":7.192417000000205,\"p95Ms\":8.002707999999984,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":148.08299999981503,\"averageMeanMs\":0.30763399999983043,\"maxMs\":0.358958000000257,\"medianMs\":0.29616599999963,\"minMs\":0.2889999999997599,\"p95Ms\":0.358958000000257,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":30.790204999998423,\"averageMeanMs\":6.237092444444392,\"maxMs\":7.05541600000015,\"medianMs\":6.158040999999685,\"minMs\":5.819167000000107,\"p95Ms\":7.05541600000015,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":96.822709999999,\"averageMeanMs\":19.549564888888856,\"maxMs\":21.315583999999944,\"medianMs\":19.3645419999998,\"minMs\":18.931666999999834,\"p95Ms\":21.315583999999944,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":101.41853999999967,\"averageMeanMs\":20.310754666666526,\"maxMs\":20.97104199999967,\"medianMs\":20.283707999999933,\"minMs\":19.856666000000132,\"p95Ms\":20.97104199999967,\"samples\":9}\n",
+    "maps-7-pr100.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.9258350000000064,\"averageMeanMs\":0.9466062222222243,\"maxMs\":1.815999999999974,\"medianMs\":0.7851670000000013,\"minMs\":0.773208000000011,\"p95Ms\":1.815999999999974,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":3.334790000000112,\"averageMeanMs\":0.8931944444444563,\"maxMs\":1.7397910000000252,\"medianMs\":0.6669580000000224,\"minMs\":0.6645420000000399,\"p95Ms\":1.7397910000000252,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":3.6393749999999154,\"averageMeanMs\":0.9572268888888844,\"maxMs\":1.909958999999958,\"medianMs\":0.7278749999999832,\"minMs\":0.7177919999999745,\"p95Ms\":1.909958999999958,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":3.6835400000001073,\"averageMeanMs\":0.975365666666663,\"maxMs\":2.1269169999999917,\"medianMs\":0.7367080000000215,\"minMs\":0.7174999999999727,\"p95Ms\":2.1269169999999917,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7016649999999913,\"averageMeanMs\":0.39020822222222606,\"maxMs\":1.371417000000008,\"medianMs\":0.14033299999999826,\"minMs\":0.14004099999999653,\"p95Ms\":1.371417000000008,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.20800000001509,\"averageMeanMs\":0.01748133333333928,\"maxMs\":0.058290999999996984,\"medianMs\":0.01241600000003018,\"minMs\":0.011875000000031832,\"p95Ms\":0.058290999999996984,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":49.694375000000264,\"averageMeanMs\":9.947903111111108,\"maxMs\":10.094583999999998,\"medianMs\":9.938875000000053,\"minMs\":9.76812499999994,\"p95Ms\":10.094583999999998,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":54.714375000000366,\"averageMeanMs\":10.945912222222205,\"maxMs\":11.204833000000008,\"medianMs\":10.942875000000072,\"minMs\":10.660958999999934,\"p95Ms\":11.204833000000008,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":110.25853999999981,\"averageMeanMs\":22.097939888888884,\"maxMs\":22.63987499999996,\"medianMs\":22.051707999999962,\"minMs\":21.730625000000032,\"p95Ms\":22.63987499999996,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":54.30041500000016,\"averageMeanMs\":10.90196755555553,\"maxMs\":11.103250000000116,\"medianMs\":10.860083000000031,\"minMs\":10.783958999999868,\"p95Ms\":11.103250000000116,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":49.68104500000095,\"averageMeanMs\":10.184097222222261,\"maxMs\":11.57570899999996,\"medianMs\":9.93620900000019,\"minMs\":9.714249999999993,\"p95Ms\":11.57570899999996,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":34.97521000000006,\"averageMeanMs\":6.999263888888866,\"maxMs\":7.17858299999989,\"medianMs\":6.995042000000012,\"minMs\":6.812750000000051,\"p95Ms\":7.17858299999989,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":212.62500000000273,\"averageMeanMs\":0.48175011111109395,\"maxMs\":0.7101669999999558,\"medianMs\":0.42525000000000546,\"minMs\":0.3307089999998425,\"p95Ms\":0.7101669999999558,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":52.57333499999959,\"averageMeanMs\":10.576152999999927,\"maxMs\":10.721042000000125,\"medianMs\":10.514666999999918,\"minMs\":10.455958999999893,\"p95Ms\":10.721042000000125,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":58.86333499999978,\"averageMeanMs\":11.739643666666678,\"maxMs\":11.846499999999878,\"medianMs\":11.772666999999956,\"minMs\":11.566417000000001,\"p95Ms\":11.846499999999878,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":112.70167000000015,\"averageMeanMs\":22.477379666666693,\"maxMs\":22.7951250000001,\"medianMs\":22.54033400000003,\"minMs\":22.14079199999992,\"p95Ms\":22.7951250000001,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":58.666249999998854,\"averageMeanMs\":11.765351777777799,\"maxMs\":12.008500000000367,\"medianMs\":11.73324999999977,\"minMs\":11.499749999999949,\"p95Ms\":12.008500000000367,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":55.911665000000994,\"averageMeanMs\":11.199203666666714,\"maxMs\":11.448374999999942,\"medianMs\":11.182333000000199,\"minMs\":11.031332999999904,\"p95Ms\":11.448374999999942,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":37.50874999999951,\"averageMeanMs\":7.520036888888929,\"maxMs\":7.727167000000009,\"medianMs\":7.501749999999902,\"minMs\":7.365207999999711,\"p95Ms\":7.727167000000009,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":212.0204999998805,\"averageMeanMs\":0.4102684444444296,\"maxMs\":0.4576250000000073,\"medianMs\":0.42404099999976097,\"minMs\":0.33275000000003274,\"p95Ms\":0.4576250000000073,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":29.262915000001612,\"averageMeanMs\":6.085013888888877,\"maxMs\":7.008542000000034,\"medianMs\":5.8525830000003225,\"minMs\":5.572541000000001,\"p95Ms\":7.008542000000034,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":99.38208499999973,\"averageMeanMs\":20.003527888888886,\"maxMs\":22.375916999999845,\"medianMs\":19.876416999999947,\"minMs\":19.218917000000147,\"p95Ms\":22.375916999999845,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":101.98666499999945,\"averageMeanMs\":20.421268666666695,\"maxMs\":20.955167000000074,\"medianMs\":20.39733299999989,\"minMs\":19.986417000000074,\"p95Ms\":20.955167000000074,\"samples\":9}\n",
+    "maps-8-experiment.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.1043749999999193,\"averageMeanMs\":0.8019398888888847,\"maxMs\":1.7747919999999908,\"medianMs\":0.6208749999999839,\"minMs\":0.6122919999999965,\"p95Ms\":1.7747919999999908,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":2.523750000000007,\"averageMeanMs\":0.7560693333333321,\"maxMs\":1.7971670000000017,\"medianMs\":0.5047500000000014,\"minMs\":0.5040419999999699,\"p95Ms\":1.7971670000000017,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":2.8912500000001273,\"averageMeanMs\":0.7919027777777754,\"maxMs\":1.7445000000000164,\"medianMs\":0.5782500000000255,\"minMs\":0.5720839999999612,\"p95Ms\":1.7445000000000164,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":2.8006250000001387,\"averageMeanMs\":0.8099213333333447,\"maxMs\":1.9225000000000136,\"medianMs\":0.5601250000000277,\"minMs\":0.5590830000000437,\"p95Ms\":1.9225000000000136,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7014599999999405,\"averageMeanMs\":0.3813148888888931,\"maxMs\":1.4213330000000042,\"medianMs\":0.1402919999999881,\"minMs\":0.1332919999999831,\"p95Ms\":1.4213330000000042,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.10400000002187,\"averageMeanMs\":0.016898111111124256,\"maxMs\":0.04758299999997462,\"medianMs\":0.01220800000004374,\"minMs\":0.011708999999996195,\"p95Ms\":0.04758299999997462,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":40.898124999999936,\"averageMeanMs\":8.168171444444454,\"maxMs\":8.332583,\"medianMs\":8.179624999999987,\"minMs\":8.010874999999999,\"p95Ms\":8.332583,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":41.903335000000084,\"averageMeanMs\":8.362065000000005,\"maxMs\":8.47849999999994,\"medianMs\":8.380667000000017,\"minMs\":8.269833999999946,\"p95Ms\":8.47849999999994,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":103.36728999999991,\"averageMeanMs\":20.684602,\"maxMs\":20.926375000000007,\"medianMs\":20.673457999999982,\"minMs\":20.430082999999968,\"p95Ms\":20.926375000000007,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":47.58353999999997,\"averageMeanMs\":9.5049954444444,\"maxMs\":9.644792000000052,\"medianMs\":9.516707999999994,\"minMs\":9.330249999999978,\"p95Ms\":9.644792000000052,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":44.78478999999992,\"averageMeanMs\":9.08599511111111,\"maxMs\":9.825458000000026,\"medianMs\":8.956957999999986,\"minMs\":8.60291600000005,\"p95Ms\":9.825458000000026,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":36.61478999999986,\"averageMeanMs\":7.3206573333333536,\"maxMs\":7.503541000000041,\"medianMs\":7.322957999999971,\"minMs\":7.140041999999994,\"p95Ms\":7.503541000000041,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":180.70850000003702,\"averageMeanMs\":0.4105556666666719,\"maxMs\":0.7075419999998758,\"medianMs\":0.36141700000007404,\"minMs\":0.33024999999997817,\"p95Ms\":0.7075419999998758,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":45.033750000000055,\"averageMeanMs\":9.013375000000046,\"maxMs\":9.191458000000011,\"medianMs\":9.006750000000011,\"minMs\":8.891000000000076,\"p95Ms\":9.191458000000011,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":46.10437500000103,\"averageMeanMs\":9.217282333333337,\"maxMs\":9.278667000000041,\"medianMs\":9.220875000000206,\"minMs\":9.108666999999969,\"p95Ms\":9.278667000000041,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":107.59541500000068,\"averageMeanMs\":21.61837488888894,\"maxMs\":22.163332999999966,\"medianMs\":21.519083000000137,\"minMs\":21.351917000000185,\"p95Ms\":22.163332999999966,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":52.17832999999927,\"averageMeanMs\":10.451273111111075,\"maxMs\":10.60287500000004,\"medianMs\":10.435665999999856,\"minMs\":10.375749999999925,\"p95Ms\":10.60287500000004,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":51.34937499999979,\"averageMeanMs\":10.286009333333318,\"maxMs\":10.450749999999971,\"medianMs\":10.269874999999956,\"minMs\":10.068166999999903,\"p95Ms\":10.450749999999971,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":39.730829999998605,\"averageMeanMs\":7.950189666666574,\"maxMs\":8.043249999999716,\"medianMs\":7.946165999999721,\"minMs\":7.83745799999997,\"p95Ms\":8.043249999999716,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":159.91650000000843,\"averageMeanMs\":0.3228657777778305,\"maxMs\":0.34387500000002547,\"medianMs\":0.3198330000000169,\"minMs\":0.31595800000013696,\"p95Ms\":0.34387500000002547,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":29.20937499999809,\"averageMeanMs\":6.064532333333217,\"maxMs\":7.231374999999844,\"medianMs\":5.841874999999618,\"minMs\":5.557749999999942,\"p95Ms\":7.231374999999844,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":96.2566700000002,\"averageMeanMs\":19.39820844444446,\"maxMs\":20.173833000000286,\"medianMs\":19.251334000000043,\"minMs\":18.768416999999772,\"p95Ms\":20.173833000000286,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":99.62166499999967,\"averageMeanMs\":20.04357866666664,\"maxMs\":21.474333000000115,\"medianMs\":19.924332999999933,\"minMs\":19.252707999999984,\"p95Ms\":21.474333000000115,\"samples\":9}\n",
+    "maps-8-pr100.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.1002099999999193,\"averageMeanMs\":0.8141849999999996,\"maxMs\":1.8737079999999935,\"medianMs\":0.6200419999999838,\"minMs\":0.6120829999999842,\"p95Ms\":1.8737079999999935,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":2.5518750000000523,\"averageMeanMs\":0.7661806666666722,\"maxMs\":1.9207080000000474,\"medianMs\":0.5103750000000105,\"minMs\":0.5003750000000196,\"p95Ms\":1.9207080000000474,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":2.9285450000000424,\"averageMeanMs\":0.839273333333343,\"maxMs\":1.8696250000000418,\"medianMs\":0.5857090000000085,\"minMs\":0.5740420000000199,\"p95Ms\":1.8696250000000418,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":2.929164999999898,\"averageMeanMs\":0.8624213333333413,\"maxMs\":2.0536670000000186,\"medianMs\":0.5858329999999796,\"minMs\":0.5606249999999591,\"p95Ms\":2.0536670000000186,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.703334999999754,\"averageMeanMs\":0.42478699999998704,\"maxMs\":1.6302499999999895,\"medianMs\":0.1406669999999508,\"minMs\":0.1402919999999881,\"p95Ms\":1.6302499999999895,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.33349999998245,\"averageMeanMs\":0.01810655555556827,\"maxMs\":0.04720800000001191,\"medianMs\":0.0126669999999649,\"minMs\":0.01095900000001393,\"p95Ms\":0.04720800000001191,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":47.95062499999972,\"averageMeanMs\":9.579671333333314,\"maxMs\":9.949999999999989,\"medianMs\":9.590124999999944,\"minMs\":9.181749999999965,\"p95Ms\":9.949999999999989,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":51.35229499999979,\"averageMeanMs\":10.311486222222205,\"maxMs\":10.533542000000011,\"medianMs\":10.27045899999996,\"minMs\":10.159374999999955,\"p95Ms\":10.533542000000011,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":111.55499999999961,\"averageMeanMs\":22.252541555555556,\"maxMs\":22.901333000000022,\"medianMs\":22.310999999999922,\"minMs\":21.400582999999983,\"p95Ms\":22.901333000000022,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":53.80770499999925,\"averageMeanMs\":10.749161777777747,\"maxMs\":11.03837499999986,\"medianMs\":10.761540999999852,\"minMs\":10.535707999999886,\"p95Ms\":11.03837499999986,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":47.32187500000009,\"averageMeanMs\":9.745449111111107,\"maxMs\":11.0257909999998,\"medianMs\":9.464375000000018,\"minMs\":9.122916999999916,\"p95Ms\":11.0257909999998,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":36.81124999999952,\"averageMeanMs\":7.348643555555579,\"maxMs\":7.526792000000114,\"medianMs\":7.362249999999904,\"minMs\":7.157125000000178,\"p95Ms\":7.526792000000114,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":215.62500000004545,\"averageMeanMs\":0.45950466666669043,\"maxMs\":0.6974999999999909,\"medianMs\":0.43125000000009095,\"minMs\":0.3171670000001541,\"p95Ms\":0.6974999999999909,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":50.33083499999975,\"averageMeanMs\":10.111611000000014,\"maxMs\":10.357750000000124,\"medianMs\":10.06616699999995,\"minMs\":9.942707999999811,\"p95Ms\":10.357750000000124,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":55.057500000000346,\"averageMeanMs\":11.031847222222218,\"maxMs\":11.21270800000002,\"medianMs\":11.01150000000007,\"minMs\":10.898916999999983,\"p95Ms\":11.21270800000002,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":113.54437500000017,\"averageMeanMs\":22.747421333333453,\"maxMs\":23.643750000000182,\"medianMs\":22.708875000000035,\"minMs\":22.110334000000194,\"p95Ms\":23.643750000000182,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":58.25291499999821,\"averageMeanMs\":11.638606555555523,\"maxMs\":11.955625000000055,\"medianMs\":11.650582999999642,\"minMs\":11.268416999999772,\"p95Ms\":11.955625000000055,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":53.300835000000006,\"averageMeanMs\":10.65590733333324,\"maxMs\":10.941207999999733,\"medianMs\":10.660167000000001,\"minMs\":10.416249999999764,\"p95Ms\":10.941207999999733,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":38.099584999999934,\"averageMeanMs\":7.661773000000064,\"maxMs\":7.873417000000245,\"medianMs\":7.619916999999987,\"minMs\":7.504790999999841,\"p95Ms\":7.873417000000245,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":203.4375000000637,\"averageMeanMs\":0.3887916666666974,\"maxMs\":0.434458000000177,\"medianMs\":0.40687500000012733,\"minMs\":0.271125000000211,\"p95Ms\":0.434458000000177,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":29.683334999999715,\"averageMeanMs\":6.114157444444471,\"maxMs\":6.818040999999994,\"medianMs\":5.936666999999943,\"minMs\":5.7127080000000205,\"p95Ms\":6.818040999999994,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":100.89229000000161,\"averageMeanMs\":20.128722111111173,\"maxMs\":20.710125000000062,\"medianMs\":20.17845800000032,\"minMs\":19.520332999999937,\"p95Ms\":20.710125000000062,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":103.8606249999998,\"averageMeanMs\":20.672287000000072,\"maxMs\":21.23274999999967,\"medianMs\":20.77212499999996,\"minMs\":19.970666000000165,\"p95Ms\":21.23274999999967,\"samples\":9}\n",
+    "maps-9-experiment.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.87770500000002,\"averageMeanMs\":0.9410784444444447,\"maxMs\":1.8265409999999918,\"medianMs\":0.775541000000004,\"minMs\":0.7516660000000002,\"p95Ms\":1.8265409999999918,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":3.46478999999988,\"averageMeanMs\":0.9310463333333447,\"maxMs\":1.9163330000000087,\"medianMs\":0.692957999999976,\"minMs\":0.6654169999999908,\"p95Ms\":1.9163330000000087,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":3.654585000000168,\"averageMeanMs\":0.9656897777777734,\"maxMs\":1.9335829999999987,\"medianMs\":0.7309170000000336,\"minMs\":0.7194170000000213,\"p95Ms\":1.9335829999999987,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":3.6456250000000523,\"averageMeanMs\":0.9399167777777772,\"maxMs\":1.7818750000000136,\"medianMs\":0.7291250000000105,\"minMs\":0.7177920000000313,\"p95Ms\":1.7818750000000136,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7133300000000986,\"averageMeanMs\":0.37227311111110517,\"maxMs\":1.3394589999999766,\"medianMs\":0.14266600000001972,\"minMs\":0.14012499999995498,\"p95Ms\":1.3394589999999766,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.187499999981583,\"averageMeanMs\":0.01969911111109468,\"maxMs\":0.05304100000000744,\"medianMs\":0.012374999999963165,\"minMs\":0.011832999999967342,\"p95Ms\":0.05304100000000744,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":42.24791499999981,\"averageMeanMs\":8.44964333333332,\"maxMs\":8.656915999999967,\"medianMs\":8.449582999999961,\"minMs\":8.056125000000009,\"p95Ms\":8.656915999999967,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":42.59979499999986,\"averageMeanMs\":8.52366677777776,\"maxMs\":8.750125000000025,\"medianMs\":8.519958999999972,\"minMs\":8.196957999999995,\"p95Ms\":8.750125000000025,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":108.47020499999985,\"averageMeanMs\":21.734351555555577,\"maxMs\":22.00308300000006,\"medianMs\":21.69404099999997,\"minMs\":21.567166000000043,\"p95Ms\":22.00308300000006,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":46.54062500000009,\"averageMeanMs\":9.303787000000044,\"maxMs\":9.433917000000065,\"medianMs\":9.308125000000018,\"minMs\":9.136458000000061,\"p95Ms\":9.433917000000065,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":44.17374999999993,\"averageMeanMs\":8.993541777777763,\"maxMs\":10.002874999999904,\"medianMs\":8.834749999999985,\"minMs\":8.530708000000004,\"p95Ms\":10.002874999999904,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":33.91145999999935,\"averageMeanMs\":6.789296111111096,\"maxMs\":6.94729099999995,\"medianMs\":6.78229199999987,\"minMs\":6.605958000000101,\"p95Ms\":6.94729099999995,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":169.10399999994752,\"averageMeanMs\":0.4202131111110753,\"maxMs\":0.7388339999999971,\"medianMs\":0.33820799999989504,\"minMs\":0.30758399999990615,\"p95Ms\":0.7388339999999971,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":44.50895999999943,\"averageMeanMs\":8.96232399999998,\"maxMs\":9.196374999999989,\"medianMs\":8.901791999999887,\"minMs\":8.782874999999876,\"p95Ms\":9.196374999999989,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":45.59916499999986,\"averageMeanMs\":9.133888888888881,\"maxMs\":9.385667000000012,\"medianMs\":9.119832999999971,\"minMs\":8.71875,\"p95Ms\":9.385667000000012,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":114.5939599999997,\"averageMeanMs\":23.044115777777783,\"maxMs\":23.501166999999896,\"medianMs\":22.91879199999994,\"minMs\":22.521583999999848,\"p95Ms\":23.501166999999896,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":51.32458000000043,\"averageMeanMs\":10.29150911111113,\"maxMs\":10.486333999999943,\"medianMs\":10.264916000000085,\"minMs\":10.107666000000108,\"p95Ms\":10.486333999999943,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":51.948750000001375,\"averageMeanMs\":10.411157444444447,\"maxMs\":10.707374999999956,\"medianMs\":10.389750000000276,\"minMs\":10.198334000000159,\"p95Ms\":10.707374999999956,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":37.60333499999888,\"averageMeanMs\":7.499615777777763,\"maxMs\":7.9637079999997695,\"medianMs\":7.520666999999776,\"minMs\":7.2807920000000195,\"p95Ms\":7.9637079999997695,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":147.9164999998375,\"averageMeanMs\":0.2980833333332258,\"maxMs\":0.30729199999996126,\"medianMs\":0.29583299999967494,\"minMs\":0.29283299999997325,\"p95Ms\":0.30729199999996126,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":29.876045000000886,\"averageMeanMs\":6.213773222222244,\"maxMs\":7.19379200000003,\"medianMs\":5.975209000000177,\"minMs\":5.909333000000061,\"p95Ms\":7.19379200000003,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":94.98458000000028,\"averageMeanMs\":19.316828666666726,\"maxMs\":20.776749999999993,\"medianMs\":18.996916000000056,\"minMs\":18.791917000000012,\"p95Ms\":20.776749999999993,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":99.70583499999975,\"averageMeanMs\":20.24293055555563,\"maxMs\":21.718125000000327,\"medianMs\":19.94116699999995,\"minMs\":19.53579200000013,\"p95Ms\":21.718125000000327,\"samples\":9}\n",
+    "maps-9-pr100.log": "{\"name\":\"Map.get primitive via raw\",\"operations\":200000,\"nsPerOperation\":3.9906249999999943,\"averageMeanMs\":0.9569538888888884,\"maxMs\":1.862374999999986,\"medianMs\":0.7981249999999989,\"minMs\":0.7708339999999794,\"p95Ms\":1.862374999999986,\"samples\":9}\n{\"name\":\"Map.has via raw\",\"operations\":200000,\"nsPerOperation\":3.396669999999915,\"averageMeanMs\":0.9209119999999934,\"maxMs\":1.9893329999999878,\"medianMs\":0.679333999999983,\"minMs\":0.6440000000000055,\"p95Ms\":1.9893329999999878,\"samples\":9}\n{\"name\":\"Map.get object + field via raw\",\"operations\":200000,\"nsPerOperation\":3.6354149999999663,\"averageMeanMs\":0.9898751111110945,\"maxMs\":2.1984999999999673,\"medianMs\":0.7270829999999933,\"minMs\":0.7126660000000129,\"p95Ms\":2.1984999999999673,\"samples\":9}\n{\"name\":\"parent + Map.get via raw\",\"operations\":200000,\"nsPerOperation\":3.649585000000002,\"averageMeanMs\":0.9688934444444423,\"maxMs\":2.017333000000008,\"medianMs\":0.7299170000000004,\"minMs\":0.7098330000000033,\"p95Ms\":2.017333000000008,\"samples\":9}\n{\"name\":\"Map.set property lookup via raw\",\"operations\":200000,\"nsPerOperation\":0.7233300000001464,\"averageMeanMs\":0.3966760000000009,\"maxMs\":1.4799170000000004,\"medianMs\":0.14466600000002927,\"minMs\":0.1399160000000279,\"p95Ms\":1.4799170000000004,\"samples\":9}\n{\"name\":\"Map.set changed scalar via raw\",\"operations\":2000,\"nsPerOperation\":6.104500000020607,\"averageMeanMs\":0.016356444444441978,\"maxMs\":0.047624999999982265,\"medianMs\":0.012209000000041215,\"minMs\":0.012042000000008102,\"p95Ms\":0.047624999999982265,\"samples\":9}\n{\"name\":\"Map.get primitive via base\",\"operations\":200000,\"nsPerOperation\":45.915834999999845,\"averageMeanMs\":9.219032444444458,\"maxMs\":9.552416999999991,\"medianMs\":9.183166999999969,\"minMs\":8.997374999999977,\"p95Ms\":9.552416999999991,\"samples\":9}\n{\"name\":\"Map.has via base\",\"operations\":200000,\"nsPerOperation\":50.989794999999845,\"averageMeanMs\":10.220949222222202,\"maxMs\":10.392499999999927,\"medianMs\":10.197958999999969,\"minMs\":10.127541000000065,\"p95Ms\":10.392499999999927,\"samples\":9}\n{\"name\":\"Map.get object + field via base\",\"operations\":200000,\"nsPerOperation\":107.64499999999998,\"averageMeanMs\":21.513277555555547,\"maxMs\":21.805791,\"medianMs\":21.528999999999996,\"minMs\":21.29804200000001,\"p95Ms\":21.805791,\"samples\":9}\n{\"name\":\"parent + Map.get via base\",\"operations\":200000,\"nsPerOperation\":51.784999999999854,\"averageMeanMs\":10.377370444444447,\"maxMs\":10.683874999999944,\"medianMs\":10.356999999999971,\"minMs\":10.205000000000155,\"p95Ms\":10.683874999999944,\"samples\":9}\n{\"name\":\"prototype helper Map.get via base\",\"operations\":200000,\"nsPerOperation\":45.84666500000026,\"averageMeanMs\":9.592962888888856,\"maxMs\":11.379500000000007,\"medianMs\":9.169333000000051,\"minMs\":9.057250000000067,\"p95Ms\":11.379500000000007,\"samples\":9}\n{\"name\":\"Map.set property lookup via base\",\"operations\":200000,\"nsPerOperation\":36.31395999999995,\"averageMeanMs\":7.299726777777753,\"maxMs\":7.458458999999948,\"medianMs\":7.26279199999999,\"minMs\":7.173624999999902,\"p95Ms\":7.458458999999948,\"samples\":9}\n{\"name\":\"Map.set changed scalar via base\",\"operations\":2000,\"nsPerOperation\":214.6455000000742,\"averageMeanMs\":0.4521666666666988,\"maxMs\":0.7141670000000886,\"medianMs\":0.4292910000001484,\"minMs\":0.2694169999999758,\"p95Ms\":0.7141670000000886,\"samples\":9}\n{\"name\":\"Map.get primitive via view\",\"operations\":200000,\"nsPerOperation\":50.85083499999996,\"averageMeanMs\":10.136051000000029,\"maxMs\":10.302500000000009,\"medianMs\":10.170166999999992,\"minMs\":9.940875000000005,\"p95Ms\":10.302500000000009,\"samples\":9}\n{\"name\":\"Map.has via view\",\"operations\":200000,\"nsPerOperation\":53.98479499999894,\"averageMeanMs\":10.819324111111074,\"maxMs\":10.991708000000017,\"medianMs\":10.796958999999788,\"minMs\":10.712624999999889,\"p95Ms\":10.991708000000017,\"samples\":9}\n{\"name\":\"Map.get object + field via view\",\"operations\":200000,\"nsPerOperation\":110.2472899999998,\"averageMeanMs\":22.087435111111088,\"maxMs\":22.471458999999868,\"medianMs\":22.04945799999996,\"minMs\":21.64666699999998,\"p95Ms\":22.471458999999868,\"samples\":9}\n{\"name\":\"parent + Map.get via view\",\"operations\":200000,\"nsPerOperation\":57.83187499999941,\"averageMeanMs\":11.589513666666639,\"maxMs\":11.92370800000026,\"medianMs\":11.56637499999988,\"minMs\":11.2790829999999,\"p95Ms\":11.92370800000026,\"samples\":9}\n{\"name\":\"prototype helper Map.get via view\",\"operations\":200000,\"nsPerOperation\":53.78187499999967,\"averageMeanMs\":10.771944444444419,\"maxMs\":10.975582999999915,\"medianMs\":10.756374999999935,\"minMs\":10.538790999999947,\"p95Ms\":10.975582999999915,\"samples\":9}\n{\"name\":\"Map.set property lookup via view\",\"operations\":200000,\"nsPerOperation\":39.825210000001334,\"averageMeanMs\":7.9342035555556425,\"maxMs\":8.06366700000035,\"medianMs\":7.965042000000267,\"minMs\":7.769291000000067,\"p95Ms\":8.06366700000035,\"samples\":9}\n{\"name\":\"Map.set changed scalar via view\",\"operations\":2000,\"nsPerOperation\":211.77099999999885,\"averageMeanMs\":0.4006342222221772,\"maxMs\":0.43716700000004494,\"medianMs\":0.42354199999999764,\"minMs\":0.28625000000010914,\"p95Ms\":0.43716700000004494,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via raw\",\"operations\":200000,\"nsPerOperation\":29.025420000000395,\"averageMeanMs\":5.983921444444402,\"maxMs\":6.9621250000000146,\"medianMs\":5.805084000000079,\"minMs\":5.536333000000013,\"p95Ms\":6.9621250000000146,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via base\",\"operations\":200000,\"nsPerOperation\":97.28937500000029,\"averageMeanMs\":19.98879611111109,\"maxMs\":21.551582999999937,\"medianMs\":19.457875000000058,\"minMs\":19.11745800000017,\"p95Ms\":21.551582999999937,\"samples\":9}\n{\"name\":\"50k Map.get varied keys via view\",\"operations\":200000,\"nsPerOperation\":103.49937500000122,\"averageMeanMs\":20.76027311111117,\"maxMs\":21.3464170000002,\"medianMs\":20.699875000000247,\"minMs\":20.187333000000308,\"p95Ms\":21.3464170000002,\"samples\":9}\n"
+  },
+  "frameCounters": [
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    },
+    {
+      "Map.get": 0,
+      "Map.get.call": 0,
+      "Map.set": 0,
+      "Map.set.call": 0,
+      "Map.has": 0
+    }
+  ],
+  "heavyCounters": [
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {}
+  ],
+  "positiveControl": [
+    "COLLECTION_POSITIVE_CONTROL {\"Map.get\":1,\"Map.get.call\":1,\"Map.set\":1,\"Map.set.call\":1,\"Map.has\":1}"
+  ],
+  "validation": {
+    "maps-driver.log": "0 pr100 0 3.26\n0 experiment 0 3.04\n1 pr100 0 3.26\n1 experiment 0 3.03\n2 experiment 0 2.97\n2 pr100 0 3.17\n3 pr100 0 3.07\n3 experiment 0 3.09\n4 experiment 0 3.03\n4 pr100 0 3.26\n5 experiment 0 3.0\n5 pr100 0 3.15\n6 pr100 0 3.14\n6 experiment 0 3.04\n7 pr100 0 3.2\n7 experiment 0 2.96\n8 experiment 0 3.02\n8 pr100 0 3.22\n9 experiment 0 3.05\n9 pr100 0 3.2\n10 pr100 0 3.18\n10 experiment 0 3.01\n11 experiment 0 3.08\n11 pr100 0 3.16\nDONE\n",
+    "counts-driver.log": "COUNTS EXIT 0\nRESTORED\n",
+    "heavy-counts-driver.log": "HEAVY COUNTS EXIT 0\nRESTORED\n"
+  }
+}

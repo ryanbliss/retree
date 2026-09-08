@@ -632,6 +632,31 @@ export class BaseProxyHandler<T extends TreeNode>
         value: Function,
         baseProxy: TCustomProxy<T>
     ): Function {
+        if (target instanceof Map || target instanceof Set) {
+            const cache = (this.ensureCaches().boundFunctions ??= new Map());
+            const cached = cache.get(prop);
+            if (cached !== undefined && cached.source === value) {
+                return cached.bound;
+            }
+            const bound = this.createCollectionMethod(target, prop, baseProxy);
+            cache.set(prop, { source: value, bound });
+            return bound;
+        }
+        if (
+            target instanceof Date &&
+            typeof prop === "string" &&
+            isDateMutatingMethod(prop)
+        ) {
+            return wrapDateMutation(prop, target, baseProxy, this.emitter);
+        }
+        return trackAccessIfNeeded(this.getBoundFunction(prop, value, target));
+    }
+
+    private createCollectionMethod(
+        target: Map<unknown, unknown> | Set<unknown>,
+        prop: string | symbol,
+        baseProxy: TCustomProxy<T>
+    ): Function {
         if (target instanceof Map) {
             if (typeof prop === "string" && MAP_MUTATING_METHODS.has(prop)) {
                 return wrapMapMutation(
@@ -644,26 +669,10 @@ export class BaseProxyHandler<T extends TreeNode>
             }
             return wrapMapRead(this, prop, target, baseProxy, this.emitter);
         }
-        if (target instanceof Set) {
-            if (typeof prop === "string" && SET_MUTATING_METHODS.has(prop)) {
-                return wrapSetMutation(
-                    this,
-                    prop,
-                    target,
-                    baseProxy,
-                    this.emitter
-                );
-            }
-            return wrapSetRead(this, prop, target, baseProxy, this.emitter);
+        if (typeof prop === "string" && SET_MUTATING_METHODS.has(prop)) {
+            return wrapSetMutation(this, prop, target, baseProxy, this.emitter);
         }
-        if (
-            target instanceof Date &&
-            typeof prop === "string" &&
-            isDateMutatingMethod(prop)
-        ) {
-            return wrapDateMutation(prop, target, baseProxy, this.emitter);
-        }
-        return trackAccessIfNeeded(this.getBoundFunction(prop, value, target));
+        return wrapSetRead(this, prop, target, baseProxy, this.emitter);
     }
 
     /**
