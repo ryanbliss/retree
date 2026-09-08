@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import {
     buildNpmPublishArguments,
+    npmVersionState,
     parsePublishArguments,
     publishPackageCatalog,
     selectPackagesToPublish,
@@ -41,9 +42,10 @@ if (options.showHelp) {
             "  6. npm publish --dry-run for every selected package.",
             "",
             "Publish:",
-            "  7. npm publish each selected package. If one fails, the script reports",
-            "     exactly which packages published and how to retry — rerunning",
-            "     this script skips already-published versions.",
+            "  7. npm publish each selected package. A failure does not stop the",
+            "     packages after it; the script reports exactly which packages",
+            "     published and exits non-zero. Rerunning it skips the",
+            "     already-published versions.",
             "",
             "Flags:",
             "  --package <name>  Publish exactly this configured npm package.",
@@ -198,6 +200,7 @@ if (options.dryRunOnly) {
 console.log("\n=== Publish ===");
 
 const published = [];
+const failed = [];
 for (const entry of publishPlan) {
     const packageVersion = `${entry.label}@${entry.manifest.version}`;
     console.log(`\nPublishing ${packageVersion}`);
@@ -212,33 +215,33 @@ for (const entry of publishPlan) {
             publishEnv
         );
     } catch (error) {
-        const remaining = publishPlan
-            .filter((candidate) => !published.includes(candidate.label))
-            .map((candidate) => candidate.label);
-        console.error(
-            [
-                "",
-                `PARTIAL PUBLISH: ${packageVersion} failed.`,
-                `Published successfully: ${
-                    published.length > 0 ? published.join(", ") : "(none)"
-                }`,
-                `Not yet published: ${remaining.join(", ")}`,
-                "",
-                "Recovery: fix the failure and rerun `npm run publish:packages` —",
-                "already-published versions are detected and skipped, so the",
-                "selected package set converges on the requested versions.",
-            ].join("\n")
-        );
-        throw error;
+        // Keep going: the packages after this one publish on their own, and
+        // the retry skips everything that made it.
+        console.error(`\n${packageVersion} failed: ${error.message}`);
+        failed.push(packageVersion);
+        continue;
     }
-    published.push(entry.label);
+    published.push(packageVersion);
 }
 
-console.log(
-    `\nAll selected packages published: ${publishPlan
-        .map((entry) => `${entry.label}@${entry.manifest.version}`)
-        .join(", ")}.`
-);
+if (failed.length > 0) {
+    console.error(
+        [
+            "",
+            `PARTIAL PUBLISH: ${failed.join(", ")} failed.`,
+            `Published successfully: ${
+                published.length > 0 ? published.join(", ") : "(none)"
+            }`,
+            "",
+            "Recovery: fix the failure and rerun `npm run publish:packages` —",
+            "already-published versions are detected and skipped, so the",
+            "selected package set converges on the requested versions.",
+        ].join("\n")
+    );
+    process.exit(1);
+}
+
+console.log(`\nAll selected packages published: ${published.join(", ")}.`);
 
 function assertFamilyPinsMatch(entry, field, version) {
     const dependencies = entry.manifest[field];
@@ -313,71 +316,6 @@ function parseEnvValue(rawValue) {
     }
 
     return trimmedValue.replace(/\s+#.*$/u, "");
-}
-
-function npmVersionState(packageName, version, env) {
-    const result = spawnSync(
-        "npm",
-        ["view", packageName, "versions", "--json"],
-        {
-            cwd: rootDir,
-            env,
-            encoding: "utf8",
-            stdio: ["ignore", "pipe", "pipe"],
-        }
-    );
-
-    if (result.error) {
-        throw new Error(
-            `npm view ${packageName} versions: failed to start: ${result.error.message}`
-        );
-    }
-
-    if (result.signal) {
-        throw new Error(
-            `npm view ${packageName} versions: exited with signal ${result.signal}.`
-        );
-    }
-
-    if (result.status === 0) {
-        const parsed = JSON.parse(result.stdout);
-        const versions = Array.isArray(parsed) ? parsed : [parsed];
-        return {
-            packageExists: true,
-            versionPublished: versions.includes(version),
-        };
-    }
-
-    if (isNpmNotFound(result.stderr)) {
-        return { packageExists: false, versionPublished: false };
-    }
-
-    const stderr = result.stderr.trim();
-    if (stderr.length === 0) {
-        throw new Error(
-            `npm view ${packageName} versions: exited with status ${String(
-                result.status
-            )}.`
-        );
-    }
-
-    throw new Error(
-        `npm view ${packageName} versions: exited with status ${String(
-            result.status
-        )}: ${stderr}`
-    );
-}
-
-function isNpmNotFound(stderr) {
-    if (stderr.includes("E404")) {
-        return true;
-    }
-
-    if (stderr.includes("404 Not Found")) {
-        return true;
-    }
-
-    return stderr.includes("is not in this registry");
 }
 
 function run(command, args, cwd, env) {

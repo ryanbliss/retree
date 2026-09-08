@@ -4,11 +4,13 @@
  * Tag a published version and create the matching GitHub release, using the
  * package's own changelog entry as the release notes.
  *
- * Runs at the end of the `Release` workflow, after `npm publish` succeeds, so
- * a tag never points at a version that failed to publish. Idempotent in the
- * same way as the publish step: an existing release for the tag is left alone,
- * so re-running the workflow after a partial failure converges instead of
- * erroring.
+ * Runs at the end of the `Release` workflow whether or not the publish step
+ * succeeded, and checks the registry itself: every package in the release must
+ * already be on npm at its manifest version, so a tag never points at a
+ * version that failed to publish. Idempotent in the same way as the publish
+ * step: an existing release for the tag is left alone. So a partial publish
+ * leaves no tag, and the next run after the missing packages are published
+ * (by a rerun or by hand) creates it.
  *
  * Two release trains, two tag shapes:
  *
@@ -24,7 +26,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { publishPackageCatalog } from "./publish-package-selection.mjs";
+import {
+    npmVersionState,
+    publishPackageCatalog,
+} from "./publish-package-selection.mjs";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -45,6 +50,21 @@ if (releaseExists(target.tag)) {
         `${target.tag} already has a GitHub release; leaving it unchanged.`
     );
     process.exit(0);
+}
+
+const unpublished = target.packages.filter(
+    (entry) => !npmVersionState(entry.label, entry.version).versionPublished
+);
+if (unpublished.length > 0) {
+    const list = unpublished
+        .map((entry) => `${entry.label}@${entry.version}`)
+        .join(", ");
+    if (!options.dryRun) {
+        throw new Error(
+            `create-github-release: ${list} is not on npm, so ${target.tag} would point at an unpublished version. Fix: publish the missing package(s) (\`npm run publish:packages\` skips the ones already on npm), then rerun the Release workflow to create the release.`
+        );
+    }
+    console.log(`Not on npm yet: ${list}. The real run would stop here.`);
 }
 
 console.log(`Creating GitHub release ${target.tag} (${target.title})`);
@@ -76,7 +96,7 @@ if (result.error !== undefined) {
 }
 if (result.status !== 0) {
     throw new Error(
-        `create-github-release: \`gh release create ${target.tag}\` exited with code ${result.status}. The packages are already published, so rerun the Release workflow to retry only the release creation.`
+        `create-github-release: \`gh release create ${target.tag}\` exited with code ${result.status}. The packages are already published, so rerun the Release workflow; it skips publishing and retries only the release creation.`
     );
 }
 console.log(`Created GitHub release ${target.tag}.`);
@@ -132,7 +152,15 @@ function buildFamilyTarget() {
         "",
         ...familyEntries.map((entry) => `-   \`${entry.label}@${version}\``),
     ].join("\n");
-    return { tag: `v${version}`, title: `v${version}`, notes };
+    return {
+        tag: `v${version}`,
+        title: `v${version}`,
+        notes,
+        packages: familyEntries.map((entry) => ({
+            label: entry.label,
+            version,
+        })),
+    };
 }
 
 function buildSinglePackageTarget(packageName) {
@@ -164,6 +192,7 @@ function buildSinglePackageTarget(packageName) {
         tag: `${tagPrefix}-v${version}`,
         title: `${packageName}@${version}`,
         notes,
+        packages: [{ label: packageName, version }],
     };
 }
 
