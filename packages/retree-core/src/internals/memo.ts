@@ -722,7 +722,7 @@ function getComparisonCells(
             ? comparison.capturedValues
             : undefined;
     return getDependencyComparisonValues(
-        captured === undefined ? comparison.getValues() : [...captured]
+        captured === undefined ? comparison.getValues() : captured
     );
 }
 

@@ -70,9 +70,14 @@ export function getDependencyComparisonValues(
 ) {
     const comparisonValues: unknown[] = [];
     for (const dependency of dependencies) {
-        comparisonValues.push(
-            ...normalizeDependencyEntry(dependency).comparisonValues
-        );
+        if (isExplicitReactiveDependency(dependency)) {
+            comparisonValues.push(
+                ...normalizeDependencyEntry(dependency).comparisonValues
+            );
+            continue;
+        }
+        // A managed node or a value compares as itself; no slot needed.
+        comparisonValues.push(dependency);
     }
     return comparisonValues;
 }
