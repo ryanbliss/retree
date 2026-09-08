@@ -5,7 +5,6 @@ import {
     getCustomProxyHandlerFromMetadata,
     ICustomProxyHandler,
     TCustomProxy,
-    proxiedParentKey,
     unproxiedBaseNodeKey,
 } from "./proxy-types.js";
 import {
@@ -771,7 +770,7 @@ function resolveCovers(
 ): ITrackedDependencySource[] {
     const uncovered = frame.uncovered;
     for (const record of uncovered) {
-        const parentHandler = record.ownerHandler[proxiedParentKey]?.handler;
+        const parentHandler = record.ownerHandler.parentHandler;
         if (!parentHandler) continue;
         const parentRecord = reads.get(parentHandler[unproxiedBaseNodeKey]);
         if (parentRecord === undefined) continue;
@@ -871,7 +870,7 @@ function getReadRecord(
     if (record === undefined) {
         record = new NodeReadRecord(handler);
         reads.set(rawNode, record);
-        const parentHandler = handler[proxiedParentKey]?.handler;
+        const parentHandler = handler.parentHandler;
         const parentRecord = parentHandler
             ? reads.get(parentHandler[unproxiedBaseNodeKey])
             : undefined;

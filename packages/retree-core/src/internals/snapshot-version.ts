@@ -6,7 +6,6 @@ import { TreeNode } from "../types.js";
 import {
     ICustomProxyHandler,
     getCustomProxyHandlerFromMetadata,
-    proxiedParentKey,
     unproxiedBaseNodeKey,
 } from "./proxy-types.js";
 
@@ -36,7 +35,7 @@ function getHandler(node: TreeNode, api: string): ICustomProxyHandler {
 function parentOf(
     handler: ICustomProxyHandler
 ): ICustomProxyHandler | undefined {
-    return handler[proxiedParentKey]?.handler ?? undefined;
+    return handler.parentHandler ?? undefined;
 }
 
 function rootOf(handler: ICustomProxyHandler): ICustomProxyHandler {

@@ -11,7 +11,6 @@ import {
 } from "./debug-tap.js";
 import {
     getCustomProxyHandlerFromMetadata,
-    proxiedParentKey,
     unproxiedBaseNodeKey,
 } from "./proxy-types.js";
 import { Transactions } from "./transactions.js";
@@ -60,7 +59,7 @@ function resolveRootNameForProxy(proxyNode: TreeNode): string | undefined {
     let topRawNode: TreeNode | undefined;
     while (handler !== undefined) {
         topRawNode = handler[unproxiedBaseNodeKey];
-        const parent = handler[proxiedParentKey]?.handler;
+        const parent = handler.parentHandler;
         if (!parent) {
             break;
         }

@@ -46,6 +46,17 @@ function isArrayReadMethod(prop: string | symbol): prop is ArrayReadMethodName {
 }
 
 /**
+ * @internal
+ * True for keys that start with a digit: element indexes and never method
+ * names, so index reads skip the method tables entirely.
+ */
+export function isDigitLedKey(prop: string | symbol): boolean {
+    if (typeof prop !== "string") return false;
+    const code = prop.charCodeAt(0);
+    return code >= 48 && code <= 57;
+}
+
+/**
  * True when reading `prop` on the raw array `node` resolves to one of the
  * native read methods in {@link ARRAY_READ_METHODS}. Overridden methods and
  * array subclasses stay on the bound-native path so species and overrides

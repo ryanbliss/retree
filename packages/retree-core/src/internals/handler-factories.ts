@@ -1,12 +1,13 @@
 import type { TreeNode } from "../types.js";
 import type { BaseProxyHandler } from "./proxy.js";
-import type { IProxyParent } from "./proxy-types.js";
+import type { ICustomProxyHandler } from "./proxy-types.js";
 import type { TreeChangeEmitter } from "./NodeChangeEmitter.js";
 
 type HandlerFactory = (
     node: TreeNode,
     emitter: TreeChangeEmitter,
-    parent: IProxyParent | null
+    parentHandler: ICustomProxyHandler<any> | null,
+    parentProp: string | symbol | null
 ) => BaseProxyHandler<TreeNode> | undefined;
 
 // Allocated only when an optional runtime registers a class.
@@ -22,11 +23,13 @@ export function registerHandlerFactory(
 export function createRegisteredHandler<T extends TreeNode>(
     node: T,
     emitter: TreeChangeEmitter,
-    parent: IProxyParent | null
+    parentHandler: ICustomProxyHandler<any> | null,
+    parentProp: string | symbol | null
 ): BaseProxyHandler<T> | undefined {
     return factories?.get(Object.getPrototypeOf(node))?.(
         node,
         emitter,
-        parent
+        parentHandler,
+        parentProp
     ) as BaseProxyHandler<T> | undefined;
 }

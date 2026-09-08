@@ -22,17 +22,16 @@ import {
 import { ReactiveKeyRole, readReactiveNodeGetter } from "./memo.js";
 import {
     ArrayReadMethodName,
+    isDigitLedKey,
     isNativeArrayReadAccess,
     wrapArrayRead,
 } from "./array-read.js";
 import {
     ICustomProxyHandler,
-    IProxyParent,
     ISnapshotVersionRecord,
     getCustomProxyHandlerFromMetadata,
     proxiedChildrenKey,
     unproxiedBaseNodeKey,
-    proxiedParentKey,
     proxyHandlerSentinel,
     TCustomProxy,
     TProxiedChildren,
@@ -253,11 +252,17 @@ class ReproxyHandler<T extends TreeNode>
         this.baseHandler = baseHandler;
     }
 
-    public get [proxiedParentKey](): IProxyParent | null {
-        return this.baseHandler[proxiedParentKey];
+    public get parentHandler(): ICustomProxyHandler<any> | null {
+        return this.baseHandler.parentHandler;
     }
-    public set [proxiedParentKey](parent: IProxyParent | null) {
-        this.baseHandler[proxiedParentKey] = parent;
+    public set parentHandler(parentHandler: ICustomProxyHandler<any> | null) {
+        this.baseHandler.parentHandler = parentHandler;
+    }
+    public get parentProp(): string | symbol | null {
+        return this.baseHandler.parentProp;
+    }
+    public set parentProp(parentProp: string | symbol | null) {
+        this.baseHandler.parentProp = parentProp;
     }
 
     /**
@@ -411,10 +416,8 @@ class ReproxyHandler<T extends TreeNode>
         if (kind >= NodeKind.Map) {
             return base.get(target, prop, baseProxy);
         }
-        if (
-            kind === NodeKind.Array &&
-            isNativeArrayMutatorAccess(target, prop)
-        ) {
+        const arrayMethodRead = kind === NodeKind.Array && !isDigitLedKey(prop);
+        if (arrayMethodRead && isNativeArrayMutatorAccess(target, prop)) {
             const baseMutator: unknown = base.get(target, prop, baseProxy);
             if (typeof baseMutator !== "function") {
                 // @retree-throws
@@ -427,7 +430,7 @@ class ReproxyHandler<T extends TreeNode>
             return this.getReproxyAwareArrayMutator(prop, baseMutator);
         }
         if (
-            kind === NodeKind.Array &&
+            arrayMethodRead &&
             isNativeArrayReadAccess(target, prop) &&
             Array.isArray(target)
         ) {

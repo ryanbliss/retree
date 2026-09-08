@@ -26,7 +26,7 @@ import {
     getLatestLinkedValue,
 } from "./proxy.js";
 import {
-    IProxyParent,
+    ICustomProxyHandler,
     proxiedChildrenKey,
     proxyHandlerSentinel,
     TCustomProxy,
@@ -100,10 +100,17 @@ export class CompiledProxyHandler extends BaseProxyHandler<TreeNode> {
     constructor(
         node: TreeNode,
         emitter: TreeChangeEmitter,
-        parent: IProxyParent | null,
+        parentHandler: ICustomProxyHandler<any> | null,
+        parentProp: string | symbol | null,
         public readonly compiled: CompiledClassInfo
     ) {
-        super(node, emitter, parent, compiled.reactiveFields);
+        super(
+            node,
+            emitter,
+            parentHandler,
+            parentProp,
+            compiled.reactiveFields
+        );
         this.keyless = compiled.keyless;
     }
 
@@ -269,13 +276,22 @@ export function defineCompiledNode(
         keyless: false,
         validated: false,
     });
-    registerHandlerFactory(prototype, (node, emitter, parent) => {
-        if (!(node instanceof ReactiveNode)) return undefined;
-        const info = resolveCompiledNode(node);
-        return info === undefined
-            ? undefined
-            : new CompiledProxyHandler(node, emitter, parent, info);
-    });
+    registerHandlerFactory(
+        prototype,
+        (node, emitter, parentHandler, parentProp) => {
+            if (!(node instanceof ReactiveNode)) return undefined;
+            const info = resolveCompiledNode(node);
+            return info === undefined
+                ? undefined
+                : new CompiledProxyHandler(
+                      node,
+                      emitter,
+                      parentHandler,
+                      parentProp,
+                      info
+                  );
+        }
+    );
 }
 
 /** Prototype chain from the nearest base up to (and including) ReactiveNode. */

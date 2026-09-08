@@ -27,7 +27,7 @@ import {
     getUnproxiedNode,
     isInternalSlotInstance,
 } from "./proxy.js";
-import { proxiedParentKey, unproxiedBaseNodeKey } from "./proxy-types.js";
+import { unproxiedBaseNodeKey } from "./proxy-types.js";
 import { getBaseHandlerForUnproxiedNode, getReproxyNode } from "./reproxy.js";
 
 export type RetreeSelectSelector<TNode extends TreeNode, TSelected> = (
@@ -682,15 +682,13 @@ export function resolveChangedReadRecord(
     if (record !== undefined || subtreeReads.length === 0) {
         return record;
     }
-    let handler =
-        getBaseHandlerForUnproxiedNode(changedRawNode)?.[proxiedParentKey]
-            ?.handler;
+    let handler = getBaseHandlerForUnproxiedNode(changedRawNode)?.parentHandler;
     while (handler !== undefined && handler !== null) {
         const ancestor = reads.get(handler[unproxiedBaseNodeKey]);
         if (ancestor?.subtreeRead) {
             return ancestor;
         }
-        handler = handler[proxiedParentKey]?.handler;
+        handler = handler.parentHandler;
     }
     return undefined;
 }

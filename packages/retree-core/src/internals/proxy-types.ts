@@ -8,7 +8,6 @@ export type TProxiedChildren = Record<
 >;
 
 export const unproxiedBaseNodeKey = Symbol("retree-base-node");
-export const proxiedParentKey = Symbol("retree-parent");
 export const proxiedChildrenKey = Symbol("retree-children");
 /**
  * @internal
@@ -22,15 +21,6 @@ export const proxyHandlerSentinel = Symbol("retree-proxy-sentinel");
 /**
  * @internal
  */
-export interface IProxyParent<T extends TreeNode = TreeNode> {
-    /**
-     * Base handler of the parent node, or null once detached. Holding the
-     * handler (not the proxy) keeps ancestor walks free of proxy traps.
-     */
-    handler: ICustomProxyHandler<T> | null;
-    propName: string | symbol | null;
-}
-
 /**
  * @internal
  * Listener-independent external-store versions for one node. `node` bumps on
@@ -54,7 +44,13 @@ export interface ICustomProxyHandler<TNode extends TreeNode = TreeNode> {
      * resolve a child's latest identity from its handler without a trap.
      */
     [proxiedChildrenKey]: TProxiedChildren | null;
-    [proxiedParentKey]: IProxyParent | null;
+    /**
+     * Base handler of the parent node, or null while detached. Holding the
+     * handler (not the proxy) keeps ancestor walks free of proxy traps.
+     */
+    parentHandler: ICustomProxyHandler<any> | null;
+    /** Key under which the parent owns this node; null for Set members. */
+    parentProp: string | symbol | null;
     /**
      * External-store snapshot versions for this node, allocated lazily on the
      * first version advance. Living on the handler (instead of a WeakMap keyed

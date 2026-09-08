@@ -10,7 +10,6 @@ import {
     getTreeSnapshotVersion,
 } from "./snapshot-version.js";
 import { getCustomProxyHandler } from "./proxy.js";
-import { proxiedParentKey } from "./proxy-types.js";
 import { getReproxyNode } from "./reproxy.js";
 
 describe("snapshot versions", () => {
@@ -23,9 +22,9 @@ describe("snapshot versions", () => {
         child.count++;
         getTreeSnapshotVersion(root);
         const handler = getCustomProxyHandler(root)!;
-        const parent = handler[proxiedParentKey];
+        const parent = handler.parentHandler;
         const readParent = vi.fn(() => parent);
-        Object.defineProperty(handler, proxiedParentKey, {
+        Object.defineProperty(handler, "parentHandler", {
             configurable: true,
             get: readParent,
         });
@@ -35,7 +34,7 @@ describe("snapshot versions", () => {
         expect(readParent).not.toHaveBeenCalled();
         getTreeSnapshotVersion(root);
         expect(readParent).toHaveBeenCalledTimes(1);
-        Object.defineProperty(handler, proxiedParentKey, {
+        Object.defineProperty(handler, "parentHandler", {
             configurable: true,
             writable: true,
             value: parent,
