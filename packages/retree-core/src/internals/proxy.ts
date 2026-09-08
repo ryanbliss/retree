@@ -1241,6 +1241,16 @@ function buildProxyHandler<T extends TreeNode = TreeNode>(
         for (const prop of reactiveFields) {
             adoptStoredField(proxyHandler, object, prop, emitter);
         }
+    } else if (Array.isArray(object)) {
+        // Elements by index: no key array for the walk, and an index string
+        // only for the rare element that attaches eagerly.
+        for (let index = 0; index < object.length; index++) {
+            const storedValue: unknown = object[index];
+            if (storedValue === null || typeof storedValue !== "object") {
+                continue;
+            }
+            adoptStoredValue(proxyHandler, object, index, storedValue, emitter);
+        }
     } else {
         // The children record was created empty just above, so deferred
         // children need no bookkeeping here; they resolve through the lazy
@@ -1281,6 +1291,17 @@ function adoptStoredField(
     if (storedValue === null || typeof storedValue !== "object") {
         return;
     }
+    adoptStoredValue(proxyHandler, object, prop, storedValue, emitter);
+}
+
+/** Builds the child edge for one stored object of a fresh node, given its key. */
+function adoptStoredValue(
+    proxyHandler: BaseProxyHandler<TreeNode>,
+    object: object,
+    prop: string | number,
+    storedValue: object,
+    emitter: TreeChangeEmitter
+): void {
     const storedHandler = getCustomProxyHandlerFromMetadata(storedValue);
     // A raw plain object or array resolves on first read, whether or not it
     // is already managed elsewhere: the lazy read path adopts a managed raw
@@ -1311,12 +1332,13 @@ function adoptStoredField(
             value,
         });
     }
+    const propName = typeof prop === "number" ? String(prop) : prop;
     setProxiedChildHandler(
         proxyHandler,
-        prop,
+        propName,
         buildProxyHandler(value, emitter, {
             handler: proxyHandler,
-            propName: prop,
+            propName,
         })
     );
 }
