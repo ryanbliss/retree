@@ -10,7 +10,8 @@
             "@retreejs/devtools",
             "@retreejs/convex",
             "@retreejs/react-convex",
-            "@retreejs/create"
+            "@retreejs/create",
+            "@retreejs/babel-plugin-compiler"
         ]
     ],
     "linked": [],

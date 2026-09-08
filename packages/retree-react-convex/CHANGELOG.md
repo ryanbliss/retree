@@ -1,5 +1,7 @@
 # @retreejs/react-convex
 
+## 0.11.0
+
 ## 0.10.4
 
 ## 0.10.3

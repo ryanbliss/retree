@@ -1,5 +1,11 @@
 # @retreejs/create
 
+## 0.11.0
+
+### Minor Changes
+
+-   7e8c1ea: Offer `@retreejs/babel-plugin-compiler` as an opt-in when the target project has a Babel config (`--compiler`; off under `--yes` unless passed), install it as a development dependency, and insert it ahead of `@babel/plugin-proposal-decorators` in JSON Babel configs, leaving JavaScript configs untouched with the manual step.
+
 ## 0.10.4
 
 ## 0.10.3

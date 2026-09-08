@@ -35,7 +35,7 @@ jobs:
                   LOCKSTEP_VERSION=$(node -p "require('./packages/retree-core/package.json').version")
                   echo "Lockstep version: ${LOCKSTEP_VERSION}"
                   LOCKSTEP_PUBLISH=false
-                  for pkg in @retreejs/core @retreejs/query @retreejs/react @retreejs/devtools @retreejs/convex @retreejs/react-convex @retreejs/create; do
+                  for pkg in @retreejs/core @retreejs/query @retreejs/react @retreejs/devtools @retreejs/convex @retreejs/react-convex @retreejs/create @retreejs/babel-plugin-compiler; do
                       if npm view "${pkg}@${LOCKSTEP_VERSION}" version > /dev/null 2>&1; then
                           echo "${pkg}@${LOCKSTEP_VERSION} is already on npm."
                       else

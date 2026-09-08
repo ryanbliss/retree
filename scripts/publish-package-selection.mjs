@@ -42,7 +42,7 @@ export const publishPackageCatalog = [
     {
         label: "@retreejs/babel-plugin-compiler",
         directory: "packages/retree-babel-plugin-compiler",
-        publishByDefault: false,
+        publishByDefault: true,
     },
 ];
 
