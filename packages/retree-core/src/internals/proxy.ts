@@ -58,6 +58,7 @@ import {
     trackDependencyPropertyWrite,
 } from "./dependency-tracking.js";
 import { Transactions } from "./transactions.js";
+import { isLeafObject, isOpaqueBuiltin } from "./leaves.js";
 import { createRegisteredHandler } from "./handler-factories.js";
 import { bumpGlobalWriteVersion } from "./write-version.js";
 import { prepareSnapshotParentChange } from "./snapshot-version.js";
@@ -823,7 +824,7 @@ export class BaseProxyHandler<T extends TreeNode>
                         prop,
                         reparentProxy(newValue, this, prop)
                     );
-                } else if (Object.isFrozen(newValue)) {
+                } else if (isLeafObject(newValue)) {
                     deleteProxiedChild(this, prop);
                 } else if (
                     getManagedProxyForUnproxiedNode(newValue) !== undefined
@@ -1333,7 +1334,7 @@ function adoptStoredValue(
     if (storedHandler === undefined && hasLazilyProxiedShape(storedValue)) {
         return;
     }
-    if (Object.isFrozen(storedValue)) {
+    if (isLeafObject(storedValue)) {
         return;
     }
     const value: object =
@@ -1626,7 +1627,7 @@ function preparePropertyValue(
         deleteProxiedChild(proxyHandler, prop);
         return value;
     }
-    if (Object.isFrozen(value)) {
+    if (isLeafObject(value)) {
         deleteProxiedChild(proxyHandler, prop);
         return value;
     }
@@ -1846,6 +1847,10 @@ function getOrCreateMapValueProxy(
     const cached = handler.caches?.collectionProxies?.get(key);
     if (cached !== undefined && getUnproxiedNodeFromProxy(cached) === value) {
         return cached;
+    }
+    // After the cache so a cached child read skips the prototype check.
+    if (isOpaqueBuiltin(value)) {
+        return value;
     }
     const valueToRead = createStructuralProxyForValue(
         value,
@@ -2127,6 +2132,10 @@ function getOrCreateSetValueProxy(
     if (cached !== undefined) {
         return cached;
     }
+    // After the cache so a cached child read skips the prototype check.
+    if (isOpaqueBuiltin(value)) {
+        return value;
+    }
     const valueToRead = createStructuralProxyForValue(
         value,
         handler,
@@ -2377,7 +2386,7 @@ function prepareInsertedArrayValue(
         deleteProxiedChild(handler, propName);
         return value;
     }
-    if (Object.isFrozen(value)) {
+    if (isLeafObject(value)) {
         deleteProxiedChild(handler, propName);
         return value;
     }

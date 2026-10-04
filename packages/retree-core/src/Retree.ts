@@ -27,6 +27,7 @@ import {
     setManagedKey,
 } from "./internals/proxy.js";
 import { getStructureVersion } from "./internals/snapshot-version.js";
+import { isOpaqueBuiltin } from "./internals/leaves.js";
 import {
     deleteReactiveDependencies,
     deleteReactiveDependent,
@@ -422,6 +423,12 @@ export class Retree {
             // @retree-throws
             throw new Error(
                 "Retree.root: frozen objects are immutable leaves and cannot become a root. Pass a mutable object, or store the frozen object in a field of a mutable root."
+            );
+        }
+        if (isOpaqueBuiltin(object)) {
+            // @retree-throws
+            throw new Error(
+                `Retree.root: a ${object.constructor.name} is a built-in leaf and cannot become a root. Store it in a field of a mutable root.`
             );
         }
         return buildProxy<T>(object, this.nodeChangeEmitter);
