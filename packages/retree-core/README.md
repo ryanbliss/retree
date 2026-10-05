@@ -38,7 +38,7 @@ Use this as a quick map before choosing an API:
 -   [`Retree.managed`](#read-fast-with-raw) resolves a raw value back to its managed node. Use it to recover the write surface after a raw scan or from a change payload.
 -   [`Retree.peekInto`](#read-fast-with-raw) runs a read-only query against a node's raw object and resolves the result to its managed node when one exists.
 -   [`Retree.untracked`](#read-fast-with-raw) pauses dependency tracking during a synchronous callback. Use it for bulk reads inside tracked selectors and memo getters.
--   [Frozen objects](#immutable-leaves) are immutable leaves: stored and returned as-is, never proxied. Use `Object.freeze` for server snapshots, sentinels, and constants that you replace wholesale.
+-   [Frozen objects](#immutable-leaves) are immutable leaves: stored and returned as-is, never proxied. Use `Object.freeze` for server snapshots, sentinels, and constants that you replace wholesale. Built-ins such as `DOMException`, `URL`, and `Blob` are leaves too.
 -   [`Retree.version` and `Retree.treeVersion`](#node-identity-and-versions) return a node's own-field or subtree version as a number. Use them as cache keys instead of holding node identities.
 -   [`Retree.move`](#move-link-or-clone-existing-nodes) transfers an existing node to a new structural parent. Use it when ownership should change.
 -   [`Retree.link` and `@link`](#move-link-or-clone-existing-nodes) store a reactive pointer to a node without reparenting it. Use it for selected items and cross-references.
@@ -459,6 +459,20 @@ Freeze data that changes wholesale: a server snapshot, an empty sentinel
 shared across records, a config constant. Reads are raw-speed and the tree
 allocates nothing for the subtree. Freeze before storing; `Retree.root`
 rejects a frozen object because a root must be a node.
+
+Built-ins that keep their state in internal slots are leaves too, frozen or
+not: `DOMException`, `URL`, `URLSearchParams`, `Blob` and `File`, `RegExp`,
+`Promise`, `WeakMap`, `WeakSet`, `WeakRef`, `ArrayBuffer`, `DataView`, typed
+arrays, `EventTarget` (including `AbortSignal` and DOM nodes),
+`AbortController`, `Headers`, `Request`, `Response`, and `FormData`. Their
+methods and accessors reject a proxy as `this`, so Retree stores them as-is.
+Retree cannot see changes inside them; assign a new one to notify.
+
+```ts
+const upload = Retree.root({ error: null as Error | null });
+upload.error = new DOMException("could not be cloned", "DataCloneError");
+upload.error.message; // "could not be cloned"
+```
 
 ## Reactive dependencies
 
