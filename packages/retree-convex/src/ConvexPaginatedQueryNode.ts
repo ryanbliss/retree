@@ -259,14 +259,14 @@ export class ConvexPaginatedQueryNode<
 
         const current = this.state;
         if (current === undefined) {
-            this.state = next;
+            this.state = this.detach(next);
             return;
         }
 
         if (!tryReconcileConvexDocuments(current.results, next.results)) {
             // Rows without `_id` cannot be reconciled by identity; replace the
             // loaded rows wholesale like the non-paginated node does.
-            current.results = next.results;
+            current.results = this.detach(next.results);
         }
 
         // Page bookkeeping: compare against the raw view so the function

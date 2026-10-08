@@ -5,6 +5,7 @@
 
 import { getUnproxiedNode } from "@retreejs/core/internal";
 import { TreeNode } from "@retreejs/core";
+import { detach } from "./detach.js";
 import { deepEquals } from "./equality.js";
 
 function unwrapRaw<T>(value: T): T {
@@ -42,6 +43,13 @@ export function tryReconcileDocumentsById(
     return true;
 }
 
+/**
+ * Reconcile `next` into `current` by item id, writing only the diffs.
+ *
+ * @remarks
+ * Objects written into `current` are copies, so `next` stays free for other
+ * queries and the source's cache.
+ */
 export function reconcileArray<TItem extends object>(
     current: TItem[],
     next: TItem[],
@@ -96,7 +104,7 @@ export function reconcileArray<TItem extends object>(
         const nextId = getId(nextItem);
         const currentItem = currentById.get(nextId);
         if (currentItem === undefined) {
-            current[index] = nextItem;
+            current[index] = detach(nextItem);
             continue;
         }
 
@@ -243,7 +251,7 @@ function reconcileObject<T extends object>(
         if (deepEquals(rawValue, value) && Object.hasOwn(target.raw, key)) {
             continue;
         }
-        Reflect.set(getManagedTarget(target), key, value);
+        Reflect.set(getManagedTarget(target), key, detach(value));
     }
 }
 
