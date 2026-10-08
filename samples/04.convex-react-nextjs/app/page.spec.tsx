@@ -128,6 +128,7 @@ describe("compiled React sample", () => {
         });
         await screen.findByLabelText("Edit Updated task");
         view.unmount();
+        await Promise.resolve();
         expect(unsubscribe).toHaveBeenCalled();
     });
 });
