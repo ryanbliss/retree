@@ -3197,7 +3197,8 @@ export class Retree {
             // read directly notifies through its own edge.
             if (
                 descendant &&
-                (record === undefined || reads.has(changedUnproxiedNode))
+                (record === undefined ||
+                    record.rawNode === changedUnproxiedNode)
             ) {
                 return false;
             }

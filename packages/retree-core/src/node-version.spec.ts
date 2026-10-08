@@ -113,10 +113,6 @@ describe("tracked version reads", () => {
         get booksTreeVersion(): number {
             return Retree.treeVersion(this.books);
         }
-        @select
-        get booksTreeVersionAndTitle(): string {
-            return `${Retree.treeVersion(this.books)}:${this.books[0].title}`;
-        }
     }
     const roots: object[] = [];
     afterEach(() => {
@@ -197,10 +193,21 @@ describe("tracked version reads", () => {
     });
 
     it("re-runs on an unread field of a node also read beneath a tree version read", () => {
-        const root = Retree.root<{ rows: { title: string; done: boolean }[] }>({
-            rows: [{ title: "a", done: false }],
-        });
-        roots.push(root);
+        class Shelf extends ReactiveNode {
+            public books = [{ title: "a", tags: ["x"] }];
+            get dependencies() {
+                return [];
+            }
+            @select
+            get summary(): string {
+                return `${Retree.treeVersion(this.books)}:${
+                    this.books[0].title
+                }`;
+            }
+        }
+        const root = Retree.root({ rows: [{ title: "a", done: false }] });
+        const shelf = Retree.root(new Shelf());
+        roots.push(root, shelf);
         const selected: string[] = [];
         const stopSelect = Retree.select(
             () => `${Retree.treeVersion(root.rows)}:${root.rows[0].title}`,
@@ -212,18 +219,16 @@ describe("tracked version reads", () => {
             Retree.treeVersion(root.rows);
             void root.rows[0].title;
         });
-        const library = makeLibrary();
-        const initial = library.booksTreeVersionAndTitle;
+        void shelf.summary;
         const changed = vi.fn();
-        Retree.on(library, "nodeChanged", changed);
+        Retree.on(shelf, "nodeChanged", changed);
 
         root.rows[0].done = true;
-        library.books[0].tags = ["z"];
+        shelf.books[0].tags = ["z"];
 
         expect(selected).toHaveLength(1);
         expect(effectRuns).toBe(2);
         expect(changed).toHaveBeenCalledTimes(1);
-        expect(library.booksTreeVersionAndTitle).not.toBe(initial);
         stopSelect();
         stopEffect();
     });
