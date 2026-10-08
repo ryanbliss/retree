@@ -1250,7 +1250,7 @@ describe("useSelect observation", () => {
         }
     }
 
-    it("observes a node it reads through its owner", () => {
+    it("observes a node it reads through its owner", async () => {
         vi.spyOn(console, "warn").mockImplementation(() => undefined);
         const owner = trackRoot(Retree.root(new Owner()));
         let renders = 0;
@@ -1270,6 +1270,8 @@ describe("useSelect observation", () => {
         expect(renders).toBe(2);
 
         view.unmount();
+        expect(query.unobserved).toBe(0);
+        await Promise.resolve();
         expect(query.observed).toBe(1);
         expect(query.unobserved).toBe(1);
     });
@@ -1296,6 +1298,27 @@ describe("useSelect observation", () => {
         act(() => {
             flag.on = false;
         });
+
+        expect(query.observed).toBe(1);
+        expect(query.unobserved).toBe(0);
+    });
+
+    it("keeps observing a node when a prop moves its other dependencies", async () => {
+        vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const owner = trackRoot(Retree.root(new Owner()));
+        const other = trackRoot(Retree.root({ value: 1 }));
+        function View({ on }: { on: boolean }) {
+            const value = useSelect(
+                () => `${owner.queryFor("a").state}:${on ? other.value : 0}`
+            );
+            return <span>{value}</span>;
+        }
+        const view = render(<View on={false} />);
+        const query = owner.queries.a;
+
+        view.rerender(<View on={true} />);
+        view.rerender(<View on={false} />);
+        await Promise.resolve();
 
         expect(query.observed).toBe(1);
         expect(query.unobserved).toBe(0);
