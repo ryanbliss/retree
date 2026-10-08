@@ -1,6 +1,6 @@
 {
     "name": "@retreejs/babel-plugin-compiler",
-    "version": "0.11.1",
+    "version": "0.11.2",
     "description": "Babel plugin that compiles ReactiveNode classes into proxy-free managed classes.",
     "author": "Ryan Bliss",
     "private": false,
@@ -28,7 +28,7 @@
     },
     "peerDependencies": {
         "@babel/core": "^7.0.0",
-        "@retreejs/core": "0.11.1"
+        "@retreejs/core": "0.11.2"
     },
     "repository": {
         "directory": "packages/retree-babel-plugin-compiler",
