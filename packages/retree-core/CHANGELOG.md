@@ -1,5 +1,23 @@
 # @retreejs/core
 
+## 0.11.2
+
+### Patch Changes
+
+-   8b59d34: Built-ins that keep their state in internal slots are now leaves, so reading them from a tree works.
+
+    A `DOMException` stored in a tree threw on `error.message` ("Illegal invocation" in browsers, `ERR_INVALID_THIS` in Node) because Retree proxied it and its accessors reject a proxy as `this`. The same broke `URL`, `Blob`, `RegExp`, typed arrays, `AbortController`, `Promise`, and other platform objects. Retree now stores these as-is, like frozen objects: reads return the object itself, and assigning a new one notifies. `Retree.root` rejects them because a root must be a node.
+
+-   6eece3b: A `@memo` or `@fnMemo` read inside `Retree.untracked` no longer subscribes the surrounding selector or effect to its key's reads. Before, a memo whose key had to re-run (on its first read, or after a key input changed) leaked those reads, so whether a selector stayed asleep depended on what had warmed the memo.
+-   347c69e: Selector-only `Retree.select(selector, callback)`, `Retree.effect`, and `useSelect` now observe every `ReactiveNode` they read, so `onObserved` and `onUnobserved` run for it.
+
+    Before, a node reached through a parent the selector also read was never observed, whether it existed before the run or was created during it. A query node created lazily inside a selector, such as `vm.snapshotsFor(id).state`, never subscribed and stayed loading forever. A selector also lost a dependency when `onObserved` wrote state while it subscribed, and `useSelect` re-ran a kept node's `onUnobserved` and `onObserved` when its other dependencies moved.
+
+-   651f298: Calling a `Retree.on` unsubscribe after `Retree.clearListeners` already removed that listener no longer runs the node's `onUnobserved` a second time.
+-   651f298: A selector that reads `Retree.treeVersion(node)` now re-runs on every write under `node`.
+
+    Before, a selector-only `useSelect` dropped writes to descendants the selector never read directly, unlike `Retree.select`. And `useSelect`, `Retree.select`, `Retree.effect` and `@select` getters all skipped a write to a descendant's field when the selector also read a different field of that descendant.
+
 ## 0.11.1
 
 ### Patch Changes
