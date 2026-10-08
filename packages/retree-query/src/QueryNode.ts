@@ -92,7 +92,9 @@ export class QueryNode<TArgs, TState> extends ReactiveNode {
      * Last state emitted by the subscription that Retree accepted as a clean
      * server baseline. During overlapping optimistic updates this may advance
      * even when `state` intentionally keeps the newer optimistic value.
+     * Not an owned child: the backend may share this object with another query.
      */
+    @ignore
     private lastEmittedState: TState | undefined;
     /**
      * True while local optimistic state differs from the last clean server

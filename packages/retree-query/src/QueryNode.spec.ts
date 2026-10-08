@@ -546,6 +546,59 @@ describe("QueryNode optimistic updates", () => {
         expect(node.error?.message).toBe("Mutation failed");
     });
 
+    it("re-observes a cached result that an overlapping rollback restored", async () => {
+        const source = new FakeQuerySource<ITaskArgs, ITask[]>();
+        const first = Retree.root(
+            new QueryNode(source, { args: { listId: "today" } })
+        );
+        const second = Retree.root(
+            new QueryNode(source, { args: { listId: "today" } })
+        );
+        let resolveFirstMutation!: () => void;
+        const firstMutation = new Promise<null>((resolve) => {
+            resolveFirstMutation = () => resolve(null);
+        });
+        let rejectSecondMutation!: () => void;
+        const secondMutation = new Promise<null>((_, reject) => {
+            rejectSecondMutation = () => reject(new Error("Mutation failed"));
+        });
+        const stopFirst = Retree.on(first, "nodeChanged", () => undefined);
+        source.subscriptions[0].onValue([
+            { id: "task-1", text: "Buy groceries", isCompleted: false },
+        ]);
+
+        first.optimisticUpdate({
+            ctx: { promise: firstMutation },
+            apply(tasks) {
+                tasks[0].isCompleted = true;
+            },
+        });
+        first.optimisticUpdate({
+            ctx: { promise: secondMutation },
+            apply(tasks) {
+                tasks[0].text = "Optimistic text";
+            },
+        });
+        resolveFirstMutation();
+        await firstMutation;
+        // The backend caches the object it emits, so the next subscriber
+        // receives this same instance.
+        const cached = [
+            { id: "task-1", text: "Buy groceries", isCompleted: true },
+        ];
+        source.nextCurrentValue = cached;
+        source.subscriptions[0].onValue(cached);
+        rejectSecondMutation();
+        await secondMutation.catch(() => undefined);
+        stopFirst();
+
+        Retree.on(second, "nodeChanged", () => undefined);
+
+        expect(first.state).toEqual(cached);
+        expect(second.state).toEqual(cached);
+        expect(source.subscriptions).toHaveLength(2);
+    });
+
     it("warns in dev mode when optimisticUpdate no-ops because state is undefined", () => {
         const warn = vi
             .spyOn(console, "warn")
