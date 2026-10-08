@@ -282,6 +282,33 @@ describe("useSelect", () => {
         expect(screen.getByTestId("value").textContent).toBe("1");
     });
 
+    it("re-renders a tracked treeVersion read on a descendant write", () => {
+        const root = trackRoot(
+            Retree.root({ list: [{ done: false }], label: "one" })
+        );
+        let renderCount = 0;
+
+        function Probe() {
+            renderCount += 1;
+            const version = useSelect(() => Retree.treeVersion(root.list));
+            return <div data-testid="value">{version}</div>;
+        }
+
+        render(<Probe />);
+        const initial = screen.getByTestId("value").textContent;
+
+        act(() => {
+            root.label = "two";
+        });
+        expect(renderCount).toBe(1);
+
+        act(() => {
+            root.list[0].done = true;
+        });
+        expect(screen.getByTestId("value").textContent).not.toBe(initial);
+        expect(renderCount).toBe(2);
+    });
+
     it("selects with trapped dependencies when only a selector function is passed", () => {
         const root = trackRoot(
             Retree.root({
