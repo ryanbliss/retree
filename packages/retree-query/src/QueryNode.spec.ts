@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { Retree } from "@retreejs/core";
 import { QueryNode } from "./QueryNode.js";
 import { reconcileArrayById } from "./reconcile.js";
-import { IQuerySubscriptionSource, IQuerySubscriptionHandle } from "./types.js";
+import {
+    IQuerySubscriptionSource,
+    IQuerySubscriptionHandle,
+    IStateReconciler,
+} from "./types.js";
 
 interface ITaskArgs {
     listId: string;
@@ -12,6 +16,11 @@ interface ITask {
     id: string;
     text: string;
     isCompleted: boolean;
+}
+
+interface ITaskWithMeta {
+    id: string;
+    meta?: { owner: string };
 }
 
 class FakeQuerySource<TArgs, TState>
@@ -630,5 +639,192 @@ describe("QueryNode optimistic updates", () => {
         expect(node.error?.message).toBe(
             "QueryNode.optimisticUpdate: mutation failed with a non-Error rejection: boom"
         );
+    });
+});
+
+describe("QueryNode shared source values", () => {
+    function subscribeTwo(
+        source: FakeQuerySource<ITaskArgs, ITask[]>,
+        reconcile?: IStateReconciler<ITask[]>
+    ) {
+        const nodes = [0, 1].map(() =>
+            Retree.root(
+                new QueryNode(source, { args: { listId: "today" }, reconcile })
+            )
+        );
+        for (const node of nodes) {
+            Retree.on(node, "nodeChanged", () => undefined);
+        }
+        return nodes;
+    }
+
+    it("observes one cached result from two queries without sharing it", () => {
+        const source = new FakeQuerySource<ITaskArgs, ITask[]>();
+        const cached = [{ id: "task-1", text: "Server", isCompleted: false }];
+        source.nextCurrentValue = cached;
+        const [first, second] = subscribeTwo(source);
+
+        first.state![0].text = "Edited";
+
+        expect(first.state![0].text).toBe("Edited");
+        expect(second.state![0].text).toBe("Server");
+        expect(cached[0].text).toBe("Server");
+    });
+
+    it("copies rows that reconciliation inserts", () => {
+        const source = new FakeQuerySource<ITaskArgs, ITask[]>();
+        const [first, second] = subscribeTwo(source, reconcileArrayById("id"));
+        const initial = { id: "task-1", text: "First", isCompleted: false };
+        source.subscriptions[0].onValue([{ ...initial }]);
+        source.subscriptions[1].onValue([{ ...initial }]);
+
+        const next = [
+            initial,
+            { id: "task-2", text: "Second", isCompleted: false },
+        ];
+        source.subscriptions[0].onValue(next);
+        source.subscriptions[1].onValue(next);
+        first.state![1].text = "Edited";
+
+        expect(second.state![1].text).toBe("Second");
+        expect(next[1].text).toBe("Second");
+    });
+
+    it("copies objects that reconciliation writes into existing rows", () => {
+        const source = new FakeQuerySource<ITaskArgs, ITaskWithMeta[]>();
+        const nodes = [0, 1].map(() =>
+            Retree.root(
+                new QueryNode(source, {
+                    args: { listId: "today" },
+                    reconcile: reconcileArrayById<ITaskWithMeta, "id">("id"),
+                })
+            )
+        );
+        for (const node of nodes) {
+            Retree.on(node, "nodeChanged", () => undefined);
+        }
+        source.subscriptions[0].onValue([{ id: "task-1" }]);
+        source.subscriptions[1].onValue([{ id: "task-1" }]);
+
+        const next = [{ id: "task-1", meta: { owner: "Ada" } }];
+        source.subscriptions[0].onValue(next);
+        source.subscriptions[1].onValue(next);
+        nodes[0].state![0].meta!.owner = "Grace";
+
+        expect(nodes[1].state![0].meta?.owner).toBe("Ada");
+        expect(next[0].meta.owner).toBe("Ada");
+    });
+
+    it("copies a replacement value but keeps rows it reuses", () => {
+        const source = new FakeQuerySource<ITaskArgs, ITask[]>();
+        const replaceById: IStateReconciler<ITask[]> = {
+            reconcile(current, next) {
+                return next.map(
+                    (task) => current?.find((row) => row.id === task.id) ?? task
+                );
+            },
+        };
+        const [first, second] = subscribeTwo(source, replaceById);
+        const initial = { id: "task-1", text: "First", isCompleted: false };
+        source.subscriptions[0].onValue([{ ...initial }]);
+        source.subscriptions[1].onValue([{ ...initial }]);
+        const row = first.state![0];
+
+        const next = [
+            initial,
+            { id: "task-2", text: "Second", isCompleted: false },
+        ];
+        source.subscriptions[0].onValue(next);
+        source.subscriptions[1].onValue(next);
+        first.state![1].text = "Edited";
+
+        expect(first.state![0]).toBe(row);
+        expect(second.state![1].text).toBe("Second");
+    });
+
+    it("rolls back when a custom reconciler adopts emitted rows", async () => {
+        const source = new FakeQuerySource<ITaskArgs, ITask[]>();
+        const adoptRows: IStateReconciler<ITask[]> = {
+            reconcile(current, next) {
+                if (current === undefined) return next;
+                next.forEach((task, index) => {
+                    current[index] = task;
+                });
+                return current;
+            },
+        };
+        const node = Retree.root(
+            new QueryNode(source, {
+                args: { listId: "today" },
+                reconcile: adoptRows,
+            })
+        );
+        Retree.on(node, "nodeChanged", () => undefined);
+        source.subscriptions[0].onValue([
+            { id: "task-1", text: "Server", isCompleted: false },
+        ]);
+        source.subscriptions[0].onValue([
+            { id: "task-1", text: "Server", isCompleted: true },
+        ]);
+        const mutation = Promise.reject(new Error("Mutation failed"));
+
+        node.optimisticUpdate({
+            ctx: { promise: mutation },
+            apply(tasks) {
+                tasks[0].text = "Optimistic";
+            },
+        });
+        await mutation.catch(() => undefined);
+
+        expect(node.state![0].text).toBe("Server");
+    });
+
+    it("gives each query its own copy of a shared initial state", () => {
+        const source = new FakeQuerySource<ITaskArgs, ITask[]>();
+        const empty: ITask[] = [];
+        const [first, second] = [0, 1].map(() =>
+            Retree.root(
+                new QueryNode(source, {
+                    args: { listId: "today" },
+                    initialState: empty,
+                })
+            )
+        );
+
+        first.state!.push({ id: "task-1", text: "Local", isCompleted: false });
+
+        expect(second.state).toEqual([]);
+        expect(empty).toEqual([]);
+    });
+
+    it("keeps state when the source repeats the emission it mirrors", () => {
+        const source = new FakeQuerySource<ITaskArgs, ITask[]>();
+        const cached = [{ id: "task-1", text: "Server", isCompleted: false }];
+        source.nextCurrentValue = cached;
+        const node = Retree.root(
+            new QueryNode(source, { args: { listId: "today" } })
+        );
+        Retree.on(node, "nodeChanged", () => undefined)();
+        const state = node.state;
+
+        Retree.on(node, "nodeChanged", () => undefined);
+
+        expect(node.state).toBe(state);
+    });
+
+    it("shares frozen leaves instead of copying them", () => {
+        const source = new FakeQuerySource<ITaskArgs, { task: ITask }>();
+        const task = Object.freeze({
+            id: "task-1",
+            text: "Server",
+            isCompleted: false,
+        });
+        source.nextCurrentValue = { task };
+        const node = Retree.root(
+            new QueryNode(source, { args: { listId: "today" } })
+        );
+        Retree.on(node, "nodeChanged", () => undefined);
+
+        expect(node.state?.task).toBe(task);
     });
 });

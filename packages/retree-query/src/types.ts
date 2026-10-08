@@ -105,6 +105,11 @@ export interface IStateReconciler<TState> {
      * changed rows emit `nodeChanged` and item identity stays stable for
      * `useNode` rows; writes to `rawCurrent` skip emission entirely.
      *
+     * `next` may be shared with other queries and the source's cache, so
+     * never write its objects into `current` directly. `reconcileArray`
+     * copies what it writes, and a returned replacement value is copied
+     * except for rows it reuses from `current`.
+     *
      * @param current Current query state, if any. Write surface.
      * @param next Newly emitted query state (raw server data).
      * @param rawCurrent Raw view of `current` for fast reads; `undefined`

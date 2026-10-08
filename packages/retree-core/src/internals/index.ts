@@ -6,6 +6,7 @@
 export * from "./TypedEventEmitter.js";
 export * from "./dependencies.js";
 export * from "./dependency-tracking.js";
+export { isLeafObject } from "./leaves.js";
 export * from "./proxy.js";
 export * from "./reproxy.js";
 export * from "./select.js";
