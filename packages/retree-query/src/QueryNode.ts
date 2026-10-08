@@ -5,6 +5,7 @@
 
 import { ignore, ReactiveNode, Retree, TreeNode } from "@retreejs/core";
 import { getUnproxiedNode } from "@retreejs/core/internal";
+import { detach } from "./internals/detach.js";
 import { isDevMode } from "./internals/env.js";
 import { deepEquals } from "./internals/equality.js";
 import {
@@ -97,6 +98,12 @@ export class QueryNode<TArgs, TState> extends ReactiveNode {
     @ignore
     private lastEmittedState: TState | undefined;
     /**
+     * Emission that `state` was last restored from and still mirrors, so a
+     * repeated emission (such as a cached value on resubscribe) skips the copy.
+     */
+    @ignore
+    private stateSource: TState | undefined;
+    /**
      * True while local optimistic state differs from the last clean server
      * baseline and may still need confirmation or rollback.
      */
@@ -151,9 +158,9 @@ export class QueryNode<TArgs, TState> extends ReactiveNode {
         this.args = getInitialArgs(options, queryOptions);
         this.reconciler = queryOptions?.reconcile;
         this.keepPreviousData = queryOptions?.keepPreviousData ?? false;
-        this.state = queryOptions?.initialState;
+        this.state = this.detach(queryOptions?.initialState);
         this.result = getInitialResult(options, this.state);
-        this.lastEmittedState = this.cloneState(this.state);
+        this.lastEmittedState = queryOptions?.initialState;
     }
 
     get dependencies() {
@@ -392,21 +399,10 @@ export class QueryNode<TArgs, TState> extends ReactiveNode {
                     return;
                 }
 
-                // Clone at rejection time so the rollback restores the latest
-                // clean server baseline — including confirmations of older
-                // mutations that advanced `lastEmittedState` mid-window — and
-                // so the baseline never aliases objects written into managed
-                // state during the restore.
-                const rollbackState = this.cloneState(this.lastEmittedState);
-                if (
-                    this.state !== undefined &&
-                    rollbackState !== undefined &&
-                    transform.revert !== undefined
-                ) {
-                    transform.revert(this.state, rollbackState);
-                } else {
-                    this.restoreState(rollbackState);
-                }
+                // Restore the latest clean server baseline, including
+                // confirmations of older mutations that advanced
+                // `lastEmittedState` mid-window.
+                this.rollback(transform.revert);
                 this.clearOptimisticDirty();
                 this.setResultFromState();
                 this.error = this.toRollbackError(error);
@@ -414,9 +410,28 @@ export class QueryNode<TArgs, TState> extends ReactiveNode {
         });
     }
 
+    private rollback(
+        revert: IOptimisticQueryTransform<TState>["revert"]
+    ): void {
+        if (revert === undefined || this.state === undefined) {
+            // restoreState copies whatever it adopts from the baseline.
+            this.restoreState(this.lastEmittedState);
+            return;
+        }
+
+        // The snapshot is the caller's to mutate or adopt.
+        const snapshot = this.cloneState(this.lastEmittedState);
+        if (snapshot === undefined) {
+            this.restoreState(undefined);
+            return;
+        }
+        revert(this.state, snapshot);
+    }
+
     private setPending(): void {
         Retree.runTransaction(() => {
             this.state = undefined;
+            this.stateSource = undefined;
             this.error = null;
             this.result = { status: "pending" };
         });
@@ -438,6 +453,7 @@ export class QueryNode<TArgs, TState> extends ReactiveNode {
     private setSkipped(): void {
         Retree.runTransaction(() => {
             this.state = undefined;
+            this.stateSource = undefined;
             this.lastEmittedState = undefined;
             this.clearOptimisticDirty();
             this.error = null;
@@ -478,10 +494,13 @@ export class QueryNode<TArgs, TState> extends ReactiveNode {
         }
 
         this.clearOptimisticDirty();
-        this.restoreState(next);
-        // Store the emitted value by reference. Reconciliation may alias parts
-        // of `next` into managed state, so `markOptimisticDirty` detaches the
-        // baseline with a clone before any optimistic transform can mutate it.
+        // restoreState copies what it adopts, so `state` never aliases `next`
+        // and the baseline can keep the emitted value by reference.
+        const isRepeat = next !== undefined && next === this.stateSource;
+        if (!isRepeat) {
+            this.restoreState(next);
+            this.stateSource = next;
+        }
         this.lastEmittedState = next;
         this.setResultFromState(next);
     }
@@ -509,6 +528,10 @@ export class QueryNode<TArgs, TState> extends ReactiveNode {
      * replacing the state wholesale. Subclasses with non-plain state shapes
      * (for example paginated results carrying a `loadMore` function) override
      * this.
+     *
+     * `next` may be shared with other queries and the source's cache, so
+     * overrides must copy any object they write into `state` with
+     * {@link QueryNode.detach} or reconcile it with `reconcileArray`.
      */
     protected restoreState(next: TState | undefined): void {
         if (next === undefined) {
@@ -521,7 +544,7 @@ export class QueryNode<TArgs, TState> extends ReactiveNode {
                 return;
             }
 
-            this.state = next;
+            this.state = this.detach(next);
             return;
         }
 
@@ -538,7 +561,15 @@ export class QueryNode<TArgs, TState> extends ReactiveNode {
             return;
         }
 
-        this.state = reconciled;
+        this.state = this.detach(reconciled);
+    }
+
+    /**
+     * Copy every object Retree would adopt from `value`, sharing leaves and
+     * functions. Use it in {@link QueryNode.restoreState} overrides.
+     */
+    protected detach<T>(value: T): T {
+        return detach(value);
     }
 
     /**
@@ -610,13 +641,14 @@ export class QueryNode<TArgs, TState> extends ReactiveNode {
     }
 
     private markOptimisticDirty(): number {
-        if (!this.isOptimisticDirty) {
-            this.isOptimisticDirty = true;
-            // The emitted baseline may alias objects that reconciliation wrote
-            // into managed state. Detach it now — before the first optimistic
-            // transform mutates state — so the rollback baseline stays clean.
+        if (!this.isOptimisticDirty && this.reconciler !== undefined) {
+            // A custom reconciler may have written baseline objects into
+            // `state`; detach the baseline before the transform mutates it.
             this.lastEmittedState = this.cloneState(this.lastEmittedState);
         }
+        // The transform is about to make `state` diverge from its source.
+        this.stateSource = undefined;
+        this.isOptimisticDirty = true;
 
         this.optimisticGeneration++;
         // The first generation in a dirty window is the oldest optimistic write

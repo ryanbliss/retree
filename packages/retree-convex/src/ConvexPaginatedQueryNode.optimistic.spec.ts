@@ -437,3 +437,23 @@ describe("ConvexPaginatedQueryNode optimistic updates", () => {
         );
     });
 });
+
+describe("ConvexPaginatedQueryNode shared pages", () => {
+    it("loads one cached page into two queries without sharing rows", () => {
+        const client = new FakePaginatedConvexClient();
+        const first = subscribePaginatedNode(client);
+        const second = subscribePaginatedNode(client);
+        const page: RetreePaginatedQueryResult<PaginatedDoc> = {
+            results: [{ _id: "task-1", text: "Server", isCompleted: false }],
+            status: "CanLoadMore",
+            loadMore: () => true,
+        };
+
+        client.paginatedSubscriptions[0].callback(page);
+        client.paginatedSubscriptions[1].callback(page);
+        first.state!.results[0].text = "Edited";
+
+        expect(second.state?.results[0].text).toBe("Server");
+        expect(page.results[0].text).toBe("Server");
+    });
+});
