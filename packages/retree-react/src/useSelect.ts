@@ -22,6 +22,7 @@ import {
     hasTrackedSelectionChanged,
     normalizeDependencyEntry,
     normalizeSelectDependencies,
+    resolveChangedReadRecord,
     runTrackedSelection,
     stabilizeSelectedRetreeReferences,
     TrackedSelection,
@@ -191,7 +192,8 @@ function getTrackedListenerType(
 
 /**
  * True when a moved source can still affect the selection. With the changed
- * nodes known, only their records validate (nodes without a record are
+ * nodes known, only their records validate, or the nearest ancestor whose
+ * tree version the selector read (other nodes without a record are
  * descendants of a subtree cover the selector never read). Without them every
  * record under a moved source re-reads; validation is raw reads, far cheaper
  * than re-running the selector.
@@ -204,7 +206,11 @@ function isTrackedSnapshotChangeRelevant(
     const changes = snapshot.changes;
     if (changes !== undefined) {
         for (const change of changes) {
-            const record = reads.get(change.rawNode);
+            const record = resolveChangedReadRecord(
+                reads,
+                state.subtreeReads,
+                change.rawNode
+            );
             if (record === undefined) {
                 continue;
             }
@@ -482,6 +488,7 @@ function recomputeNodeSelectStateForSelector<TNode extends TreeNode, TSelected>(
  */
 interface TrackedSelectState<TSelected> {
     reads: TrackedSelection<TSelected>["reads"];
+    subtreeReads: TrackedSelection<TSelected>["subtreeReads"];
     sources: readonly RetreeExternalStoreSource[];
     /**
      * Swappable for the same reason as {@link NodeSelectState.store}: a
@@ -501,6 +508,7 @@ function createTrackedSelectState<TSelected>(
     const store = createRetreeSwappableCompositeExternalStore(sources);
     return {
         reads: selection.reads,
+        subtreeReads: selection.subtreeReads,
         sources,
         store,
         snapshot: store.getSnapshot(),
@@ -524,6 +532,7 @@ function refreshTrackedSelectState<TSelected>(
     const nextSelection = runTrackedSelection(selector);
     const previousReads = state.reads;
     state.reads = nextSelection.reads;
+    state.subtreeReads = nextSelection.subtreeReads;
     const stabilizedSelected = stabilizeSelectedRetreeReferences(
         state.container.selected,
         nextSelection.selected
@@ -616,6 +625,7 @@ function recomputeTrackedSelectStateForSelector<TSelected>(
     }
     return {
         reads: nextSelection.reads,
+        subtreeReads: nextSelection.subtreeReads,
         sources,
         store,
         snapshot: store.getSnapshot(),

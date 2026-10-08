@@ -511,6 +511,16 @@ describe("ReactiveNode", () => {
         expect(root.unobservedCount).toBe(1);
     });
 
+    it("runs onUnobserved once when clearListeners precedes an unsubscribe", () => {
+        const root = trackRoot(Retree.root(new ObservedLifecycleNode()));
+        const unsubscribe = Retree.on(root, "nodeChanged", vi.fn());
+
+        Retree.clearListeners(root);
+        unsubscribe();
+
+        expect(root.unobservedCount).toBe(1);
+    });
+
     it("lazily proxies ReactiveNode object and array fields with parent metadata", () => {
         const root = trackRoot(Retree.root(new NestedPayloadNode()));
 

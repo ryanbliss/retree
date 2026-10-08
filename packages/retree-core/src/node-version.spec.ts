@@ -192,6 +192,47 @@ describe("tracked version reads", () => {
         stop();
     });
 
+    it("re-runs on an unread field of a node also read beneath a tree version read", () => {
+        class Shelf extends ReactiveNode {
+            public books = [{ title: "a", tags: ["x"] }];
+            get dependencies() {
+                return [];
+            }
+            @select
+            get summary(): string {
+                return `${Retree.treeVersion(this.books)}:${
+                    this.books[0].title
+                }`;
+            }
+        }
+        const root = Retree.root({ rows: [{ title: "a", done: false }] });
+        const shelf = Retree.root(new Shelf());
+        roots.push(root, shelf);
+        const selected: string[] = [];
+        const stopSelect = Retree.select(
+            () => `${Retree.treeVersion(root.rows)}:${root.rows[0].title}`,
+            (value) => selected.push(value)
+        );
+        let effectRuns = 0;
+        const stopEffect = Retree.effect(() => {
+            effectRuns++;
+            Retree.treeVersion(root.rows);
+            void root.rows[0].title;
+        });
+        void shelf.summary;
+        const changed = vi.fn();
+        Retree.on(shelf, "nodeChanged", changed);
+
+        root.rows[0].done = true;
+        shelf.books[0].tags = ["z"];
+
+        expect(selected).toHaveLength(1);
+        expect(effectRuns).toBe(2);
+        expect(changed).toHaveBeenCalledTimes(1);
+        stopSelect();
+        stopEffect();
+    });
+
     it("re-runs a @select getter on writes under a tree version read", () => {
         const root = Retree.root({
             library: new Library(),

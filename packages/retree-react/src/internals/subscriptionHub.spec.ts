@@ -4,10 +4,49 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { Retree } from "@retreejs/core";
+import { ReactiveNode, Retree } from "@retreejs/core";
 import { subscribeToNode } from "./subscriptionHub.js";
 
+class LifecycleNode extends ReactiveNode {
+    public count = 0;
+    public observed = 0;
+    public unobserved = 0;
+    get dependencies() {
+        return [];
+    }
+    protected onObserved(): void {
+        this.observed++;
+    }
+    protected onUnobserved(): void {
+        this.unobserved++;
+    }
+}
+
 describe("subscriptionHub", () => {
+    it("defers a ReactiveNode teardown so a same-tick resubscribe keeps it observed", async () => {
+        const node = Retree.root(new LifecycleNode());
+        const listener = vi.fn();
+        subscribeToNode(node, "nodeChanged", vi.fn())();
+        subscribeToNode(node, "nodeChanged", vi.fn())();
+        const unsubscribe = subscribeToNode(node, "nodeChanged", listener);
+        await Promise.resolve();
+
+        expect(node.observed).toBe(1);
+        expect(node.unobserved).toBe(0);
+        node.count = 1;
+        expect(listener).toHaveBeenCalledTimes(1);
+
+        unsubscribe();
+        expect(node.unobserved).toBe(0);
+        await Promise.resolve();
+        expect(node.unobserved).toBe(1);
+
+        subscribeToNode(node, "nodeChanged", vi.fn())();
+        await Promise.resolve();
+        expect(node.observed).toBe(2);
+        expect(node.unobserved).toBe(2);
+    });
+
     it("does not remove another listener when unsubscribe is called twice", () => {
         const root = Retree.root({ count: 0 });
         const listenerA = vi.fn();

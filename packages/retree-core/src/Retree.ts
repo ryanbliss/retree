@@ -1730,15 +1730,19 @@ export class Retree {
             if (unsubscribed) return;
             unsubscribed = true;
             const _listeners = relevantListenerMap.get(unproxiedNode);
-            if (_listeners) {
-                const findIndex = _listeners.findIndex((l) => l === callback);
-                if (findIndex !== -1) {
-                    _listeners.splice(findIndex, 1);
-                    this.handleListenerCountChanged(relevantListenerMap, -1);
-                }
-                if (_listeners.length === 0) {
-                    relevantListenerMap.delete(unproxiedNode);
-                }
+            const findIndex =
+                _listeners === undefined
+                    ? -1
+                    : _listeners.findIndex((l) => l === callback);
+            if (_listeners === undefined || findIndex === -1) {
+                // `clearListeners` already removed it and ran the teardown
+                // below; running it again would repeat `onUnobserved`.
+                return;
+            }
+            _listeners.splice(findIndex, 1);
+            this.handleListenerCountChanged(relevantListenerMap, -1);
+            if (_listeners.length === 0) {
+                relevantListenerMap.delete(unproxiedNode);
             }
             const isReactiveChangeListenerMap =
                 relevantListenerMap !== this.nodeRemovedListeners;
