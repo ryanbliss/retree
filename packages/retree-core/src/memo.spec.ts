@@ -2366,3 +2366,47 @@ describe("reads through memos with hidden bodies", () => {
         expect(root.consumer.value).toBe("Grace");
     });
 });
+
+describe("memo reads under Retree.untracked", () => {
+    class Inner extends ReactiveNode {
+        public a: object | null = null;
+        get dependencies() {
+            return [];
+        }
+    }
+    class Outer extends ReactiveNode {
+        public inner = new Inner();
+        get dependencies() {
+            return [];
+        }
+        @memo((self: Outer) => [self.inner.a])
+        get memoized() {
+            return this.inner.a;
+        }
+    }
+    type TTrack = (run: () => void) => () => void;
+    const select: TTrack = (run) => Retree.select(run, () => {});
+    const effect: TTrack = (run) => Retree.effect(run);
+
+    it.each([
+        ["cold", "Retree.select", select],
+        ["cold", "Retree.effect", effect],
+        ["stale", "Retree.select", select],
+    ])("keeps a %s keyed memo's key reads out of %s", (state, _, track) => {
+        const root = trackRoot(Retree.root(new Outer()));
+        if (state === "stale") {
+            void root.memoized;
+            root.inner.a = {};
+        }
+        let runs = 0;
+        const stop = track(() => {
+            runs++;
+            Retree.untracked(() => root.memoized);
+        });
+
+        root.inner.a = {};
+        stop();
+
+        expect(runs).toBe(1);
+    });
+});
