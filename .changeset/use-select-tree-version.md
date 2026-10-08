@@ -1,5 +1,8 @@
 ---
+"@retreejs/core": patch
 "@retreejs/react": patch
 ---
 
-A selector-only `useSelect` that reads `Retree.treeVersion(node)` now re-renders when a descendant of `node` changes, matching `Retree.select`. Before, it dropped writes to descendants the selector never read directly.
+A selector that reads `Retree.treeVersion(node)` now re-runs on every write under `node`.
+
+Before, a selector-only `useSelect` dropped writes to descendants the selector never read directly, unlike `Retree.select`. And `useSelect`, `Retree.select` and `Retree.effect` skipped a write to a descendant's field when the selector also read a different field of that descendant.

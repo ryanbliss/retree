@@ -725,9 +725,11 @@ export function runTrackedSelection<TSelected>(
 }
 
 /**
- * The record that decides a `nodeChanged` from `changedRawNode`: the node's
- * own, or else the nearest ancestor record whose tree version the run read,
- * which re-reads that version. Undefined when the run read neither.
+ * The record that decides a `nodeChanged` from `changedRawNode`: the nearest
+ * record, the node's own included, whose tree version the run read, which
+ * re-reads that version; else the node's own. A tree version read wins over
+ * the node's own record, which may skip a key it never read even though the
+ * write moved the tree version. Undefined when the run read neither.
  */
 export function resolveChangedReadRecord(
     reads: ReadonlyMap<TreeNode, NodeReadRecord>,
@@ -735,7 +737,7 @@ export function resolveChangedReadRecord(
     changedRawNode: TreeNode
 ): NodeReadRecord | undefined {
     const record = reads.get(changedRawNode);
-    if (record !== undefined || subtreeReads.length === 0) {
+    if (subtreeReads.length === 0 || record?.subtreeRead) {
         return record;
     }
     let handler = getBaseHandlerForUnproxiedNode(changedRawNode)?.parentHandler;
@@ -746,7 +748,7 @@ export function resolveChangedReadRecord(
         }
         handler = handler.parentHandler;
     }
-    return undefined;
+    return record;
 }
 
 /**
