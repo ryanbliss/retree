@@ -1002,3 +1002,85 @@ it("retains active dependency records while refreshing values and removing stale
     expect(changed).not.toHaveBeenCalled();
     off();
 });
+
+describe("ReactiveNode observation through tracked reads", () => {
+    class Query extends ReactiveNode {
+        public state: number | undefined = undefined;
+        public observed = 0;
+        public unobserved = 0;
+        get dependencies() {
+            return [];
+        }
+        protected onObserved(): void {
+            this.observed++;
+        }
+        protected onUnobserved(): void {
+            this.unobserved++;
+        }
+    }
+    class Owner extends ReactiveNode {
+        public queries: Record<string, Query> = {};
+        get dependencies() {
+            return [];
+        }
+        queryFor(id: string): Query {
+            const existing = this.queries[id];
+            if (existing !== undefined) return existing;
+            Retree.runSilent(() => {
+                this.queries[id] = new Query();
+            });
+            return this.queries[id];
+        }
+    }
+    type TTrack = (read: () => unknown) => () => void;
+    const select: TTrack = (read) => Retree.select(read, () => {});
+    const effect: TTrack = (read) => Retree.effect(() => void read());
+
+    it.each([
+        ["Retree.select", "created during the run", select, false],
+        ["Retree.effect", "created during the run", effect, false],
+        ["Retree.select", "read through its owner", select, true],
+    ])("%s observes a node %s", (_, __, track, createFirst) => {
+        vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const owner = trackRoot(Retree.root(new Owner()));
+        if (createFirst) owner.queryFor("a");
+        const seen: unknown[] = [];
+        const stop = track(() => seen.push(owner.queryFor("a").state));
+        const query = owner.queries.a;
+
+        query.state = 5;
+        expect(seen.at(-1)).toBe(5);
+        expect(query.observed).toBe(1);
+        stop();
+
+        expect(query.observed).toBe(1);
+        expect(query.unobserved).toBe(1);
+    });
+
+    it("keeps every dependency when onObserved writes while subscribing", () => {
+        class Cached extends ReactiveNode {
+            public state: number | undefined = undefined;
+            get dependencies() {
+                return [];
+            }
+            protected onObserved(): void {
+                this.state = 5;
+            }
+        }
+        const owner = trackRoot(Retree.root({ query: new Cached() }));
+        const other = trackRoot(Retree.root({ value: 1 }));
+        const seen: string[] = [];
+        const stop = Retree.select(
+            () =>
+                owner.query.state === undefined
+                    ? "loading"
+                    : `${owner.query.state}:${other.value}`,
+            (next) => seen.push(next)
+        );
+
+        other.value = 2;
+        stop();
+
+        expect(seen).toEqual(["5:1", "5:2"]);
+    });
+});

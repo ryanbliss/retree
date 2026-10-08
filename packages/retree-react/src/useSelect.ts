@@ -37,6 +37,7 @@ import {
     RetreeSwappableCompositeExternalStore,
 } from "./internals/externalStore.js";
 import { useNodeFactoryResetWarning } from "./internals/factoryWarning.js";
+import { RetreeStoreListenerType } from "./internals/subscriptionHub.js";
 import { NodeFactory } from "./types.js";
 
 export type UseSelectOptions<TSelected> = RetreeSelectOptions<TSelected>;
@@ -173,13 +174,19 @@ function getTrackedSelectionSources(
         sources.push(
             getRetreeExternalStoreSource(
                 source.baseProxy,
-                source.kind === DependencySubscriptionKind.Subtree
-                    ? "subtreeChanged"
-                    : "nodeChanged"
+                getTrackedListenerType(source.kind)
             )
         );
     }
     return sources;
+}
+
+function getTrackedListenerType(
+    kind: DependencySubscriptionKind
+): RetreeStoreListenerType {
+    if (kind === DependencySubscriptionKind.Subtree) return "subtreeChanged";
+    if (kind === DependencySubscriptionKind.Observe) return "observed";
+    return "nodeChanged";
 }
 
 /**

@@ -1219,3 +1219,85 @@ describe("useSelect", () => {
         consoleError.mockRestore();
     });
 });
+
+describe("useSelect observation", () => {
+    class Query extends ReactiveNode {
+        public state: number | undefined = undefined;
+        public observed = 0;
+        public unobserved = 0;
+        get dependencies() {
+            return [];
+        }
+        protected onObserved(): void {
+            this.observed++;
+        }
+        protected onUnobserved(): void {
+            this.unobserved++;
+        }
+    }
+    class Owner extends ReactiveNode {
+        public queries: Record<string, Query> = {};
+        get dependencies() {
+            return [];
+        }
+        queryFor(id: string): Query {
+            const existing = this.queries[id];
+            if (existing !== undefined) return existing;
+            Retree.runSilent(() => {
+                this.queries[id] = new Query();
+            });
+            return this.queries[id];
+        }
+    }
+
+    it("observes a node it reads through its owner", () => {
+        vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const owner = trackRoot(Retree.root(new Owner()));
+        let renders = 0;
+        function View() {
+            renders++;
+            const state = useSelect(() => owner.queryFor("a").state);
+            return <span data-testid="state">{String(state)}</span>;
+        }
+        const view = render(<View />);
+        const query = owner.queries.a;
+        expect(query.observed).toBe(1);
+
+        act(() => {
+            query.state = 5;
+        });
+        expect(screen.getByTestId("state").textContent).toBe("5");
+        expect(renders).toBe(2);
+
+        view.unmount();
+        expect(query.observed).toBe(1);
+        expect(query.unobserved).toBe(1);
+    });
+
+    it("keeps observing a node while its other dependencies move", () => {
+        vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const owner = trackRoot(Retree.root(new Owner()));
+        const flag = trackRoot(Retree.root({ on: false, inner: { value: 1 } }));
+        function View() {
+            const value = useSelect(
+                () =>
+                    `${owner.queryFor("a").state}:${
+                        flag.on ? flag.inner.value : 0
+                    }`
+            );
+            return <span>{value}</span>;
+        }
+        render(<View />);
+        const query = owner.queries.a;
+
+        act(() => {
+            flag.on = true;
+        });
+        act(() => {
+            flag.on = false;
+        });
+
+        expect(query.observed).toBe(1);
+        expect(query.unobserved).toBe(0);
+    });
+});

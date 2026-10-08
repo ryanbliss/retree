@@ -87,9 +87,10 @@ interface DependencySubscription {
 }
 
 /**
- * The subscriptions a selector or effect holds on the covers of its last
- * run. `update` diffs against the previous run so unchanged covers keep
- * their subscription and only added, removed or re-kinded covers churn.
+ * The subscriptions a selector or effect holds on the sources of its last
+ * run: its covers, plus the covered `ReactiveNode`s it observes. `update`
+ * diffs against the previous run so unchanged sources keep their
+ * subscription and only added, removed or re-kinded sources churn.
  */
 function createDependencySubscriptionSet(
     subscribeToNode: SubscribeToNode,
@@ -104,6 +105,17 @@ function createDependencySubscriptionSet(
         source: ITrackedDependencySource
     ): DependencySubscription => {
         const rawNode = source.rawNode;
+        if (source.kind === DependencySubscriptionKind.Observe) {
+            // The node's cover delivers its changes; this only observes it.
+            return {
+                kind: source.kind,
+                unsubscribe: subscribeToNode(
+                    source.baseProxy,
+                    "nodeChanged",
+                    () => undefined
+                ),
+            };
+        }
         if (source.kind === DependencySubscriptionKind.Node) {
             return {
                 kind: source.kind,
@@ -448,11 +460,30 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
         options.subscribeToSubtree,
         (rawNode, changes) => evaluateForDependency(rawNode, changes)
     );
+    // Subscribing can run `onObserved`, which may write a dependency. A
+    // nested evaluate would replace the subscriptions mid-update, so changes
+    // during an update re-run once it settles.
+    let updating = false;
+    let changedDuringUpdate = false;
+    const updateSubscriptions = (
+        sources: readonly ITrackedDependencySource[]
+    ) => {
+        updating = true;
+        try {
+            subscriptions.update(sources);
+        } finally {
+            updating = false;
+        }
+    };
 
     const evaluateForDependency = (
         changedRawNode: TreeNode,
         changes?: INodeFieldChanges[]
     ) => {
+        if (updating) {
+            changedDuringUpdate = true;
+            return;
+        }
         // Subtree subscriptions deliver every descendant emission; a node
         // the run never read cannot change what it selected.
         const record = resolveChangedReadRecord(
@@ -475,7 +506,7 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
             previous.selected,
             next.selected
         );
-        subscriptions.update(next.sources);
+        updateSubscriptions(next.sources);
         const changed = hasTrackedSelectionChanged(
             previous,
             { selected: nextSelected, reads: next.reads },
@@ -488,13 +519,19 @@ export function createRetreeTrackedSelectionObserver<TSelected>(options: {
             reads: next.reads,
             subtreeReads: next.subtreeReads,
         };
-        if (!changed) {
-            return;
+        if (changed) {
+            options.onChange(nextSelected, previousToEmit.selected);
         }
-        options.onChange(nextSelected, previousToEmit.selected);
+        rerunIfChangedDuringUpdate();
+    };
+    const rerunIfChangedDuringUpdate = () => {
+        if (!changedDuringUpdate) return;
+        changedDuringUpdate = false;
+        evaluate();
     };
 
-    subscriptions.update(previous.sources);
+    updateSubscriptions(previous.sources);
+    rerunIfChangedDuringUpdate();
 
     return () => subscriptions.dispose();
 }

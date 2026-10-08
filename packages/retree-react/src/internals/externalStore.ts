@@ -98,6 +98,10 @@ export function getRetreeExternalStoreSource(
         baseProxy,
         listenerType,
         getVersion() {
+            // An observed source never notifies, so its version never moves.
+            if (listenerType === "observed") {
+                return 0;
+            }
             // A subtree source moves with any descendant, like a tree source.
             if (listenerType === "nodeChanged") {
                 return getNodeSnapshotVersion(baseProxy);
@@ -285,14 +289,16 @@ export function createRetreeSwappableCompositeExternalStore(
         },
         swapSources: (nextSources) => {
             current = createRetreeCompositeExternalStore(nextSources);
-            // Rewire synchronously: no other code runs between the old
-            // unsubscribe and the new subscribe, so the swap cannot miss a
-            // write. A swap with no live wirings (before mount, after
+            // Rewire synchronously so the swap cannot miss a write, and
+            // subscribe before unsubscribing so a node both lists hold never
+            // loses its last listener (which would re-run its observed
+            // lifecycle). A swap with no live wirings (before mount, after
             // unmount) only replaces the inner store; `subscribe` reads
             // `current` at call time.
             for (const wiring of wirings) {
-                wiring.unsubscribe();
+                const unsubscribePrevious = wiring.unsubscribe;
                 wiring.unsubscribe = current.subscribe(wiring.onStoreChange);
+                unsubscribePrevious();
             }
         },
     };
