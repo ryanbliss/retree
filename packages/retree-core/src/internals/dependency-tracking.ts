@@ -1172,6 +1172,11 @@ export function replayDependencyComparisonAccesses(
     comparisons: unknown[],
     comparisonValues?: readonly (readonly unknown[])[]
 ): void {
+    // Paused by `Retree.untracked` or a memo body: the memo's own frame
+    // tracked these reads, and the paused caller must not inherit them.
+    if (!isDependencyTrackingActive()) {
+        return;
+    }
     const currentFrame =
         dependencyAccessStack[dependencyAccessStack.length - 1];
     if (currentFrame === undefined) {

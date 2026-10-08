@@ -19,7 +19,6 @@ import {
     collectDependencyComparisonAccesses,
     createNodeVersionRead,
     replayDependencyComparisonAccesses,
-    isDependencyTrackingActive,
     runMemoBody,
 } from "./dependency-tracking.js";
 import { getDependencyComparisonValues } from "./dependencies.js";
@@ -172,7 +171,6 @@ function validateTrappedMemo(entry: IMemoCacheEntry): boolean {
 }
 
 function replayTrappedMemo(entry: IMemoCacheEntry): void {
-    if (!isDependencyTrackingActive()) return;
     if (entry.comparisonAccessors === undefined) return;
     replayDependencyComparisonAccesses(
         entry.comparisonAccessors,
