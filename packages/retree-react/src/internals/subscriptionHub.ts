@@ -13,9 +13,13 @@ import { SUBSCRIBE_SUBTREE_CHANGED_SYMBOL } from "@retreejs/core/internal";
 
 /**
  * Listener kinds a hook can hold: the public change events plus the internal
- * subtree subscription tracked `useSelect` uses for its read covers.
+ * subtree subscription tracked `useSelect` uses for its read covers, and the
+ * observe-only subscription it holds on `ReactiveNode`s read through them.
  */
-export type RetreeStoreListenerType = TRetreeChangedEvents | "subtreeChanged";
+export type RetreeStoreListenerType =
+    | TRetreeChangedEvents
+    | "subtreeChanged"
+    | "observed";
 
 /**
  * For `nodeChanged`/`treeChanged` the first argument is the node's reproxy;
@@ -46,6 +50,10 @@ function subscribeRetree<T extends TreeNode>(
     listenerType: RetreeStoreListenerType,
     notify: (node: T, changes: INodeFieldChanges[]) => void
 ): () => void {
+    if (listenerType === "observed") {
+        // Runs the node's observed lifecycle; its cover delivers changes.
+        return Retree.on<T>(baseProxy, "nodeChanged", () => undefined);
+    }
     if (listenerType === "subtreeChanged") {
         return Retree[SUBSCRIBE_SUBTREE_CHANGED_SYMBOL](
             baseProxy,

@@ -718,11 +718,17 @@ export enum DependencySubscriptionKind {
     Node,
     /** The node and every descendant, delivered per changed node. */
     Subtree,
+    /**
+     * A `ReactiveNode` read through a cover: held only to run its observed
+     * lifecycle, since the cover already delivers its changes.
+     */
+    Observe,
 }
 
 /**
  * One node a tracked run must subscribe to: a cover whose subtree holds
- * every other node the run read through it.
+ * every other node the run read through it, or a covered `ReactiveNode` the
+ * run observes.
  */
 export interface ITrackedDependencySource {
     rawNode: TreeNode;
@@ -741,9 +747,11 @@ export interface ITrackedSelectionAccesses<T> {
     /**
      * The covers of the run's reads: nodes whose parent the run did not
      * read. A cover with covered children subscribes to its subtree; a
-     * lone node subscribes to `nodeChanged`.
+     * lone node subscribes to `nodeChanged`. Covered `ReactiveNode`s follow
+     * as observe-only sources. Resolved on first access: `@select`
+     * collection never subscribes.
      */
-    sources: readonly ITrackedDependencySource[];
+    readonly sources: readonly ITrackedDependencySource[];
     /** Every node the run read, keyed by raw node, in first-read order. */
     reads: ReadonlyMap<TreeNode, NodeReadRecord>;
     /**
@@ -763,6 +771,7 @@ export interface ITrackedSelectionAccesses<T> {
 /**
  * Resolve which records subscribe. A record created before its parent was
  * read is re-checked here; the rest were settled as they were created.
+ * Covered `ReactiveNode`s are observed too, so their `onObserved` runs.
  */
 function resolveCovers(
     frame: DependencyAccessFrame,
@@ -788,6 +797,15 @@ function resolveCovers(
                 : DependencySubscriptionKind.Node,
         });
     }
+    for (const record of reads.values()) {
+        if (!record.covered) continue;
+        if (!(record.rawNode instanceof ReactiveNode)) continue;
+        covers.push({
+            rawNode: record.rawNode,
+            baseProxy: record.baseProxy,
+            kind: DependencySubscriptionKind.Observe,
+        });
+    }
     return covers;
 }
 
@@ -801,11 +819,14 @@ export function collectTrackedSelectionAccesses<T>(
 ): ITrackedSelectionAccesses<T> {
     const { value, frame } = runDependenciesFrame(callback);
     const reads = frame.reads ?? new Map<TreeNode, NodeReadRecord>();
+    let sources: readonly ITrackedDependencySource[] | undefined;
     return {
         value,
         coverage: frame.coverage,
         getDependencies: () => toDependencyValues(reads),
-        sources: resolveCovers(frame, reads),
+        get sources() {
+            return (sources ??= resolveCovers(frame, reads));
+        },
         reads,
         subtreeReads: frame.subtreeReads ?? [],
         writeInvalidatedReads: frame.writeInvalidatedReads ?? [],
