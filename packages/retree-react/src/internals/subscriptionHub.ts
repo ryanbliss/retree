@@ -5,6 +5,7 @@
 
 import {
     INodeFieldChanges,
+    ReactiveNode,
     Retree,
     TRetreeChangedEvents,
     TreeNode,
@@ -38,6 +39,8 @@ interface SubscriptionHubEntry<T extends TreeNode = TreeNode> {
      */
     listeners: Map<HubListener<T>, number>;
     unsubscribeRetree: () => void;
+    /** A `ReactiveNode` hub lost its last listener and tears down next microtask. */
+    teardownQueued: boolean;
 }
 
 const subscriptionHubs: WeakMap<
@@ -89,6 +92,7 @@ export function subscribeToNode<T extends TreeNode = TreeNode>(
         hub = {
             listeners,
             unsubscribeRetree,
+            teardownQueued: false,
         };
         nodeHubs.set(listenerType, hub as SubscriptionHubEntry);
     }
@@ -117,10 +121,37 @@ export function subscribeToNode<T extends TreeNode = TreeNode>(
         if (hub.listeners.size > 0) {
             return;
         }
-        hub.unsubscribeRetree();
-        nodeHubs.delete(listenerType);
-        if (nodeHubs.size === 0) {
-            subscriptionHubs.delete(baseProxy);
+        if (!(baseProxy instanceof ReactiveNode)) {
+            teardownHub(baseProxy, nodeHubs, listenerType, hub);
+            return;
         }
+        // React swaps a moved store's subscription by unsubscribing the old
+        // one before subscribing the new one in the same commit. Deferring
+        // lets a resubscribe adopt this hub, so a node both stores hold keeps
+        // its listener instead of re-running `onUnobserved`/`onObserved`.
+        if (hub.teardownQueued) {
+            return;
+        }
+        hub.teardownQueued = true;
+        queueMicrotask(() => {
+            hub.teardownQueued = false;
+            if (hub.listeners.size > 0) {
+                return;
+            }
+            teardownHub(baseProxy, nodeHubs, listenerType, hub);
+        });
     };
+}
+
+function teardownHub<T extends TreeNode>(
+    baseProxy: T,
+    nodeHubs: Map<RetreeStoreListenerType, SubscriptionHubEntry>,
+    listenerType: RetreeStoreListenerType,
+    hub: SubscriptionHubEntry<T>
+): void {
+    hub.unsubscribeRetree();
+    nodeHubs.delete(listenerType);
+    if (nodeHubs.size === 0) {
+        subscriptionHubs.delete(baseProxy);
+    }
 }
